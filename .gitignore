@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# local daemon cache mirrors ~/.codemaster/<repoId>/ — never commit indexes
+.codemaster/
+
+# personal Claude Code settings (permission allowlists); .claude/agents/ stays shared
+.claude/settings.local.json
