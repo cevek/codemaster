@@ -194,15 +194,53 @@ Bottom → top. Imports flow downward only.
 - **`json`** — `JsonValue`.
 - **`debug`** — namespaced tracing + `AsyncLocalStorage` `req#N` (§13).
 
-### L1 — Support (utilities)
+### L0.5 — Common (pure logic, no I/O)
 
-[`src/support/`](src/support/) — shared, non-domain helpers used by plugins and ops:
+[`src/common/`](src/common/) — pure logic operating on core types; **no external tools,
+no I/O, no timers** (a clock seam is the only "time" allowed). Imports `core/` only.
+Everything above L0.5 can use it.
 
-- **`git`** — repo root, dirty-tree gate, `HEAD` + `--porcelain` fingerprint (§3.5),
-  blame, log, snapshot/rollback.
-- **`prettier`** — wrap the **project's own** prettier for post-edit formatting.
-- **`text-edits`** — span-based edits, atomic application, conflict detection.
-- **`fs`** — glob + `.gitignore`-aware file walking.
+The bright-line: if a helper touches the filesystem, network, child processes, or
+real-time directly, it belongs in `support/`. Otherwise — `common/`. This keeps the
+junk-drawer pressure off `core/` ("types only") and `support/` ("external-tool
+wrappers"), and gives every plugin and op the same shared vocabulary of pure helpers.
+
+**Internal layout — strict.** Nothing lives at the root of `common/`; everything goes
+into a topical subfolder, one concept per folder, one operation per file. No
+`utils.ts` / `helpers.ts` / `misc.ts` — files are named by the operation
+(`construct.ts`, `merge.ts`, `parse.ts`), not by the type of contents. When a
+subfolder reaches ~5 files it gets split into sub-subfolders.
+
+Initial topics (each populated as Phase 0+ work demands):
+
+- **`result/`** — `Result.ok` / `Result.fail` / `Result.partial` constructors;
+  `isOk` / `isFailure` narrowers; `mergeFreshness` / `combineFailures` aggregators.
+- **`ids/`** — `SymbolId` codec (encode/decode the plugin-prefix-routed format).
+- **`span/`** — `contains` / `intersects` / `equals`; `extractText` (1-based `Loc` ↔
+  0-based offset bridge — the §16 invariant 1 hotspot).
+- **`confidence/`** — `worstOf` and other reducers, used by per-hop trace aggregation.
+- **`fingerprint/`** — `FileFingerprint` shape + comparators with the §19 mtime-tie
+  hash semantics. The currency every plugin's `freshness()` deals in.
+- **`plugin-registry/`** — topological sort + cycle detection, the algorithm the
+  `PluginRegistry` runs at init.
+- **`async/`** — `Clock` interface (injectable seam for tests, §16); `debounce` /
+  `deferred` / `withTimeout` built on top of `Clock`.
+- **`debug-spec/`** — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
+  (`DebugSystem.configure` consumes this, §13).
+- **`lru/`** — generic LRU map, used by the orchestrator's memory governor (§9) and
+  anything else that needs bounded caching.
+
+### L1 — Support (external-tool wrappers)
+
+[`src/support/`](src/support/) — wrappers around external tools and I/O. Each tool
+gets its own subfolder; same "one operation per file" rule as `common/`.
+
+- **`git/`** — repo root, dirty-tree gate, `HEAD` + `--porcelain` fingerprint (§3.5),
+  `diff --name-only`, blame, log, snapshot/rollback.
+- **`prettier/`** — invoke the **project's own** prettier for post-edit formatting.
+- **`text-edits/`** — span-based edits, atomic application, conflict detection.
+- **`fs/`** — glob + `.gitignore`-aware file walking; `realpath` canonicalization;
+  `stat` → `FileFingerprint`.
 
 > **Every tool that interprets the project runs the project's _own_ version** —
 > `typescript` (inside `plugins/ts`), `prettier` (here), and `tsconfig` are resolved from
@@ -685,11 +723,21 @@ codemaster/
       debug.ts               # namespaced tracing, AsyncLocalStorage req#N (§13)
     config/
       config.ts              # CodemasterConfig + defineConfig
-    support/                 # L1 — non-domain utilities used by plugins + ops
-      git.ts                 # repo root, dirty gate, HEAD+porcelain fingerprint
-      prettier.ts            # wrap project prettier
-      text-edits.ts          # span-based edits, atomic apply, conflict detection
-      fs.ts                  # glob + .gitignore file walking
+    common/                  # L0.5 — pure logic over core types, no I/O; topical subfolders
+      result/                # ok/fail/partial constructors; isOk/isFailure; freshness merge
+      ids/                   # SymbolId codec (encode/decode plugin-prefix-routed format)
+      span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
+      confidence/            # worstOf and per-hop reducers
+      fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
+      plugin-registry/       # topological sort + cycle detection for the Plugin DAG
+      async/                 # Clock seam; debounce / deferred / withTimeout over Clock
+      debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
+      lru/                   # generic LRU map (memory governor §9)
+    support/                 # L1 — external-tool wrappers; per-tool subfolders
+      git/                   # rev-parse HEAD, porcelain, diff --name-only, blame, log
+      prettier/              # invoke project's own prettier
+      text-edits/            # span-based edits, atomic apply, conflict detection
+      fs/                    # glob + .gitignore walking; realpath canonicalization; stat
     plugins/                 # L2 — the only domain layer
       ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts
       scss/                  # SCSS classes & usages (postcss-scss CST)
@@ -700,14 +748,14 @@ codemaster/
       tanstack-router/       # framework plugin (deps: ts) — routes
       zustand/               # framework plugin (deps: ts) — stores
     ops/                     # L3 — public, named, parameterized ops (compose plugins)
-      contracts.ts           # OpDef, OpRequest, OpResult — the dispatch shape
+      contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       find-definition.ts  find-usages.ts  expand-type.ts  assignability.ts
       list.ts  trace.ts
       rename-symbol.ts  move-file.ts  codemod.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       component-card.ts  impact.ts  affected.ts  …
-    mcp/                     # L5 — MCP facade: op + status + batch + dispatcher
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
+    mcp/                     # L5 — MCP facade: op + status + batch dispatcher
     format/                  # dense formatter, codes, json mode
   test/
     README.md                # test layout (strategy in §16)

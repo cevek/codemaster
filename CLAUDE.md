@@ -21,8 +21,8 @@ Cross-reference these by `§`; keep this file a pointer, not a copy.
   wrong one is fatal). Every fact carries its `file:line` proof, uncertainty is explicit,
   and you state plainly what you _couldn't_ do.
 - **Built for the long run.** Maintainability beats shortcuts — small, single-responsibility,
-  strictly layered (imports flow downward; `ops/` import only `plugins/`/`support/`/`format/`/`core/`;
-  `plugins/` form a strict DAG; `core/` imports nothing internal).
+  strictly layered (imports flow downward; `ops/` import only `plugins/`/`support/`/`common/`/`format/`/`core/`;
+  `plugins/` form a strict DAG; `common/` imports only `core/`; `core/` imports nothing internal).
 - **Quality is enforced, not hoped for.** `npm run fix-and-check` (eslint --fix → prettier →
   tsc → knip) must be green before anything is "done".
 - **Tests need an independent oracle** — a fixture is only input.

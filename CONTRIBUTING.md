@@ -34,9 +34,16 @@ debugging and _does_ block there — the dev default, not the contract.)
 ## Layering — hard rules ([src/README.md](src/README.md))
 
 - Imports flow **downward only** — no upward edges, no cycles.
-- `ops/` import **only** `plugins/`, `support/`, `format/`, `core/`.
+- `ops/` import **only** `plugins/`, `support/`, `common/`, `format/`, `core/`.
 - `plugins/` form a strict DAG (`Plugin.deps`); no cycles, no upward imports between plugins.
+- `common/` imports **only** `core/` — pure logic, no I/O, no timers (Clock seam only).
 - `core/` imports nothing internal.
+
+**Internal layout of `common/` and `support/<tool>/`**: nothing lives at the root —
+every file goes into a topical subfolder, one concept per folder, one operation per
+file. **Filenames `utils.ts` / `helpers.ts` / `misc.ts` are banned**: name files by their
+operation (`construct.ts`, `merge.ts`, `parse.ts`), not by the kind of contents. A
+subfolder reaching ~5 files is the split signal.
 
 ## Code hygiene (most of this is enforced by ESLint)
 

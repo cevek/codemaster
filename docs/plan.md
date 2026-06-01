@@ -14,6 +14,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Module map + import/dependency contract — src/README.md
 - [x] Typed contracts — `core/{span,brands,json,ids,result,plugin,debug}`,
       `ops/contracts`, `daemon/host`, `config/config`
+- [x] Layered scaffold — `common/` (result/ids/span/confidence/fingerprint/plugin-registry/
+      async/debug-spec/lru) and `support/` (git/prettier/text-edits/fs) topical subfolders
 - [x] Toolchain — strict TS, ESLint (300-line · no-any · no-console · exhaustive switch),
       Prettier, knip, lint-staged + husky, `fix-and-check`
 - [x] Docs — CLAUDE.md, CONTRIBUTING.md, test/README.md
@@ -40,12 +42,26 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [ ] orchestrator memory governor (cross-engine RSS tracking; LRU evict; meaningful in
       `process` mode)
 
+**Common (pure logic, no I/O):**
+
+- [ ] `common/result/` — `ok()`/`fail()`/`partial()` constructors; `isOk()`/`isFailure()`
+      narrowers; `mergeFreshness()` aggregator
+- [ ] `common/ids/codec.ts` — `SymbolId` encode/decode (plugin-prefix-routed format)
+- [ ] `common/span/` — `contains`/`intersects`/`equals`; `extractText` + Loc↔offset bridge
+- [ ] `common/fingerprint/` — `FileFingerprint` shape + mtime-tie hash comparator (§19)
+- [ ] `common/plugin-registry/dag.ts` — topological sort + cycle detection
+- [ ] `common/async/clock.ts` — `Clock` seam (injectable for tests, §16); `debounce` /
+      `deferred` / `withTimeout` on top
+- [ ] `common/debug-spec/` — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
+- [ ] `common/lru/map.ts` — generic LRU map (memory governor §9)
+
 **Support utilities (used by Phase 1+ plugins and ops):**
 
-- [ ] `support/git` — repo root, dirty gate, `HEAD` + `--porcelain` fingerprint, basic
+- [ ] `support/git/` — repo root, dirty gate, `HEAD` + `--porcelain` fingerprint, basic
       blame/log
-- [ ] `support/fs` — `.gitignore`-aware file walker
-- [ ] `support/prettier`, `support/text-edits` — stubs; populated by Phase 2
+- [ ] `support/fs/` — `.gitignore`-aware file walker; `realpath` canonicalization;
+      `stat` → `FileFingerprint`
+- [ ] `support/prettier/`, `support/text-edits/` — stubs; populated by Phase 2
 
 **Read-time freshness backstop (no plugins to ask yet; the backstop is in place for
 Phase 1 to consume):**
