@@ -13,8 +13,9 @@ Strategy, oracles, and the invariants that gate CI live in
   - `repos/` — committed mini-projects for realistic cases (monorepo, scss, i18n,
     dynamic-dispatch, schema) and MCP end-to-end.
   - `scenarios/` — `*.scenario.ts` stateful transcripts (mutate → query → assert).
-- `differential/` — the oracle-backed invariants: `search` ⊇ ripgrep, structural⟷semantic
-  agreement, proof-span validity, freshness-honesty, `cold == warm`, edit-safety.
+- `differential/` — the oracle-backed invariants (per-plugin): proof-span validity,
+  per-plugin freshness honesty, per-plugin `cold == warm`, edit safety, op-vs-oracle
+  golden, plugin DAG honesty.
 - `golden/` — dense-output snapshots (never the only assertion for a correctness claim).
 
 Runner: `node:test` + `node:assert`. `npm test` runs all; `test:differential` and

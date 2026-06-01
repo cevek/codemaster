@@ -4,7 +4,7 @@ import { defineConfig } from 'codemaster';
 // root. Everything is optional — the daemon autodetects sensible defaults — but
 // declaring your project's conventions makes the answers sharper.
 export default defineConfig({
-  index: {
+  ts: {
     include: ['src/**/*.{ts,tsx,js,jsx}'],
     ignore: ['**/*.test.*', '**/*.stories.*', '**/*.gen.ts'],
     tsconfig: 'tsconfig.json',
@@ -27,11 +27,12 @@ export default defineConfig({
     generator: 'openapi-typescript',
   },
 
-  adapters: [
+  plugins: [
+    'react',
     'tanstack-router',
     'react-query',
     'zustand',
-    // { name: 'forms', options: { draftBuffering: true } },
+    // { id: 'forms', options: { draftBuffering: true } },
   ],
 
   output: {
@@ -41,5 +42,6 @@ export default defineConfig({
 
   daemon: {
     idleEvictionMinutes: 30,
+    pathExistenceSweepSeconds: 60,
   },
 });

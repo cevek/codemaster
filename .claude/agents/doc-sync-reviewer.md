@@ -21,11 +21,12 @@ Check, in priority order:
    `ARCHITECTURE.md`. Every file path / markdown link in a doc exists on disk. Every module,
    type, file, or symbol a doc names exists in `src/` with that exact name (grep to confirm).
 2. **Doc ↔ contract consistency.** Names and shapes in the docs match the actual contracts
-   (`src/core/*`, `src/config/config.ts`, `src/primitives/contracts.ts`): the six verbs +
-   `batch`; the `Result` / `Fact` / `Span` / `Confidence` / `Provenance` / `FreshnessNote` /
-   `ToolFailure` / `HandleRebind` / `RefsResult` / `EditRecipe` / `ListEntry` fields; the
-   branded types; `NodeKind` / `EdgeKind` and the discriminated node model; config sections.
-   A symbol renamed in code but stale in a doc is drift.
+   (`src/core/*`, `src/config/config.ts`, `src/ops/contracts.ts`, `src/core/plugin.ts`):
+   the three MCP tools (`op` / `status` / `batch`); the `Result` / `Fact` / `Span` /
+   `Confidence` / `Provenance` / `FreshnessNote` / `ToolFailure` / `HandleRebind` fields;
+   the branded types; the `Plugin` interface + DAG; the op catalogue listed in
+   ARCHITECTURE.md §5-L3 and §17; config sections. A symbol renamed in code but stale in a
+   doc is drift.
 3. **Tree ↔ reality.** The `ARCHITECTURE.md` §15 tree and the `src/README.md` layer table
    match `find src test -type f` and the directory layout. Flag listed-but-absent and
    present-but-unlisted (modules, files, layers).

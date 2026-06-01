@@ -2,31 +2,26 @@
 // (ARCHITECTURE.md §13.)
 
 /** Subsystem namespaces. `(string & {})` keeps literal autocomplete while still
- *  allowing adapter-specific names like `adapter:react-query`. */
+ *  allowing plugin- and op-specific names like `plugin:react-query` and
+ *  `op:find_usages`. */
 export type DebugNamespace =
   | 'ipc'
   | 'daemon'
   | 'repo'
   | 'watcher'
-  | 'index:structural'
-  | 'index:scss'
-  | 'index:i18n'
-  | 'index:schema'
-  | 'graph'
-  | 'ls'
-  | 'ls:resolve'
-  | 'ls:refs'
-  | 'primitive:search'
-  | 'primitive:resolve'
-  | 'primitive:refs'
-  | 'primitive:trace'
-  | 'primitive:list'
-  | 'primitive:edit'
+  | 'plugin:ts'
+  | 'plugin:ts:ls'
+  | 'plugin:ts:resolve'
+  | 'plugin:ts:refs'
+  | 'plugin:scss'
+  | 'plugin:i18n'
+  | 'plugin:schema'
+  | `plugin:${string}`
+  | `op:${string}`
   | 'edit:plan'
   | 'edit:apply'
   | 'resync'
   | 'eviction'
-  | 'snapshot'
   | 'format'
   | 'mcp'
   | (string & {});
@@ -56,7 +51,7 @@ export interface DebugSystem {
   ns(ns: DebugNamespace): Debugger;
   /** Whether a namespace is currently enabled (honors wildcards and `-` excludes). */
   isEnabled(ns: DebugNamespace): boolean;
-  /** Hot-toggle at runtime (CLI/IPC). Spec like `ls:*,watcher,-eviction`. */
+  /** Hot-toggle at runtime (CLI/IPC). Spec like `plugin:ts:*,watcher,-eviction`. */
   configure(spec: string): void;
   /** All known namespaces — powers `status` / `debug:topics` self-description. */
   topics(): DebugNamespace[];

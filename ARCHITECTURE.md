@@ -1,9 +1,10 @@
 # Codemaster — Architecture
 
 > A stateful, always-on **codebase inspector** for TypeScript/React repos.
-> It indexes the project, watches the filesystem, keeps a live TypeScript
-> Language Service warm, and answers structural + semantic + refactor
-> queries for **AI agents** — densely, and without lying.
+> A workspace engine loads a flat federation of **plugins** (one per domain — TS, SCSS,
+> i18n, schema, framework adapters), watches the filesystem, keeps a live TypeScript
+> Language Service warm inside the `ts` plugin, and answers agent queries through
+> **ops** that compose plugins — densely, and without lying.
 
 ---
 
@@ -40,22 +41,22 @@ plumbing that makes agents cheaper and more correct.
 
 ```
 agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspace engine ──▶ dense reply
-                    front door · routing ·          vfs + graph + live TS LS +
-                    repo registry · lifecycle       indexers + primitives (one workspace)
+                    front door · routing ·          plugins (ts/scss/i18n/…/adapters) +
+                    repo registry · lifecycle       ops (compose plugins)  (one workspace)
 ```
 
 - **`codemaster` global bin** — entry point (`npx codemaster`, or installed).
 - **Orchestrator (the daemon)** — one long-lived front-door process speaking MCP/IPC. It
-  holds **no project data**: a `repoId → workspace` registry, request routing (resolves the
+  holds **no project data**: a `repoId → engine` registry, request routing (resolves the
   target workspace from the client `cwd` or an explicit `root`), lifecycle (spawn / idle-TTL
-  kill / restart), and a cross-workspace **memory governor** (§9). Its heap stays small and
-  its loop never blocks — it only routes.
+  kill / path-existence eviction / restart), and a cross-workspace **memory governor**
+  (§9). Its heap stays small and its loop never blocks — it only routes.
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
-  root): vfs, the structural graph (behind a `GraphStore`, §5-L2), the live TS LS, indexers,
-  watcher, primitives, recipes. Everything for that workspace runs **together in one memory
-  space**, so semantic queries walk the AST and the graph with **zero serialization**. Only
-  a small `{verb, query}` request and a small dense result cross the boundary to it — the
-  AST and graph never do.
+  root): all registered **plugins** (`ts`, `scss`, `i18n`, `schema`, framework adapters)
+  with their internal state, plus the **ops** that compose them. Everything for that
+  workspace runs **together in one memory space**, so an op can hop between plugins with
+  zero serialization. Only a small `{op, args}` request and a small dense result cross the
+  boundary to it — plugin internals never do.
 - **Host — the transport seam, and the process toggle** ([`src/daemon/host.ts`](src/daemon/host.ts)).
   The orchestrator reaches an engine through a `ProjectHost` with two interchangeable
   implementations, set by `config.daemon.isolation`:
@@ -71,11 +72,13 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
 - **CLI** — same front door, for humans/debugging.
 - **IPC** — local socket, **newline-delimited JSON** — readable while we debug the tool (§18).
 
-The boundary sits where data flow is **thin** — between workspaces (which share nothing) and
-at the front door — never through the tight LS↔graph↔AST coupling, which stays in-process.
+The boundary sits where data flow is **thin** — between workspaces (which share nothing)
+and at the front door — never inside the engine, where plugins and ops hop with zero
+serialization through direct calls.
 
-Rationale: a single daemon amortizes the expensive warm state (TS programs) across
-every agent call in a session, instead of paying cold-start per invocation.
+Rationale: a single daemon amortizes the expensive warm state (the `ts` plugin's LS
+chiefly) across every agent call in a session, instead of paying cold-start per
+invocation.
 
 ---
 
@@ -83,21 +86,27 @@ every agent call in a session, instead of paying cold-start per invocation.
 
 This is the section that the rest of the design serves.
 
-1. **Type/semantic answers come only from the live LS.** `resolve` / `refs` /
-   assignability are computed against the Language Service synced to the current
-   VFS state — **never** from a possibly-stale serialized snapshot. The snapshot
-   accelerates structural navigation; it is never the oracle for types.
+1. **Each plugin is the only oracle for its domain, and never serves stale.** Type and
+   semantic answers come from the `ts` plugin's live LS — synchronized to the current
+   VFS state, not from a serialized snapshot; SCSS facts come from the `scss` plugin's
+   current postcss parse; i18n keys come from the `i18n` plugin's current JSON state;
+   adapter contributions come from their owning plugin's current scan. **A cached answer
+   may exist inside a plugin only if it is rigorously invalidated against current file
+   state**; serving an answer the plugin's own oracle would now contradict is the exact
+   lie this contract forbids. (A future opt-in plugin-internal semantic memo with sound
+   invalidation is a deferred wishlist item; not Phase 0.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
    cheaply will trust; one that can't, won't.
 
 3. **Honest uncertainty.** `Confidence = certain | partial | unresolved | dynamic`,
-   carried **per hop** (`trace`) and **per site** (`refs`), not just per answer. A
-   dynamic-dispatch hop (callback, computed key, untyped boundary) is **flagged** at the
-   step it occurs, not silently bridged or dropped. Orthogonally, edges and hops carry
-   **provenance** — `syntactic` / `type` / `heuristic` (+ which adapter) — so an
-   adapter-inferred relationship is never mistaken for a proven structural fact.
+   carried **per hop** (in trace ops) and **per site** (in find-usages ops), not just
+   per answer. A dynamic-dispatch hop (callback, computed key, untyped boundary) is
+   **flagged** at the step it occurs, not silently bridged or dropped. Orthogonally,
+   edges and hops carry **provenance** — `syntactic` / `type` / `heuristic` (+ which
+   adapter plugin) — so an adapter-inferred relationship is never mistaken for a proven
+   structural fact.
 
 4. **No silent truncation.** Capped result sets always report `{ shown, total, hint }`.
    Truncation that looks like completeness is a form of lying.
@@ -108,7 +117,7 @@ This is the section that the rest of the design serves.
    `fs.watch` silently drops them and leaves a populated tree behind an empty
    pending-set. So the check is **repo-global, not answer-scoped** — an answer-scoped
    check would miss a file that _should_ have been in a find-all result but wasn't, which
-   is itself a completeness lie (§3.6). Every query takes a cheap whole-repo fingerprint —
+   is itself a completeness lie (§3.4). Every query takes a cheap whole-repo fingerprint —
    `git rev-parse HEAD` **plus** `git status --porcelain` (adds/removes/dirty in one
    call), with a file-mtime rollup (a per-query stat-walk, so in-place edits aren't missed) as the
    non-git fallback. On drift, the changed set comes
@@ -129,167 +138,249 @@ This is the section that the rest of the design serves.
    result in its place. The daemon stays up; the agent gets an honest "couldn't", not a
    stack trace or a fabrication.
 
-7. **Self-honesty harness** (see §16): the differential test that matters is
-   **structural tier vs semantic tier agreement**, not refs-vs-grep.
+7. **Self-honesty harness** (see §16): every plugin is tested against an independent
+   oracle for its domain; every cross-plugin op is tested for correctness on assembled
+   fixtures, never against grep.
 
 ---
 
-## 4. Parsing model — one grammar, two depths
+## 4. Parsing model — one parser per domain
 
-> **No tree-sitter — the TypeScript compiler serves both tiers.**
+> **No tree-sitter. Each plugin owns its parser.**
 
-Two parsers can disagree, and a syntactic-vs-semantic disagreement is precisely the lie
-this project must never tell. One grammar, two depths:
+Codemaster has no standalone "structural index" built ahead of the LanguageService — that
+would be a parallel copy of what TS already parses, with its own staleness problem. Each
+plugin owns the parser for its domain and is the only oracle for it:
 
-| Tier          | Source                                           | Cost                                         | Authoritative for                                                                                     |
-| ------------- | ------------------------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Syntactic** | `ts.createSourceFile` per file (no type-checker) | cheap, per-file, incremental, error-tolerant | symbols, imports/exports, JSX elements **+ literal attribute values**, call sites, comments, raw text |
-| **Semantic**  | `LanguageService` / `Program` (lazy)             | heavy, whole-program                         | types, references, resolution, signatures, members, assignability, data-flow                          |
+| Domain             | Plugin              | Parser                                | Cost                                    |
+| ------------------ | ------------------- | ------------------------------------- | --------------------------------------- |
+| TypeScript / TSX   | `plugins/ts`        | TS `LanguageService` (AST + types)    | AST lazy per-file; types lazy on demand |
+| SCSS modules       | `plugins/scss`      | `postcss` + `postcss-scss` (CST only) | cheap, per-file, syntactic only (§19)   |
+| Locale JSON        | `plugins/i18n`      | `JSON.parse` + structural walks       | trivial                                 |
+| Generated schema   | `plugins/schema`    | TS-aware reader over `schema.d.ts`    | one-shot per session                    |
+| Framework concepts | `plugins/<adapter>` | consumes `ts` plugin's API            | derived, no own parser                  |
 
-Both come from the **same grammar**, so the cheap structural index and the
-expensive semantic oracle can never contradict each other on what the code _is_.
-Non-TS assets are handled by purpose-built parsers where TS has nothing to say:
-SCSS via `postcss`/`postcss-scss`, locale files as JSON. (Tree-sitter returns only
-if we ever must index a language the TS parser can't read.)
+For TypeScript specifically, the TS LS exposes both depths inside one engine: cheap
+`SourceFile` access (already cached after first touch) for structural queries — symbols,
+imports/exports, JSX elements + literal attribute values — and the type checker for
+semantic ones (types, references, signatures, assignability). The `ts` plugin uses
+both depths through one LS, so a "syntactic vs semantic" disagreement can never happen
+within it — there is only one parser.
+
+Tree-sitter returns only if we ever must index a language the TS parser can't read.
 
 ---
 
-## 5. Layered architecture (the "lego")
+## 5. Layered architecture — plugins + ops
 
-Bottom → top. Each layer depends only on those below it.
+> The domain layer is a **flat federation of plugins**. Each plugin owns its knowledge of
+> one domain with its own internal storage; **ops** compose plugins to answer agent
+> queries. There is **no central graph and no central store** — each plugin's data lives
+> behind its own public API, and cross-tier joins are recipe-level work the op does in
+> code, not a stored edge in a shared model.
 
-### L0 — Foundation (ported from `front-renamer`, generalized to long-lived)
+Bottom → top. Imports flow downward only.
 
-`front-renamer` already solved the hard parts of safe edits over a VFS-backed LS.
-We **port** its modules (not depend on the npm package) and make them persistent:
+### L0 — Core (leaf)
 
-> **Every tool that interprets the project runs the project's _own_ version.** `typescript`,
-> `prettier`, and the project's `tsconfig` / configs are resolved from the inspected repo's
-> `node_modules` (the `front-renamer` approach); codemaster's bundled copies are a fallback
-> only, and a header reports which is active. Answering with a different TS than the project
-> compiles with would mean different diagnostics — i.e. a lie.
+[`src/core/`](src/core/) — types only, imports nothing internal:
 
-- **`vfs`** — in-memory overlay over the real FS. Powers zero-write dry-runs _and_
-  backs the LS host. Shared by reads and edits.
-- **`ts-host`** — builds and owns the long-lived `LanguageService` over the VFS host;
-  incremental; resolves the project's own `typescript`/`tsconfig` (`paths`/`baseUrl`),
-  bundled TS as fallback.
-- **`module-resolve`** — import/path resolution incl. tsconfig aliases.
+- **`brands`** — `RepoRelPath`, `Glob`, `RepoId`, `FileVersion` — branded primitives (§19).
+- **`span`** — `Loc`, `Span`, `Confidence`, `Provenance` — proof primitives.
+- **`result`** — `Result<T>` envelope: `Fact`, `FreshnessNote`, `ToolFailure`, `Truncation`.
+- **`ids`** — `SymbolId` (module-routed encoding) + proof-carrying rebind (§6).
+- **`plugin`** — the `Plugin` interface + `PluginRegistry` — the single contract every
+  domain module obeys.
+- **`json`** — `JsonValue`.
+- **`debug`** — namespaced tracing + `AsyncLocalStorage` `req#N` (§13).
+
+### L1 — Support (utilities)
+
+[`src/support/`](src/support/) — shared, non-domain helpers used by plugins and ops:
+
+- **`git`** — repo root, dirty-tree gate, `HEAD` + `--porcelain` fingerprint (§3.5),
+  blame, log, snapshot/rollback.
+- **`prettier`** — wrap the **project's own** prettier for post-edit formatting.
 - **`text-edits`** — span-based edits, atomic application, conflict detection.
-- **`git`** — root detection, dirty-tree gate, blame, log, snapshot/rollback.
-- **`prettier`** — project prettier for post-edit formatting.
+- **`fs`** — glob + `.gitignore`-aware file walking.
 
-### L1 — Indexers (each authoritative in its zone)
+> **Every tool that interprets the project runs the project's _own_ version** —
+> `typescript` (inside `plugins/ts`), `prettier` (here), and `tsconfig` are resolved from
+> the inspected repo's `node_modules`; codemaster's bundled copies are a fallback only,
+> and the response reports which is active. Answering with a different `tsc` than the
+> project compiles with would mean different diagnostics — a lie.
 
-Incremental, fed by the watcher:
+No domain knowledge here. Plugins use these; ops use these.
 
-- **structural** (TS syntactic AST) — the graph's backbone.
-- **scss** (postcss-scss, **syntactic only**) — class declarations + literal usages in
-  consumers. It does _not_ resolve `@use`/`@forward` or compute values, so cross-module
-  orphan checks are reported `partial`, not asserted; computed-property work needs real
-  `sass` (§19).
-- **i18n** — keys from locale JSON, `t('…')` usages (template literals flagged `dynamic`),
+### L2 — Plugins (the only domain layer)
+
+[`src/plugins/<id>/`](src/plugins/) — each plugin owns one knowledge domain. Plugin
+internals are completely opaque to the rest of the system: they keep their data however
+they please (in-memory map, typed arrays, an internal graph, whatever). The only public
+contract is the methods they expose.
+
+The `Plugin` interface ([`src/core/plugin.ts`](src/core/plugin.ts)):
+
+```ts
+interface Plugin {
+  readonly id: string; // 'ts', 'scss', 'react-query', ...
+  readonly version: string; // surfaced through status()
+  readonly deps: readonly string[]; // plugin ids this plugin uses
+  init(deps: PluginRegistry): Promise<void>; // bind dependencies
+  dispose(): Promise<void>; // release resources
+  freshness(): FreshnessFingerprint; // for §3.5 read-time check
+  reindex(changed: readonly RepoRelPath[]): Promise<void>; // apply git-diff changed set
+  pending(): readonly RepoRelPath[]; // surfaces in FreshnessNote.staleFiles
+}
+```
+
+Beyond these life-cycle bits, **each plugin defines its own public methods**. There is
+no enforced superset of methods — no "all plugins must have `findUsages`". Ops know
+which methods each plugin provides through TypeScript types; no runtime feature
+probing.
+
+**Built-in plugins shipped with codemaster:**
+
+- **`ts`** — the TypeScript plugin. Owns its own VFS (in-memory overlay), the long-lived
+  `LanguageService` (the type oracle for §3.1), module resolution (`tsconfig`
+  `paths`/`baseUrl`), and all TS-domain knowledge: symbols, imports, JSX usages, refs,
+  types. LS warms **lazily** on the first semantic query — structural queries don't
+  trigger warm. The heavyweight plugin: gigabytes for large projects (§9).
+- **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
+  `@use`/`@forward` cross-module checks are `partial` (§19).
+- **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
   missing/orphan keys.
-- **schema** — generated `schema.d.ts` → endpoint cards (input/response/path/query/body).
+- **`schema`** — generated `schema.d.ts` → endpoint cards (input/response/path/query/body).
 
-### L1 — Semantic query layer (the type oracle)
+**Framework plugins** (autodetected, config-gated, can be shipped by anyone):
 
-- **semantic** — the live LS query surface (`resolve` / `refs` / assignability / `impl`).
-  Not an index: it answers from the warm `LanguageService` on demand — the ground truth for
-  types (§3.1), never a cached snapshot.
+- **`react`** — depends on `ts`. Component detection (a symbol returning JSX under React
+  conventions), hook identification, dialog/sheet conventions.
+- **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
+- **`tanstack-router`** — depends on `ts`. Routes.
+- **`zustand`** — depends on `ts`. Stores.
+- Others (forms, design-system component conventions, …) ship the same way.
 
-### L1.5 — Framework adapters (plugins, autodetected + config-gated)
+**Plugin DAG.** Plugins form a strict DAG: `react-query` depends on `ts`, never vice
+versa. The DAG is declared at plugin registration (the `deps` field) and enforced at
+**runtime** — the `PluginRegistry` topologically sorts on init and refuses to register
+cycles, and a `PluginRegistry.get<T>(id)` call to an undeclared `id` is a programming
+error. A compile-time boundary rule (ESLint import-restrictions) lands once enough
+plugins exist to make it pay (`src/README.md`); for now, TypeScript imports flow
+downward through file paths but the cross-plugin edge set is enforced at runtime only.
 
-The generic core knows nothing about your stack; an adapter teaches it. An adapter
-**enriches the graph during indexing** with framework nodes/edges (routes, `invalidates`
-edges, stores) and declares the `list` registries it owns; it **self-registers at the
-daemon** (the composition root). The `list` and `trace` primitives read only the graph and
-the `AdapterRegistry` interface ([`src/core/adapter.ts`](src/core/adapter.ts)) — they never
-import a concrete adapter, so the dependency points inward and **adding a framework changes
-neither the core nor the primitives**. Shipping targets: TanStack Router (routes),
-react-query (mutations/queries/queryKeys/invalidations), zustand (stores), forms,
-component/dialog conventions.
+Cross-tier facts (a TS file uses a SCSS class) live in the plugin that observes them —
+the TS plugin sees imports and accesses; the SCSS plugin's `findUsages` asks the TS plugin
+for them, not the other way around.
 
-### L2 — Graph & store
+Why a flat federation:
 
-- **`GraphStore`** ([`src/index/store.ts`](src/index/store.ts)) — the access seam: store,
-  update, and serve the graph through query methods (`get`, `nodesByKind`, `edgesFrom`,
-  `commit`…). _Where_ it keeps the graph is hidden, so the backend can change — in-memory
-  maps today, SQLite / off-heap on a huge workspace (§9) — without touching a consumer. Like
-  tree-sitter, consumers get results and readonly views, never the raw representation. The
-  in-memory backend is **copy-on-write per file shard**: `commit` synchronously builds the
-  next version sharing every unchanged shard and replacing only the changed file's, so a swap
-  is O(changed) in heap (§8). (Secondary indexes — `NodeId`→node, by-kind — are rebuilt with
-  the same per-shard sharing.)
-- **In-memory graph** ([`src/core/graph.ts`](src/core/graph.ts)) — the default backend's
-  representation and the runtime source of truth for _structure_. Nodes are a
-  **discriminated union** on `kind`: first-party
-  kinds (`file`, `symbol`, `jsxElement`, `import`, `cssClass`, `i18nKey`) carry typed
-  fields; framework concepts (route, store, mutation…) arrive as the generic `adapter`
-  kind + an open `adapterKind`. Edges carry `provenance`. The one open "extras" bag (on
-  adapter nodes / edges) is typed `Record<string, JsonValue>`, never `unknown`. **It holds
-  no type fact** that could go stale — those are resolved live.
-- **Persistence** — the graph lives in **memory** and is the runtime source of truth; disk
-  is only a warm-start cache, never read to answer a query. It is flushed **lazily** —
-  debounced after a quiet window, on idle, and on graceful shutdown — **never per change**,
-  so an edit storm coalesces into one write, not thousands (SSD-safe by construction). The
-  snapshot is **sharded per source file** (`nodes/<file>.json` + a small `manifest.json` of
-  file → version + commit), so a changed file rewrites only its small shard — O(changed),
-  not O(graph), never a monolith rewrite. A stale or partial snapshot is safe: on boot the
-  §3.5 / §8 reconciliation re-indexes anything changed since the manifest, so an unflushed
-  change at a crash only lengthens warm-start, never lies. JSON for now (§18); SQLite is the
-  maturity option. The store is an accelerator, never the type oracle.
-- **Freshness ledger** — per-file version stamps + git commit; the pending-reindex set.
-  (`indexVersion` is the global swap counter; `fileVersions` holds the per-file stamps.)
+- Plugin invalidation is **scoped to one plugin's data** — there is no cross-plugin
+  cascade, no shared model that an unrelated change could ripple through.
+- Framework plugins use **first-class native types** in their own modules — no open-bag
+  `JsonValue` extras smuggled through a shared discriminated union.
+- Each plugin picks its **own optimal internal data structure** (i18n is a flat map;
+  SCSS has CSS-tree shape; react-query has its own mutation→query lattice). One
+  discriminated union over all of them would lose fidelity for no gain.
 
-### L3 — Core primitives (six universal verbs)
+### L3 — Ops (operations) — the public surface for agents
 
-See [`src/primitives/contracts.ts`](src/primitives/contracts.ts). Small, composable,
-proof-carrying, handle-addressable. **This is the lego.**
+[`src/ops/`](src/ops/) — each op is a named, parameterized function
+`(args) => Promise<Result<T>>` that composes one or more plugin calls into a coherent
+answer. Ops live above all plugins and may call any of them — they sit at the top of every
+order and are not bound by the plugin DAG.
 
-| Verb      | Does                                                                                                                      | Backed by           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `search`  | find symbols / text / JSX by rich filters                                                                                 | structural index    |
-| `resolve` | expanded type, signature, members, assignability                                                                          | **live LS**         |
-| `refs`    | find-usages, faceted (call/jsx/import/type/read/write/impl)                                                               | **live LS**         |
-| `trace`   | control- **and** data-flow (field→render/mutation/cacheKey/http, prop-through-tree, mutation→invalidation, type-widening) | LS + graph edges    |
-| `list`    | domain registries (dialogs/routes/mutations/stores/endpoints…)                                                            | graph + registry    |
-| `edit`    | refactors + codemods, dry-run-first                                                                                       | L0 + codemod engine |
+Simple ops are 1-call passthroughs (`find_definition` → `ts.findDefinition`). Compound
+ops orchestrate several plugins; for example `find_unused_scss_classes` calls
+`ts.imports`, `ts.symbolAccesses`, `scss.classes`, set-diffs — **no shared store needed
+for the join**, the op _is_ the join. Mutating ops (rename_symbol, codemod, move_file)
+take an `apply` flag (and other flags for git-dirty handling, force, etc.); dry-run
+returns a preview, apply commits writes (§7).
 
-Two notes. **`trace`/`list` read the graph and the `AdapterRegistry`, never a concrete
-adapter** — an adapter folds its contribution in as _static_ nodes/edges at index time
-(e.g. `invalidates`), so `trace` just follows graph edges and needs no runtime adapter
-logic (keeps the §5-L1.5 seam honest). And the six compose under **`batch`** — one
-round-trip carrying many requests, run against a single consistent graph version, `edit`s
-last (§11).
+**Ops never bypass plugins to reach implementations.** A `rename_symbol` op cannot
+peek into TS LS state directly; it calls `ts.renameSites(target, to)` and receives a
+`Result`. This is what keeps plugins replaceable and the trust contract enforceable —
+every `Result<T>` envelope's proof spans, freshness, and `ToolFailure` come up through
+plugin boundaries, not from internal pokes.
 
-### L4 — Recipes (thin composites)
+A small number of ops ship by default:
 
-"One call = full answer" tools, implemented **purely by composing L3** — they save
-tokens, they don't add capability: `component_card`, `feature_map`, `mount_path`,
-`find_unused_props`, `i18n_lookup`, `scss_class_diff`, `api_endpoint`, `why_this_line`,
-`recent_changes`, `changed_since_branch`, `refactor_extract_container`, `impact`
-(type-aware blast radius — the real type errors a change would cause, not just call edges),
-`affected` (which tests a changed set touches, via the import graph).
+| Op                         | Composes                                                 |
+| -------------------------- | -------------------------------------------------------- |
+| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)  |
+| `find_usages`              | `ts.findUsages` (+ adapter-plugin usages if relevant)    |
+| `search_symbol`            | `ts.searchSymbol` (LS workspace symbol provider)         |
+| `expand_type`              | `ts.expandType`                                          |
+| `assignability`            | `ts.assignability`                                       |
+| `list`                     | dispatches to the plugin owning the requested registry   |
+| `trace`                    | walks plugin-to-plugin via their public APIs             |
+| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`  |
+| `move_file`                | `ts` plugin + `support/text-edits`                       |
+| `extract_symbol`           | `ts` plugin + `support/text-edits`                       |
+| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms   |
+| `codemod`                  | ast-grep matcher + `support/text-edits`                  |
+| `find_unused_scss_classes` | `ts` + `scss`                                            |
+| `find_unused_i18n_keys`    | `ts` + `i18n`                                            |
+| `component_card`           | `ts` + `react` + adapter plugins (token-saver composite) |
+| `impact`                   | `ts` (type-aware blast radius)                           |
+| `affected`                 | `ts` import graph + `support/git`                        |
 
-### L5 — Surface
+The table is illustrative, not exhaustive — `status` is authoritative for the per-repo
+op catalogue.
 
-- **MCP tools** (see §11) + **output formatter** (see §12).
+This list grows; the **dispatch shape never does** — see §11.
+
+### L4 — Daemon
+
+[`src/daemon/`](src/daemon/) — the orchestrator. One long-lived front-door process. Holds:
+
+- The `repoId → engine` registry.
+- The `ProjectHost` transport seam (§2): in-process or process-isolated, set by config.
+- Engine lifecycle: lazy spin-up, idle-TTL eviction, **path-existence sweeper** (§9).
+- Memory governor across engines.
+- Plugin discovery + DAG validation at engine init.
+
+### L5 — MCP facade
+
+[`src/mcp/`](src/mcp/) — exposes **exactly three tools** to agents (§11):
+
+- `op({ name, args, ...flags })` — dispatcher routing to the named op.
+- `status()` — first-contact manifest: active plugins, op cheat-sheet, freshness.
+- `batch(requests)` — many ops in one round-trip.
+
+Ops are the single public unit — there is no fixed verb set baked into the protocol.
+The op catalogue is per-repo (it depends on which plugins are active) and is delivered
+through `status`, not through standing tool schemas.
 
 ---
 
 ## 6. SymbolId & handles
 
-`SymbolId` ([`src/core/ids.ts`](src/core/ids.ts)) is an **opaque, per-file-version-scoped**
-handle encoding `(repoId, file, name, kind, fileVersion)`. It lets an agent chain
-`search → resolve → refs → edit` without re-searching.
+`SymbolId` ([`src/core/ids.ts`](src/core/ids.ts)) is an **opaque, per-file-version-scoped,
+plugin-routed** handle. It lets an agent chain `find_definition → find_usages →
+rename_symbol` without re-searching.
+
+**Module-routed encoding.** Every `SymbolId` carries the id of the plugin that owns it as
+a prefix, so the op dispatcher can route to the right plugin without inspecting the
+referent:
+
+```
+ts:Button@src/Button.tsx:v7
+scss:.button@src/styles/button.module.scss:v3
+i18n:profile.greeting@locales/en.json:v2
+route:/users@src/routes/users.tsx:v4
+```
+
+The format past the prefix is **plugin-private**: the `ts` plugin chooses its own
+encoding, `scss` chooses its own, etc. Outside the owning plugin, a `SymbolId` is opaque.
+There is no central registry of how a SymbolId is shaped — only of which plugin owns it.
 
 > **Bound to the file's version, with proof-carrying rebind.** A handle binds to _its
-> file's_ version (`Graph.fileVersions`), not the global `indexVersion` — so a change to
-> some _other_ file never stales it (essential when an agent thinks for 5–60 s between
+> file's_ version (the owning plugin's per-file stamp), not anything global — so a change
+> to some _other_ file never stales it (essential when an agent thinks for 5–60 s between
 > calls; a global binding would make the chain single-use). When the handle's own file
-> _has_ changed, the verb re-locates the symbol and computes the answer against its
-> current home, reporting the move on `Result.handle`
+> _has_ changed, the owning plugin re-locates the symbol and computes the answer against
+> its current home, reporting the move on `Result.handle`
 > (`{ status: 'rebound', to, proof, confidence }`) — **stated, never silent**.
 >
 > The `proof` span shows a symbol of that name/kind sits at `to` _now_ — proof of
@@ -297,110 +388,137 @@ handle encoding `(repoId, file, name, kind, fileVersion)`. It lets an agent chai
 > structural-continuity evidence; otherwise `partial`/`unresolved` + a note ("a symbol of
 > this name/kind is here now; can't prove it's the one you held"). We never claim identity
 > we can't prove — the exact lie this protocol exists to prevent. A cross-file move
-> (`moveFile`/`extractSymbol`) is a `rebound` whose `to` is in the new file; `{ status:
-'gone' }` means truly absent, not merely moved.
+> (e.g. `move_file` / `extract_symbol`) is a `rebound` whose `to` is in the new file;
+> `{ status: 'gone' }` means truly absent, not merely moved.
+
+**Each plugin owns its rebind.** There is no universal rebind algorithm. The `ts` plugin
+rebinds through the LS (re-find symbol by name/kind in current AST); the `scss` plugin
+rebinds by re-locating a class declaration in the current postcss CST; the `i18n` plugin
+matches dotted keys. The §6 contract is the shape of the result, not the algorithm.
 
 > **Branded identity primitives.** Beyond `SymbolId`, a small family of branded types
-> (`RepoRelPath`, `Glob`, `RepoId`, `NodeId`, `IndexVersion`, `FileVersion` —
+> (`RepoRelPath`, `Glob`, `RepoId`, `FileVersion` —
 > [`src/core/brands.ts`](src/core/brands.ts)) makes category errors compile errors: a glob
-> where a path is wanted, a per-file version where the global one is. Inputs arrive as
-> plain strings and are branded at the boundary (zod / the indexer); config stays plain
-> for authoring ergonomics.
+> where a path is wanted, a file version where it shouldn't be. Inputs arrive as plain
+> strings and are branded at the boundary (zod / the plugin's input layer); config stays
+> plain for authoring ergonomics.
 
 ---
 
 ## 7. Edit / refactor / codemod model
 
-Dry-run is the default; `apply: true` is explicit. JSON recipes, zod-validated
-with fail-fast `did you mean "…"?` errors (the `front-renamer` ergonomic). Git-aware:
-refuses a dirty tree on apply, pre/post-typecheck, atomic, auto-rollback. Recipes are
-designed so **an agent can author them blind, without reading docs** — the schema +
-inline examples in the tool description are the documentation.
+Mutating ops take an `apply` flag (default `false`); `apply: true` is explicit. JSON args
+zod-validated with fail-fast `did you mean "…"?` errors. Git-aware: refuses a dirty tree
+on apply, pre/post-typecheck, atomic, auto-rollback. Op descriptors are designed so
+**an agent can author them blind, without reading docs** — the schema + inline examples
+in `status`'s op-catalogue are the documentation.
+
+Mutating ops carry additional flags beyond `apply`, e.g. `dirtyOk: false`, `force: false`,
+`format: true` — each op publishes its full flag set via `status`.
 
 Two **distinct** edit families — conflating them is a code-rewriting lie:
 
-- **Symbol-anchored** (`renameSymbol`, `moveFile`, `extractSymbol`, `changeSignature`):
-  resolve the symbol through the **LS**, then edit its **semantic references**.
-  Never fired from a textual/shape match.
+- **Symbol-anchored** (`rename_symbol`, `move_file`, `extract_symbol`,
+  `change_signature`): the `ts` plugin resolves the symbol through its LS, then computes
+  the semantic reference sites; the op rewrites only those. Never fired from a
+  textual/shape match.
 - **Shape-based** (`codemod`): an **ast-grep** structural pattern (`<X prop={$V}>`).
   Operates on syntactic shape and **never claims to target a symbol** — so it can't
-  accidentally rewrite a same-named unrelated binding.
+  accidentally rewrite a same-named unrelated binding. Implemented at the op level over
+  `support/text-edits`; does not need the `ts` plugin's semantic layer.
 
-> **Resync after our own writes.** On `apply`, `edit` swaps in a new graph version and
-> marks the touched files dirty for the LS — **no locks, no synchronous barrier** (§8). It
-> leans on the
-> same read-time freshness check as everything else (§3.5, §8): the next query `stat()`s
-> what it touches and reindexes if needed, so a double-fire from the watcher (seeing our
-> own writes) or a missed event is **self-correcting**, not a stale window to defend.
+> **Resync after our own writes.** On `apply`, the mutating op writes through the `ts`
+> plugin's VFS, which marks touched files dirty for the LS — **no locks, no synchronous
+> barrier** (§8). It leans on the same read-time freshness check as everything else
+> (§3.5, §8): the next op `stat()`s what it touches and the relevant plugin reindexes if
+> needed, so a double-fire from the watcher (seeing our own writes) or a missed event is
+> **self-correcting**, not a stale window to defend.
 
 ---
 
-## 8. Index lifecycle, watcher, freshness
+## 8. Plugin lifecycle, watcher, freshness
 
 > **The read path is the source of correctness; the watcher is an optimization** (§3.5).
-> A query first takes a **repo-global** change fingerprint — `git rev-parse HEAD` +
-> `git status --porcelain`, with a file-mtime stat-walk as the non-git fallback — against the
-> version the index recorded. Being repo-global, it catches a file the answer _omitted_
-> but shouldn't have (a watcher-missed add), not just files it touched. Drift → reindex the
-> changed set from `git diff --name-only` (usually small: cheap) or, if that blows the
-> latency budget (huge change, cold tier), return the answer with a `FreshnessNote`. Either
-> way, never silent-stale. A fingerprint, **not** a per-file locking scheme.
+> Every op takes a **repo-global** change fingerprint at entry — `git rev-parse HEAD` +
+> `git status --porcelain`, with a file-mtime stat-walk as the non-git fallback — and asks
+> each plugin it touches: "are you current?" Being repo-global, it catches a file the
+> answer _omitted_ but shouldn't have (a watcher-missed add), not just files it touched.
+> Drift → the affected plugins reindex the changed set from `git diff --name-only`
+> (usually small: cheap), or the op returns its answer with a `FreshnessNote`. Either way,
+> never silent-stale. A fingerprint, **not** a per-file locking scheme.
 
-- **Watcher** (debounced, optimization) → re-parse changed files (syntactic tier, cheap)
-  → patch the graph → mark touched files dirty. It keeps the read path usually-fresh so
-  the on-read check is normally a no-op; when it misses events, the on-read check covers us.
-- **Semantic tier is lazy:** dirty files are recomputed on the next query that needs
-  them, not eagerly. The LS is told which files changed; it reuses everything else.
-- **Warm-start:** on daemon boot, load the snapshot, diff against the FS by mtime/hash,
-  reindex only what changed. The snapshot is also re-validated on read, so one taken
-  from a since-changed tree is caught, not trusted.
-- **Concurrency.** The unit of isolation is the **workspace engine**. In `process` mode
-  each runs in its own process → real **cross-workspace parallelism** and a non-blocking
-  orchestrator. Within one workspace the engine is single-threaded and **serializes its own
-  requests** (the TS LS is synchronous and non-reentrant anyway), so a cheap `search` may
-  wait behind that workspace's heavy `trace` — acceptable: one agent rarely double-fires the
-  same repo, and other workspaces are untouched. Inside the engine the graph is **immutable**,
-  and the mechanism is deliberately simple: a **reader pins the version on request entry**
-  (captures the `Graph` reference once and reads only from it, never re-reading `current`
-  across an `await`), so a watcher swap mid-request can't tear its view. A **writer**
-  (re-index, `edit`) does a **synchronous** build-and-swap of the single `current` pointer —
-  atomic in one-threaded Node, bumping `indexVersion` — so writes never interleave (no
-  write-lock) and never block readers; the old version is GC'd once its last reader finishes.
-  The `readonly` graph types ([`src/core/graph.ts`](src/core/graph.ts)) are compile-time only;
-  the runtime guarantee is **build-new-never-mutate-old**, with the `GraphStore` seam keeping
-  the maps off consumers — so no `Object.freeze` is needed.
-- **The orchestrator never blocks.** Many agents share one front door; it only routes, so a
-  heavy call in one workspace cannot freeze the others (in `process` mode it is a different
-  process entirely). Verbs are `Promise`-returning by contract precisely so a host call —
-  a direct in-process call, or an IPC round-trip — is transparent. (`in-process` mode
-  collapses everything onto one loop and one heap: a heavy call _does_ block there — the
-  accepted price of a trivially debuggable dev default; `process` mode restores isolation.)
+- **Per-plugin freshness.** Each plugin exposes `freshness(): FreshnessFingerprint` and
+  decides what counts as "current" for its domain (e.g. `ts` plugin fingerprints
+  tracked-file size+mtime+hash-on-tie; `scss` fingerprints the same for its glob; `i18n`
+  fingerprints the locale-JSON file set). The op-entry guard composes the relevant
+  plugins' fingerprints; on drift, the **plugins themselves** drive their reindex —
+  there is no central reindex coordinator.
+- **Watcher** (chokidar behind an injectable seam, debounced, optimization) → reports
+  changed paths to subscribed plugins → each plugin patches its own internal state. The
+  watcher keeps the read path usually-fresh so the on-read check is normally a no-op;
+  when it misses events (large change, `git checkout`, watcher OS errors), the on-read
+  check covers us.
+- **Each plugin is in-memory only.** No disk persistence of plugin state. Cold start at
+  every engine spawn is intentional: the worktree-spam agent workflow makes persistence
+  net-negative (write garbage that the next worktree never reads — see §18 +
+  `docs/wishlist.md` for opt-in disk persistence considerations).
+- **Semantic-tier laziness inside the `ts` plugin.** Dirty files are recomputed on the
+  next op that needs their types, not eagerly. The LS is told which files changed; it
+  reuses everything else.
+- **Concurrency. The unit of isolation is the workspace engine.** In `process` mode each
+  runs in its own process → real cross-workspace parallelism and a non-blocking
+  orchestrator. Within one workspace the engine is single-threaded and **serializes its
+  own requests** (the TS LS is synchronous and non-reentrant anyway), so a cheap
+  `find_definition` may wait behind that workspace's heavy `trace` — acceptable: one agent
+  rarely double-fires the same repo, and other workspaces are untouched.
+- **Per-plugin immutability is plugin-private.** Each plugin chooses whether its internal
+  state is immutable + atomic-swap, or mutated in place between requests. The hard rule
+  is only: a plugin must not tear a reader's view mid-call. The simplest pattern — same
+  as before — is **build-new-never-mutate-old**: a reader captures the plugin's current
+  state reference at request entry and reads only from it; a writer (reindex, mutating
+  op) builds a new state and swaps the pointer synchronously. Whether the plugin uses
+  copy-on-write per file, an internal graph, or typed arrays is its choice.
+- **The orchestrator never blocks.** Many agents share one front door; it only routes,
+  so a heavy call in one workspace cannot freeze the others (in `process` mode it is a
+  different process entirely). Ops are `Promise`-returning by contract precisely so a host
+  call — a direct in-process call, or an IPC round-trip — is transparent. (`in-process`
+  mode collapses everything onto one loop and one heap: a heavy call _does_ block there —
+  the accepted price of a trivially debuggable dev default; `process` mode restores
+  isolation.)
 
 ---
 
 ## 9. Memory & lifecycle
 
 > **Decision (the dominant operational risk).** A live LS over 50k files is gigabytes of
-> RAM and a slow warm; co-locating the graph with it (so queries don't serialize) makes the
-> whole **workspace engine** the heavy thing. Cold start in minutes is acceptable; OOM is
-> not — so each engine is isolated and killable, and that is how memory stays bounded.
+> RAM and a slow warm; the `ts` plugin owning it makes the whole **workspace engine** the
+> heavy thing. Cold start in tens of seconds is acceptable; OOM is not — so each engine is
+> isolated and killable, and that is how memory stays bounded.
 
 - **Lazy spin-up** — a workspace engine is created on the first request for that repo
-  (via its `ProjectHost`, §2); its LS warms lazily within it, on the first _semantic_ query.
+  (via its `ProjectHost`, §2); each plugin warms on its own first-touch (the `ts` plugin's
+  LS warms lazily on the first _semantic_ op; `scss`/`i18n`/`schema`/adapters initialize
+  on first relevant op or eagerly in their `init()`, plugin's choice).
 - **Idle-TTL eviction** — after `daemon.idleEvictionMinutes` with no requests, the
-  orchestrator **disposes the host**: in `process` mode that kills the child process and the
-  OS reclaims **everything** (graph + LS) at once; in `in-process` mode it drops references
-  for GC. A later request re-spawns and re-warms (snapshot warm-start + `.tsbuildinfo` keep
-  that cheap).
+  orchestrator **disposes the engine**: in `process` mode that kills the child process and
+  the OS reclaims everything (plugin states + LS) at once; in `in-process` mode it drops
+  references for GC. A later request re-spawns and pays a fresh cold start. There is no
+  warm-start snapshot.
+- **Path-existence sweeper** — a separate eviction trigger from idle TTL. Worktrees come
+  and go (`git worktree remove`), and an engine whose `repoRoot` no longer exists on disk
+  must be disposed even if no request has come for it. The orchestrator periodically
+  `stat()`s each engine's `repoRoot` (and `.git`); if either is gone, dispose immediately
+  (don't wait for idle TTL). On routing entry, a pre-flight `stat()` of the target's
+  `repoRoot` covers the case where an agent calls into a deleted worktree.
 - **Memory governor** — the orchestrator knows every workspace process and its RSS, so it
   evicts the LRU workspace when the total crosses a machine budget, protecting the user's
   box. (Meaningful in `process` mode.)
-- **Monorepo = one engine, not one-per-package** — a single workspace process whose TS layer
-  runs one `Program` per package `tsconfig` wired by **project-reference redirects** (what
-  `tsserver` does), so each package keeps its own `compilerOptions` and cross-package
-  references resolve in-memory — a flat single-options Program would be a lie (§19). Its heap
-  is inherently large — tamed by a per-process `--max-old-space-size`, the memory governor,
-  OS-reclaim-on-kill, and (if it ever bites) an off-heap `GraphStore` (§5-L2).
+- **Monorepo = one engine, not one-per-package** — a single workspace process whose `ts`
+  plugin runs one `Program` per package `tsconfig` wired by **project-reference
+  redirects** (what `tsserver` does), so each package keeps its own `compilerOptions` and
+  cross-package references resolve in-memory — a flat single-options Program would be a
+  lie (§19). Its heap is inherently large — tamed by a per-process `--max-old-space-size`,
+  the memory governor, OS-reclaim-on-kill.
 
 ---
 
@@ -409,15 +527,17 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 `codemaster.config.ts` ([example](examples/codemaster.config.example.ts)), typed via
 `defineConfig` so autocomplete _is_ the documentation. Intentionally **fat** — every
 codebase has its own conventions — but every **section** is optional; enabling one may
-require its key fields (`i18n` needs `locales`, `schema` needs `entrypoint`). Sections:
-`index` (globs/ignore/packages/tsconfig), `i18n` (locales,
-function names, template-literal handling), `scss` (module globs, import style),
-`schema` (entrypoint, generator), `adapters` (which to enable), `output` (verbosity,
-limits), `daemon` (idle eviction), `debug` (trace namespaces, log cap). The file is
-loaded and **validated with zod** — an unknown key or wrong type fails fast with a
-pointed message, not a deep crash. With no config at all it still works: defaults honor
-`.gitignore` (nested + `!` negation), and always skip `node_modules`/`dist`/`build`/`.next`
-and files > 1 MB. See [`src/config/config.ts`](src/config/config.ts).
+require its key fields (`i18n` needs `locales`, `schema` needs `entrypoint`). Sections
+are **per-plugin**, plus a few engine-wide ones:
+`ts` (globs/ignore/packages/tsconfig override), `i18n` (locales, function names,
+template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
+generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
+(verbosity, limits), `daemon` (idle eviction, path-existence sweep interval), `debug`
+(trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
+key or wrong type fails fast with a pointed message, not a deep crash. With no config at
+all it still works: defaults honor `.gitignore` (nested + `!` negation), and always skip
+`node_modules`/`dist`/`build`/`.next` and files > 1 MB. See
+[`src/config/config.ts`](src/config/config.ts).
 
 ---
 
@@ -425,24 +545,33 @@ and files > 1 MB. See [`src/config/config.ts`](src/config/config.ts).
 
 > **Decision.** Every tool schema + its examples is loaded into the agent's context
 > **every session, forever** — a fixed token tax that can cost more than the greps it
-> saves. So the surface stays small:
+> saves. So the surface is exactly three tools, period:
 
-- The **six verbs** (`search`, `resolve`, `refs`, `trace`, `list`, `edit`).
-- **`batch`** — one tool carrying a list of requests (any mix of the six verbs); results
-  come back in order, all reads sharing one consistent graph version. Saves an agent that
-  already knows what it needs N round-trips.
-- **`status`** — the first-contact manifest: active adapters, index counts, freshness,
-  and a terse cheat-sheet of available recipes for _this_ repo. Teaches recipes
-  **dynamically**, so they cost zero standing context.
-- **`recipe`** — a single dispatcher tool taking a recipe `name` (enum) + args, instead
-  of N fat recipe tools.
-- A _small, deliberately chosen_ set of recipes (e.g. `component_card`) may be promoted
-  to top-level tools if their value justifies the standing-context cost.
+- **`op({ name, args, ...flags })`** — the single dispatcher. `name` is an enum of
+  available ops in _this_ repo (the set depends on which plugins are active);
+  `args` is op-specific; `flags` carry op-shape modifiers like `apply: true|false` for
+  mutating ops, `verbosity: 'terse'|'normal'|'full'`, `fields: [...]`, `format:
+'text'|'json'`, etc. (§12). There are no individual MCP tools per op — that would scale
+  the token tax linearly with the op catalogue.
+- **`status()`** — the first-contact manifest. Lists active plugins (with their
+  versions/freshness fingerprints), the op catalogue for _this_ repo (op names + one-line
+  what-it-does + args schema), available debug namespaces (§13), and a steer toward
+  codemaster vs grep. Teaches the op catalogue **dynamically**, so ops cost zero standing
+  context — only `op`/`status`/`batch` do.
+- **`batch(requests)`** — one tool carrying a list of op invocations; results come back
+  in order. Reads run against per-plugin freshness checked once at batch entry, so all
+  ops in the batch see a consistent view per plugin (each plugin pins its state at
+  batch entry; there is no single global version across all plugins).
 
-Usage guidance ships in the MCP `initialize` response — **not** an instructions file bolted
-into `CLAUDE.md`/`AGENTS.md` — and it steers the agent to **query codemaster directly
-rather than delegate to file-reading sub-agents** (the index already did that work; a
-sub-agent grep/read loop just repeats it). `status` carries the same steer per repo.
+There are no first-class MCP tools per op (no top-level `find_usages` / `rename_symbol`
+tool exposed to the agent). Every op is dispatched through `op`; the catalogue is
+discovered through `status`.
+
+Usage guidance ships in the MCP `initialize` response — **not** an instructions file
+bolted into `CLAUDE.md`/`AGENTS.md` — and it steers the agent to **query codemaster
+directly rather than delegate to file-reading sub-agents** (the plugins already did that
+work; a sub-agent grep/read loop just repeats it). `status` carries the same steer per
+repo, plus the per-repo op catalogue.
 
 ---
 
@@ -457,7 +586,8 @@ one-line legend + sectioned summary). Rules:
   token cost.
 - `format=json` for machine composition (agent feeding one call into another).
 - The default text mode carries the proof spans compactly; `terse` may elide span
-  text and keep only `file:line` (the agent can re-`resolve` for the full span).
+  text and keep only `file:line` (the agent can re-fetch via `expand_type` or
+  `find_definition` for the full span).
 - **Size to the answer, not the file count:** when several results are interchangeable
   (near-duplicate implementations), show one in full and collapse the rest to signatures.
 
@@ -469,12 +599,14 @@ Codemaster will mostly be _built and maintained by agents_. They need to see ins
 richly, but compactly (debug output spends tokens too).
 
 - **Namespaced traces, `debug`-library style.** Each subsystem logs under a namespace:
-  `ipc`, `daemon`, `repo`, `watcher`, `index:structural|scss|i18n|schema`, `graph`,
-  `ls` (lifecycle), `ls:resolve`, `ls:refs`, `adapter:<name>`, `primitive:<verb>`,
-  `edit:plan`, `edit:apply`, `resync`, `eviction`, `snapshot`, `format`, `mcp`. Enabled
-  by `CODEMASTER_DEBUG=ls:*,watcher,-eviction` (wildcards, `-` excludes), a config
-  `debug` field, or **hot-toggled at runtime** over CLI/IPC (`codemaster debug ls:* on`)
-  — the daemon lives, so you flip tracing on, reproduce, grep, flip off, no restart.
+  `ipc`, `daemon`, `repo`, `watcher`, `plugin:<id>` (e.g. `plugin:ts`, `plugin:scss`,
+  `plugin:i18n`, `plugin:schema`, `plugin:react-query`, …), `plugin:ts:ls` (LS
+  lifecycle), `plugin:ts:resolve`, `plugin:ts:refs`, `op:<name>` (e.g. `op:find_usages`,
+  `op:rename_symbol`), `edit:plan`, `edit:apply`, `resync`, `eviction`, `format`, `mcp`.
+  Enabled by `CODEMASTER_DEBUG=plugin:ts:*,watcher,-eviction` (wildcards, `-` excludes),
+  a config `debug` field, or **hot-toggled at runtime** over CLI/IPC
+  (`codemaster debug plugin:ts:* on`) — the daemon lives, so you flip tracing on,
+  reproduce, grep, flip off, no restart.
 
 - **Correlation id via `AsyncLocalStorage`.** Every line is auto-tagged with the
   request's `req#N`, threaded through async hops by ALS — _not_ passed through every
@@ -484,8 +616,8 @@ richly, but compactly (debug output spends tokens too).
 - **One compact, greppable line per event:**
 
   ```
-  12:00:01.234 req#42 primitive:search mode=symbol q=Button hits=1 3ms
-  12:00:01.235 req#42 ls:resolve Button@src/Button.tsx:1 cache=miss 12ms
+  12:00:01.234 req#42 op:search_symbol q=Button hits=1 3ms
+  12:00:01.235 req#42 plugin:ts:resolve Button@src/Button.tsx:1 cache=miss 12ms
   12:00:01.236 req#42 resync touched=[src/a.ts] action=mark-dirty
   ```
 
@@ -511,18 +643,20 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 
 ## 14. Dependencies
 
-- **`typescript`** — resolved from the target project (bundled fallback). LS + checker
-  for both tiers.
-- **`@ast-grep/napi`** — syntactic structural match/rewrite for shape-based codemods
-  and JSX-shape `search`.
-- **`postcss` + `postcss-scss`** — SCSS module analysis.
-- **`diff`** — unified diffs for edit previews.
-- **`chokidar`** — debounced file watching.
+- **`typescript`** — resolved from the target project (bundled fallback). Used by the
+  `ts` plugin for AST + LS.
+- **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
+- **`postcss` + `postcss-scss`** — used by the `scss` plugin.
+- **`diff`** — unified diffs for mutating-op previews.
+- **`chokidar`** — debounced file watching (behind an injectable seam for tests).
 - **`@modelcontextprotocol/sdk`** — the MCP facade.
 - **`zod`** — runtime validation at the boundaries where serialized/external data enters:
-  config load, MCP tool args + edit recipes, IPC messages, snapshot envelope. Internal
-  typed data is trusted — only the edges are guarded.
-- **(ported) `front-renamer`** — L0 foundation + structural-refactor recipes.
+  config load, MCP `op` args, IPC messages. Internal typed data is trusted — only the
+  edges are guarded.
+- **(ported) `front-renamer`** — symbol-anchored refactor engine (the project's prior art
+  for safe edits over a VFS-backed LS). The relevant code is **vendored** inside
+  `plugins/ts/refactor/`; codemaster does **not** depend on the `front-renamer` npm
+  package at runtime.
 
 No `ts-morph` (raw compiler API, as in `front-renamer`). No tree-sitter (§4).
 
@@ -540,31 +674,40 @@ codemaster/
   src/
     README.md                # module map & dependency contract (imports flow downward)
     bin.ts                   # CLI / entry → daemon or MCP
-    core/
-      brands.ts              # branded primitives: RepoRelPath, Glob, RepoId, NodeId, versions
-      json.ts                # JsonValue — open bags are JSON, never `unknown`
-      span.ts                # Loc, Span, Confidence, Provenance — proof primitives (leaf)
-      result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure, Result)
-      ids.ts                 # SymbolId (per-file-version) + proof-carrying rebind
-      graph.ts               # immutable, discriminated node/edge model (structure only)
-      adapter.ts             # Adapter + AdapterRegistry seam (§5 L1.5)
+    index.ts                 # public re-export barrel (programmatic API, defineConfig)
+    core/                    # L0 — leaf, types only
+      brands.ts              # branded primitives: RepoRelPath, Glob, RepoId, FileVersion
+      json.ts                # JsonValue — closed shape, never `unknown`
+      span.ts                # Loc, Span, Confidence, Provenance — proof primitives
+      result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure)
+      ids.ts                 # SymbolId (plugin-routed) + proof-carrying rebind
+      plugin.ts              # Plugin interface + PluginRegistry (the DAG manifest)
       debug.ts               # namespaced tracing, AsyncLocalStorage req#N (§13)
     config/
       config.ts              # CodemasterConfig + defineConfig
-    foundation/              # ported front-renamer: vfs, ts-host, module-resolve,
-                             #   text-edits, git, prettier
-    index/                   # store.ts (GraphStore — backend hidden), snapshot, freshness, watcher
-    indexers/
-      structural/  scss/  i18n/  schema/
-    adapters/                # tanstack-router, react-query, zustand, ... (plugins)
-    semantic/                # live LS query layer (resolve / refs / assignability)
-    primitives/
-      contracts.ts           # the six verb interfaces
-      search.ts resolve.ts refs.ts trace.ts list.ts edit.ts
-    refactor/                # ported front-renamer engine + ast-grep codemod engine
-    recipes/                 # component_card, feature_map, ... (compose primitives)
-    mcp/                     # MCP facade, self-describing tool defs, recipe dispatcher
-    daemon/                  # orchestrator: front door, routing, lifecycle, governor + host.ts
+    support/                 # L1 — non-domain utilities used by plugins + ops
+      git.ts                 # repo root, dirty gate, HEAD+porcelain fingerprint
+      prettier.ts            # wrap project prettier
+      text-edits.ts          # span-based edits, atomic apply, conflict detection
+      fs.ts                  # glob + .gitignore file walking
+    plugins/                 # L2 — the only domain layer
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts
+      scss/                  # SCSS classes & usages (postcss-scss CST)
+      i18n/                  # locale-JSON keys + t('…') usages
+      schema/                # schema.d.ts → endpoint cards
+      react/                 # framework plugin (deps: ts) — components/hooks/conventions
+      react-query/           # framework plugin (deps: ts) — mutations/queries/invalidates
+      tanstack-router/       # framework plugin (deps: ts) — routes
+      zustand/               # framework plugin (deps: ts) — stores
+    ops/                     # L3 — public, named, parameterized ops (compose plugins)
+      contracts.ts           # OpDef, OpRequest, OpResult — the dispatch shape
+      find-definition.ts  find-usages.ts  expand-type.ts  assignability.ts
+      list.ts  trace.ts
+      rename-symbol.ts  move-file.ts  codemod.ts
+      find-unused-scss-classes.ts  find-unused-i18n-keys.ts
+      component-card.ts  impact.ts  affected.ts  …
+    mcp/                     # L5 — MCP facade: op + status + batch + dispatcher
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
     format/                  # dense formatter, codes, json mode
   test/
     README.md                # test layout (strategy in §16)
@@ -589,11 +732,13 @@ codemaster/
 Because "never lie" is the product, **every test needs an independent oracle** —
 fixtures are only inputs; the comparison to ground truth is the test.
 
-**Oracles.** `search --text` → ripgrep (we must be a superset). `resolve`/types →
-a fresh-from-cold `ts.Program`. `refs` → the LS itself, compared **cold-rebuild vs
-warm-daemon** (validating `refs` against `findReferences` when `refs` _is_
-`findReferences` is circular — see the invariants below). `edit` → `git`
-(byte-exact rollback) + `tsc --noEmit` on the result. Format → golden snapshots.
+**Oracles.** `expand_type` / `assignability` → a fresh-from-cold `ts.Program`.
+`find_usages` → the LS itself, compared **cold-rebuild vs warm-daemon** (validating
+`find_usages` against `findReferences` when `find_usages` _is_ `findReferences` is
+circular — see the invariants below). Mutating ops → `git` (byte-exact rollback) +
+`tsc --noEmit` on the result. Non-TS plugins (`scss`/`i18n`/`schema`) → cold reparse of
+the relevant files. Format → golden snapshots. Text grep is **not** a codemaster op —
+agents call ripgrep directly — so there is no "text search ⊇ ripgrep" invariant.
 
 **Fixtures — mostly no folders.** The engine runs on a VFS, so most "projects" are
 mounted from an in-memory map and run the full pipeline hermetically, in milliseconds,
@@ -606,44 +751,46 @@ const p = project({
   'src/Button.tsx': 'export const Button = (x:{size:string}) => <button>{x.size}</button>;',
   'src/App.tsx': 'import {Button as B} from \'./Button\'; export const App = () => <B size="lg"/>;',
 });
-// refs must include the aliased <B/> usage — grep would miss it:
-assertRefs(await p.refs('Button@src/Button.tsx'), ['src/Button.tsx', 'src/App.tsx']);
+// find_usages must include the aliased <B/> usage — grep would miss it:
+const r = await p.op('find_usages', { target: 'ts:Button@src/Button.tsx:v1' });
+assertFiles(r, ['src/Button.tsx', 'src/App.tsx']);
 ```
 
 Committed **repo folders** (`test/fixtures/repos/`) are reserved for realistic cases —
-monorepo, large graphs, MCP end-to-end — and deliberately cover the traps the tool must
-not lie about: aliased imports / re-exports / barrels, type-only imports, JSX with
+monorepo, large projects, MCP end-to-end — and deliberately cover the traps the tool
+must not lie about: aliased imports / re-exports / barrels, type-only imports, JSX with
 literal/spread/computed props, **same-named symbols in different scopes**, dynamic
-dispatch (must flag `dynamic`/`partial`), cross-package refs, compound/nested/orphan
+dispatch (must flag `dynamic`/`partial`), cross-package usages, compound/nested/orphan
 SCSS classes, template-literal i18n keys.
 
-**`refs ⊇ grep` does not hold** — semantic refs and textual matches are different sets,
-neither a superset (grep hits comments, strings, `obj.Foo` on an unrelated type, `FooBar`
-without a word boundary; the LS catches `import {Foo as F}` … `<F/>` that grep misses).
-The harness rests on invariants that do:
+**`find_usages ⊇ grep` does not hold** — semantic refs and textual matches are different
+sets, neither a superset (grep hits comments, strings, `obj.Foo` on an unrelated type,
+`FooBar` without a word boundary; the LS catches `import {Foo as F}` … `<F/>` that grep
+misses). The harness rests on invariants that do:
 
-1. **`search --text` ⊇ ripgrep** — by construction. Property-tested.
-2. **Structural ⟷ semantic agreement** _(load-bearing)_ — where the
-   `ts.createSourceFile` index and the LS overlap (a JSX usage, a symbol def), they
-   **must agree**. Disagreement = the exact lie we forbid; fails CI loudly.
-3. **Proof-span validity** — every emitted `Span.text` equals the live source at its
+1. **Proof-span validity** — every emitted `Span.text` equals the live source at its
    range (the 1-based `Loc` ↔ 0-based TS-offset boundary is the usual culprit). A drifted
-   span is a lie; asserted on every fixture query.
-4. **Freshness honesty** _(guards the §3.5 / §8 read-time backstop — the highest-value
-   scenario)_ — with the watcher silenced: mutate a file; **add** a file a find-all answer
-   should include (e.g. a new `<Button/>` user); and `git checkout` another branch. After
-   each, query: the answer must be reindexed-correct or carry a `FreshnessNote`, **never**
+   span is a lie; asserted on every fixture query of every plugin.
+2. **Per-plugin freshness honesty** _(guards the §3.5 / §8 read-time backstop)_ —
+   with the watcher silenced: mutate a file; **add** a file a find-all answer should
+   include (e.g. a new `<Button/>` user); and `git checkout` another branch. After each,
+   query: the answer must be reindexed-correct or carry a `FreshnessNote`, **never**
    silent-stale — including the _omitted-file_ case (a result missing an entry it should
-   have had), which an answer-scoped check would miss.
-5. **`cold == warm`** — for any state reached by a sequence of edits/mutations, the warm
-   daemon's answer equals a cold-booted daemon's on the same files. Cheap regression
-   insurance against incremental-index drift (not a defended microsecond invariant).
-6. **Edit safety** — dry-run leaves `git status` clean; `diff(dry-run) == diff(apply)`;
+   have had), which an answer-scoped check would miss. Tested per plugin.
+3. **Per-plugin `cold == warm`** — for any state reached by a sequence of edits, an op
+   asked against the warm daemon's plugin returns the same result as the same op asked
+   against a cold-booted daemon's same plugin. This invariant guards per-plugin
+   incremental-update drift (each plugin maintains its own state independently).
+4. **Edit safety** — dry-run leaves `git status` clean; `diff(dry-run) == diff(apply)`;
    post-apply `tsc` clean; rollback restores byte-exact prior state.
-7. **`refs` golden** — pinned against the LS on fixtures (regression net, not a
-   correctness proof).
-8. **Format golden** — dense-output stability. **Never the only assertion** for a
+5. **Op golden against oracle** — `find_usages` pinned against cold LS on fixtures;
+   `find_unused_scss_classes` pinned against cold reparse; etc. (regression net, not a
+   correctness proof — paired with the oracle).
+6. **Format golden** — dense-output stability. **Never the only assertion** for a
    correctness claim; always paired with an oracle.
+7. **Plugin DAG honesty** — the `PluginRegistry` refuses cyclic deps at init; tested by
+   feeding it a small cyclic DAG and asserting the failure shape (an op-time crash would
+   be lying about plugin capability).
 
 **Determinism (an architecture requirement).** Scenario tests must not `sleep`. The
 daemon takes injectable seams: a `clock` (no `Date.now`), a `watcher` interface (tests
@@ -654,78 +801,105 @@ test.
 **Tooling:** `node:test` + `node:assert`, no heavy framework — matching the project's
 lean-deps stance. **Pyramid:** unit (inline-VFS) · differential (oracle-backed, the
 invariants above) · integration scenarios (`*.scenario.ts`) · edit-safety (git-backed) ·
-golden · MCP end-to-end. CI gates hardest on invariants 1–6.
+golden · MCP end-to-end. CI gates hardest on invariants 1–5 (proof-span validity,
+per-plugin freshness, cold == warm, edit safety, op-vs-oracle); format and DAG honesty
+are infrastructure guards, not correctness ones.
 
 ---
 
 ## 17. MVP roadmap
 
-- **Phase 0 — Foundation.** Daemon + IPC + MCP facade + repo resolution; port L0 from
-  `front-renamer`; structural indexer + watcher + read-time freshness backstop (§3.5/§8)
-  - in-memory graph + snapshot; `status`; output formatter; debug subsystem (§13);
-    honesty harness skeleton (§16).
-- **Phase 1 — `search`** (A). Symbol/text/JSX with filters; stable `SymbolId`.
-- **Phase 2 — `resolve` + `refs`** (B). Live LS query layer; assignability; the
-  structural⟷semantic agreement test goes green.
-- **Phase 3 — structural `edit`** (E). Port `front-renamer` engine behind `edit`;
-  dry-run/apply; resync ownership (§7).
-- **Phase 4 — recipes** (L4). `component_card`, `find_unused_props`, `impact` (type-aware
-  blast radius), etc. — pure composition, big token wins, no new capability.
-- **Phase 5 — i18n + scss** (C/D) indexers + their recipes.
-- **Phase 6 — adapters + `list`** (G) and **git recipes** (I) incl. `affected` (changed
-  files → tests).
-- **Phase 7 — shape codemods** (F). ast-grep engine + declarative recipes.
-- **Phase 8 — `trace` data-flow** (H). The hardest; stands on everything above;
-  heavily proof-carrying and `partial`/`dynamic`-marked.
+The build is **plugin-incremental**: each phase adds one plugin (with its ops) and the
+project gets useful capability immediately. There is no upfront "build the graph first"
+phase — there is no graph.
+
+- **Phase 0 — Foundation.** Daemon + IPC + MCP facade (`op` + `status` + `batch`
+  dispatcher); repo resolution; orchestrator with engine lifecycle (lazy spin-up, idle
+  TTL, path-existence sweeper §9); `core/plugin.ts` `Plugin` interface + `PluginRegistry`
+  with DAG validation; `support/` (git/prettier/text-edits/fs); read-time freshness
+  backstop (§3.5/§8); injectable watcher seam; output formatter (§12); debug subsystem
+  (§13); honesty harness skeleton (§16). **No plugin yet** — Phase 0 exit is "daemon
+  responds to `status` round-trips through MCP".
+- **Phase 1 — `ts` plugin (the heavy one).** VFS, long-lived LS (lazy warm),
+  module-resolve. Ops: `find_definition`, `find_usages`, `expand_type`, `assignability`,
+  `search_symbol`. Per-plugin freshness (file fingerprints); per-plugin invariants
+  (§16): `find_usages` vs cold LS, proof-span validity. The plugin-DAG bottom is in.
+- **Phase 2 — mutating ops on `ts` plugin.** `rename_symbol`, `move_file`,
+  `extract_symbol`, `change_signature` (symbol-anchored via LS); `codemod` (shape-based
+  via ast-grep). Dry-run by default, explicit `apply` flag (§7); git-aware (dirty gate,
+  rollback); resync (§7) — the next op's read-time freshness check picks up our own
+  writes, no special coupling.
+- **Phase 3 — `scss` + `i18n` + `schema` plugins** (independent of each other, all
+  depend on `ts` only for cross-tier usage discovery). Ops:
+  `find_unused_scss_classes`, `find_unused_i18n_keys`, `list_endpoints`, `i18n_lookup`,
+  `scss_class_diff` (latter `partial` for `@use` — §19).
+- **Phase 4 — framework plugins** (`react-query`, `tanstack-router`, `zustand`,
+  autodetected + config-gated). Each ships `list` ops for its registry and the cross-tier
+  ops it owns (e.g. `react-query.invalidations_for(mutation)`). Plugin DAG enforcement
+  proves itself at this scale.
+- **Phase 5 — compound ops (token-saver composites).** `component_card`, `feature_map`,
+  `mount_path`, `why_this_line`, `recent_changes`, `changed_since_branch`,
+  `impact` (type-aware blast radius), `affected` (changed files → tests via import
+  graph). Pure compositions of plugins; no new plugin capability.
+- **Phase 6 — `trace` ops.** Control- and data-flow as a recipe over plugins:
+  `trace_invalidation` (mutation → invalidates → consumers), `trace_prop_through_tree`,
+  `trace_field_to_render`. Heavily proof-carrying, per-hop `confidence`/`provenance`;
+  dynamic hops flagged, never silently bridged.
+
+**Done definition per phase** — `npm run fix-and-check` green · oracle-backed tests
+(§16) · docs at present state · no upward import · no file > 300 lines · no blocking the
+orchestrator.
 
 ---
 
 ## 18. Formats & open questions
 
-Wire and on-disk formats are plain, readable JSON: seeing exactly what crosses a channel
-or sits in a snapshot is worth more than saved bytes here. Compact framing is an option
-to reach for later, not a goal.
+Wire formats are plain, readable JSON: seeing exactly what crosses a channel is worth
+more than saved bytes here. Compact framing is an option to reach for later, not a goal.
 
 - **IPC** — newline-delimited JSON.
-- **Snapshots** — JSON, **sharded per source file** (a change rewrites one small shard, not
-  the monolith), flushed lazily — debounced / idle / shutdown, never per change (§5-L2).
-  SQLite is the maturity option if write/read churn ever demands it.
+- **No disk snapshots.** Plugin state is in-memory only; cold start on every engine
+  spawn. See §17 and `docs/wishlist.md` for the rationale and deferred opt-in disk
+  persistence considerations.
 - **i18n template-literal keys** — flagged `dynamic`, never guessed.
 
 Open questions (no answer committed):
 
-- **Recipe promotion** — which recipes, if any, earn a top-level MCP tool vs the `recipe`
-  dispatcher (§11); decided per real usage once recipes exist.
 - **Windows IPC** — unix socket today; named-pipe parity if it's wanted.
+- **Cross-engine plugin state share** — not supported; each engine runs a fresh set of
+  plugins from cold. Plugin internals are opaque (each plugin picks its own storage), so
+  there is no universal serialize/deserialize hook to ride on. See `docs/wishlist.md` for
+  the conditions under which this could change.
 
 ---
 
 ## 19. Platform & runtime — decisions for Phase 0
 
-Where the design meets the OS and Node it must be explicit, because Phase 0 ships the daemon,
-IPC, repo resolution, structural index, and the freshness backstop — the exact surfaces these
-live on. (Surfaced by a runtime-soundness review.)
+Where the design meets the OS and Node it must be explicit, because Phase 0 ships the
+daemon, IPC, repo resolution, the plugin registry + DAG enforcement, and the freshness
+backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness review.)
 
 - **Path canonicalization (`RepoRelPath`)** — one minting chokepoint normalizes: forward
   slashes always; case-fold on case-insensitive volumes (APFS/NTFS — detected, not assumed),
   preserve case on case-sensitive ones; a fixed `realpath` symlink policy (pnpm / workspace
-  symlinks). It is the graph key and part of `SymbolId`, so two spellings of one file must
-  brand to one value, or freshness and `refs`/`rebind` silently misfire (§3.5, §6).
+  symlinks). Every plugin keys its data by `RepoRelPath` and it is part of `SymbolId`, so
+  two spellings of one file must brand to one value, or freshness and `find_usages`/rebind
+  silently misfire (§3.5, §6).
 - **Non-git freshness is best-effort; git is the strong guarantee.** `git status --porcelain`
   handles racy-clean (re-hash on mtime tie); the non-git mtime fallback must copy that — size
   - mtime, treating a file within the FS mtime-resolution window of the recorded stamp as
     dirty (hash-on-tie) — else a same-tick edit is silently missed on coarse FS (HFS+, FAT,
     some network mounts). (§3.5, §8)
-- **Monorepo LS = project references, not a flat Program.** One engine/process, but its TS
-  layer runs one `Program` per package `tsconfig` wired by project-reference redirects (what
-  `tsserver` does), so each package keeps its own `compilerOptions`. (§9; reconciles about-ru §10.)
+- **Monorepo LS = project references, not a flat Program.** One engine/process, but the
+  `ts` plugin runs one `Program` per package `tsconfig` wired by project-reference
+  redirects (what `tsserver` does), so each package keeps its own `compilerOptions`. (§9)
 - **Watcher is best-effort and must degrade, not crash.** chokidar 4 uses per-directory
   `fs.watch` on Linux → `ENOSPC` past `fs.inotify.max_user_watches` on large trees. Catch the
   watcher `error`, fall back to read-time-only freshness (still correct, §3.5), surface it in
   `status`, cap with polling on huge trees.
 - **SCSS analysis is syntactic** (`postcss-scss` — a CST, not a resolved module graph or
   computed values): cross-`@use`/`@forward` orphan checks are `partial`; computed-property
-  work needs real `sass`/dart-sass. (§5-L1, wishlist)
+  work needs real `sass`/dart-sass. (§5-L2, wishlist)
 - **Daemon singleton.** Two concurrent launches converge on one daemon: atomic
   bind-or-connect (or a lockfile), unlink a stale socket after a liveness probe on
   `EADDRINUSE`, loser connects to the winner. (§2)
@@ -734,27 +908,30 @@ live on. (Surfaced by a runtime-soundness review.)
   assertion at bind. Add a `Transport` seam (mirroring `ProjectHost`) so a Windows named-pipe
   impl drops in later. (§2, §18)
 - **`process`-mode child bootstrap.** Specify the child entry script and how it loads the
-  engine when codemaster is global / `npx` (its `__dirname` is not in the project); how it
-  resolves the **project's own TS** (resolve-from-project-root, passed as an arg — §5-L0);
+  engine when codemaster is global / `npx` (its `__dirname` is not in the project); how
+  the `ts` plugin resolves the **project's own TS** (resolve-from-project-root, passed as
+  an arg — §5-L2);
   `--max-old-space-size` set at spawn from the governor budget; orphan-child reaping if the
   orchestrator is `SIGKILL`ed. (§2, §9)
-- **Eviction is graceful.** Idle-TTL and the memory governor evict with `SIGTERM` → drain +
-  flush → `SIGKILL` on timeout, so a normal eviction keeps its warm-start snapshot; hard-kill
-  is the OOM emergency only. (§9)
+- **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
+  evict with `SIGTERM` → drain → `SIGKILL` on timeout; hard-kill is the OOM emergency
+  only. (§9)
 - **No mid-call cancellation.** A synchronous LS call can't be interrupted; an abandoned query
   is dropped only _between_ serialized requests, never mid-call. (§8)
-- **Graph immutability mechanism.** A reader **pins the version on request entry** (never
-  re-reads `current` across an `await`); a writer does a **synchronous** build-and-swap of the
-  single `current` pointer (atomic in one-threaded Node), so writes never interleave; old
-  versions GC when their last reader finishes. The in-memory backend is **copy-on-write per
-  file shard** (a commit is O(changed) in heap, not O(graph)). `readonly` is compile-time
-  only — the runtime guarantee is build-new-never-mutate-old + the `GraphStore` seam hiding
-  the maps; **no `Object.freeze`**. (§8, §5-L2)
+- **Per-plugin tear-free reads.** Plugins choose their internal storage, but the contract
+  is the same: a reader pins the plugin's current state reference at request entry and
+  never re-reads it across an `await`; a writer (reindex, mutating op) does a synchronous
+  build-and-swap of the single `current` pointer (atomic in one-threaded Node), so writes
+  never interleave; old states GC when their last reader finishes. `readonly` is
+  compile-time only — the runtime guarantee is build-new-never-mutate-old; **no
+  `Object.freeze`**. The copy-on-write-per-file-shard pattern remains useful **inside** a
+  plugin (it is the simplest way for the `ts` plugin to keep commits O(changed) in heap),
+  but it is the plugin's choice, not an enforced architecture. (§8)
 - **Editor temp churn.** Atomic-save renames and swap/backup files (`.swp`, `~`, `.tmp`) are
   debounced, rename-over is treated as modify, and editor temp patterns join the default
   ignore set. (§10)
 
-**Forward risk (state now; does not bite TS 6.x).** The semantic tier assumes the project's
-own `typescript` exposes an **in-process, synchronous JS `LanguageService`** (§3.1, §5-L0).
-The native (Go) TypeScript port may not — a project on it would break "drive the project's own
-TS over our VFS host," needing that TS's own server protocol instead.
+**Forward risk (state now; does not bite TS 6.x).** The `ts` plugin assumes the project's
+own `typescript` exposes an **in-process, synchronous JS `LanguageService`** (§3.1, §5-L2).
+The native (Go) TypeScript port may not — a project on it would break "drive the project's
+own TS over our VFS host," needing that TS's own server protocol instead.

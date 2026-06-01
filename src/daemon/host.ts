@@ -1,4 +1,4 @@
-import type { Request, RequestResult } from '../primitives/contracts.js';
+import type { OpRequest, OpResult } from '../ops/contracts.js';
 import type { RepoId } from '../core/brands.js';
 
 // The transport seam that makes the process model **optional** (ARCHITECTURE.md §2).
@@ -13,14 +13,14 @@ import type { RepoId } from '../core/brands.js';
 //                 cross-workspace parallelism, non-blocking orchestrator. For scale.
 //
 // The engine is written once, transport-agnostic; the mode is chosen by
-// `config.daemon.isolation` and never touches engine code. Only small request/result
-// envelopes cross a host boundary — never the AST or the graph.
+// `config.daemon.isolation` and never touches engine code. Only small op request/result
+// envelopes cross a host boundary — never plugin internals.
 
 export interface ProjectHost {
   readonly repoId: RepoId;
-  /** Dispatch a batch of requests to the workspace's engine; resolves in input order.
+  /** Dispatch a batch of op requests to the workspace's engine; resolves in input order.
    *  In-process this is a direct call; process-isolated it is one IPC round-trip. */
-  request(reqs: readonly Request[]): Promise<readonly RequestResult[]>;
+  request(reqs: readonly OpRequest[]): Promise<readonly OpResult[]>;
   /** Tear down — drop references (in-process) or kill the child process (process). */
   dispose(): Promise<void>;
 }

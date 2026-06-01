@@ -2,14 +2,17 @@
 
 **A stateful, always-on codebase inspector for TypeScript/React repos — built for AI agents.**
 
-Codemaster runs as a daemon: it indexes your project, watches the filesystem,
-keeps a TypeScript Language Service warm, and answers structural, semantic, and
-refactor queries through a handful of universal verbs. It exists to stop agents
-from grepping their way through large codebases — handing them dense, semantic,
-**proof-carrying** answers instead.
+Codemaster runs as a daemon: it loads a flat federation of **plugins** (one per
+domain — TS, SCSS, i18n, schema, framework adapters), each with its own internal
+state and a small public API. Agents call **ops** — named, parameterized functions
+that compose plugins — through a single MCP tool. There is no shared graph and no
+disk cache; the plugins live in memory only.
+
+It exists to stop agents from grepping their way through large codebases — handing
+them dense, **proof-carrying** answers instead.
 
 ```
-agent ──MCP tool──▶ facade ──IPC──▶ daemon (index + live TS LS, multi-repo)
+agent ──MCP op──▶ facade ──IPC──▶ daemon (plugins + ops per workspace, multi-repo)
 ```
 
 ## The one rule
@@ -21,26 +24,24 @@ grepping is a tool the agent abandons. So:
 - every fact ships with the exact `file:line` + verbatim source that proves it,
 - uncertainty is explicit (`unresolved` / `partial` / `dynamic`), never silent.
 
-## The six verbs
+## The public surface
 
-| Verb      | Purpose                                                                         |
-| --------- | ------------------------------------------------------------------------------- |
-| `search`  | find symbols / text / JSX by rich filters                                       |
-| `resolve` | expanded type, signature, members, assignability (live TS LS)                   |
-| `refs`    | semantic find-usages, faceted by call/jsx/import/type                           |
-| `trace`   | control- and data-flow (field→render, mutation→invalidation, prop-through-tree) |
-| `list`    | domain registries (routes, mutations, stores, dialogs…) via adapters            |
-| `edit`    | refactors + shape codemods, dry-run-first, git-aware, atomic                    |
+Exactly three MCP tools — the agent's token tax is bounded:
 
-Higher-level "recipes" (`component_card`, `feature_map`, …) are pure compositions
-of these six.
+| Tool                    | Purpose                                                                |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `op({name, args, ...})` | run a named op (`find_usages`, `rename_symbol`, …; per-repo catalogue) |
+| `status()`              | first-contact manifest — active plugins, op catalogue, freshness       |
+| `batch(requests)`       | many ops in one round-trip                                             |
+
+Ops are discovered through `status` — they cost zero standing context, only the
+three tools above do.
 
 ## Status
 
 Early scaffold. The full design lives in **[ARCHITECTURE.md](ARCHITECTURE.md)**;
-the typed contracts in [`src/core`](src/core) and
-[`src/primitives/contracts.ts`](src/primitives/contracts.ts) are the source of
-truth for the shapes. See the MVP roadmap (ARCHITECTURE.md §17) for build order.
+typed contracts in [`src/core`](src/core) are the source of truth for the shapes.
+See the MVP roadmap (ARCHITECTURE.md §17) for build order.
 
 ## License
 

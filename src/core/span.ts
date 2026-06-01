@@ -8,8 +8,8 @@ import type { RepoRelPath } from './brands.js';
  *  clickable `file:line` convention.
  *
  *  The TS compiler is 0-based (offsets, and 0-based line/char from
- *  `getLineAndCharacterOfPosition`). Convert at the foundation boundary, in one place —
- *  never let the two conventions mix, or proof spans drift by one. */
+ *  `getLineAndCharacterOfPosition`). The `ts` plugin converts at its boundary, in one
+ *  place — never let the two conventions mix, or proof spans drift by one. */
 export interface Loc {
   file: RepoRelPath;
   line: number;
@@ -35,9 +35,9 @@ export type Confidence =
 
 /** How a fact or edge was *derived* — orthogonal to `Confidence` (how sure we are). Lets
  *  the agent see whether a relationship is proven by the type system, read off the syntax,
- *  or inferred by an adapter heuristic — and which one. */
+ *  or inferred by a plugin's heuristic — and which one. */
 export interface Provenance {
   kind: 'syntactic' | 'type' | 'heuristic';
-  /** The adapter or heuristic that produced it, when `heuristic` — e.g. 'react-query'. */
+  /** The plugin id whose heuristic produced it, when `heuristic` — e.g. 'react-query'. */
   by?: string;
 }

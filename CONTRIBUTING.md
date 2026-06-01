@@ -34,7 +34,8 @@ debugging and _does_ block there — the dev default, not the contract.)
 ## Layering — hard rules ([src/README.md](src/README.md))
 
 - Imports flow **downward only** — no upward edges, no cycles.
-- `recipes/` compose **only** primitives.
+- `ops/` import **only** `plugins/`, `support/`, `format/`, `core/`.
+- `plugins/` form a strict DAG (`Plugin.deps`); no cycles, no upward imports between plugins.
 - `core/` imports nothing internal.
 
 ## Code hygiene (most of this is enforced by ESLint)
@@ -45,19 +46,19 @@ debugging and _does_ block there — the dev default, not the contract.)
   `undefined` honestly.
 - **Never `console.*`** — stdout is the agent-facing payload; trace through the debug
   subsystem (§13).
-- Exhaustive `switch` over discriminated unions (the graph is full of them).
+- Exhaustive `switch` over discriminated unions (`Confidence`, `HandleRebind`, `OpResult`,
+  and each plugin's own kind enums).
 - Import from specific files; barrels only at module edges. Comments say _why_, not _what_.
 - A recurring semantic `string`/`number` (path, glob, id, version) gets a **brand**
   (`src/core/brands.ts`), not a bare primitive — category errors become compile errors;
   construct/validate it at the boundary, not inline.
-- No `unknown` bags in the domain: discriminate by `kind` so each variant carries typed
-  fields, and type the one unavoidable open bag (adapter extras) as `JsonValue`.
+- No `unknown` bags in the domain: prefer typed fields per variant; when an open shape is
+  truly unavoidable (e.g. a plugin's option bag), type it as `JsonValue`.
 
 ## Boundaries — zod
 
-Everything entering from outside — config load, MCP tool args, edit recipes, IPC messages,
-snapshot envelope — is **zod-validated, fail-fast, with a pointed error**. Trust typed data
-within; guard the edges.
+Everything entering from outside — config load, MCP `op` args, IPC messages — is
+**zod-validated, fail-fast, with a pointed error**. Trust typed data within; guard the edges.
 
 ## Tests (§16)
 
@@ -73,7 +74,7 @@ within; guard the edges.
 Dense, coded, for agents — not humans. Always emit clickable `file:line`. Cap large results
 with an explicit "N more + how to narrow". No silent truncation. For an agent that already
 knows what it needs, prefer one **`batch`** of requests over N round-trips — results return
-in order, against one consistent graph version.
+in order, each touched plugin's freshness captured once at batch entry (§11).
 
 ## Docs
 

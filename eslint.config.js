@@ -56,8 +56,9 @@ export default tseslint.config(
       'no-console': 'error',
 
       // ── Discriminated unions must be handled exhaustively ────────────────────
-      // The graph is full of them (NodeKind, EdgeKind, EditRecipe, Confidence);
-      // a forgotten case when a new kind is added is a silent bug.
+      // The contracts have several (Confidence, HandleRebind, OpResult, plus each
+      // plugin's internal kinds); a forgotten case when a new variant is added is a
+      // silent bug.
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
 
       // ── Cheap, zero-noise hygiene ────────────────────────────────────────────

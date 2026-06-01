@@ -9,8 +9,8 @@
 
 import type { JsonValue } from '../core/json.js';
 
-export interface IndexConfig {
-  /** Globs of source files to index. */
+export interface TsConfig {
+  /** Globs of source files the `ts` plugin tracks. */
   include?: string[];
   ignore?: string[];
   /** Monorepo: explicit package roots, each carrying its own tsconfig. */
@@ -42,7 +42,10 @@ export interface SchemaConfig {
   generator?: 'openapi-typescript' | 'custom';
 }
 
-export type AdapterConfig = string | { name: string; options?: Record<string, JsonValue> };
+/** Framework-plugin selection: either an id (e.g. 'react-query') or an id+options pair.
+ *  Plugins not listed here may still be loaded by autodetection (`package.json` dep
+ *  presence) unless explicitly disabled. */
+export type PluginConfig = string | { id: string; options?: Record<string, JsonValue> };
 
 export interface OutputConfig {
   verbosity?: 'terse' | 'normal' | 'full';
@@ -54,12 +57,15 @@ export interface DaemonConfig {
    *  (one child process per workspace: isolation, own heap, killable, parallel). See
    *  ARCHITECTURE.md §2. */
   isolation?: 'in-process' | 'process';
-  /** Evict an idle workspace after N minutes (memory guard, §9). */
+  /** Evict an idle workspace engine after N minutes (memory guard, §9). */
   idleEvictionMinutes?: number;
+  /** How often (seconds) the orchestrator `stat()`s each engine's `repoRoot` to detect
+   *  vanished worktrees (path-existence eviction, §9). Default ~60. */
+  pathExistenceSweepSeconds?: number;
 }
 
 export interface DebugConfig {
-  /** Namespaces to trace, e.g. ['ls:*', 'watcher', '-eviction']. Off when empty.
+  /** Namespaces to trace, e.g. ['plugin:ts:*', 'watcher', '-eviction']. Off when empty.
    *  Overridden by the CODEMASTER_DEBUG env var and runtime hot-toggle. */
   namespaces?: string[];
   /** Size cap for the rotating debug log, in megabytes. */
@@ -67,12 +73,12 @@ export interface DebugConfig {
 }
 
 export interface CodemasterConfig {
-  index?: IndexConfig;
+  ts?: TsConfig;
   i18n?: I18nConfig;
   scss?: ScssConfig;
   schema?: SchemaConfig;
-  /** Framework adapters to enable; autodetected when omitted. */
-  adapters?: AdapterConfig[];
+  /** Framework plugins to enable; autodetected (by `package.json` dep) when omitted. */
+  plugins?: PluginConfig[];
   output?: OutputConfig;
   daemon?: DaemonConfig;
   debug?: DebugConfig;

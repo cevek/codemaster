@@ -14,11 +14,11 @@ The spec you enforce is the source of truth — read it before judging:
 
 Check the change against these, in priority order:
 
-1. **Layering (hard rules).** Imports flow downward only — flag any upward edge. `recipes/` may import only `primitives`/`format`/`core`. `core/` imports nothing internal. `format/` imports only `core`. Verify every new import against src/README.md's table.
-2. **Module placement.** Is the code in the right layer for its responsibility? A type fact computed in `index/` instead of `semantic/`, framework knowledge leaking out of `adapters/`, a recipe reaching below primitives — all wrong.
-3. **Trust contract (§3).** Type/semantic facts come from the live LS, never a snapshot. Results are proof-carrying (a `Span` with verbatim text). Uncertainty is explicit (`unresolved`/`partial`/`dynamic`). Partial or failed capability is reported, not hidden. Freshness is verified on read (stat / `git HEAD`), not assumed from the watcher.
-4. **Parsing model (§4).** One TS grammar, two depths. No tree-sitter. No ts-morph. No second parser that could disagree with the first.
-5. **Boundaries.** External or serialized input (config, MCP args, edit recipes, IPC, snapshot) is zod-validated at the edge.
+1. **Layering (hard rules).** Imports flow downward only — flag any upward edge. `ops/` may import only `plugins/`/`support/`/`format/`/`core/`. `plugins/` form a strict DAG (declared `deps`); no cycles, no upward imports between plugins. `core/` imports nothing internal. `format/` imports only `core`. Verify every new import against src/README.md's table.
+2. **Module placement.** Is the code in the right layer for its responsibility? A type fact leaking out of `plugins/ts`, a framework concept leaking out of its plugin, an op reaching into a plugin's internals — all wrong. Plugins are opaque to ops; ops are opaque to other ops.
+3. **Trust contract (§3).** Each plugin is the only oracle for its domain and never serves stale. Results are proof-carrying (a `Span` with verbatim text). Uncertainty is explicit (`unresolved`/`partial`/`dynamic`). Partial or failed capability is reported, not hidden. Freshness is verified on read (per-plugin fingerprint), not assumed from the watcher.
+4. **Parsing model (§4).** One parser per domain. The `ts` plugin owns the only TS parser (the LS); no tree-sitter, no ts-morph, no second TS parser that could disagree with the first. Non-TS plugins use their own (postcss-scss, JSON, etc.).
+5. **Boundaries.** External or serialized input (config, MCP `op` args, IPC) is zod-validated at the edge.
 6. **Docs.** A change that alters a decision must update ARCHITECTURE.md — to the present state only (no "previously / now changed"). Cross-references by `§` must resolve.
 7. **Size / SRP.** A file pushing past ~300 lines of real code is a split signal, not a place to raise the cap.
 
