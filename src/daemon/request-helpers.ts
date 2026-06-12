@@ -17,6 +17,30 @@ export function extractFlags(req: OpRequest): OpFlags {
   return flags;
 }
 
+/** Assemble the per-call `FreshnessNote` from the touched plugins' pending state (§3.5).
+ *  Returns `undefined` only when the answer is fully fresh AND nothing was reindexed at
+ *  entry AND no drift-check failure AND no clean commit to anchor — otherwise the note is
+ *  surfaced (a silent reindex-at-entry is the §1.3 lie this guards against). */
+export function buildFreshnessNote(
+  order: readonly Plugin[],
+  reindexed: number,
+  cleanAtCommit: string | undefined,
+  driftFailed: boolean,
+): FreshnessNote | undefined {
+  const pendingTotal = order.reduce((sum, p) => sum + p.pending().length, 0);
+  if (pendingTotal === 0 && reindexed === 0 && !driftFailed && cleanAtCommit === undefined) {
+    return undefined;
+  }
+  const staleFiles = [...new Set(order.flatMap((p) => [...p.pending()]))];
+  return {
+    plugins: order.map((p) => ({ id: p.id, fingerprint: p.freshness() })),
+    pending: pendingTotal,
+    ...(reindexed > 0 ? { reindexed } : {}),
+    ...(staleFiles.length > 0 ? { staleFiles } : {}),
+    ...(cleanAtCommit !== undefined ? { indexedAtCommit: cleanAtCommit } : {}),
+  };
+}
+
 /** The daemon-attached context handed to every op (§ feedback-channel) — built fresh per
  *  call so `nowMs` reflects the injectable clock at op entry. `meta` is the engine's deps
  *  (structurally a superset of the fields named here). */

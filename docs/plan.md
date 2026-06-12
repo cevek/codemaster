@@ -184,7 +184,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] cross-repo: per-request `root` in batch · cross-root sql at the orchestrator ·
       discoverability (concepts/guidance/engines list)
       ([spec-cross-repo-root.md](spec-cross-repo-root.md))
-- [ ] `find_usages text:true` — textual-occurrence overlay, deduped against semantic
+- [x] `find_usages text:true` — textual-occurrence overlay, deduped against semantic
       refs, `unresolved` half stated; `support/text-search/` seam; ARCHITECTURE §16
       present-state rewrite ([spec-text-overlay.md](spec-text-overlay.md))
 - [ ] `i18n` plugin — `ts.parseJsonText` keys with proof spans, `ts.literalCalls`

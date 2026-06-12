@@ -48,6 +48,11 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const confidence = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
     return `${String(v['span'])} · ${String(v['role'])}${confidence}`;
   }
+  // Text-only hit (§ text-overlay): { span(condensed), confidence:'unresolved' } — no role,
+  // because role is an AST concept the text scanner can't claim.
+  if (keys === 'confidence,span') {
+    return `${String(v['span'])} · ${String(v['confidence'])}`;
+  }
   // GroupRow (enclosing rollup): { id, name, file, line, col, kind, count, roles,
   // exported, confidence } — the id already carries name + file:line:col, so terse
   // collapses to one line; the explicit columns exist for relational projection (§3).

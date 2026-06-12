@@ -11,13 +11,14 @@ ops (9):
   find_definition { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — Resolve a symbol to its definition site(s), proof-carrying
     · verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).
     e.g. op {"name":"find_definition","args":{"file":"src/app.ts","line":12,"col":8}}
-  find_usages { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} } — Semantic reference sites of symbol(s); role filter (jsx/call/type/import), rollup to enclosing declaration, path filters
+  find_usages { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} } — Semantic reference sites of symbol(s); role filter (jsx/call/type/import), rollup to enclosing declaration, path filters
     · role = what a ref syntactically IS: jsx (<X/> tags, closing deduped) · call · type · import · reexport (barrel `export {X} from` — never collapsed) · read · write · decl.
     · collapseImports (default true): an import is hidden once its file also has a real usage (count returns as importsCollapsed); import-only files & re-exports always stay. collapseImports:false or role:import to list all. sql-mode keeps every import row.
     · groupBy:'enclosing' rolls refs up to the nearest enclosing declaration ('which components render <X>'), sorted by count; encloser ids chain into other ops.
     · filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.
     · symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.
-    columns: symbol,file,line,col,role,encloser,encloser_id,encloser_kind,encloser_file,is_exported,count,confidence
+    · deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.
+    columns: symbol,file,line,col,role,encloser,encloser_id,encloser_kind,encloser_file,is_exported,count,confidence,provenance
     e.g. op {"name":"find_usages","args":{"symbols":["DialogContent","SheetContent"],"role":"jsx","groupBy":"enclosing","filter":{"pathExclude":["**/ui/**","**/*.test.*"]}}}
   expand_type { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40) } — Resolved type + docs of a symbol, with structural members / constituents (deep, from the live checker)
     · object types list members (name/optional/type, inherited flagged); unions/intersections list constituents; enums list members.

@@ -16,6 +16,7 @@ import { fnv1a64Hex } from '../common/hash/fnv.ts';
 import type { SqlBounds } from './sql-batch.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
+import type { TextScanner } from '../support/text-search/scan.ts';
 import {
   crossRootSql,
   engineOf,
@@ -52,6 +53,8 @@ export interface OrchestratorDeps {
   sqlBounds?: Partial<SqlBounds>;
   /** SQL evaluator factory (§4) — test seam, forwarded to every engine. */
   createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
+  /** Text-scanner factory (§ text-overlay) — test seam, forwarded to every engine. */
+  createTextScanner?: () => TextScanner;
 }
 
 interface EngineSlot {
@@ -244,6 +247,9 @@ export class Orchestrator {
       ...(this.deps.sqlBounds !== undefined ? { sqlBounds: this.deps.sqlBounds } : {}),
       ...(this.deps.createSqlRunner !== undefined
         ? { createSqlRunner: this.deps.createSqlRunner }
+        : {}),
+      ...(this.deps.createTextScanner !== undefined
+        ? { createTextScanner: this.deps.createTextScanner }
         : {}),
     });
     if (!created.ok) return { ok: false, message: created.message };

@@ -10,8 +10,9 @@ import { decodeSymbolId } from '../../common/ids/codec.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
 import { findDefinitions } from './definitions.ts';
-import { findUsages } from './usages.ts';
+import { findUsages, referenceSpans } from './usages.ts';
 import { expandTypeAt } from './type-expand.ts';
+import type { Span } from '../../core/span.ts';
 import type {
   ExpandOptions,
   SymbolView,
@@ -49,6 +50,9 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     options?: ExpandOptions,
   ): { view: TypeView; rebind?: HandleRebind } | string;
+  /** Every semantic reference-site span for a target (all files/roles, unfiltered) — the
+   *  dedup set for the textual overlay (§ text-overlay). */
+  referenceSpans(target: TsTargetInput): { spans: Span[]; rebind?: HandleRebind } | string;
   /** Cross-tier API for the scss plugin (§5-L2). */
   cssModuleUsages(): CssModuleUsages;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
@@ -173,6 +177,13 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       const view = expandTypeAt(warm(), resolved.abs, resolved.offset, options);
       if (view === undefined) return 'no type information at the resolved position';
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
+    referenceSpans(target) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return resolved.message;
+      const spans = referenceSpans(warm(), resolved.abs, resolved.offset) ?? [];
+      return { spans, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),

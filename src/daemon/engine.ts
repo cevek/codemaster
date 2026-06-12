@@ -13,12 +13,18 @@ import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { Clock } from '../common/async/clock.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
+import { createJsScanner, type TextScanner } from '../support/text-search/scan.ts';
 import { runSqlBatch, type SqlBounds } from './sql-batch.ts';
 import { unknownOpMessage } from './dispatch-errors.ts';
 import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
-import { buildDaemonInfo, extractFlags, withBatchFreshness } from './request-helpers.ts';
+import {
+  buildDaemonInfo,
+  buildFreshnessNote,
+  extractFlags,
+  withBatchFreshness,
+} from './request-helpers.ts';
 import { buildWorkspaceStatus } from './workspace-status.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
@@ -46,6 +52,9 @@ export interface EngineDeps {
   sqlBounds?: Partial<SqlBounds>;
   /** SQL evaluator factory (§4). Test seam; defaults to the lazy better-sqlite3 impl. */
   createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
+  /** Text-scanner factory for `find_usages text:true` (§ text-overlay). Test seam;
+   *  defaults to the pure-JS scanner. */
+  createTextScanner?: () => TextScanner;
 }
 
 export interface WorkspaceEngine {
@@ -98,6 +107,7 @@ class Engine implements WorkspaceEngine {
   private cleanAtCommit: string | undefined;
   private readonly sqlBounds: SqlBounds;
   private readonly createSqlRunner: () => ReturnType<typeof createSqliteRunner>;
+  private readonly textScanner: TextScanner;
   /** Single-flight queue: one workspace serializes its own requests (§8). */
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
@@ -115,6 +125,7 @@ class Engine implements WorkspaceEngine {
       maxResultRows: deps.sqlBounds?.maxResultRows ?? DEFAULT_MAX_RESULT_ROWS,
     };
     this.createSqlRunner = deps.createSqlRunner ?? createSqliteRunner;
+    this.textScanner = deps.createTextScanner?.() ?? createJsScanner();
 
     const watcherTrace = deps.debug.ns('watcher');
     this.watcherHandle = deps.watcher.watch(deps.root, {
@@ -177,27 +188,12 @@ class Engine implements WorkspaceEngine {
     // Files the read-time backstop caught drifted and resolved before answering (§1.3).
     const reindexed = drift.changed.length;
     if (reindexed > 0) await this.reindexAll(drift.changed);
-
-    const pendingByPlugin = this.order.map((p) => ({ plugin: p, pending: p.pending() }));
-    const pendingTotal = pendingByPlugin.reduce((sum, e) => sum + e.pending.length, 0);
-    // A reindex-at-entry is reported even on an otherwise-fresh answer, so it must survive
-    // this early-out — a silent reindex is the §1.3 lie this whole field exists to prevent.
-    if (
-      pendingTotal === 0 &&
-      reindexed === 0 &&
-      drift.failure === undefined &&
-      this.cleanAtCommit === undefined
-    ) {
-      return undefined;
-    }
-    const staleFiles = [...new Set(pendingByPlugin.flatMap((e) => [...e.pending]))];
-    return {
-      plugins: this.order.map((p) => ({ id: p.id, fingerprint: p.freshness() })),
-      pending: pendingTotal,
-      ...(reindexed > 0 ? { reindexed } : {}),
-      ...(staleFiles.length > 0 ? { staleFiles } : {}),
-      ...(this.cleanAtCommit !== undefined ? { indexedAtCommit: this.cleanAtCommit } : {}),
-    };
+    return buildFreshnessNote(
+      this.order,
+      reindexed,
+      this.cleanAtCommit,
+      drift.failure !== undefined,
+    );
   }
 
   private async reindexAll(changed: readonly RepoRelPath[]): Promise<void> {
@@ -316,6 +312,7 @@ class Engine implements WorkspaceEngine {
               plugins: this.registry,
               flags: extractFlags(req),
               daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
+              textScanner: this.textScanner,
               ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
             },
             parsed.data,

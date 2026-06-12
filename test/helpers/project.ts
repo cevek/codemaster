@@ -18,6 +18,7 @@ import { renderStatus } from '../../src/format/render/render-status.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
 import type { SqlBounds } from '../../src/daemon/sql-batch.ts';
 import type { createSqliteRunner } from '../../src/support/sql/better-sqlite3.ts';
+import type { TextScanner } from '../../src/support/text-search/scan.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Result } from '../../src/core/result.ts';
 import { extractText } from '../../src/common/span/extract-text.ts';
@@ -41,6 +42,8 @@ export interface ProjectOptions {
   sqlBounds?: Partial<SqlBounds>;
   /** Swap the SQL evaluator (e.g. to force the native-load failure path). */
   createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
+  /** Swap the text scanner (e.g. to force the text-scan failure path, §text-overlay). */
+  createTextScanner?: () => TextScanner;
   /** Override the state base (feedback inbox + debug log). Defaults under `root`; tests
    *  that assert the repo tree is untouched point this OUTSIDE the repo (as production's
    *  `~/.codemaster` is). */
@@ -101,6 +104,9 @@ export async function project(
     stateDir: options?.stateDir ?? path.join(root, '.codemaster-state'),
     ...(options?.sqlBounds !== undefined ? { sqlBounds: options.sqlBounds } : {}),
     ...(options?.createSqlRunner !== undefined ? { createSqlRunner: options.createSqlRunner } : {}),
+    ...(options?.createTextScanner !== undefined
+      ? { createTextScanner: options.createTextScanner }
+      : {}),
     pluginsFor: (config, repoRoot) => [
       createTsPlugin(repoRoot, config.ts?.tsconfig),
       createScssPlugin(repoRoot),

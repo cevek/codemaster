@@ -9,136 +9,16 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import type { Result } from '../core/result.ts';
-import { failFromThrown, fail, ok } from '../common/result/construct.ts';
-import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type {
-  GroupRow,
-  SymbolView,
-  UsageOptions,
-  UsageView,
-  UsagesView,
-} from '../plugins/ts/query-types.ts';
+import type { Result, ToolFailure } from '../core/result.ts';
+import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
+import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
+import type { UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
+import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
-import type { Cell, TableSpec } from './registry.ts';
+import { findUsagesTable } from './find-usages-table.ts';
+import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape } from './ts-target.ts';
-
-// ── tabular projection (§3) ──────────────────────────────────────────────────────
-// One relation over reference sites. Two output shapes feed it: single-target
-// (`{definition, usages|enclosers, …}`) and multi-symbol (`{targets:[…], unresolved}`).
-// `encloser*`/`count`/`is_exported` are NULL on flat rows; `file/line/col` are the usage
-// site on flat rows and the encloser's anchor on grouped rows. `encloser_file` +
-// `is_exported` let SQL keep only exported enclosers (and drop the synthetic
-// `(top-level X)` module nodes) without a name LIKE-heuristic.
-type Section = {
-  symbol: string | null;
-  usages?: UsageView[] | undefined;
-  enclosers?: GroupRow[] | undefined;
-  excludedByFilter?: number | undefined;
-};
-
-function sectionRows(s: Section): readonly Cell[][] {
-  const rows: Cell[][] = [];
-  for (const u of s.usages ?? []) {
-    rows.push([
-      s.symbol,
-      u.span.file,
-      u.span.line,
-      u.span.col,
-      u.role,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      u.confidence,
-    ]);
-  }
-  for (const g of s.enclosers ?? []) {
-    rows.push([
-      s.symbol,
-      g.file,
-      g.line,
-      g.col,
-      g.roles,
-      g.name,
-      g.id,
-      g.kind,
-      g.file,
-      g.exported ? 1 : 0,
-      g.count,
-      g.confidence,
-    ]);
-  }
-  return rows;
-}
-
-function sectionsOf(data: JsonValue): Section[] {
-  const d = data as {
-    targets?: {
-      symbol: string;
-      usages?: UsageView[];
-      enclosers?: GroupRow[];
-      excludedByFilter?: number;
-    }[];
-    definition?: SymbolView;
-    usages?: UsageView[];
-    enclosers?: GroupRow[];
-    excludedByFilter?: number;
-  };
-  if (d.targets !== undefined) {
-    return d.targets.map((t) => ({
-      symbol: t.symbol,
-      usages: t.usages,
-      enclosers: t.enclosers,
-      excludedByFilter: t.excludedByFilter,
-    }));
-  }
-  return [
-    {
-      symbol: d.definition?.name ?? null,
-      usages: d.usages,
-      enclosers: d.enclosers,
-      excludedByFilter: d.excludedByFilter,
-    },
-  ];
-}
-
-const findUsagesTable: TableSpec<JsonValue> = {
-  columns: [
-    { name: 'symbol', type: 'text' },
-    { name: 'file', type: 'text' },
-    { name: 'line', type: 'int' },
-    { name: 'col', type: 'int' },
-    { name: 'role', type: 'text' },
-    { name: 'encloser', type: 'text' },
-    { name: 'encloser_id', type: 'text' },
-    { name: 'encloser_kind', type: 'text' },
-    { name: 'encloser_file', type: 'text' },
-    { name: 'is_exported', type: 'int' },
-    { name: 'count', type: 'int' },
-    { name: 'confidence', type: 'text' },
-  ],
-  rows(data) {
-    return sectionsOf(data).flatMap(sectionRows);
-  },
-  notes(data) {
-    const notes: string[] = [];
-    for (const s of sectionsOf(data)) {
-      if (s.excludedByFilter !== undefined && s.excludedByFilter > 0) {
-        notes.push(
-          `${s.symbol ?? '<target>'}: ${s.excludedByFilter} reference(s) excluded by your path/kind filters`,
-        );
-      }
-    }
-    const unresolved =
-      (data as { unresolved?: { name: string; reason: string }[] }).unresolved ?? [];
-    for (const u of unresolved) notes.push(`unresolved symbol '${u.name}': ${u.reason}`);
-    return notes;
-  },
-};
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
 
@@ -196,6 +76,9 @@ const argsSchema = z
     /** Hide an import once its file also has a real usage (§2.2). Default true; the
      *  count is reported and import-only/re-export files always stay. */
     collapseImports: z.boolean().optional(),
+    /** Add textual occurrences (comments/strings/docs) of the name, deduped against the
+     *  semantic refs, identity unproven (§ text-overlay). */
+    text: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
     filter: z
       .strictObject({
@@ -219,7 +102,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
   example: {
     args: {
       symbols: ['DialogContent', 'SheetContent'],
@@ -234,6 +117,7 @@ export const findUsagesOp = defineOp({
     "groupBy:'enclosing' rolls refs up to the nearest enclosing declaration ('which components render <X>'), sorted by count; encloser ids chain into other ops.",
     'filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.',
     'symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.',
+    "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
   ],
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
@@ -257,9 +141,12 @@ export const findUsagesOp = defineOp({
       enclosingKind: args.filter?.kind,
       exportedOnly: args.filter?.exportedOnly,
     };
+    const scanner = ctx.textScanner ?? createJsScanner();
+    const textRoot = ctx.daemon?.root;
+    const textCap = sqlMode ? (ctx.tableRowBound ?? TEXT_ONLY_CAP) : TEXT_ONLY_CAP;
     try {
       if (args.symbols !== undefined) {
-        const targets: JsonValue[] = [];
+        const targets: Record<string, JsonValue>[] = [];
         const unresolved: JsonValue[] = [];
         let shownRows = 0;
         let totalRows = 0;
@@ -287,43 +174,67 @@ export const findUsagesOp = defineOp({
             ...(notes.length > 0 ? { notes } : {}),
           });
         }
-        return ok(
-          {
-            targets,
-            ...(unresolved.length > 0 ? { unresolved } : {}),
-          },
-          // Multi-symbol has no single per-result limit, but a capped producer feeding a
-          // NOT IN still lies (§2.3) — report the aggregate so sql-batch marks it partial.
+        let textFailure: ToolFailure | undefined;
+        if (args.text === true) {
+          const entries = targets.map((t) => ({
+            name: t['symbol'] as string,
+            target: { name: t['symbol'] as string },
+          }));
+          const { byName, failure } = await overlayFor(ts, scanner, textRoot, textCap, entries);
+          textFailure = failure;
+          for (const t of targets) {
+            const tally = attachOverlay(t, byName.get(t['symbol'] as string));
+            shownRows += tally.shown;
+            totalRows += tally.total;
+          }
+        }
+        const data = { targets, ...(unresolved.length > 0 ? { unresolved } : {}) };
+        // A capped producer (semantic OR text) feeding NOT IN lies (§2.3) — report the
+        // aggregate so sql-batch marks the table partial.
+        const truncated =
           totalRows > shownRows
             ? { truncated: { shown: shownRows, total: totalRows, hint: ROW_CAP_HINT } }
-            : undefined,
-        );
+            : undefined;
+        if (textFailure !== undefined) return partial(data, textFailure);
+        return ok(data, truncated);
       }
 
       const outcome = ts.findUsages(args, options);
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
       const { view, rebind } = outcome;
-      const shown = rowsShown(view);
-      const total = rowsTotal(view);
+      let shown = rowsShown(view);
+      let total = rowsTotal(view);
       const notes = usageNotes(view, args.role, verbosity);
-      return ok(
-        {
-          ...(view.definition !== undefined ? { definition: view.definition } : {}),
-          ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
-          ...(view.usages !== undefined ? { usages: view.usages } : {}),
-          total: view.total,
-          ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
-          ...(view.importsCollapsed !== undefined
-            ? { importsCollapsed: view.importsCollapsed }
-            : {}),
-          ...(view.roleBreakdown !== undefined ? { roleBreakdown: view.roleBreakdown } : {}),
-          ...(notes.length > 0 ? { notes } : {}),
-        },
-        {
-          ...(rebind !== undefined ? { handle: rebind } : {}),
-          ...(total > shown ? { truncated: { shown, total, hint: ROW_CAP_HINT } } : {}),
-        },
-      );
+      const data: Record<string, JsonValue> = {
+        ...(view.definition !== undefined ? { definition: view.definition } : {}),
+        ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
+        ...(view.usages !== undefined ? { usages: view.usages } : {}),
+        total: view.total,
+        ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
+        ...(view.importsCollapsed !== undefined ? { importsCollapsed: view.importsCollapsed } : {}),
+        ...(view.roleBreakdown !== undefined ? { roleBreakdown: view.roleBreakdown } : {}),
+        ...(notes.length > 0 ? { notes } : {}),
+      };
+      let textFailure: ToolFailure | undefined;
+      if (args.text === true) {
+        const name = view.definition?.name ?? args.name;
+        const entries = name !== undefined ? [{ name, target: args as TsTargetInput }] : [];
+        const { byName, failure } = await overlayFor(ts, scanner, textRoot, textCap, entries);
+        textFailure = failure;
+        if (name !== undefined) {
+          const tally = attachOverlay(data, byName.get(name));
+          shown += tally.shown;
+          total += tally.total;
+        }
+      }
+      const extras = {
+        ...(rebind !== undefined ? { handle: rebind } : {}),
+        ...(total > shown ? { truncated: { shown, total, hint: ROW_CAP_HINT } } : {}),
+      };
+      if (textFailure !== undefined) {
+        return partial(data, textFailure, rebind !== undefined ? { handle: rebind } : undefined);
+      }
+      return ok(data, extras);
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

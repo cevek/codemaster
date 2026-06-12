@@ -346,25 +346,25 @@ plugin boundaries, not from internal pokes.
 
 A small number of ops ship by default:
 
-| Op                         | Composes                                                 |
-| -------------------------- | -------------------------------------------------------- |
-| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)  |
-| `find_usages`              | `ts.findUsages` (+ adapter-plugin usages if relevant)    |
-| `search_symbol`            | `ts.searchSymbol` (LS workspace symbol provider)         |
-| `expand_type`              | `ts.expandType`                                          |
-| `assignability`            | `ts.assignability`                                       |
-| `list`                     | dispatches to the plugin owning the requested registry   |
-| `trace`                    | walks plugin-to-plugin via their public APIs             |
-| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`  |
-| `move_file`                | `ts` plugin + `support/text-edits`                       |
-| `extract_symbol`           | `ts` plugin + `support/text-edits`                       |
-| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms   |
-| `codemod`                  | ast-grep matcher + `support/text-edits`                  |
-| `find_unused_scss_classes` | `ts` + `scss`                                            |
-| `find_unused_i18n_keys`    | `ts` + `i18n`                                            |
-| `component_card`           | `ts` + `react` + adapter plugins (token-saver composite) |
-| `impact`                   | `ts` (type-aware blast radius)                           |
-| `affected`                 | `ts` import graph + `support/git`                        |
+| Op                         | Composes                                                  |
+| -------------------------- | --------------------------------------------------------- |
+| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)   |
+| `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`) |
+| `search_symbol`            | `ts.searchSymbol` (LS workspace symbol provider)          |
+| `expand_type`              | `ts.expandType`                                           |
+| `assignability`            | `ts.assignability`                                        |
+| `list`                     | dispatches to the plugin owning the requested registry    |
+| `trace`                    | walks plugin-to-plugin via their public APIs              |
+| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`   |
+| `move_file`                | `ts` plugin + `support/text-edits`                        |
+| `extract_symbol`           | `ts` plugin + `support/text-edits`                        |
+| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms    |
+| `codemod`                  | ast-grep matcher + `support/text-edits`                   |
+| `find_unused_scss_classes` | `ts` + `scss`                                             |
+| `find_unused_i18n_keys`    | `ts` + `i18n`                                             |
+| `component_card`           | `ts` + `react` + adapter plugins (token-saver composite)  |
+| `impact`                   | `ts` (type-aware blast radius)                            |
+| `affected`                 | `ts` import graph + `support/git`                         |
 
 The table is illustrative, not exhaustive — `status` is authoritative for the per-repo
 op catalogue.
@@ -755,6 +755,7 @@ codemaster/
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
       watch/                 # watcher seam (tests inject a fake) + chokidar adapter
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
+      text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
@@ -804,8 +805,13 @@ fixtures are only inputs; the comparison to ground truth is the test.
 `find_usages` against `findReferences` when `find_usages` _is_ `findReferences` is
 circular — see the invariants below). Mutating ops → `git` (byte-exact rollback) +
 `tsc --noEmit` on the result. Non-TS plugins (`scss`/`i18n`/`schema`) → cold reparse of
-the relevant files. Format → golden snapshots. Text grep is **not** a codemaster op —
-agents call ripgrep directly — so there is no "text search ⊇ ripgrep" invariant.
+the relevant files. Format → golden snapshots. Generic text search is **not** a codemaster
+op — agents call ripgrep directly. The one textual surface, `find_usages text:true`, is a
+**semantic ∪ textual join**: the symbol's name is scanned word-boundary across tracked
+files and a hit overlapping any semantic ref is deduped away; the remainder returns in a
+separate `text-only` section flagged `unresolved` (same text, identity not proven). The
+oracle is an independent naive scanner plus a ripgrep cross-check — never grep parity,
+since the two sets differ by design.
 
 **Fixtures — mostly no folders.** The engine runs on a VFS, so most "projects" are
 mounted from an in-memory map and run the full pipeline hermetically, in milliseconds,

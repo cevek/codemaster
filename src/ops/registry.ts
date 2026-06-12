@@ -9,6 +9,7 @@ import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { OpExample } from '../core/op-example.ts';
 import type { PluginRegistry } from '../core/plugin.ts';
+import type { TextScanner } from '../support/text-search/scan.ts';
 import type { OpFlags } from './contracts.ts';
 
 /** What an op sees at run time. Ops compose plugins through the registry's public
@@ -35,6 +36,9 @@ export interface OpContext {
   flags: OpFlags;
   /** Daemon-attached runtime context (§ feedback-channel). Present on every op call. */
   daemon?: DaemonInfo;
+  /** The textual-occurrence scanner for `find_usages text:true` (§ text-overlay). A
+   *  one-type seam (default pure-JS; ripgrep can drop in) — present on every op call. */
+  textScanner?: TextScanner;
   /** Engine-level (NOT an agent-visible OpFlag — §5.2): set ONLY when this op is feeding
    *  an in-call SQLite table. A capped producer feeding a `NOT IN` makes the SQL answer a
    *  lie (§2.3), so a table-bearing op replaces its per-op `limit` with this bound — the

@@ -5,7 +5,7 @@
 
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { Confidence } from '../../core/span.ts';
+import type { Confidence, Span } from '../../core/span.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId, moduleName } from './symbol-id.ts';
@@ -109,6 +109,36 @@ export function findUsages(
     confidence: 'certain',
   }));
   return { ...base, usages };
+}
+
+/** Every semantic reference SITE span for the symbol at `offset` — all files, all roles,
+ *  the definition included, NONE of `find_usages`'s display filters (path/role/collapse).
+ *  This is the dedup set the text overlay (§ text-overlay) marks as "covered": a textual
+ *  occurrence overlapping any of these is a known semantic ref, not a text-only hit. */
+export function referenceSpans(
+  host: TsProjectHost,
+  abs: string,
+  offset: number,
+): Span[] | undefined {
+  const groups = host.service.findReferences(abs, offset);
+  if (groups === undefined) return undefined;
+  const spans: Span[] = [];
+  for (const group of groups) {
+    for (const ref of group.references) {
+      if (ref.fileName.includes('/node_modules/')) continue;
+      const sourceFile = host.service.getProgram()?.getSourceFile(ref.fileName);
+      if (sourceFile === undefined) continue;
+      spans.push(
+        spanFromRange(
+          sourceFile,
+          host.relOf(ref.fileName),
+          ref.textSpan.start,
+          ref.textSpan.start + ref.textSpan.length,
+        ),
+      );
+    }
+  }
+  return spans;
 }
 
 function buildDefinition(
