@@ -30,7 +30,17 @@ The op set is per-repo (depends on active plugins) — `status` is the source of
 ### find_usages refinements (generic AST-level, you supply the names)
 
 - `role` — what the reference _syntactically is_: `jsx` (`<X/>` tags, closing tags
-  deduped) · `call` · `type` · `import` · `read` · `write` · `decl`.
+  deduped) · `call` · `type` · `import` · `reexport` (`export { X } from …` barrel
+  surface — never collapsed) · `read` · `write` · `decl`.
+- `collapseImports` (default `true`) — an `import` is bookkeeping for the usages that
+  follow it, so it is hidden when its file _also_ has a real usage; the hidden count
+  comes back as `importsCollapsed` + a microtext line. Import-only files (unused /
+  side-effect imports) and re-exports always stay. Pass `collapseImports:false` or
+  `role:'import'` to list every import. (In `sql` mode collapse is off — the table keeps
+  every import row so `NOT IN` stays honest.)
+- When a `role` filter returns **0**, the answer still shows the full role distribution
+  and suggests the dominant role (`0 usages role=read (all roles: type=12 import=3 …)`) —
+  so "0" is never mistaken for "none exist".
 - `groupBy: 'enclosing'` — roll refs up to the nearest enclosing named declaration:
   "which components render `<DialogContent>`" in one call. Rows are
   `encloserId · kind · xCount (roles)`, sorted by count; encloser ids chain into

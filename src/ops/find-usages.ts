@@ -150,7 +150,40 @@ function rowsShown(view: UsagesView): number {
 }
 function rowsTotal(view: UsagesView): number {
   if (view.groups !== undefined) return view.groupTotal ?? view.groups.length;
-  return view.total;
+  // Flat: truncation is about rows raising `limit` would reveal — the DISPLAYABLE set,
+  // i.e. matches minus collapsed imports (raising the limit never un-collapses; that's
+  // collapseImports:false). Keeps "shown X/Y" from miscounting a collapse as a cap (§3.4).
+  return view.total - (view.importsCollapsed ?? 0);
+}
+
+/** Compose the advisory microtext for a usages view (§2.2/§2.3): the import-collapse
+ *  count, and — when a role filter is active — what the role-unfiltered answer looked
+ *  like. The generalized principle: an empty filtered answer must show what the
+ *  unfiltered answer looked like, else "0" is indistinguishable from "none exist" (a
+ *  §3.4-class lie). */
+function usageNotes(view: UsagesView, role: string | undefined, verbosity: string): string[] {
+  const notes: string[] = [];
+  if (view.importsCollapsed !== undefined && view.importsCollapsed > 0) {
+    notes.push(
+      `imports: ${view.importsCollapsed} collapsed (their files appear via real usages) — collapseImports:false or role:'import' to list`,
+    );
+  }
+  if (role !== undefined && view.roleBreakdown !== undefined) {
+    const byCount = Object.entries(view.roleBreakdown).sort((a, b) => b[1] - a[1]);
+    if (view.total === 0) {
+      const all = byCount.map(([r, c]) => `${r}=${c}`).join(' ');
+      const dominant = byCount[0]?.[0];
+      notes.push(
+        all.length === 0
+          ? `0 usages role=${role} (no references of any role found)`
+          : `0 usages role=${role} (all roles: ${all} — try role:${dominant})`,
+      );
+    } else if (verbosity !== 'terse') {
+      const others = byCount.filter(([r]) => r !== role).map(([r, c]) => `${r}=${c}`);
+      if (others.length > 0) notes.push(`(other roles: ${others.join(' ')})`);
+    }
+  }
+  return notes;
 }
 
 const argsSchema = z
@@ -160,6 +193,9 @@ const argsSchema = z
     symbols: z.array(z.string().min(1)).min(1).max(20).optional(),
     limit: z.number().int().positive().max(2000).optional(),
     role: z.enum(USAGE_ROLES).optional(),
+    /** Hide an import once its file also has a real usage (§2.2). Default true; the
+     *  count is reported and import-only/re-export files always stay. */
+    collapseImports: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
     filter: z
       .strictObject({
@@ -183,7 +219,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'read'|'write'|'decl', groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
   example: {
     args: {
       symbols: ['DialogContent', 'SheetContent'],
@@ -195,12 +231,19 @@ export const findUsagesOp = defineOp({
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // sql-mode signal (§2.3): the engine sets tableRowBound only when this op feeds a
+    // SQLite table. Import collapse is forced OFF there — the table projects from the
+    // UNCOLLAPSED ref set, so "files that import X but don't render it" (NOT IN over the
+    // import rows) stays trustworthy (§2.2).
+    const sqlMode = ctx.tableRowBound !== undefined;
+    const verbosity = ctx.flags.verbosity ?? 'terse';
     const options: UsageOptions = {
       // sql-mode (§2.3): a capped producer feeding a NOT IN lies. The engine threads the
       // SAME MAX_TABLE_ROWS it enforces, so the op caps exactly where the engine would —
       // and reports `truncated` below so the table is marked partial, never silently short.
       limit: ctx.tableRowBound ?? args.limit ?? 200,
       role: args.role,
+      collapseImports: sqlMode ? false : (args.collapseImports ?? true),
       groupBy: args.groupBy,
       pathExclude: args.filter?.pathExclude,
       pathInclude: args.filter?.pathInclude,
@@ -222,6 +265,7 @@ export const findUsagesOp = defineOp({
           const { view } = outcome;
           shownRows += rowsShown(view);
           totalRows += rowsTotal(view);
+          const notes = usageNotes(view, args.role, verbosity);
           targets.push({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
@@ -229,6 +273,11 @@ export const findUsagesOp = defineOp({
             ...(view.usages !== undefined ? { usages: view.usages } : {}),
             total: view.total,
             ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
+            ...(view.importsCollapsed !== undefined
+              ? { importsCollapsed: view.importsCollapsed }
+              : {}),
+            ...(view.roleBreakdown !== undefined ? { roleBreakdown: view.roleBreakdown } : {}),
+            ...(notes.length > 0 ? { notes } : {}),
           });
         }
         return ok(
@@ -249,6 +298,7 @@ export const findUsagesOp = defineOp({
       const { view, rebind } = outcome;
       const shown = rowsShown(view);
       const total = rowsTotal(view);
+      const notes = usageNotes(view, args.role, verbosity);
       return ok(
         {
           ...(view.definition !== undefined ? { definition: view.definition } : {}),
@@ -256,6 +306,11 @@ export const findUsagesOp = defineOp({
           ...(view.usages !== undefined ? { usages: view.usages } : {}),
           total: view.total,
           ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
+          ...(view.importsCollapsed !== undefined
+            ? { importsCollapsed: view.importsCollapsed }
+            : {}),
+          ...(view.roleBreakdown !== undefined ? { roleBreakdown: view.roleBreakdown } : {}),
+          ...(notes.length > 0 ? { notes } : {}),
         },
         {
           ...(rebind !== undefined ? { handle: rebind } : {}),

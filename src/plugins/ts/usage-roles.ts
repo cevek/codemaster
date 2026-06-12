@@ -6,13 +6,24 @@
 
 import ts from 'typescript';
 
-/** Syntactic role of one reference site. `decl` = the definition itself.
+/** Syntactic role of one reference site. `decl` = the definition itself. `reexport` =
+ *  an `export { X }` / `export { X } from …` barrel specifier — structurally load-bearing
+ *  (the module's public surface), so it is never collapsed away like a plain `import`.
  *  `jsx-closing` is internal: the `</X>` half of an element already counted at its
  *  opening tag — consumers drop it so counts mean "JSX elements", not tag tokens. */
-export type UsageRole = 'jsx' | 'call' | 'type' | 'import' | 'write' | 'read' | 'decl';
+export type UsageRole = 'jsx' | 'call' | 'type' | 'import' | 'reexport' | 'write' | 'read' | 'decl';
 export type ClassifiedRole = UsageRole | 'jsx-closing';
 
-export const USAGE_ROLES = ['jsx', 'call', 'type', 'import', 'write', 'read', 'decl'] as const;
+export const USAGE_ROLES = [
+  'jsx',
+  'call',
+  'type',
+  'import',
+  'reexport',
+  'write',
+  'read',
+  'decl',
+] as const;
 
 export function classifyRole(
   sourceFile: ts.SourceFile,
@@ -24,11 +35,13 @@ export function classifyRole(
   if (node === undefined) return flags.isWrite ? 'write' : 'read';
 
   for (let up: ts.Node | undefined = node; up !== undefined; up = up.parent) {
+    // A barrel specifier (`export { X }` / `export { X } from './y'`) is a re-export —
+    // load-bearing module surface, kept distinct from `import` so it is never collapsed.
+    if (ts.isExportSpecifier(up)) return 'reexport';
     if (
       ts.isImportDeclaration(up) ||
       ts.isImportSpecifier(up) ||
       ts.isImportClause(up) ||
-      ts.isExportSpecifier(up) ||
       ts.isImportEqualsDeclaration(up)
     ) {
       return 'import';

@@ -155,7 +155,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Stage 1 — call-shape ergonomics (structured examples + anti-drift test, errors
       carry a valid example, fix `batch([...])` guidance) · freshness `reindexed`
       marker (envelope + render, visible in terse)
-- [ ] Stage 2 — `find_usages`: `reexport` role split from `import` · conditional
+- [x] Stage 2 — `find_usages`: `reexport` role split from `import` · conditional
       import collapse (default on, never in sql tables, counters unchanged) · role
       breakdown on filtered-empty results
 - [ ] Stage 3 — declaration spans (`find_definition` returns signature/body, not an

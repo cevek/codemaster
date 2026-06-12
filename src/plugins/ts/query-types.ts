@@ -51,6 +51,12 @@ export type UsageOptions = {
   enclosingKind?: string | undefined;
   /** Grouped mode: keep only exported enclosers. */
   exportedOnly?: boolean | undefined;
+  /** Drop an `import`-role ref iff its file ALSO has a substantive (non-import) ref —
+   *  imports are bookkeeping for the usages that follow. Default on; the op forces it OFF
+   *  in sql-mode (a capped table feeding NOT IN over import rows would lie — §2.2) and a
+   *  `role:'import'` question is naturally unaffected. Never a filter: an import-only file
+   *  always stays, and `reexport` refs (barrel surface) are never dropped. */
+  collapseImports?: boolean | undefined;
 };
 
 export type UsagesView = {
@@ -62,11 +68,20 @@ export type UsagesView = {
   /** Grouped mode: distinct enclosers BEFORE the limit cap. `groups.length` may be less —
    *  the gap is honest truncation of the rollup (§3.4), surfaced by the op. */
   groupTotal?: number;
-  /** References matching the question (post role filter), before the limit cap. */
+  /** References matching the question (post role filter), before the limit cap. Counts
+   *  everything matched — collapsing imports for display never shrinks it (§2.2). */
   total: number;
   /** References dropped by YOUR filters (path/kind/exported) — explicit, so a filter
    *  never reads as completeness (§3.4). */
   excluded: number;
+  /** `import`-role refs hidden by the conditional collapse (§2.2) — their files still
+   *  appear via a real usage. Display-only: `total` still counts them. */
+  importsCollapsed?: number;
+  /** Per-role counts of the role-UNFILTERED answer (same path filters), populated only
+   *  when a `role` filter is active (§2.3). Lets an empty `0 usages` show what the
+   *  unfiltered answer looked like — "0" must never be indistinguishable from "none
+   *  exist", which is a §3.4-class lie. */
+  roleBreakdown?: Record<string, number>;
 };
 
 export type TypeView = {
