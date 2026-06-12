@@ -103,7 +103,10 @@ export type MemberView = {
 
 export type TypeView = {
   about: string;
-  type: string;
+  /** The full resolved type text. OMITTED when identical to `about` (single-line named
+   *  declarations) — two identical lines are noise, not information (field feedback);
+   *  present whenever the resolved type adds anything (multiline, aliases, literals). */
+  type?: string;
   doc?: string;
   span?: Span;
   /** Object-like members (§3.3). */

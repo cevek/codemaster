@@ -15,7 +15,13 @@ type Member = {
   inherited?: boolean;
   members?: Member[];
 };
-type View = { members?: Member[]; constituents?: string[]; notes?: string[] };
+type View = {
+  about?: string;
+  type?: string;
+  members?: Member[];
+  constituents?: string[];
+  notes?: string[];
+};
 
 const DTO = `export interface Base { id: number; }
 export interface User extends Base {
@@ -93,6 +99,32 @@ test('expand_type members equal a cold ts.Program view; optional + inherited cor
       ['city', 'zip'],
       'nested object literal expanded at depth 2',
     );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('`type` is omitted when it would repeat `about` (named single-line declarations)', async () => {
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/dto.ts': DTO,
+  });
+  try {
+    // Named interface: quick-info is the single line `interface User` — about carries it,
+    // a duplicate `type` line is noise, not information (field feedback, patient-portal).
+    const named = await p.op('expand_type', { name: 'User' });
+    assert.ok('result' in named && named.result.ok);
+    const namedView = named.result.data as View;
+    assert.equal(namedView.about, 'interface User');
+    assert.equal(namedView.type, undefined, 'type must be omitted when identical to about');
+
+    // Alias: the resolved union differs from the first line — `type` must stay.
+    const alias = await p.op('expand_type', { name: 'Status' });
+    assert.ok('result' in alias && alias.result.ok);
+    const aliasView = alias.result.data as View;
+    if (aliasView.type !== undefined) {
+      assert.notEqual(aliasView.type, aliasView.about, 'a present type must add information');
+    }
   } finally {
     await p.dispose();
   }

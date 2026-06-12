@@ -27,13 +27,14 @@ export function expandTypeAt(
     .map((d) => d.text)
     .join('\n')
     .trim();
+  const full = (info.displayParts ?? []).map((p) => p.text).join('');
+  const about = full.split('\n')[0] ?? '';
   const base: TypeView = {
-    about:
-      (info.displayParts ?? [])
-        .map((p) => p.text)
-        .join('')
-        .split('\n')[0] ?? '',
-    type: (info.displayParts ?? []).map((p) => p.text).join(''),
+    about,
+    // `type` repeats `about` for single-line named declarations — omit it then (two
+    // identical lines are noise, not information; field feedback). Kept whenever the
+    // resolved text adds anything beyond the first line.
+    ...(full !== about ? { type: full } : {}),
     ...(doc.length > 0 ? { doc } : {}),
     ...(sourceFile !== undefined
       ? {
