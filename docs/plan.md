@@ -161,6 +161,36 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Stage 3 — declaration spans (`find_definition` returns signature/body, not an
       echo) · new multi-target `source` op · deep `expand_type` (members /
       constituents, depth + memberLimit, cold-Program oracle)
+- [x] `feedback` op — in-band bug/wish/friction channel → global
+      `~/.codemaster/feedback/inbox.md`, FAIL-render nudge
+      ([spec-feedback-channel.md](spec-feedback-channel.md))
+- [x] `status` as the documentation — per-op `notes` + concepts block + golden;
+      the parallel usage guide retired with a no-living-references guard test
+      ([spec-status-as-the-doc.md](spec-status-as-the-doc.md))
+
+## Self-hosting DX (inbox triage, small — pick up after round 2)
+
+- [ ] daemon self-staleness signal: record codemaster's OWN source fingerprint at
+      spawn; when the daemon's code is behind its source tree, `status` (and op
+      results, one line) say "daemon code behind source — reconnect MCP" instead of
+      silently serving pre-edit behavior. §3.6 applied to ourselves: the index
+      freshness contract covers the inspected repo's data, this covers the tool's own
+      binary — the gap two inbox entries hit while self-developing. Document the
+      `node src/bin.ts op …` CLI loop in CONTRIBUTING as the self-dev dogfood path.
+      Hot-reload stays out (wishlist) — the client owns the MCP process lifetime.
+
+## Field feedback, round 2 — sequential, one PR each, in this order
+
+- [ ] cross-repo: per-request `root` in batch · cross-root sql at the orchestrator ·
+      discoverability (concepts/guidance/engines list)
+      ([spec-cross-repo-root.md](spec-cross-repo-root.md))
+- [ ] `find_usages text:true` — textual-occurrence overlay, deduped against semantic
+      refs, `unresolved` half stated; `support/text-search/` seam; ARCHITECTURE §16
+      present-state rewrite ([spec-text-overlay.md](spec-text-overlay.md))
+- [ ] `i18n` plugin — `ts.parseJsonText` keys with proof spans, `ts.literalCalls`
+      cross-tier usages, `i18n_lookup` / `find_unused_i18n_keys` /
+      `find_missing_i18n_keys`; ARCHITECTURE §4 parser-cell update
+      ([spec-i18n-plugin.md](spec-i18n-plugin.md))
 
 ## Phase 2 — mutating ops on `ts` plugin
 
