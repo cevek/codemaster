@@ -31,6 +31,10 @@ export const expandTypeOp = defineOp({
     args: { symbol: 'ts:Engine@src/daemon/engine.ts:70:7' },
     flags: { verbosity: 'full' },
   },
+  notes: [
+    'object types list members (name/optional/type, inherited flagged); unions/intersections list constituents; enums list members.',
+    'depth (1-3) expands nested anonymous object literals; memberLimit caps the list and overflow is reported, never silently dropped.',
+  ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {

@@ -51,6 +51,9 @@ export const findUnusedScssClassesOp = defineOp({
   argsSchema: z.strictObject({}),
   argsHint: '{}',
   example: { args: {} },
+  notes: [
+    'a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
+  ],
   table: findUnusedScssClassesTable,
   async run(ctx, _args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');

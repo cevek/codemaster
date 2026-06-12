@@ -48,6 +48,9 @@ export const importersOfOp = defineOp({
   argsSchema,
   argsHint: "{ module: string } — a repo-relative path or an import specifier ('@/…')",
   example: { args: { module: '@/components/ui/dialog' } },
+  notes: [
+    'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
+  ],
   table: importersOfTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

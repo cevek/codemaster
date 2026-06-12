@@ -14,6 +14,9 @@ export const findDefinitionOp = defineOp({
   argsSchema: tsTargetSchema,
   argsHint: TS_TARGET_HINT,
   example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
+  notes: [
+    'verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).',
+  ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {

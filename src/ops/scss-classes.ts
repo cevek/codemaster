@@ -40,6 +40,9 @@ export const scssClassesOp = defineOp({
   argsSchema,
   argsHint: '{ file?: string }',
   example: { args: { file: 'src/button.module.scss' } },
+  notes: [
+    'syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.',
+  ],
   table: scssClassesTable,
   async run(ctx, args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');

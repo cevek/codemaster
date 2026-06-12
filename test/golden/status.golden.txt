@@ -1,0 +1,52 @@
+codemaster vtest pid=<PID> isolation=in-process engines=1
+workspace: /private<ROOT>
+  freshness=git watcher=off config=defaults (no codemaster.config.*)
+plugins: ts@0.1.0 · scss@0.1.0
+ops (8):
+  search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
+    · fuzzy (editor Cmd+T style); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
+    columns: id,name,kind,container,file,line,col,confidence
+    e.g. op {"name":"search_symbol","args":{"query":"Dialog","kind":"function","exportedOnly":true,"pathExclude":["**/ui/**"]}}
+  find_definition { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — Resolve a symbol to its definition site(s), proof-carrying
+    · verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).
+    e.g. op {"name":"find_definition","args":{"file":"src/app.ts","line":12,"col":8}}
+  find_usages { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} } — Semantic reference sites of symbol(s); role filter (jsx/call/type/import), rollup to enclosing declaration, path filters
+    · role = what a ref syntactically IS: jsx (<X/> tags, closing deduped) · call · type · import · reexport (barrel `export {X} from` — never collapsed) · read · write · decl.
+    · collapseImports (default true): an import is hidden once its file also has a real usage (count returns as importsCollapsed); import-only files & re-exports always stay. collapseImports:false or role:import to list all. sql-mode keeps every import row.
+    · groupBy:'enclosing' rolls refs up to the nearest enclosing declaration ('which components render <X>'), sorted by count; encloser ids chain into other ops.
+    · filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.
+    · symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.
+    columns: symbol,file,line,col,role,encloser,encloser_id,encloser_kind,encloser_file,is_exported,count,confidence
+    e.g. op {"name":"find_usages","args":{"symbols":["DialogContent","SheetContent"],"role":"jsx","groupBy":"enclosing","filter":{"pathExclude":["**/ui/**","**/*.test.*"]}}}
+  expand_type { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40) } — Resolved type + docs of a symbol, with structural members / constituents (deep, from the live checker)
+    · object types list members (name/optional/type, inherited flagged); unions/intersections list constituents; enums list members.
+    · depth (1-3) expands nested anonymous object literals; memberLimit caps the list and overflow is reported, never silently dropped.
+    e.g. op {"name":"expand_type","args":{"symbol":"ts:Engine@src/daemon/engine.ts:70:7"},"verbosity":"full"}
+  source { targets: [{ symbol? | name? | file+line+col }] } — up to 20 — Source bodies of N symbols in one call (the explore-style "show me the code")
+    · one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.
+    · unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.
+    e.g. op {"name":"source","args":{"targets":[{"name":"createEngine"},{"symbol":"ts:Button@src/Button.tsx:1:14"}]}}
+  importers_of { module: string } — a repo-relative path or an import specifier ('@/…') — Files that import or re-export from a module (tsconfig-paths aware)
+    · module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.
+    columns: module,file,line,imports,confidence
+    e.g. op {"name":"importers_of","args":{"module":"@/components/ui/dialog"}}
+  scss_classes { file?: string } — SCSS class declarations across the workspace (or one stylesheet)
+    · syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.
+    columns: name,file,line,col,confidence
+    e.g. op {"name":"scss_classes","args":{"file":"src/button.module.scss"}}
+  find_unused_scss_classes {} — SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial
+    · a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.
+    columns: name,file,line,col,confidence,note
+    e.g. op {"name":"find_unused_scss_classes","args":{}}
+concepts:
+  targets: symbol-addressed ops take {symbol:"ts:…"} (a SymbolId from a prior answer) · {name} (must be unambiguous — ambiguity returns the candidate list) · {file,line,col} (1-based). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.
+  dials: verbosity=terse (default; file:line:col) · normal (+first line) · full (verbatim text). fields:[…] projects columns. format:"json" for machine composition.
+  sql: a batch (or op) carrying `sql` loads each aliased (`as`) request's table into an ephemeral in-memory SQLite db and runs ONE read-only SELECT — anti-joins / negations / aggregates over op outputs. Producers run uncapped; a `partial` table makes NOT IN untrustworthy.
+    e.g. batch {requests:[{as:"r",name:"find_usages",args:{symbols:["Input"],role:"jsx",groupBy:"enclosing"}},{as:"f",name:"find_usages",args:{symbols:["useAppForm"],groupBy:"enclosing"}}], sql:"SELECT encloser FROM r WHERE encloser NOT IN (SELECT encloser FROM f)"}
+  confidence: certain (type-proven) · partial (incomplete) · dynamic (computed dispatch) · unresolved — a partial/dynamic claim is honest uncertainty, not a fact.
+  truncation: "… N more (shown X/Y; hint)" and "!! OUTPUT CAPPED" — never assume completeness past a marker. FAIL tool=… means codemaster could not, and you should fall back to your own tools.
+  freshness: "reindexed N at entry" = your just-made edits were picked up · "PENDING N" = index behind, re-run · none / "current @commit" = fresh. bad args end with "— valid: {…}", a call you can copy.
+debug topics: daemon,repo,resync,watcher
+> Query codemaster directly for structural/semantic answers instead of grepping or delegating to file-reading subagents.
+> Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.
+> Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.

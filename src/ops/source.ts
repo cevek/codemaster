@@ -44,6 +44,10 @@ export const sourceOp = defineOp({
   example: {
     args: { targets: [{ name: 'createEngine' }, { symbol: 'ts:Button@src/Button.tsx:1:14' }] },
   },
+  notes: [
+    'one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.',
+    'unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.',
+  ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     const sources: JsonValue[] = [];

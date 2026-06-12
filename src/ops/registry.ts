@@ -68,6 +68,11 @@ export interface OpDefinition<A, D extends JsonValue> {
   /** A canonical example call, validated against `argsSchema` by the anti-drift test
    *  (§1.1). The formatter composes the display string; ops never hand-write it. */
   readonly example?: OpExample;
+  /** Short per-op usage notes (1–3 clauses each), rendered indented under the op in the
+   *  `status` catalogue. `status` IS the documentation (§11) — notes live ON the
+   *  definition so they appear and vanish with the op, never drifting to one that isn't
+   *  active. Clauses, not paragraphs: the deep dive is `argsHint` + `example`. */
+  readonly notes?: readonly string[];
   /** Present when the op is list-shaped and usable under `batch + sql` (§3). */
   readonly table?: TableSpec<D>;
   run(ctx: OpContext, args: A): Promise<Result<D>>;

@@ -159,7 +159,7 @@ export function exampleCallFor(tool: string): JsonValue | undefined {
 }
 
 export const SERVER_INSTRUCTIONS = `codemaster is a stateful codebase inspector for TS/React repos: a warm TypeScript LanguageService + domain plugins answer structural/semantic queries with proof spans (file:line + verbatim text).
-Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches aliased imports/JSX), definitions, type expansion, SCSS class usage. Call the 'status' tool first — it lists the per-repo op catalogue with arg schemas.
+Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches aliased imports/JSX), definitions, type expansion, SCSS class usage. Call the 'status' tool first — it is the complete per-repo documentation (op catalogue + arg schemas + per-op notes + shared concepts); there is no separate usage guide.
 Honesty contract: results carry explicit freshness, confidence (certain/partial/dynamic/unresolved) and truncation; a FAIL means codemaster could not do it — fall back to your own tools then. Query directly; do not delegate codemaster lookups to file-reading subagents.
 Output is terse by default (spans as file:line:col). verbosity:'full' returns verbatim proof text — use it for one symbol, not for lists. Oversized answers are explicitly capped with '!! OUTPUT CAPPED' — narrow the query, never assume completeness past the marker.
 Relational post-filtering: a batch (or op) carrying 'sql' loads each aliased request's rows into an ephemeral in-memory SQLite table and runs ONE read-only SELECT — use it for anti-joins / negations / aggregates over op outputs (e.g. components that render <X> but not under <Form>); producers run uncapped, and a 'partial' table makes NOT IN untrustworthy.`;

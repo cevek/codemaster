@@ -4,6 +4,7 @@
 // `StatusView` is the render contract; the daemon builds it, this module formats it.
 
 import type { OpExample } from '../../core/op-example.ts';
+import { CONCEPTS_LINES } from './concepts.ts';
 
 export interface PluginStatusView {
   id: string;
@@ -23,6 +24,9 @@ export interface OpStatusView {
   example?: OpExample;
   /** Comma-joined column names when the op is tabular (usable under sql) — §6. */
   columns?: string;
+  /** Short per-op usage notes — `status` is the documentation, so these ride on the op
+   *  and render under it (spec-status-as-the-doc §2). */
+  notes?: readonly string[];
 }
 
 export interface WorkspaceStatusView {
@@ -60,6 +64,12 @@ export function renderStatus(view: StatusView): string {
     );
     lines.push(renderPlugins(ws.plugins));
     lines.push(...renderOps(ws.ops));
+    // The shared mechanics — status IS the documentation, so the concepts that belong to
+    // no single op are rendered here, once (spec-status-as-the-doc §2).
+    if (ws.ops.length > 0) {
+      lines.push('concepts:');
+      for (const concept of CONCEPTS_LINES) lines.push(`  ${concept}`);
+    }
   }
 
   if (view.debugTopics.length > 0) lines.push(`debug topics: ${view.debugTopics.join(',')}`);
@@ -89,6 +99,7 @@ function renderOps(ops: readonly OpStatusView[]): string[] {
   const lines = [`ops (${ops.length}):`];
   for (const op of ops) {
     lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} ${op.argsHint} — ${op.summary}`);
+    for (const note of op.notes ?? []) lines.push(`    · ${note}`);
     if (op.columns !== undefined) lines.push(`    columns: ${op.columns}`);
     if (op.example !== undefined) lines.push(`    e.g. ${renderExample(op.name, op.example)}`);
   }

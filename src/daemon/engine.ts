@@ -329,6 +329,7 @@ class Engine implements WorkspaceEngine {
           mutating: op.mutating,
           argsHint: op.argsHint,
           ...(op.example !== undefined ? { example: op.example } : {}),
+          ...(op.notes !== undefined ? { notes: op.notes } : {}),
           ...(op.table !== undefined
             ? { columns: op.table.columns.map((c) => c.name).join(',') }
             : {}),

@@ -14,6 +14,7 @@ import { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
 import { builtinOps } from '../../src/ops/builtins.ts';
+import { renderStatus } from '../../src/format/render/render-status.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
 import type { SqlBounds } from '../../src/daemon/sql-batch.ts';
 import type { createSqliteRunner } from '../../src/support/sql/better-sqlite3.ts';
@@ -24,6 +25,8 @@ import { extractText } from '../../src/common/span/extract-text.ts';
 export interface TestProject {
   root: string;
   op(name: string, args: JsonValue): Promise<OpResult>;
+  /** The rendered `status` reply for this workspace (the per-repo documentation). */
+  status(): Promise<string>;
   /** Drive a (sql-)batch directly: returns the engine's ordered results, unrendered. */
   request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   write(rel: string, content: string): void;
@@ -113,6 +116,9 @@ export async function project(
       const result = outcome.results[0];
       if (result === undefined) throw new Error('no result');
       return result;
+    },
+    async status() {
+      return renderStatus(await orchestrator.status(root, root));
     },
     async request(reqs, batch) {
       const outcome = await orchestrator.request(root, root, reqs, batch);
