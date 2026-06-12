@@ -599,7 +599,15 @@ all it still works: defaults honor `.gitignore` (nested + `!` negation), and alw
 - **`batch(requests)`** — one tool carrying a list of op invocations; results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
   ops in the batch see a consistent view per plugin (each plugin pins its state at
-  batch entry; there is no single global version across all plugins).
+  batch entry; there is no single global version across all plugins). A batch (or the
+  `op` sugar) may carry **`sql`**: each request is aliased (`as`), its tabular projection
+  (`OpDefinition.table`) is loaded into an **ephemeral in-memory SQLite database that
+  lives only for that call**, and one read-only `SELECT` runs across the aliased tables —
+  relational algebra (anti-joins, negations, aggregates) over op outputs without the agent
+  hand-merging. Producers run **uncapped** in sql-mode (a capped table feeding `NOT IN`
+  would lie); a per-table hard bound marks the result `partial` with the table named. The
+  LS stays the only oracle — SQLite is a stateless evaluator over one call's freshly
+  produced rows, never a cache or a second index (`support/sql/`, lazy `better-sqlite3`).
 
 There are no first-class MCP tools per op (no top-level `find_usages` / `rename_symbol`
 tool exposed to the agent). Every op is dispatched through `op`; the catalogue is
@@ -686,6 +694,9 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
 - **`postcss` + `postcss-scss`** — used by the `scss` plugin.
 - **`diff`** — unified diffs for mutating-op previews.
+- **`better-sqlite3`** — the ephemeral in-memory SQL evaluator behind `batch + sql`
+  (§11). Loaded **lazily** on the first sql-carrying call (cold start never pays for the
+  native module) and hidden behind the `support/sql/` seam so a DuckDB impl can drop in.
 - **`chokidar`** — debounced file watching (behind an injectable seam for tests).
 - **`@modelcontextprotocol/sdk`** — the MCP facade.
 - **`zod`** — runtime validation at the boundaries where serialized/external data enters:
@@ -740,6 +751,7 @@ codemaster/
       debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
       watch/                 # watcher seam (tests inject a fake) + chokidar adapter
+      sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer

@@ -13,7 +13,7 @@ export function createInProcessHost(engine: WorkspaceEngine): ProjectHost & {
   return {
     repoId: engine.repoId,
     engine,
-    request: (reqs) => engine.request(reqs),
+    request: (reqs, batch) => engine.request(reqs, batch),
     dispose: () => engine.dispose(),
   };
 }

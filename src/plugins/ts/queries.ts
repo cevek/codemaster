@@ -5,9 +5,9 @@
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
-import { encodeSymbolId } from '../../common/ids/codec.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
+import { mintSymbolId, moduleName } from './symbol-id.ts';
 import { classifyRole, findEncloser, type UsageRole } from './usage-roles.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
@@ -26,12 +26,21 @@ export type UsageView = {
 };
 
 /** One enclosing-declaration rollup row. `id` is a chainable ts: SymbolId of the
- *  encloser (it carries name + file:line:col); `count` = references inside it. */
+ *  encloser; `count` = references inside it. `name`/`file`/`line`/`col`/`exported` are
+ *  carried explicitly (not decoded from `id`) so a relational projection of this row never
+ *  has to crack open the opaque SymbolId payload (§6). `exported` is `false` for a
+ *  module-level (top-level) rollup — those are not exported symbols. */
 export type GroupRow = {
   id: string;
+  name: string;
+  file: RepoRelPath;
+  line: number;
+  col: number;
   kind: string;
   count: number;
   roles: string;
+  exported: boolean;
+  confidence: Confidence;
 };
 
 export type UsageOptions = {
@@ -54,6 +63,9 @@ export type UsagesView = {
   usages?: UsageView[];
   /** Grouped mode (`groupBy: 'enclosing'`), sorted by count desc. */
   groups?: GroupRow[];
+  /** Grouped mode: distinct enclosers BEFORE the limit cap. `groups.length` may be less —
+   *  the gap is honest truncation of the rollup (§3.4), surfaced by the op. */
+  groupTotal?: number;
   /** References matching the question (post role filter), before the limit cap. */
   total: number;
   /** References dropped by YOUR filters (path/kind/exported) — explicit, so a filter
@@ -67,55 +79,6 @@ export type TypeView = {
   doc?: string;
   span?: Span;
 };
-
-function mintSymbolId(name: string, rel: RepoRelPath, line: number, col: number): string {
-  return encodeSymbolId('ts', `${name}@${rel}:${line}:${col}`);
-}
-
-export type SearchView = {
-  matches: SymbolView[];
-  /** Eligible matches seen (post node_modules filter) — may exceed `matches.length`
-   *  when the cap hit; the op surfaces that as explicit truncation (§3.4). The LS
-   *  itself was asked for a bounded set, so this is a floor, not a guess. */
-  total: number;
-};
-
-export type SearchFilter = {
-  kind?: string | undefined;
-  exportedOnly?: boolean | undefined;
-  pathInclude?: readonly string[] | undefined;
-  pathExclude?: readonly string[] | undefined;
-};
-
-export function searchSymbols(
-  host: TsProjectHost,
-  query: string,
-  limit: number,
-  filter?: SearchFilter,
-): SearchView {
-  // excludeDtsFiles: with it off, the LS spends the whole result budget on lib.d.ts /
-  // node_modules declarations (createElement, …) and a small limit comes back EMPTY
-  // after our node_modules filter — an honest-looking lie. Project-local .d.ts symbols
-  // are out of search scope for now (schema.d.ts gets its own plugin in Phase 3).
-  const items = host.service.getNavigateToItems(query, limit * 4, undefined, true);
-  const views: SymbolView[] = [];
-  let total = 0;
-  for (const item of items) {
-    if (item.fileName.includes('/node_modules/')) continue;
-    if (filter?.kind !== undefined && item.kind !== filter.kind) continue;
-    if (filter?.exportedOnly === true && !item.kindModifiers.split(',').includes('export')) {
-      continue;
-    }
-    const rel = host.relOf(item.fileName);
-    if (filter?.pathExclude !== undefined && matchesAnyGlob(rel, filter.pathExclude)) continue;
-    if (filter?.pathInclude !== undefined && !matchesAnyGlob(rel, filter.pathInclude)) continue;
-    total++;
-    if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
-    const view = navigateToView(host, item);
-    if (view !== undefined) views.push(view);
-  }
-  return { matches: views, total };
-}
 
 export function findDefinitions(
   host: TsProjectHost,
@@ -159,7 +122,20 @@ export function findUsages(
 
   let definition: SymbolView | undefined;
   const usages: UsageView[] = [];
-  const rollup = new Map<string, { id: string; kind: string; count: number; roles: Set<string> }>();
+  const rollup = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      file: RepoRelPath;
+      line: number;
+      col: number;
+      kind: string;
+      count: number;
+      roles: Set<string>;
+      exported: boolean;
+    }
+  >();
   let total = 0;
   let excluded = 0;
 
@@ -217,7 +193,17 @@ export function findUsages(
         total++;
         const existing = rollup.get(row.key);
         if (existing === undefined) {
-          rollup.set(row.key, { id: row.id, kind: row.kind, count: 1, roles: new Set([role]) });
+          rollup.set(row.key, {
+            id: row.id,
+            name: row.name,
+            file: rel,
+            line: row.line,
+            col: row.col,
+            kind: row.kind,
+            count: 1,
+            roles: new Set([role]),
+            exported: row.exported,
+          });
         } else {
           existing.count++;
           existing.roles.add(role);
@@ -244,8 +230,20 @@ export function findUsages(
     const groupsOut = [...rollup.values()]
       .sort((a, b) => b.count - a.count)
       .slice(0, options.limit)
-      .map((g) => ({ id: g.id, kind: g.kind, count: g.count, roles: [...g.roles].join(',') }));
-    return { ...base, groups: groupsOut };
+      .map((g) => ({
+        id: g.id,
+        name: g.name,
+        file: g.file,
+        line: g.line,
+        col: g.col,
+        kind: g.kind,
+        count: g.count,
+        roles: [...g.roles].join(','),
+        exported: g.exported,
+        // LS structural references are certain; flat usages carry the same value.
+        confidence: 'certain' as Confidence,
+      }));
+    return { ...base, groups: groupsOut, groupTotal: rollup.size };
   }
   return { ...base, usages };
 }
@@ -256,25 +254,47 @@ function rollupRow(
   rel: RepoRelPath,
   position: number,
   options: UsageOptions,
-): { key: string; id: string; kind: string } | undefined {
+):
+  | {
+      key: string;
+      id: string;
+      name: string;
+      line: number;
+      col: number;
+      kind: string;
+      exported: boolean;
+    }
+  | undefined {
   const enc = findEncloser(sourceFile, position);
   const kind = enc?.kind ?? 'module';
   if (options.enclosingKind !== undefined && kind !== options.enclosingKind) return undefined;
   if (options.exportedOnly === true && enc !== undefined && !enc.exported) return undefined;
   if (enc === undefined) {
-    return { key: `${rel}#<module>`, id: mintSymbolId(moduleName(rel), rel, 1, 1), kind };
+    const name = moduleName(rel);
+    // A module-level rollup is not an exported symbol — `exported: false` lets SQL drop
+    // the synthetic `(top-level X)` nodes without a name LIKE-heuristic.
+    return {
+      key: `${rel}#<module>`,
+      id: mintSymbolId(name, rel, 1, 1),
+      name,
+      line: 1,
+      col: 1,
+      kind,
+      exported: false,
+    };
   }
   const lc = sourceFile.getLineAndCharacterOfPosition(enc.start);
+  const line = lc.line + 1;
+  const col = lc.character + 1;
   return {
     key: `${rel}#${enc.name}#${enc.start}`,
-    id: mintSymbolId(enc.name, rel, lc.line + 1, lc.character + 1),
+    id: mintSymbolId(enc.name, rel, line, col),
+    name: enc.name,
+    line,
+    col,
     kind,
+    exported: enc.exported,
   };
-}
-
-function moduleName(rel: RepoRelPath): string {
-  const base = rel.split('/').pop() ?? rel;
-  return `(top-level ${base})`;
 }
 
 export function expandTypeAt(
@@ -308,29 +328,5 @@ export function expandTypeAt(
           ),
         }
       : {}),
-  };
-}
-
-function navigateToView(host: TsProjectHost, item: ts.NavigateToItem): SymbolView | undefined {
-  const sourceFile = host.service.getProgram()?.getSourceFile(item.fileName);
-  if (sourceFile === undefined) return undefined;
-  const rel = host.relOf(item.fileName);
-  // navto's textSpan covers the whole declaration (`export function …`); anchor the
-  // SymbolId and span on the NAME token instead — that's where quickInfo/references
-  // resolve, and where the §6 same-symbol check (`text.startsWith(name, offset)`)
-  // must look.
-  const declText = sourceFile.text.slice(
-    item.textSpan.start,
-    item.textSpan.start + item.textSpan.length,
-  );
-  const nameIdx = declText.indexOf(item.name);
-  const nameStart = nameIdx >= 0 ? item.textSpan.start + nameIdx : item.textSpan.start;
-  const span = spanFromRange(sourceFile, rel, nameStart, nameStart + item.name.length);
-  return {
-    id: mintSymbolId(item.name, rel, span.line, span.col),
-    name: item.name,
-    kind: item.kind,
-    span,
-    ...(item.containerName !== '' ? { container: item.containerName } : {}),
   };
 }

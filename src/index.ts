@@ -50,7 +50,15 @@ export type { ProjectHost } from './daemon/host.ts';
 
 // ── Plugin/op authoring surface (consumed by plugin authors and the test harness) ──
 
-export type { OpContext, OpDefinition, AnyOpDefinition } from './ops/registry.ts';
+export type {
+  OpContext,
+  OpDefinition,
+  AnyOpDefinition,
+  ColumnType,
+  TableColumn,
+  TableSpec,
+  Cell,
+} from './ops/registry.ts';
 export { defineOp } from './ops/registry.ts';
 
 export type { TsPluginApi, TsTargetInput, ResolvedTarget } from './plugins/ts/plugin.ts';
@@ -60,10 +68,9 @@ export type {
   UsagesView,
   UsageOptions,
   GroupRow,
-  SearchFilter,
-  SearchView,
   TypeView,
 } from './plugins/ts/queries.ts';
+export type { SearchFilter, SearchView } from './plugins/ts/search.ts';
 export type { UsageRole } from './plugins/ts/usage-roles.ts';
 export type { ImporterRow, ImportersView } from './plugins/ts/importers.ts';
 export type { CssModuleAccess, CssModuleUsages } from './plugins/ts/css-modules.ts';

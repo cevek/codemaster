@@ -59,7 +59,18 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
         case 'op': {
           const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
           if (!parsed.success) return badArgs(parsed.error.message);
-          const { root, ...req } = parsed.data;
+          const { root, sql, return: returnMode, ...req } = parsed.data;
+          if (sql !== undefined) {
+            // §2.6: single-op sql sugar = a batch of one request aliased `t`.
+            const outcome = await orchestrator.request(
+              cwd,
+              root,
+              [{ ...(req as OpRequest), as: 't' }],
+              { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) },
+            );
+            if (!outcome.ok) return errorText(outcome.message);
+            return text(renderResults(outcome.results, req.format, req.verbosity));
+          }
           const outcome = await orchestrator.request(cwd, root, [req as OpRequest]);
           if (!outcome.ok) return errorText(outcome.message);
           const result = outcome.results[0];
@@ -69,17 +80,23 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
         case 'batch': {
           const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
           if (!parsed.success) return badArgs(parsed.error.message);
+          const { sql, return: returnMode, format, verbosity } = parsed.data;
           const outcome = await orchestrator.request(
             cwd,
             parsed.data.root,
             parsed.data.requests as OpRequest[],
+            sql !== undefined
+              ? { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) }
+              : undefined,
           );
           if (!outcome.ok) return errorText(outcome.message);
-          const blocks = outcome.results.map(
-            (r, i) =>
-              `[${i}] ${r.name}\n${renderOne(r, parsed.data.requests[i]?.format, parsed.data.requests[i]?.verbosity)}`,
+          return text(
+            renderBatch(outcome.results, parsed.data.requests, {
+              sqlPresent: sql !== undefined,
+              format,
+              verbosity,
+            }),
           );
-          return text(blocks.join('\n\n'));
         }
         default:
           return errorText(`unknown tool '${request.params.name}' (tools: op, status, batch)`);
@@ -114,6 +131,43 @@ function renderOne(
   if ('error' in result) return `DISPATCH ${result.error.kind}: ${result.error.message}`;
   if (format === 'json') return JSON.stringify(result.result);
   return renderResult(result.result, verbosity ?? 'terse');
+}
+
+/** Render one-or-more op results (the op-sql sugar yields 1 with return:'sql', or N+1
+ *  with return:'all'). A single result renders bare; several get `[i] name` headers. */
+function renderResults(
+  results: readonly OpResult[],
+  format: 'text' | 'json' | undefined,
+  verbosity: 'terse' | 'normal' | 'full' | undefined,
+): string {
+  if (results.length === 1 && results[0] !== undefined) {
+    return renderOne(results[0], format, verbosity);
+  }
+  return results.map((r, i) => `[${i}] ${r.name}\n${renderOne(r, format, verbosity)}`).join('\n\n');
+}
+
+type ReqFlags = {
+  format?: 'text' | 'json' | undefined;
+  verbosity?: 'terse' | 'normal' | 'full' | undefined;
+};
+type BatchFlags = { sqlPresent: boolean } & ReqFlags;
+
+/** Render a batch's ordered results. The synthetic `sql` result (the join output) renders
+ *  with the BATCH-level `format`/`verbosity` — the per-request flags belong to the
+ *  producers, not the join (review fix #2). Exported so the flag routing is unit-tested. */
+export function renderBatch(
+  results: readonly OpResult[],
+  requests: readonly ReqFlags[],
+  batch: BatchFlags,
+): string {
+  return results
+    .map((r, i) => {
+      const isSqlResult = batch.sqlPresent && r.name === 'sql';
+      const format = isSqlResult ? batch.format : requests[i]?.format;
+      const verbosity = isSqlResult ? batch.verbosity : requests[i]?.verbosity;
+      return `[${i}] ${r.name}\n${renderOne(r, format, verbosity)}`;
+    })
+    .join('\n\n');
 }
 
 function text(body: string): CallToolResult {

@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import type { RepoId } from '../core/brands.ts';
 import type { Plugin } from '../core/plugin.ts';
-import type { OpRequest, OpResult } from '../ops/contracts.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { Clock, CancelTimer } from '../common/async/clock.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
@@ -21,6 +21,8 @@ import { loadConfig } from '../support/config-load/load.ts';
 import { createRotatingFileSink } from '../support/debug/file-sink.ts';
 import type { CodemasterConfig } from '../config/config.ts';
 import { createEngine, type WorkspaceEngine } from './engine.ts';
+import type { SqlBounds } from './sql-batch.ts';
+import type { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
@@ -37,6 +39,10 @@ export interface OrchestratorDeps {
   stateDir?: string;
   /** Engine-count budget for the in-process governor (LRU-evicted past this). */
   maxEngines?: number;
+  /** sql-mode row bounds (§2.3/§2.4) — test seam, forwarded to every engine. */
+  sqlBounds?: Partial<SqlBounds>;
+  /** SQL evaluator factory (§4) — test seam, forwarded to every engine. */
+  createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
 }
 
 export type RouteOutcome =
@@ -87,12 +93,13 @@ export class Orchestrator {
     cwd: string,
     root: string | undefined,
     reqs: readonly OpRequest[],
+    batch?: BatchOptions,
   ): Promise<{ ok: true; results: readonly OpResult[] } | { ok: false; message: string }> {
     const routed = await this.route(cwd, root);
     if (!routed.ok) return routed;
     const spawned = await this.getOrSpawn(routed.repoId, routed.root);
     if (!spawned.ok) return spawned;
-    const results = await spawned.slot.host.request(reqs);
+    const results = await spawned.slot.host.request(reqs, batch);
     return { ok: true, results };
   }
 
@@ -190,6 +197,10 @@ export class Orchestrator {
       clock: this.deps.clock,
       debug: this.deps.debug,
       watcher: this.deps.watcher,
+      ...(this.deps.sqlBounds !== undefined ? { sqlBounds: this.deps.sqlBounds } : {}),
+      ...(this.deps.createSqlRunner !== undefined
+        ? { createSqlRunner: this.deps.createSqlRunner }
+        : {}),
     });
     if (!created.ok) return { ok: false, message: created.message };
 

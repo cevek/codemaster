@@ -20,7 +20,9 @@ import { expandTypeOp } from '../../src/ops/expand-type.ts';
 import { scssClassesOp } from '../../src/ops/scss-classes.ts';
 import { importersOfOp } from '../../src/ops/importers-of.ts';
 import { findUnusedScssClassesOp } from '../../src/ops/find-unused-scss-classes.ts';
-import type { OpResult } from '../../src/ops/contracts.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
+import type { SqlBounds } from '../../src/daemon/sql-batch.ts';
+import type { createSqliteRunner } from '../../src/support/sql/better-sqlite3.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Result } from '../../src/core/result.ts';
 import { extractText } from '../../src/common/span/extract-text.ts';
@@ -28,11 +30,20 @@ import { extractText } from '../../src/common/span/extract-text.ts';
 export interface TestProject {
   root: string;
   op(name: string, args: JsonValue): Promise<OpResult>;
+  /** Drive a (sql-)batch directly: returns the engine's ordered results, unrendered. */
+  request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   write(rel: string, content: string): void;
   remove(rel: string): void;
   git(...args: string[]): string;
   clock: Clock & { advance(ms: number): void };
   dispose(): Promise<void>;
+}
+
+export interface ProjectOptions {
+  /** Lower the sql-mode row bounds to avoid 100k-row fixtures (spec §7.3/§7.4). */
+  sqlBounds?: Partial<SqlBounds>;
+  /** Swap the SQL evaluator (e.g. to force the native-load failure path). */
+  createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
 }
 
 export function manualClock(): Clock & { advance(ms: number): void } {
@@ -61,7 +72,10 @@ export function manualClock(): Clock & { advance(ms: number): void } {
   };
 }
 
-export async function project(files: Record<string, string>): Promise<TestProject> {
+export async function project(
+  files: Record<string, string>,
+  options?: ProjectOptions,
+): Promise<TestProject> {
   const root = mkdtempSync(path.join(tmpdir(), 'codemaster-fixture-'));
   const git = (...args: string[]): string =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -84,6 +98,8 @@ export async function project(files: Record<string, string>): Promise<TestProjec
     watcher: nullWatcher, // silenced on purpose: the read-time backstop must carry it
     version: 'test',
     stateDir: path.join(root, '.codemaster-state'),
+    ...(options?.sqlBounds !== undefined ? { sqlBounds: options.sqlBounds } : {}),
+    ...(options?.createSqlRunner !== undefined ? { createSqlRunner: options.createSqlRunner } : {}),
     pluginsFor: (config, repoRoot) => [
       createTsPlugin(repoRoot, config.ts?.tsconfig),
       createScssPlugin(repoRoot),
@@ -111,6 +127,11 @@ export async function project(files: Record<string, string>): Promise<TestProjec
       const result = outcome.results[0];
       if (result === undefined) throw new Error('no result');
       return result;
+    },
+    async request(reqs, batch) {
+      const outcome = await orchestrator.request(root, root, reqs, batch);
+      if (!outcome.ok) throw new Error(`dispatch failed: ${outcome.message}`);
+      return outcome.results;
     },
     async dispose() {
       await orchestrator.dispose();

@@ -13,14 +13,12 @@ import {
   expandTypeAt,
   findDefinitions,
   findUsages,
-  searchSymbols,
-  type SearchFilter,
-  type SearchView,
   type SymbolView,
   type TypeView,
   type UsageOptions,
   type UsagesView,
 } from './queries.ts';
+import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { findImporters, type ImportersView } from './importers.ts';
 

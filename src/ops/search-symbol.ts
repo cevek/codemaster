@@ -1,9 +1,40 @@
 // `search_symbol` — LS workspace symbol search (fuzzy, like editor Cmd+T).
 
 import { z } from 'zod';
+import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { SymbolView } from '../plugins/ts/queries.ts';
 import { defineOp } from './registry.ts';
+import type { Cell, TableSpec } from './registry.ts';
+
+/** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
+ *  `confidence` is always `certain`. */
+const searchSymbolTable: TableSpec<JsonValue> = {
+  columns: [
+    { name: 'id', type: 'text' },
+    { name: 'name', type: 'text' },
+    { name: 'kind', type: 'text' },
+    { name: 'container', type: 'text' },
+    { name: 'file', type: 'text' },
+    { name: 'line', type: 'int' },
+    { name: 'col', type: 'int' },
+    { name: 'confidence', type: 'text' },
+  ],
+  rows(data) {
+    const matches = (data as { matches?: SymbolView[] }).matches ?? [];
+    return matches.map((m): readonly Cell[] => [
+      m.id,
+      m.name,
+      m.kind,
+      m.container ?? null,
+      m.span.file,
+      m.span.line,
+      m.span.col,
+      'certain',
+    ]);
+  },
+};
 
 const argsSchema = z.strictObject({
   query: z.string().min(1),
@@ -25,10 +56,13 @@ export const searchSymbolOp = defineOp({
   argsHint:
     '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] }',
   example: `op({name:'search_symbol', args:{query:'Dialog', kind:'function', exportedOnly:true, pathExclude:['**/ui/**']}})`,
+  table: searchSymbolTable,
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
-      const limit = args.limit ?? 25;
+      // sql-mode (§2.3): the engine threads MAX_TABLE_ROWS so a NOT IN sees every match;
+      // `total > matches.length` below still reports truncation, marking the table partial.
+      const limit = ctx.tableRowBound ?? args.limit ?? 25;
       const { matches, total } = ts.searchSymbol(args.query, limit, {
         kind: args.kind,
         exportedOnly: args.exportedOnly,

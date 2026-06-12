@@ -8,6 +8,7 @@ import type { HandleRebind } from '../../core/ids.ts';
 import type { JsonValue } from '../../core/json.ts';
 import { renderDense } from './render-dense.ts';
 import { condenseSpans } from './condense.ts';
+import { isSqlTableData, renderSqlTable } from './render-table.ts';
 
 /** Hard self-cap on one rendered result. Blowing the agent's context with a dump is a
  *  failure mode of its own — past the cap the output is cut AT A LINE BOUNDARY with an
@@ -29,6 +30,10 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
       lines.push(`data (incomplete — produced before the failure):`);
       lines.push(renderDense(condenseSpans(result.data, verbosity)));
     }
+  } else if (isSqlTableData(result.data)) {
+    // sql-mode result (§5.6): a relation, not a span tree — its own dense table.
+    lines.push(renderSqlTable(result.data));
+    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
   } else {
     lines.push(renderDense(condenseSpans(result.data, verbosity)));
     if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));

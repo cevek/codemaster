@@ -34,7 +34,10 @@ The op set is per-repo (depends on active plugins) — `status` is the source of
 - `groupBy: 'enclosing'` — roll refs up to the nearest enclosing named declaration:
   "which components render `<DialogContent>`" in one call. Rows are
   `encloserId · kind · xCount (roles)`, sorted by count; encloser ids chain into
-  further ops.
+  further ops. Under `sql`, the grouped rows carry `encloser`, `encloser_file`,
+  `encloser_kind`, and `is_exported` (1/0) — so `WHERE is_exported = 1` keeps only
+  exported declarations and drops the synthetic `(top-level X)` module nodes without a
+  name LIKE-heuristic.
 - `filter: {pathExclude/pathInclude (globs), kind, exportedOnly}` — kind/exportedOnly
   apply to enclosers. Filtered-out refs are reported as `excludedByFilter` — a filter
   never masquerades as completeness.
@@ -106,6 +109,54 @@ batch({
   ],
 });
 ```
+
+## Relational post-filtering — `sql` over op outputs
+
+Need an **anti-join, join, negation, or aggregate** over op results (e.g. "components
+that render `<Input>` but are NOT inside a `useAppForm` form")? Don't make several calls
+and merge by hand. Alias each request with `as`, then pass a top-level `sql` — a single
+**read-only SELECT** runs over the requests' rows in an ephemeral in-memory SQLite
+database that exists only for that one call. Only the SQL result returns (`return: 'all'`
+to also get each op's rows).
+
+```js
+batch({
+  requests: [
+    {
+      as: 'renders',
+      name: 'find_usages',
+      args: { symbols: ['Input'], role: 'jsx', groupBy: 'enclosing' },
+    },
+    { as: 'forms', name: 'find_usages', args: { symbols: ['useAppForm'], groupBy: 'enclosing' } },
+  ],
+  sql: `SELECT DISTINCT encloser, file, line FROM renders
+        WHERE encloser NOT IN (SELECT encloser FROM forms)`,
+});
+
+// single-op sugar — the op's table is aliased `t`:
+op({
+  name: 'search_symbol',
+  args: { query: 'use' },
+  sql: "SELECT name, file FROM t WHERE kind='function'",
+});
+```
+
+- **Each tabular op declares its columns** — `status` lists them on a `columns:` line.
+  Every table has a `confidence` column; `partial`/`dynamic` rows are included, so drop
+  them in your `WHERE` if you want only `certain` facts.
+- **Producers run UNCAPPED in sql-mode** (the per-op `limit` is only a token guard), so
+  `COUNT(*)` / `NOT IN` see every row — not a truncated slice.
+- **Honesty channels you must respect:** a `⚠ PARTIAL table(s)=[…]` line means a producer
+  hit the 100k-row hard bound and was truncated — **do NOT trust `NOT IN` / anti-joins
+  over a partial table** (a missing row would be a false "absent"). A `note:` line carries
+  unresolved (absent) target symbols and filter exclusions. Result rows past 1,000 are cut
+  with an explicit `… more (shown N/total)` — add a `LIMIT` or aggregate.
+- **Read-only only**: anything but one `SELECT`/`WITH … SELECT` (INSERT/PRAGMA/ATTACH/
+  multi-statement) is a pointed `bad_args`; a bad column name lists every table's columns.
+- **Reading the table**: rows are `|`-separated; `NULL` renders as `∅` (an empty string
+  renders as `""`), and a cell containing `|` is quoted. For machine parsing pass a
+  batch-level `format: 'json'` (and `verbosity?`) — these flags render the SQL result
+  itself, distinct from the per-request flags that format each producer under `return:'all'`.
 
 ## Verbosity (default: terse)
 

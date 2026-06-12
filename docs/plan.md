@@ -137,11 +137,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 > in-memory SQLite per call; `batch + as + sql`; producers uncapped in sql-mode;
 > read-only sandbox; table schemas declared per op and surfaced via `status`.
 
-- [ ] `OpDefinition.table` (schema + pure row projection) for the five list-shaped ops
-- [ ] `support/sql/` — seam + better-sqlite3 impl (lazy load, read-only sandbox)
-- [ ] engine sql-mode batch (uncapped producers, hard row bound, honesty envelope)
-- [ ] MCP surface: `as`/`sql`/`return` on batch, `sql` sugar on op; status columns line
-- [ ] tests per spec §7 (anti-join oracle, sandbox, truncation/partial honesty)
+- [x] `OpDefinition.table` (schema + pure row projection) for the five list-shaped ops
+      (`find_usages` `GroupRow` enriched with name/file/line/col/confidence so the
+      projection never decodes the opaque SymbolId payload)
+- [x] `support/sql/` — seam + better-sqlite3 impl (lazy load, three-layer read-only sandbox)
+- [x] engine sql-mode batch (uncapped producers via `OpContext.unbounded`, hard row bound,
+      honesty envelope; driver in `daemon/sql-batch.ts`)
+- [x] MCP surface: `as`/`sql`/`return` on batch, `sql` sugar on op; status columns line
+- [x] tests per spec §7 (anti-join oracle, sandbox, truncation/partial honesty)
 
 ## Phase 2 — mutating ops on `ts` plugin
 

@@ -9,9 +9,13 @@ import type { RepoId, RepoRelPath } from '../core/brands.ts';
 import type { Plugin, PluginRegistry } from '../core/plugin.ts';
 import type { FreshnessNote, Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
-import type { OpFlags, OpRequest, OpResult } from '../ops/contracts.ts';
+import type { BatchOptions, OpFlags, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { Clock } from '../common/async/clock.ts';
+import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
+import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
+import { runSqlBatch, type SqlBounds } from './sql-batch.ts';
+import { unknownOpMessage } from './dispatch-errors.ts';
 import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
@@ -32,12 +36,17 @@ export interface EngineDeps {
   clock: Clock;
   debug: DebugSystemHandle;
   watcher: Watcher;
+  /** Row bounds for sql-mode (§2.3/§2.4). Test seam — lowered to avoid 100k-row
+   *  fixtures (spec §7.3/§7.4). Defaults: 100_000 / 1_000. */
+  sqlBounds?: Partial<SqlBounds>;
+  /** SQL evaluator factory (§4). Test seam; defaults to the lazy better-sqlite3 impl. */
+  createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
 }
 
 export interface WorkspaceEngine {
   readonly repoId: RepoId;
   readonly root: string;
-  request(reqs: readonly OpRequest[]): Promise<readonly OpResult[]>;
+  request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   status(): Promise<WorkspaceStatusView>;
   dispose(): Promise<void>;
 }
@@ -77,6 +86,8 @@ class Engine implements WorkspaceEngine {
   private watcherState: 'active' | 'off' | { degraded: string } = 'off';
   private freshnessMode: FreshnessMode = 'git';
   private cleanAtCommit: string | undefined;
+  private readonly sqlBounds: SqlBounds;
+  private readonly createSqlRunner: () => ReturnType<typeof createSqliteRunner>;
   /** Single-flight queue: one workspace serializes its own requests (§8). */
   private queue: Promise<unknown> = Promise.resolve();
   private disposed = false;
@@ -89,6 +100,11 @@ class Engine implements WorkspaceEngine {
     this.order = order;
     this.guard = createFreshnessGuard(deps.root, deps.clock, deps.debug);
     this.opsByName = new Map(deps.ops.map((op) => [op.name, op]));
+    this.sqlBounds = {
+      maxTableRows: deps.sqlBounds?.maxTableRows ?? DEFAULT_MAX_TABLE_ROWS,
+      maxResultRows: deps.sqlBounds?.maxResultRows ?? DEFAULT_MAX_RESULT_ROWS,
+    };
+    this.createSqlRunner = deps.createSqlRunner ?? createSqliteRunner;
 
     const watcherTrace = deps.debug.ns('watcher');
     this.watcherHandle = deps.watcher.watch(deps.root, {
@@ -106,8 +122,8 @@ class Engine implements WorkspaceEngine {
     this.watcherState = this.watcherHandle === undefined ? 'off' : 'active';
   }
 
-  request(reqs: readonly OpRequest[]): Promise<readonly OpResult[]> {
-    return this.enqueue(() => this.runBatch(reqs));
+  request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]> {
+    return this.enqueue(() => this.runBatch(reqs, batch));
   }
 
   status(): Promise<WorkspaceStatusView> {
@@ -178,10 +194,14 @@ class Engine implements WorkspaceEngine {
     }
   }
 
-  private async runBatch(reqs: readonly OpRequest[]): Promise<readonly OpResult[]> {
+  private async runBatch(
+    reqs: readonly OpRequest[],
+    batch: BatchOptions | undefined,
+  ): Promise<readonly OpResult[]> {
     // Freshness captured once at batch entry: the whole batch sees one consistent
     // per-plugin view (§11).
     const batchFreshness = await this.refresh();
+    if (batch?.sql !== undefined) return this.runSql(reqs, batch.sql, batch.return, batchFreshness);
     const results: OpResult[] = [];
     for (const req of reqs) {
       results.push(await this.runOne(req, batchFreshness));
@@ -189,9 +209,33 @@ class Engine implements WorkspaceEngine {
     return results;
   }
 
+  /** sql-mode (§5): producers run uncapped, one read-only SELECT joins their tables, only
+   *  the SQL result returns (unless `return: 'all'`). The driver lives in sql-batch.ts to
+   *  keep this file small and `support/sql/` free of op/MCP knowledge. */
+  private runSql(
+    reqs: readonly OpRequest[],
+    sql: string,
+    returnMode: 'sql' | 'all' | undefined,
+    batchFreshness: FreshnessNote | undefined,
+  ): Promise<readonly OpResult[]> {
+    return runSqlBatch({
+      reqs,
+      sql,
+      returnMode: returnMode ?? 'sql',
+      opsByName: this.opsByName,
+      hasPlugin: (id) => this.registry.has(id),
+      bounds: this.sqlBounds,
+      createRunner: this.createSqlRunner,
+      runProducer: (req) =>
+        this.runOne(req, batchFreshness, { tableRowBound: this.sqlBounds.maxTableRows }),
+      freshness: batchFreshness,
+    });
+  }
+
   private async runOne(
     req: OpRequest,
     batchFreshness: FreshnessNote | undefined,
+    opts?: { tableRowBound?: number },
   ): Promise<OpResult> {
     const op = this.opsByName.get(req.name);
     if (op === undefined) {
@@ -228,7 +272,14 @@ class Engine implements WorkspaceEngine {
         { capture: req.debug === true, route: this.repoId },
         async () => {
           opTrace('start', () => ({ args: req.args }));
-          const r = await op.run({ plugins: this.registry, flags: extractFlags(req) }, parsed.data);
+          const r = await op.run(
+            {
+              plugins: this.registry,
+              flags: extractFlags(req),
+              ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
+            },
+            parsed.data,
+          );
           opTrace('done', () => ({ ok: r.ok, ms: this.deps.clock.now() - started }));
           const captured = this.deps.debug.takeCapture();
           return captured.length > 0 ? { ...r, debug: captured } : r;
@@ -269,6 +320,9 @@ class Engine implements WorkspaceEngine {
           mutating: op.mutating,
           argsHint: op.argsHint,
           ...(op.example !== undefined ? { example: op.example } : {}),
+          ...(op.table !== undefined
+            ? { columns: op.table.columns.map((c) => c.name).join(',') }
+            : {}),
         })),
     };
   }
@@ -281,7 +335,7 @@ class Engine implements WorkspaceEngine {
 }
 
 function extractFlags(req: OpRequest): OpFlags {
-  const { name: _name, args: _args, ...flags } = req;
+  const { name: _name, args: _args, as: _as, ...flags } = req;
   return flags;
 }
 
@@ -291,27 +345,4 @@ function withBatchFreshness(
 ): Result<JsonValue> {
   const merged = mergeFreshness([batchFreshness, result.freshness]);
   return merged === undefined ? result : { ...result, freshness: merged };
-}
-
-function unknownOpMessage(name: string, ops: Map<string, AnyOpDefinition>): string {
-  const known = [...ops.keys()];
-  if (known.length === 0) {
-    return `unknown op '${name}' — this workspace has no ops yet (no plugins active; see status)`;
-  }
-  const guess = closestName(name, known);
-  return `unknown op '${name}'${guess !== undefined ? ` — did you mean '${guess}'?` : ''} (known: ${known.join(', ')})`;
-}
-
-/** Cheap edit-distance-free guess: shared-prefix length, good enough for typos. */
-function closestName(name: string, candidates: readonly string[]): string | undefined {
-  let best: { name: string; score: number } | undefined;
-  for (const candidate of candidates) {
-    let score = 0;
-    const cap = Math.min(name.length, candidate.length);
-    while (score < cap && name[score] === candidate[score]) score++;
-    if (score > 2 && (best === undefined || score > best.score)) {
-      best = { name: candidate, score };
-    }
-  }
-  return best?.name;
 }

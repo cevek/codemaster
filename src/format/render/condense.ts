@@ -41,9 +41,13 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const confidence = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
     return `${String(v['span'])} · ${String(v['role'])}${confidence}`;
   }
-  // GroupRow (enclosing rollup): { id, kind, count, roles }
-  if (keys === 'count,id,kind,roles') {
-    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})`;
+  // GroupRow (enclosing rollup): { id, name, file, line, col, kind, count, roles,
+  // exported, confidence } — the id already carries name + file:line:col, so terse
+  // collapses to one line; the explicit columns exist for relational projection (§3).
+  if (keys === 'col,confidence,count,exported,file,id,kind,line,name,roles') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const exp = v['exported'] === true ? ' · exported' : '';
+    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${conf}`;
   }
   // ImporterRow: { at, imports }
   if (keys === 'at,imports') {

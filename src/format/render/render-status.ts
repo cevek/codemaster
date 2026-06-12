@@ -17,6 +17,8 @@ export interface OpStatusView {
   /** Compact args description, e.g. '{ target: SymbolId, limit?: number }'. */
   argsHint: string;
   example?: string;
+  /** Comma-joined column names when the op is tabular (usable under sql) — §6. */
+  columns?: string;
 }
 
 export interface WorkspaceStatusView {
@@ -83,6 +85,7 @@ function renderOps(ops: readonly OpStatusView[]): string[] {
   const lines = [`ops (${ops.length}):`];
   for (const op of ops) {
     lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} ${op.argsHint} — ${op.summary}`);
+    if (op.columns !== undefined) lines.push(`    columns: ${op.columns}`);
     if (op.example !== undefined) lines.push(`    e.g. ${op.example}`);
   }
   return lines;

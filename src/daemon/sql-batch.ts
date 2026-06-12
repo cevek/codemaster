@@ -1,0 +1,218 @@
+// The sql-mode batch driver (spec §5). Kept out of `engine.ts` (which only detects sql
+// and delegates) so the engine stays small and `support/sql/` stays a pure evaluator
+// that knows nothing of ops or MCP.
+//
+// Flow: validate (every request's op has a `table`; aliases unique + valid) → run each
+// producer with the row bound threaded in (the engine supplies `runProducer`, which sets
+// `OpContext.tableRowBound` = MAX_TABLE_ROWS, so an op caps exactly where the engine
+// signals partial) → project rows, enforce `MAX_TABLE_ROWS` → register tables → SELECT →
+// dispose → assemble the honesty envelope. A producer that errors or returns `ok:false`
+// fails the WHOLE call: running SQL over a missing table would silently produce wrong
+// joins (§5.2).
+
+import type { JsonValue } from '../core/json.ts';
+import type { Result } from '../core/result.ts';
+import { fail, messageOfThrown, ok } from '../common/result/construct.ts';
+import type { DispatchError, OpRequest, OpResult } from '../ops/contracts.ts';
+import type { AnyOpDefinition, TableSpec } from '../ops/registry.ts';
+import type { FreshnessNote } from '../core/result.ts';
+import { validateTableName, type SqlRunner } from '../support/sql/runner.ts';
+
+export interface SqlBounds {
+  maxTableRows: number;
+  maxResultRows: number;
+}
+
+export interface SqlBatchCtx {
+  reqs: readonly OpRequest[];
+  sql: string;
+  returnMode: 'sql' | 'all';
+  opsByName: Map<string, AnyOpDefinition>;
+  hasPlugin: (id: string) => boolean;
+  bounds: SqlBounds;
+  createRunner: () => Result<SqlRunner>;
+  /** Engine-supplied: runs one request with `OpContext.tableRowBound` set (§2.3). */
+  runProducer: (req: OpRequest) => Promise<OpResult>;
+  freshness: FreshnessNote | undefined;
+}
+
+interface PlanItem {
+  req: OpRequest;
+  op: AnyOpDefinition;
+  table: TableSpec<JsonValue>;
+  alias: string;
+}
+
+export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]> {
+  const plan = planAliases(ctx.reqs, ctx.opsByName, ctx.hasPlugin);
+  if (!plan.ok) return [{ name: 'sql', error: plan.error }];
+
+  const perReq: OpResult[] = [];
+  const producers: {
+    alias: string;
+    table: TableSpec<JsonValue>;
+    data: JsonValue;
+    /** The producer itself reported an internal cap (`result.truncated`). Its table is
+     *  incomplete even when the projected row count sits below `maxTableRows` — without
+     *  this, a >MAX_TABLE_ROWS reference set would feed `NOT IN` silently (§2.3). */
+    producerTruncated: boolean;
+  }[] = [];
+  for (const item of plan.items) {
+    const produced = await ctx.runProducer(item.req);
+    perReq.push(produced);
+    if ('error' in produced) {
+      const error: DispatchError = {
+        kind: produced.error.kind,
+        message: `producer '${item.req.name}' (as ${item.alias}) failed — ${produced.error.message}`,
+      };
+      return finalize(ctx.returnMode, perReq, { name: 'sql', error });
+    }
+    if (!produced.result.ok) {
+      // §5.2: a failed producer fails the whole call — no SQL over a missing table.
+      return finalize(ctx.returnMode, perReq, { name: 'sql', result: produced.result });
+    }
+    producers.push({
+      alias: item.alias,
+      table: item.table,
+      data: produced.result.data,
+      producerTruncated: produced.result.truncated !== undefined,
+    });
+  }
+
+  const sqlResult = assemble(producers, ctx);
+  return finalize(ctx.returnMode, perReq, sqlResult);
+}
+
+function finalize(
+  returnMode: 'sql' | 'all',
+  perReq: readonly OpResult[],
+  sqlResult: OpResult,
+): readonly OpResult[] {
+  return returnMode === 'all' ? [...perReq, sqlResult] : [sqlResult];
+}
+
+/** Project → bound → register → query → dispose, with the §5.5 envelope. Returns an
+ *  `OpResult`: a SQL error becomes a pointed `bad_args` listing every table's columns
+ *  (§4.6); a native-load failure becomes an honest `ToolFailure`; success carries the
+ *  rows plus partial/truncation/notes. */
+function assemble(
+  producers: ReadonlyArray<{
+    alias: string;
+    table: TableSpec<JsonValue>;
+    data: JsonValue;
+    producerTruncated: boolean;
+  }>,
+  ctx: SqlBatchCtx,
+): OpResult {
+  const runnerOutcome = ctx.createRunner();
+  if (!runnerOutcome.ok) {
+    // Native-load / open failure (§4.1) — surface the ToolFailure verbatim, no data.
+    return { name: 'sql', result: fail(runnerOutcome.failure) };
+  }
+  const runner = runnerOutcome.data;
+
+  const boundedTables: string[] = [];
+  const notes: string[] = [];
+  try {
+    for (const p of producers) {
+      const allRows = p.table.rows(p.data);
+      const capped = allRows.length > ctx.bounds.maxTableRows;
+      const rows = capped ? allRows.slice(0, ctx.bounds.maxTableRows) : allRows;
+      if (capped || p.producerTruncated) boundedTables.push(p.alias);
+      runner.register(p.alias, p.table.columns, rows);
+      if (p.table.notes !== undefined) notes.push(...p.table.notes(p.data));
+    }
+
+    const queried = runner.query(ctx.sql, ctx.bounds.maxResultRows);
+    const data: JsonValue = {
+      columns: queried.columns,
+      rows: queried.rows,
+      ...(boundedTables.length > 0
+        ? {
+            partial: {
+              boundedTables,
+              reason: `table(s) hit MAX_TABLE_ROWS=${ctx.bounds.maxTableRows} and were truncated — anti-joins / NOT IN over them are NOT trustworthy`,
+            },
+          }
+        : {}),
+      ...(notes.length > 0 ? { notes } : {}),
+    };
+    const truncated =
+      queried.total > queried.rows.length
+        ? {
+            shown: queried.rows.length,
+            total: queried.total,
+            hint: 'add a LIMIT or aggregate (COUNT/GROUP BY) — the result was capped',
+          }
+        : undefined;
+    return {
+      name: 'sql',
+      result: ok(data, {
+        ...(ctx.freshness !== undefined ? { freshness: ctx.freshness } : {}),
+        ...(truncated !== undefined ? { truncated } : {}),
+      }),
+    };
+  } catch (thrown) {
+    // A register failure (hostile alias slipped through, seeding error) is our bug or a
+    // tool failure; a query failure is the agent's SQL. Both surface honestly. We can't
+    // tell which from the throw, so report as bad_args with the schema (§4.6) — the
+    // agent's most likely cause and its only way to see the schema mid-flight.
+    const schema = producers
+      .map((p) => `${p.alias}(${p.table.columns.map((c) => c.name).join(', ')})`)
+      .join('  ·  ');
+    return {
+      name: 'sql',
+      error: {
+        kind: 'bad_args',
+        message: `SQL failed: ${messageOfThrown(thrown)}. Available tables — ${schema}`,
+      },
+    };
+  } finally {
+    runner.dispose();
+  }
+}
+
+type PlanOutcome = { ok: true; items: PlanItem[] } | { ok: false; error: DispatchError };
+
+/** Validate ops + assign/validate aliases (default `t` for one request, `t0..tN` for
+ *  several — §5.1). Any problem fails the whole call with a pointed dispatch error. */
+function planAliases(
+  reqs: readonly OpRequest[],
+  opsByName: Map<string, AnyOpDefinition>,
+  hasPlugin: (id: string) => boolean,
+): PlanOutcome {
+  const items: PlanItem[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < reqs.length; i++) {
+    const req = reqs[i];
+    if (req === undefined) continue;
+    const op = opsByName.get(req.name);
+    if (op === undefined) {
+      return badArgs(`unknown op '${req.name}' in sql batch (see status for the catalogue)`);
+    }
+    const missing = op.requires.filter((id) => !hasPlugin(id));
+    if (missing.length > 0) {
+      return badArgs(
+        `op '${req.name}' needs plugin(s) [${missing.join(', ')}] not active in this workspace`,
+      );
+    }
+    if (op.table === undefined) {
+      return badArgs(
+        `op '${req.name}' has no table — it is not list-shaped and cannot be used under sql. Tabular ops: see status (each lists its columns).`,
+      );
+    }
+    const alias = req.as ?? (reqs.length === 1 ? 't' : `t${i}`);
+    const aliasError = validateTableName(alias);
+    if (aliasError !== undefined) return badArgs(aliasError);
+    if (seen.has(alias)) {
+      return badArgs(`duplicate table alias '${alias}' — each request's 'as' must be unique`);
+    }
+    seen.add(alias);
+    items.push({ req, op, table: op.table, alias });
+  }
+  return { ok: true, items };
+}
+
+function badArgs(message: string): { ok: false; error: DispatchError } {
+  return { ok: false, error: { kind: 'bad_args', message } };
+}

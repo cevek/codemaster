@@ -2,9 +2,33 @@
 // file). Parse failures are reported alongside, never hidden (§3.6).
 
 import { z } from 'zod';
+import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
-import type { ScssPluginApi } from '../plugins/scss/plugin.ts';
+import type { ScssClassView, ScssPluginApi } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
+import type { Cell, TableSpec } from './registry.ts';
+
+/** Project class declarations (§3). `confidence` is `partial` for interpolated selectors
+ *  (carried verbatim from the plugin — §19), never silently upgraded. */
+const scssClassesTable: TableSpec<JsonValue> = {
+  columns: [
+    { name: 'name', type: 'text' },
+    { name: 'file', type: 'text' },
+    { name: 'line', type: 'int' },
+    { name: 'col', type: 'int' },
+    { name: 'confidence', type: 'text' },
+  ],
+  rows(data) {
+    const classes = (data as { classes?: ScssClassView[] }).classes ?? [];
+    return classes.map((c): readonly Cell[] => [
+      c.name,
+      c.file,
+      c.span.line,
+      c.span.col,
+      c.confidence,
+    ]);
+  },
+};
 
 const argsSchema = z.strictObject({ file: z.string().optional() });
 
@@ -16,6 +40,7 @@ export const scssClassesOp = defineOp({
   argsSchema,
   argsHint: '{ file?: string }',
   example: `op({name:'scss_classes', args:{file:'src/button.module.scss'}})`,
+  table: scssClassesTable,
   async run(ctx, args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');
     try {

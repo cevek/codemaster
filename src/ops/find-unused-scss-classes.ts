@@ -4,9 +4,43 @@
 // `partial` (§3.3: dynamic is flagged, never bridged).
 
 import { z } from 'zod';
+import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
-import type { ScssPluginApi } from '../plugins/scss/plugin.ts';
+import type { ScssPluginApi, UnusedClassView } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
+import type { Cell, TableSpec } from './registry.ts';
+
+/** Project unused-class rows (§3). A class whose importer used computed access is
+ *  demoted to `partial` with a `note`, never dropped; modules excluded wholesale by
+ *  dynamic access surface as an envelope note so the SQL answer never reads as complete. */
+const findUnusedScssClassesTable: TableSpec<JsonValue> = {
+  columns: [
+    { name: 'name', type: 'text' },
+    { name: 'file', type: 'text' },
+    { name: 'line', type: 'int' },
+    { name: 'col', type: 'int' },
+    { name: 'confidence', type: 'text' },
+    { name: 'note', type: 'text' },
+  ],
+  rows(data) {
+    const unused = (data as { unused?: UnusedClassView[] }).unused ?? [];
+    return unused.map((c): readonly Cell[] => [
+      c.name,
+      c.file,
+      c.span.line,
+      c.span.col,
+      c.confidence,
+      c.note ?? null,
+    ]);
+  },
+  notes(data) {
+    const dynamicModules = (data as { dynamicModules?: string[] }).dynamicModules ?? [];
+    if (dynamicModules.length === 0) return [];
+    return [
+      `${dynamicModules.length} module(s) excluded from unused-analysis (computed class access — cannot prove unused): ${dynamicModules.join(', ')}`,
+    ];
+  },
+};
 
 export const findUnusedScssClassesOp = defineOp({
   name: 'find_unused_scss_classes',
@@ -17,6 +51,7 @@ export const findUnusedScssClassesOp = defineOp({
   argsSchema: z.strictObject({}),
   argsHint: '{}',
   example: `op({name:'find_unused_scss_classes', args:{}})`,
+  table: findUnusedScssClassesTable,
   async run(ctx, _args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');
     try {

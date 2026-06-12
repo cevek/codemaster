@@ -34,6 +34,22 @@ export interface OpRequest extends OpFlags {
   name: string;
   /** Op-specific arguments. JSON-validated at the boundary by the op's schema. */
   args: JsonValue;
+  /** SQL table alias for this request's tabular projection, used only under a `batch`/`op`
+   *  carrying `sql` (§3). Validated `^[a-z_][a-z0-9_]{0,30}$`; defaults to `t` (single
+   *  request) or `t0..tN`. Ignored when the call has no `sql`. */
+  as?: string;
+}
+
+/** Batch-level modifiers that are NOT per-request (§5–6). Present only on the `batch`
+ *  tool (and the `op` sugar, which desugars to a batch of one). */
+export interface BatchOptions {
+  /** A single read-only SELECT run across the requests' aliased tabular projections in an
+   *  ephemeral in-memory SQLite database that lives only for this call (§1). When present,
+   *  only the SQL result returns unless `return: 'all'`. */
+  sql?: string;
+  /** `'sql'` (default when `sql` is present) → only the SQL result; `'all'` → the
+   *  per-request results too (uncapped producers can be large — opt-in). */
+  return?: 'sql' | 'all';
 }
 
 /** Dispatch-level failure shape. Distinct from `ToolFailure` (which lives inside

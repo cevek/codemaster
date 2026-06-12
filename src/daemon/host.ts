@@ -1,4 +1,4 @@
-import type { OpRequest, OpResult } from '../ops/contracts.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { RepoId } from '../core/brands.ts';
 
 // The transport seam that makes the process model **optional** (ARCHITECTURE.md §2).
@@ -19,8 +19,9 @@ import type { RepoId } from '../core/brands.ts';
 export interface ProjectHost {
   readonly repoId: RepoId;
   /** Dispatch a batch of op requests to the workspace's engine; resolves in input order.
-   *  In-process this is a direct call; process-isolated it is one IPC round-trip. */
-  request(reqs: readonly OpRequest[]): Promise<readonly OpResult[]>;
+   *  In-process this is a direct call; process-isolated it is one IPC round-trip.
+   *  `batch` carries sql-mode options (§5) when present. */
+  request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   /** Tear down — drop references (in-process) or kill the child process (process). */
   dispose(): Promise<void>;
 }
