@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type { SymbolView } from '../plugins/ts/queries.ts';
+import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 

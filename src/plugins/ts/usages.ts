@@ -1,115 +1,17 @@
-// Read-side TS queries: search / definition / usages / type expansion. All results
-// are proof-carrying spans built in ./spans.ts from the same SourceFiles the LS
-// answered from. Semantic answers come from the live LS — the only oracle (§3.1).
+// Reference-site discovery: semantic references from the live LS, classified by role and
+// optionally rolled up to enclosing declarations. All results are proof-carrying spans
+// built in ./spans.ts from the same SourceFiles the LS answered from. Semantic answers
+// come from the live LS — the only oracle (§3.1).
 
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { Confidence, Span } from '../../core/span.ts';
+import type { Confidence } from '../../core/span.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId, moduleName } from './symbol-id.ts';
-import { classifyRole, findEncloser, type UsageRole } from './usage-roles.ts';
+import { classifyRole, findEncloser } from './usage-roles.ts';
+import type { SymbolView, UsageView, UsageOptions, UsagesView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
-
-export type SymbolView = {
-  id: string;
-  name: string;
-  kind: string;
-  span: Span;
-  container?: string;
-};
-
-export type UsageView = {
-  span: Span;
-  role: UsageRole;
-  confidence: Confidence;
-};
-
-/** One enclosing-declaration rollup row. `id` is a chainable ts: SymbolId of the
- *  encloser; `count` = references inside it. `name`/`file`/`line`/`col`/`exported` are
- *  carried explicitly (not decoded from `id`) so a relational projection of this row never
- *  has to crack open the opaque SymbolId payload (§6). `exported` is `false` for a
- *  module-level (top-level) rollup — those are not exported symbols. */
-export type GroupRow = {
-  id: string;
-  name: string;
-  file: RepoRelPath;
-  line: number;
-  col: number;
-  kind: string;
-  count: number;
-  roles: string;
-  exported: boolean;
-  confidence: Confidence;
-};
-
-export type UsageOptions = {
-  limit: number;
-  /** Keep only references with this syntactic role (e.g. 'jsx'). */
-  role?: UsageRole | undefined;
-  /** Roll references up to their nearest enclosing named declaration. */
-  groupBy?: 'enclosing' | undefined;
-  pathInclude?: readonly string[] | undefined;
-  pathExclude?: readonly string[] | undefined;
-  /** Grouped mode: keep only enclosers of this kind ('function'|'method'|'class'|'module'). */
-  enclosingKind?: string | undefined;
-  /** Grouped mode: keep only exported enclosers. */
-  exportedOnly?: boolean | undefined;
-};
-
-export type UsagesView = {
-  definition?: SymbolView;
-  /** Flat mode. */
-  usages?: UsageView[];
-  /** Grouped mode (`groupBy: 'enclosing'`), sorted by count desc. */
-  groups?: GroupRow[];
-  /** Grouped mode: distinct enclosers BEFORE the limit cap. `groups.length` may be less —
-   *  the gap is honest truncation of the rollup (§3.4), surfaced by the op. */
-  groupTotal?: number;
-  /** References matching the question (post role filter), before the limit cap. */
-  total: number;
-  /** References dropped by YOUR filters (path/kind/exported) — explicit, so a filter
-   *  never reads as completeness (§3.4). */
-  excluded: number;
-};
-
-export type TypeView = {
-  about: string;
-  type: string;
-  doc?: string;
-  span?: Span;
-};
-
-export function findDefinitions(
-  host: TsProjectHost,
-  abs: string,
-  offset: number,
-): SymbolView[] | undefined {
-  const defs = host.service.getDefinitionAtPosition(abs, offset);
-  if (defs === undefined) return undefined;
-  const views: SymbolView[] = [];
-  for (const def of defs) {
-    const sourceFile = host.service.getProgram()?.getSourceFile(def.fileName);
-    if (sourceFile === undefined) continue;
-    const rel = host.relOf(def.fileName);
-    const span = spanFromRange(
-      sourceFile,
-      rel,
-      def.textSpan.start,
-      def.textSpan.start + def.textSpan.length,
-    );
-    views.push({
-      id: mintSymbolId(def.name, rel, span.line, span.col),
-      name: def.name,
-      kind: def.kind,
-      span,
-      ...(def.containerName !== undefined && def.containerName !== ''
-        ? { container: def.containerName }
-        : {}),
-    });
-  }
-  return views;
-}
 
 export function findUsages(
   host: TsProjectHost,
@@ -294,39 +196,5 @@ function rollupRow(
     col,
     kind,
     exported: enc.exported,
-  };
-}
-
-export function expandTypeAt(
-  host: TsProjectHost,
-  abs: string,
-  offset: number,
-): TypeView | undefined {
-  const info = host.service.getQuickInfoAtPosition(abs, offset);
-  if (info === undefined) return undefined;
-  const sourceFile = host.service.getProgram()?.getSourceFile(abs);
-  const rel = host.relOf(abs);
-  const doc = (info.documentation ?? [])
-    .map((d) => d.text)
-    .join('\n')
-    .trim();
-  return {
-    about:
-      (info.displayParts ?? [])
-        .map((p) => p.text)
-        .join('')
-        .split('\n')[0] ?? '',
-    type: (info.displayParts ?? []).map((p) => p.text).join(''),
-    ...(doc.length > 0 ? { doc } : {}),
-    ...(sourceFile !== undefined
-      ? {
-          span: spanFromRange(
-            sourceFile,
-            rel,
-            info.textSpan.start,
-            info.textSpan.start + info.textSpan.length,
-          ),
-        }
-      : {}),
   };
 }

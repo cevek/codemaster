@@ -1,5 +1,5 @@
-// Workspace symbol search (LS navto provider) — fuzzy, editor-Cmd+T style. Split from
-// queries.ts so each query module stays small. Results are proof-carrying SymbolViews
+// Workspace symbol search (LS navto provider) — fuzzy, editor-Cmd+T style. One read-side
+// query module among definitions/usages/type-expand. Results are proof-carrying SymbolViews
 // anchored on the NAME token (where quickInfo/references resolve), with explicit total
 // vs shown so a cap never reads as completeness (§3.4).
 
@@ -7,7 +7,7 @@ import type ts from 'typescript';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
-import type { SymbolView } from './queries.ts';
+import type { SymbolView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
 export type SearchView = {

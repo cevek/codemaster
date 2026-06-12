@@ -9,15 +9,10 @@ import type { HandleRebind, SymbolId } from '../../core/ids.ts';
 import { decodeSymbolId } from '../../common/ids/codec.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
-import {
-  expandTypeAt,
-  findDefinitions,
-  findUsages,
-  type SymbolView,
-  type TypeView,
-  type UsageOptions,
-  type UsagesView,
-} from './queries.ts';
+import { findDefinitions } from './definitions.ts';
+import { findUsages } from './usages.ts';
+import { expandTypeAt } from './type-expand.ts';
+import type { SymbolView, TypeView, UsageOptions, UsagesView } from './query-types.ts';
 import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { findImporters, type ImportersView } from './importers.ts';

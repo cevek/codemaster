@@ -69,7 +69,7 @@ export type {
   UsageOptions,
   GroupRow,
   TypeView,
-} from './plugins/ts/queries.ts';
+} from './plugins/ts/query-types.ts';
 export type { SearchFilter, SearchView } from './plugins/ts/search.ts';
 export type { UsageRole } from './plugins/ts/usage-roles.ts';
 export type { ImporterRow, ImportersView } from './plugins/ts/importers.ts';

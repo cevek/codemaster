@@ -18,7 +18,7 @@ import type {
   UsageOptions,
   UsageView,
   UsagesView,
-} from '../plugins/ts/queries.ts';
+} from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
