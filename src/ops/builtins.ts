@@ -8,6 +8,7 @@ import { searchSymbolOp } from './search-symbol.ts';
 import { findDefinitionOp } from './find-definition.ts';
 import { findUsagesOp } from './find-usages.ts';
 import { expandTypeOp } from './expand-type.ts';
+import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
@@ -18,6 +19,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     findDefinitionOp,
     findUsagesOp,
     expandTypeOp,
+    sourceOp,
     importersOfOp,
     scssClassesOp,
     findUnusedScssClassesOp,

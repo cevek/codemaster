@@ -11,7 +11,13 @@ export type SymbolView = {
   id: string;
   name: string;
   kind: string;
+  /** The name-token span — the proof of WHERE the symbol is (§3.1). */
   span: Span;
+  /** The FULL enclosing-declaration span (§3.1): `export const X = …;`, the whole
+   *  `interface`/`class`/`function` body. Carries verbatim text, so `find_definition` at
+   *  full verbosity returns a signature+body, not an echo of the identifier. Populated by
+   *  `findDefinitions`; absent where a declaration node couldn't be located. */
+  decl?: Span;
   container?: string;
 };
 
@@ -84,9 +90,30 @@ export type UsagesView = {
   roleBreakdown?: Record<string, number>;
 };
 
+/** One structural member of an expanded type (§3.3). `inherited` marks a member that
+ *  comes from a base type, not the queried one. `members` is the nested expansion for an
+ *  anonymous object-literal member at `depth > 1`. */
+export type MemberView = {
+  name: string;
+  optional: boolean;
+  type: string;
+  inherited?: boolean;
+  members?: MemberView[];
+};
+
 export type TypeView = {
   about: string;
   type: string;
   doc?: string;
   span?: Span;
+  /** Object-like members (§3.3). */
+  members?: MemberView[];
+  /** Union / intersection constituents — one entry per arm (§3.3). */
+  constituents?: string[];
+  /** Honest caveats: member list capped (`… N more`), depth cap reached, type string
+   *  elided — never a silent `…` (§3.4). */
+  notes?: string[];
 };
+
+/** Depth + member bounds for structural type expansion (§3.3). */
+export type ExpandOptions = { depth: number; memberLimit: number };

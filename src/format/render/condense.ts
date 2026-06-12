@@ -31,8 +31,15 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
  *  pure repetition. Unknown shapes pass through untouched. */
 function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   const keys = Object.keys(v).sort().join(',');
-  // SymbolView: { id, name, kind, span(condensed), container? }
-  if (keys === 'id,kind,name,span' || keys === 'container,id,kind,name,span') {
+  // SymbolView: { id, name, kind, span(condensed), decl?(condensed), container? }. Terse is
+  // location-only, so the full `decl` span (§3.1) collapses away with the rest — the id
+  // already carries name + file:line:col. decl text surfaces at normal/full.
+  if (
+    keys === 'id,kind,name,span' ||
+    keys === 'container,id,kind,name,span' ||
+    keys === 'decl,id,kind,name,span' ||
+    keys === 'container,decl,id,kind,name,span'
+  ) {
     const container = v['container'] !== undefined ? ` in ${String(v['container'])}` : '';
     return `${String(v['id'])} · ${String(v['kind'])}${container}`;
   }

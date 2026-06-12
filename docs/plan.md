@@ -158,7 +158,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Stage 2 — `find_usages`: `reexport` role split from `import` · conditional
       import collapse (default on, never in sql tables, counters unchanged) · role
       breakdown on filtered-empty results
-- [ ] Stage 3 — declaration spans (`find_definition` returns signature/body, not an
+- [x] Stage 3 — declaration spans (`find_definition` returns signature/body, not an
       echo) · new multi-target `source` op · deep `expand_type` (members /
       constituents, depth + memberLimit, cold-Program oracle)
 

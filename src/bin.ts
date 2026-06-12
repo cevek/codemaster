@@ -82,6 +82,8 @@ async function main(): Promise<number> {
         process.stderr.write('usage: codemaster op <name> [json-args] [--root <dir>]\n');
         return 2;
       }
+      const verbosity = argValue(args, '--verbosity');
+      const v = verbosity === 'normal' || verbosity === 'full' ? verbosity : 'terse';
       let opArgs: unknown = {};
       const rawArgs = args.find((a) => !a.startsWith('--'));
       if (rawArgs !== undefined) {
@@ -103,7 +105,7 @@ async function main(): Promise<number> {
       }
       for (const r of outcome.results) {
         if ('error' in r) out(`DISPATCH ${r.error.kind}: ${r.error.message}`);
-        else out(renderResult(r.result));
+        else out(renderResult(r.result, v));
       }
       await orchestrator.dispose();
       return 0;

@@ -9,26 +9,39 @@ import type { Span } from '../../core/span.ts';
 
 const SPAN_TEXT_CAP = 400;
 
+/** Hard ceiling for any one span's text, even a declaration body (§3.1/§3.2): a
+ *  generated monster file must not emit a multi-MB span. Matches the renderer's
+ *  output-level `RENDER_CHAR_CAP`, so a single span can fill an answer but never blow it. */
+const SPAN_TEXT_CEILING = 20_000;
+
 export function spanFromRange(
   sourceFile: ts.SourceFile,
   file: RepoRelPath,
   start: number,
   end: number,
+  // Default caps reference sites tight (the proof, not the payload); declaration / source
+  // spans pass a generous cap so `full` verbosity carries the whole body (§3.1).
+  textCap: number = SPAN_TEXT_CAP,
 ): Span {
+  const cap = Math.min(textCap, SPAN_TEXT_CEILING);
   const s = sourceFile.getLineAndCharacterOfPosition(start);
   const e = sourceFile.getLineAndCharacterOfPosition(end);
   const raw = sourceFile.text.slice(start, end);
-  const elided = raw.length > SPAN_TEXT_CAP;
+  const elided = raw.length > cap;
   return {
     file,
     line: s.line + 1,
     col: s.character + 1,
     endLine: e.line + 1,
     endCol: e.character + 1,
-    text: elided ? `${raw.slice(0, SPAN_TEXT_CAP)}…` : raw,
+    text: elided ? `${raw.slice(0, cap)}…` : raw,
     ...(elided ? { elided: true } : {}),
   };
 }
+
+/** The generous per-span cap for declaration / source bodies (§3.1) — full bodies, still
+ *  bounded by `SPAN_TEXT_CEILING`. */
+export const DECL_TEXT_CAP = SPAN_TEXT_CEILING;
 
 /** 1-based (line, col) → TS offset; undefined when out of range (reported, never
  *  clamped into a plausible-looking position). */

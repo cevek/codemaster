@@ -78,3 +78,13 @@ partial:true}` + что успели». Триггер: clock или агент,
   package's Program (один LS instance per `tsconfig`). С ним — один lookup. Phase 1 для
   Phase 0 принимает «cross-package symbol search прогревает все packages» как редкую
   операцию.
+
+## Condense: match known shapes by required-key subset, not exact key set
+
+`format/render/condense.ts` `collapseKnownShape` recognises SymbolView / UsageView /
+GroupRow by the EXACT sorted key list. Each new optional field (e.g. `decl` on
+SymbolView in §3.1) forces adding every new key-combination, or terse output silently
+falls into the verbose block-render branch. Match on a required-key SUBSET (+ guard the
+discriminating keys) so adding an optional field can't quietly break condensation. Noted
+from the read-side polish review; not a correctness issue (verbose fallback is honest),
+so deferred.

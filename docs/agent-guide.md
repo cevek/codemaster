@@ -17,15 +17,16 @@ The op set is per-repo (depends on active plugins) — `status` is the source of
 
 ## Current ops
 
-| Op                         | Args                                                                   | Returns                                                                 |
-| -------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `search_symbol`            | `{query, limit?, kind?, exportedOnly?, pathExclude?, pathInclude?}`    | matches + chainable `SymbolId`s (fuzzy, Cmd+T-style)                    |
-| `find_definition`          | target                                                                 | definition site(s)                                                      |
-| `find_usages`              | target or `{symbols: string[]}` + `{limit?, role?, groupBy?, filter?}` | semantic refs — catches aliased imports and JSX `<B/>` that grep misses |
-| `importers_of`             | `{module}` — path or specifier (`@/…` aliases resolve via tsconfig)    | files importing / re-exporting from the module                          |
-| `expand_type`              | target                                                                 | resolved type signature + docs                                          |
-| `scss_classes`             | `{file?}`                                                              | SCSS class declarations                                                 |
-| `find_unused_scss_classes` | `{}`                                                                   | classes with no usage observed in TS/TSX                                |
+| Op                         | Args                                                                   | Returns                                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `search_symbol`            | `{query, limit?, kind?, exportedOnly?, pathExclude?, pathInclude?}`    | matches + chainable `SymbolId`s (fuzzy, Cmd+T-style)                                                     |
+| `find_definition`          | target                                                                 | definition site(s); `verbosity:normal` adds the declaration header, `full` the whole body (not an echo)  |
+| `find_usages`              | target or `{symbols: string[]}` + `{limit?, role?, groupBy?, filter?}` | semantic refs — catches aliased imports and JSX `<B/>` that grep misses                                  |
+| `importers_of`             | `{module}` — path or specifier (`@/…` aliases resolve via tsconfig)    | files importing / re-exporting from the module                                                           |
+| `expand_type`              | target + `{depth?: 1-3, memberLimit?}`                                 | type + docs **and** structural members (name/optional/type/inherited) or union/intersection constituents |
+| `source`                   | `{targets: [target, …]}` (≤ 20)                                        | the full declaration **body** of each symbol in one call (unresolved listed)                             |
+| `scss_classes`             | `{file?}`                                                              | SCSS class declarations                                                                                  |
+| `find_unused_scss_classes` | `{}`                                                                   | classes with no usage observed in TS/TSX                                                                 |
 
 ### find_usages refinements (generic AST-level, you supply the names)
 
@@ -115,6 +116,8 @@ op({ name: 'search_symbol', args: { query: 'Button' } });
 op({ name: 'find_usages', args: { name: 'createEngine', limit: 50 } });
 op({ name: 'find_usages', args: { symbol: 'ts:Button@src/Button.tsx:1:14' } });
 op({ name: 'expand_type', args: { file: 'src/app.ts', line: 12, col: 8 } });
+op({ name: 'expand_type', args: { name: 'UserDTO', depth: 2 } }); // interface → its fields
+op({ name: 'source', args: { targets: [{ name: 'createEngine' }, { name: 'Button' }] } });
 batch({
   requests: [
     { name: 'scss_classes', args: {} },

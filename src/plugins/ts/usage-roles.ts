@@ -5,6 +5,7 @@
 // answer, formulated as an AST concept.
 
 import ts from 'typescript';
+import { nodeAt } from './ast-node.ts';
 
 /** Syntactic role of one reference site. `decl` = the definition itself. `reexport` =
  *  an `export { X }` / `export { X } from …` barrel specifier — structurally load-bearing
@@ -117,17 +118,4 @@ function isExported(node: ts.Node): boolean {
 
 function within(node: ts.Node, position: number): boolean {
   return node.getStart() <= position && position < node.getEnd();
-}
-
-/** Smallest node containing `position` (public-API descent; `getTokenAtPosition` is
- *  compiler-internal). */
-function nodeAt(sourceFile: ts.SourceFile, position: number): ts.Node | undefined {
-  let current: ts.Node = sourceFile;
-  for (;;) {
-    const child = ts.forEachChild(current, (c) =>
-      c.getStart(sourceFile) <= position && position < c.getEnd() ? c : undefined,
-    );
-    if (child === undefined) return current === sourceFile ? undefined : current;
-    current = child;
-  }
 }

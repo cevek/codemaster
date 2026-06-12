@@ -12,7 +12,13 @@ import { offsetOfLoc } from './spans.ts';
 import { findDefinitions } from './definitions.ts';
 import { findUsages } from './usages.ts';
 import { expandTypeAt } from './type-expand.ts';
-import type { SymbolView, TypeView, UsageOptions, UsagesView } from './query-types.ts';
+import type {
+  ExpandOptions,
+  SymbolView,
+  TypeView,
+  UsageOptions,
+  UsagesView,
+} from './query-types.ts';
 import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { findImporters, type ImportersView } from './importers.ts';
@@ -39,7 +45,10 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     options: UsageOptions,
   ): { view: UsagesView; rebind?: HandleRebind } | string;
-  expandType(target: TsTargetInput): { view: TypeView; rebind?: HandleRebind } | string;
+  expandType(
+    target: TsTargetInput,
+    options?: ExpandOptions,
+  ): { view: TypeView; rebind?: HandleRebind } | string;
   /** Cross-tier API for the scss plugin (§5-L2). */
   cssModuleUsages(): CssModuleUsages;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
@@ -158,10 +167,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
-    expandType(target) {
+    expandType(target, options) {
       const resolved = resolve(target);
       if (!resolved.ok) return resolved.message;
-      const view = expandTypeAt(warm(), resolved.abs, resolved.offset);
+      const view = expandTypeAt(warm(), resolved.abs, resolved.offset, options);
       if (view === undefined) return 'no type information at the resolved position';
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
