@@ -17,6 +17,16 @@ clean oracle (the JSON itself) — exactly what a plugin is for.
   (zod, pointed errors): `locales` — glob or list of locale JSON files (the locale
   id derives from filename or parent dir, e.g. `locales/en.json` → `en`);
   `functions?: string[]` default `['t']`; `defaultLocale?: string`.
+- **The config gate lives in `pluginsFor`, NEVER in `opsFor`/`builtinOps()`.** The
+  i18n ops are registered unconditionally with `requires: ['i18n']`; availability is
+  gated by plugin presence (the engine already filters the catalogue and rejects
+  dispatch by `requires`). Do not make the op list config-dependent: cross-root sql
+  projects with the orchestrator's own op defs resolved from ONE root
+  (`Orchestrator.opDefs`, spec-cross-repo-root) under the documented assumption that
+  the op set is identical everywhere — a config-dependent `opsFor` would break the
+  cross-root join for an op the owning engine actually has. Extend the §1.1
+  anti-drift test run over `builtinOps()` to the new ops (it picks them up
+  automatically — just don't bypass `builtinOps()`).
 - **Parser: `ts.parseJsonText`** (the typescript package's position-carrying JSON
   AST). Proof spans must point into the locale file at `file:line:col`; plain
   `JSON.parse` has no positions. No new dependency. **Update the ARCHITECTURE §4
@@ -56,17 +66,18 @@ clean oracle (the JSON itself) — exactly what a plugin is for.
 
 ## 3. Tests (§16 — independent oracles)
 
-| Claim                                                           | Oracle                                                                                |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| keys + values match the files                                   | cold reparse in the test (`ts.parseJsonText` fresh) — same key→value map              |
-| every key span is valid                                         | `assertSpansValid` against the raw locale JSON                                        |
-| `t('a.b')` found; `t(\`x.${y}\`)`→`dynamic`, never guessed      | fixture                                                                               |
-| unused-claims demoted to `partial` when any dynamic call exists | fixture with one computed key                                                         |
-| missing keys reported per locale                                | en/de fixture with a deliberate gap                                                   |
-| parse-failure honesty                                           | malformed `de.json` → `partial`, file named, daemon up                                |
-| freshness honesty (mutate · add · checkout, watcher silenced)   | the §16 invariant-2 harness, run against the i18n plugin                              |
-| cold == warm after locale edits                                 | §16 invariant 3 for the i18n plugin                                                   |
-| plugin DAG                                                      | `i18n` declares `deps: ['ts']`; registry order respected (existing DAG test extended) |
+| Claim                                                           | Oracle                                                                                                                  |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| keys + values match the files                                   | cold reparse in the test (`ts.parseJsonText` fresh) — same key→value map                                                |
+| every key span is valid                                         | `assertSpansValid` against the raw locale JSON                                                                          |
+| `t('a.b')` found; `t(\`x.${y}\`)`→`dynamic`, never guessed      | fixture                                                                                                                 |
+| unused-claims demoted to `partial` when any dynamic call exists | fixture with one computed key                                                                                           |
+| missing keys reported per locale                                | en/de fixture with a deliberate gap                                                                                     |
+| parse-failure honesty                                           | malformed `de.json` → `partial`, file named, daemon up                                                                  |
+| freshness honesty (mutate · add · checkout, watcher silenced)   | the §16 invariant-2 harness, run against the i18n plugin                                                                |
+| cold == warm after locale edits                                 | §16 invariant 3 for the i18n plugin                                                                                     |
+| plugin DAG                                                      | `i18n` declares `deps: ['ts']`; registry order respected (existing DAG test extended)                                   |
+| ops registered unconditionally, gated only by plugin presence   | `builtinOps()` contains the i18n ops always; `status` on a fixture WITHOUT `config.i18n` hides them, WITH it shows them |
 
 ## 4. Non-goals
 
