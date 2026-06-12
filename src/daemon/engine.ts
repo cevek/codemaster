@@ -19,6 +19,7 @@ import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
 import { buildDaemonInfo, extractFlags, withBatchFreshness } from './request-helpers.ts';
+import { buildWorkspaceStatus } from './workspace-status.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
@@ -51,6 +52,11 @@ export interface WorkspaceEngine {
   readonly repoId: RepoId;
   readonly root: string;
   request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
+  /** Cross-root sql (§2): produce these requests' results as sql-producers (uncapped, one
+   *  freshness capture), no SELECT — the orchestrator joins across engines. */
+  produceSql(
+    reqs: readonly OpRequest[],
+  ): Promise<{ results: readonly OpResult[]; freshness: FreshnessNote | undefined }>;
   status(): Promise<WorkspaceStatusView>;
   dispose(): Promise<void>;
 }
@@ -236,13 +242,32 @@ class Engine implements WorkspaceEngine {
       reqs,
       sql,
       returnMode: returnMode ?? 'sql',
-      opsByName: this.opsByName,
-      hasPlugin: (id) => this.registry.has(id),
+      opFor: (req) => this.opsByName.get(req.name),
+      hasPlugin: (_req, id) => this.registry.has(id),
       bounds: this.sqlBounds,
       createRunner: this.createSqlRunner,
       runProducer: (req) =>
         this.runOne(req, batchFreshness, { tableRowBound: this.sqlBounds.maxTableRows }),
       freshness: batchFreshness,
+    });
+  }
+
+  /** Cross-root sql (§2): run these requests as sql-producers (uncapped via
+   *  `tableRowBound`, freshness captured ONCE at entry) and return their raw results — no
+   *  SELECT. The orchestrator collects producers from several engines and runs the join
+   *  itself. Serialized through the queue like any request (§8). */
+  produceSql(
+    reqs: readonly OpRequest[],
+  ): Promise<{ results: readonly OpResult[]; freshness: FreshnessNote | undefined }> {
+    return this.enqueue(async () => {
+      const freshness = await this.refresh();
+      const results: OpResult[] = [];
+      for (const req of reqs) {
+        results.push(
+          await this.runOne(req, freshness, { tableRowBound: this.sqlBounds.maxTableRows }),
+        );
+      }
+      return { results, freshness };
     });
   }
 
@@ -315,32 +340,16 @@ class Engine implements WorkspaceEngine {
   }
 
   private buildStatus(): WorkspaceStatusView {
-    return {
+    return buildWorkspaceStatus({
       repoId: this.repoId,
       root: this.root,
       configSource: this.deps.configSource,
       freshnessMode: this.freshnessMode,
       watcher: this.watcherState,
-      plugins: this.order.map((p) => ({
-        id: p.id,
-        version: p.version,
-        fingerprint: p.freshness(),
-        pendingFiles: p.pending().length,
-      })),
-      ops: [...this.opsByName.values()]
-        .filter((op) => op.requires.every((id) => this.registry.has(id)))
-        .map((op) => ({
-          name: op.name,
-          summary: op.summary,
-          mutating: op.mutating,
-          argsHint: op.argsHint,
-          ...(op.example !== undefined ? { example: op.example } : {}),
-          ...(op.notes !== undefined ? { notes: op.notes } : {}),
-          ...(op.table !== undefined
-            ? { columns: op.table.columns.map((c) => c.name).join(',') }
-            : {}),
-        })),
-    };
+      plugins: this.order,
+      registry: this.registry,
+      ops: [...this.opsByName.values()],
+    });
   }
 
   private toRepoRel(absPath: string): RepoRelPath {

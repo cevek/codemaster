@@ -44,6 +44,9 @@ export interface StatusView {
   pid: number;
   isolation: 'in-process' | 'process';
   engines: number;
+  /** Roots of the currently warm engines (cross-repo §2) — so an agent sees that
+   *  multi-root is live and which sibling repos are already loaded. */
+  engineRoots: readonly string[];
   workspace: WorkspaceStatusView | undefined;
   debugTopics: readonly string[];
   guidance: readonly string[];
@@ -53,6 +56,11 @@ export function renderStatus(view: StatusView): string {
   const lines: string[] = [
     `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
+  // Warm engines by root (cross-repo §2): a query/batch request may carry `root` to target
+  // any of these sibling repos; this is the agent's signal that multi-root is live.
+  if (view.engineRoots.length > 0) {
+    lines.push(`warm roots: ${view.engineRoots.join(' · ')}`);
+  }
 
   const ws = view.workspace;
   if (ws === undefined) {

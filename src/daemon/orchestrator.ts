@@ -13,6 +13,17 @@ import type { Clock, CancelTimer } from '../common/async/clock.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
 import { fnv1a64Hex } from '../common/hash/fnv.ts';
+import type { SqlBounds } from './sql-batch.ts';
+import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
+import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
+import {
+  crossRootSql,
+  engineOf,
+  groupedDispatch,
+  type RouteOk,
+  type RouteOutcome,
+  type SpawnHost,
+} from './multi-root.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher } from '../support/watch/seam.ts';
 import { canonicalizeRoot } from '../support/fs/canonicalize.ts';
@@ -20,9 +31,7 @@ import { gitRepoRoot } from '../support/git/repo-root.ts';
 import { loadConfig } from '../support/config-load/load.ts';
 import { createRotatingFileSink } from '../support/debug/file-sink.ts';
 import type { CodemasterConfig } from '../config/config.ts';
-import { createEngine, type WorkspaceEngine } from './engine.ts';
-import type { SqlBounds } from './sql-batch.ts';
-import type { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
+import { createEngine } from './engine.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
@@ -44,10 +53,6 @@ export interface OrchestratorDeps {
   /** SQL evaluator factory (§4) — test seam, forwarded to every engine. */
   createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
 }
-
-export type RouteOutcome =
-  | { ok: true; repoId: RepoId; root: string }
-  | { ok: false; message: string };
 
 interface EngineSlot {
   host: ProjectHost;
@@ -95,12 +100,48 @@ export class Orchestrator {
     reqs: readonly OpRequest[],
     batch?: BatchOptions,
   ): Promise<{ ok: true; results: readonly OpResult[] } | { ok: false; message: string }> {
-    const routed = await this.route(cwd, root);
-    if (!routed.ok) return routed;
-    const spawned = await this.getOrSpawn(routed.repoId, routed.root);
-    if (!spawned.ok) return spawned;
-    const results = await spawned.slot.host.request(reqs, batch);
-    return { ok: true, results };
+    // Resolve each request's effective root (request `root` > tool `root` > cwd) — a batch
+    // may span sibling repos (cross-repo §1). Routes preserve request index.
+    const routes = await Promise.all(reqs.map((req) => this.route(cwd, req.root ?? root)));
+    const okRoutes = routes.filter((r): r is RouteOk => r.ok);
+    const distinctRoots = new Set(okRoutes.map((r) => r.repoId));
+    const singleEngineAllOk = distinctRoots.size === 1 && okRoutes.length === reqs.length;
+
+    // Fast path — every request targets ONE engine and resolves cleanly: today's single
+    // dispatch, byte-for-byte (one engine, one batch-entry freshness, sql in-engine §11).
+    if (singleEngineAllOk) {
+      const r0 = okRoutes[0];
+      if (r0 === undefined) return { ok: true, results: [] };
+      const spawned = await this.getOrSpawn(r0.repoId, r0.root);
+      if (!spawned.ok) return spawned;
+      return { ok: true, results: await spawned.slot.host.request(reqs, batch) };
+    }
+
+    // Cross-root sql joins at the orchestrator (§2); other multi-root batches group by
+    // engine and reassemble in original order. Both live in multi-root.ts.
+    const spawn: SpawnHost = (repoId, repoRoot) => this.spawnHost(repoId, repoRoot);
+    if (batch?.sql !== undefined) {
+      return {
+        ok: true,
+        results: await crossRootSql(reqs, routes, batch, {
+          spawn,
+          opDefs: (r) => this.opDefs(r),
+          bounds: this.resolvedSqlBounds(),
+          createRunner: () => (this.deps.createSqlRunner ?? createSqliteRunner)(),
+        }),
+      };
+    }
+    return { ok: true, results: await groupedDispatch(reqs, routes, batch, spawn) };
+  }
+
+  /** Adapt the engine-slot lifecycle to the thin `SpawnHost` the multi-root dispatch
+   *  needs (it only wants the host, never the slot's internals). */
+  private async spawnHost(
+    repoId: RepoId,
+    root: string,
+  ): Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }> {
+    const spawned = await this.getOrSpawn(repoId, root);
+    return spawned.ok ? { ok: true, host: spawned.slot.host } : spawned;
   }
 
   async status(cwd: string, root?: string): Promise<StatusView> {
@@ -119,6 +160,7 @@ export class Orchestrator {
       pid: process.pid,
       isolation: 'in-process',
       engines: this.engines.size,
+      engineRoots: [...this.engines.values()].map((s) => s.root),
       workspace,
       debugTopics: this.deps.debug.topics(),
       guidance: GUIDANCE,
@@ -218,6 +260,24 @@ export class Orchestrator {
     return { ok: true, slot };
   }
 
+  /** The orchestrator's own op defs (the same objects it injects into engines — §2 thin
+   *  boundary: defs never cross it), used to project + plan a cross-root sql join.
+   *  Resolved against `root`'s config; builtin ops are config-independent, so any active
+   *  root's set is the join's authority. */
+  private opDefs(root: string): Map<string, AnyOpDefinition> {
+    const loaded = loadConfig(root);
+    if (!isOk(loaded)) return new Map();
+    const ops = this.deps.opsFor?.(loaded.data.config) ?? [];
+    return new Map(ops.map((op) => [op.name, op]));
+  }
+
+  private resolvedSqlBounds(): SqlBounds {
+    return {
+      maxTableRows: this.deps.sqlBounds?.maxTableRows ?? DEFAULT_MAX_TABLE_ROWS,
+      maxResultRows: this.deps.sqlBounds?.maxResultRows ?? DEFAULT_MAX_RESULT_ROWS,
+    };
+  }
+
   private async evict(repoId: RepoId, reason: string): Promise<void> {
     const slot = this.engines.get(repoId);
     if (slot === undefined) return;
@@ -273,16 +333,11 @@ const GUIDANCE = [
   'Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.',
   'Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.',
   "Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}).",
+  'Working across sibling repos? Any call or batch request may carry `root` — neighbouring TS repos are first-class (status lists the warm ones).',
 ] as const;
 
-type HostWithEngine = ProjectHost & { engine?: WorkspaceEngine };
-
 async function statusOf(host: ProjectHost): Promise<WorkspaceStatusView | undefined> {
-  // In-process hosts expose the engine directly; a process-isolated host will answer
-  // status over its IPC channel instead.
-  const withEngine = host as HostWithEngine;
-  if (withEngine.engine !== undefined) return withEngine.engine.status();
-  return undefined;
+  return engineOf(host)?.status();
 }
 
 function homeDir(): string {

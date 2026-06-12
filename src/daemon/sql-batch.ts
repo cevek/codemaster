@@ -27,11 +27,18 @@ export interface SqlBatchCtx {
   reqs: readonly OpRequest[];
   sql: string;
   returnMode: 'sql' | 'all';
-  opsByName: Map<string, AnyOpDefinition>;
-  hasPlugin: (id: string) => boolean;
+  /** Per-request op lookup. Single-root: the engine's catalogue. Cross-root (§2): the
+   *  orchestrator's own op defs (it owns the same objects it injects) — `TableSpec.rows`
+   *  is pure, so projection runs wherever the def is. */
+  opFor: (req: OpRequest) => AnyOpDefinition | undefined;
+  /** Per-request plugin check. Cross-root, the producer's owning engine is the authority
+   *  (it already validated when it ran), so the orchestrator passes `() => true`. */
+  hasPlugin: (req: OpRequest, id: string) => boolean;
   bounds: SqlBounds;
   createRunner: () => Result<SqlRunner>;
-  /** Engine-supplied: runs one request with `OpContext.tableRowBound` set (§2.3). */
+  /** Runs one request as a producer (`OpContext.tableRowBound` set, §2.3). Single-root:
+   *  the engine's `runOne`. Cross-root: a lookup of rows already produced in the owning
+   *  engine. */
   runProducer: (req: OpRequest) => Promise<OpResult>;
   freshness: FreshnessNote | undefined;
 }
@@ -44,7 +51,7 @@ interface PlanItem {
 }
 
 export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]> {
-  const plan = planAliases(ctx.reqs, ctx.opsByName, ctx.hasPlugin);
+  const plan = planAliases(ctx.reqs, ctx.opFor, ctx.hasPlugin);
   if (!plan.ok) return [{ name: 'sql', error: plan.error }];
 
   const perReq: OpResult[] = [];
@@ -178,21 +185,21 @@ type PlanOutcome = { ok: true; items: PlanItem[] } | { ok: false; error: Dispatc
  *  several — §5.1). Any problem fails the whole call with a pointed dispatch error. */
 function planAliases(
   reqs: readonly OpRequest[],
-  opsByName: Map<string, AnyOpDefinition>,
-  hasPlugin: (id: string) => boolean,
+  opFor: (req: OpRequest) => AnyOpDefinition | undefined,
+  hasPlugin: (req: OpRequest, id: string) => boolean,
 ): PlanOutcome {
   const items: PlanItem[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < reqs.length; i++) {
     const req = reqs[i];
     if (req === undefined) continue;
-    const op = opsByName.get(req.name);
+    const op = opFor(req);
     if (op === undefined) {
       return dispatchBadArgs(
         `unknown op '${req.name}' in sql batch (see status for the catalogue)`,
       );
     }
-    const missing = op.requires.filter((id) => !hasPlugin(id));
+    const missing = op.requires.filter((id) => !hasPlugin(req, id));
     if (missing.length > 0) {
       return dispatchBadArgs(
         `op '${req.name}' needs plugin(s) [${missing.join(', ')}] not active in this workspace`,

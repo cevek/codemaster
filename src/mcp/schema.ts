@@ -16,6 +16,9 @@ const opRequestSchema = z.object({
   debug: z.boolean().optional(),
   /** SQL table alias for this request under a sql-carrying batch (§3). */
   as: z.string().optional(),
+  /** Per-request workspace root (cross-repo §1) — a sibling repo this request targets.
+   *  Resolution: request root > tool root > cwd. */
+  root: z.string().optional(),
 });
 
 const returnModeSchema = z.enum(['sql', 'all']).optional();
@@ -115,6 +118,11 @@ export const TOOL_DESCRIPTORS = [
                 type: 'string',
                 description: 'SQL table alias for this request (default t/t0..tN)',
               },
+              root: {
+                type: 'string',
+                description:
+                  'Per-request workspace root — target a sibling repo (request root > tool root > cwd)',
+              },
             },
             required: ['name', 'args'],
           },
@@ -153,4 +161,5 @@ Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches ali
 Honesty contract: results carry explicit freshness, confidence (certain/partial/dynamic/unresolved) and truncation; a FAIL means codemaster could not do it — fall back to your own tools then. Query directly; do not delegate codemaster lookups to file-reading subagents.
 Output is terse by default (spans as file:line:col). verbosity:'full' returns verbatim proof text — use it for one symbol, not for lists. Oversized answers are explicitly capped with '!! OUTPUT CAPPED' — narrow the query, never assume completeness past the marker.
 Relational post-filtering: a batch (or op) carrying 'sql' loads each aliased request's rows into an ephemeral in-memory SQLite table and runs ONE read-only SELECT — use it for anti-joins / negations / aggregates over op outputs (e.g. components that render <X> but not under <Form>); producers run uncapped, and a 'partial' table makes NOT IN untrustworthy.
-Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}) — it travels with this server and records to a global inbox.`;
+Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}) — it travels with this server and records to a global inbox.
+Cross-repo: any call or batch request may carry a per-request 'root' to target a sibling TS repo — one batch can mix repos (results stay in order), and 'status' lists the warm roots.`;

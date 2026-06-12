@@ -48,9 +48,12 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
 - **`codemaster` global bin** — entry point (`npx codemaster`, or installed).
 - **Orchestrator (the daemon)** — one long-lived front-door process speaking MCP/IPC. It
   holds **no project data**: a `repoId → engine` registry, request routing (resolves the
-  target workspace from the client `cwd` or an explicit `root`), lifecycle (spawn / idle-TTL
-  kill / path-existence eviction / restart), and a cross-workspace **memory governor**
-  (§9). Its heap stays small and its loop never blocks — it only routes.
+  target workspace per request from the client `cwd` or an explicit `root` — a batch may
+  span sibling repos), lifecycle (spawn / idle-TTL kill / path-existence eviction /
+  restart), and a cross-workspace **memory governor** (§9). Its heap stays small and it
+  only routes — the one exception is a **cross-root `sql` join**, which evaluates the
+  engines' already-projected, ephemeral rows (thin data, never project state) in a
+  transient in-memory SQLite at the front door (§11).
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
   root): all registered **plugins** (`ts`, `scss`, `i18n`, `schema`, framework adapters)
   with their internal state, plus the **ops** that compose them. Everything for that

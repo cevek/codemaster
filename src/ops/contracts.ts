@@ -38,6 +38,11 @@ export interface OpRequest extends OpFlags {
    *  carrying `sql` (§3). Validated `^[a-z_][a-z0-9_]{0,30}$`; defaults to `t` (single
    *  request) or `t0..tN`. Ignored when the call has no `sql`. */
   as?: string;
+  /** Per-request workspace root (cross-repo §1): a sibling TS repo this one request
+   *  targets. Resolution precedence — request `root` > tool-level `root` > client cwd.
+   *  The orchestrator groups requests by resolved root and dispatches one sub-batch per
+   *  engine; results return in original request order. Absent → the tool/cwd root. */
+  root?: string;
 }
 
 /** Batch-level modifiers that are NOT per-request (§5–6). Present only on the `batch`

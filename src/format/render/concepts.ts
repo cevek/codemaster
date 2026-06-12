@@ -19,4 +19,5 @@ export const CONCEPTS_LINES: readonly string[] = [
   'confidence: certain (type-proven) · partial (incomplete) · dynamic (computed dispatch) · unresolved — a partial/dynamic claim is honest uncertainty, not a fact.',
   'truncation: "… N more (shown X/Y; hint)" and "!! OUTPUT CAPPED" — never assume completeness past a marker. FAIL tool=… means codemaster could not, and you should fall back to your own tools.',
   'freshness: "reindexed N at entry" = your just-made edits were picked up · "PENDING N" = index behind, re-run · none / "current @commit" = fresh. bad args end with "— valid: {…}", a call you can copy.',
+  'cross-repo: any call or batch request may carry `root` (request root > tool root > cwd) to target a sibling TS repo — one batch can mix repos, and a mixed-root `sql` join runs across them. SymbolIds do not cross roots (re-search in the new root). The status header lists the warm roots.',
 ];

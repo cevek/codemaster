@@ -36,7 +36,7 @@ test("a producer's own truncation marks its table partial", async () => {
     reqs: [{ name: 'stub', args: {} }],
     sql: 'SELECT n FROM t',
     returnMode: 'sql',
-    opsByName: new Map([['stub', stub]]),
+    opFor: (req) => (req.name === 'stub' ? stub : undefined),
     hasPlugin: () => true,
     bounds: { maxTableRows: 100, maxResultRows: 100 },
     createRunner: createSqliteRunner,

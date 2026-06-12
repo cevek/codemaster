@@ -10,9 +10,10 @@ import type { OpFlags, OpRequest } from '../ops/contracts.ts';
 import type { DaemonInfo } from '../ops/registry.ts';
 import { mergeFreshness } from '../common/result/merge-freshness.ts';
 
-/** The agent-facing flags carried alongside `name`/`args`/`as` on a request. */
+/** The agent-facing flags carried alongside `name`/`args`/`as`/`root` on a request.
+ *  `root` is routing (resolved by the orchestrator before dispatch), not an op flag. */
 export function extractFlags(req: OpRequest): OpFlags {
-  const { name: _name, args: _args, as: _as, ...flags } = req;
+  const { name: _name, args: _args, as: _as, root: _root, ...flags } = req;
   return flags;
 }
 

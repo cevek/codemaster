@@ -181,7 +181,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ## Field feedback, round 2 — sequential, one PR each, in this order
 
-- [ ] cross-repo: per-request `root` in batch · cross-root sql at the orchestrator ·
+- [x] cross-repo: per-request `root` in batch · cross-root sql at the orchestrator ·
       discoverability (concepts/guidance/engines list)
       ([spec-cross-repo-root.md](spec-cross-repo-root.md))
 - [ ] `find_usages text:true` — textual-occurrence overlay, deduped against semantic
