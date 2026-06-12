@@ -81,7 +81,20 @@ export async function groupedDispatch(
       results[i] = groupResults[k];
     });
   }
-  return results.flatMap((r) => (r !== undefined ? [r] : []));
+  // Every slot must be filled — dropping an undefined one would silently SHRINK the
+  // results array and shift every later result off its request index (a positional lie,
+  // §3.4). An engine returning fewer results than requests is a codemaster bug; say so
+  // in that slot instead of hiding it.
+  return results.map(
+    (r, i) =>
+      r ?? {
+        name: reqs[i]?.name ?? 'unknown',
+        error: {
+          kind: 'op_threw' as const,
+          message: 'engine returned no result for this request slot (codemaster bug)',
+        },
+      },
+  );
 }
 
 export interface CrossRootSqlDeps {
