@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, assertSpansValid } from '../helpers/project.ts';
+import { renderResult } from '../../src/format/render/render-result.ts';
 
 const TSCONFIG = '{"compilerOptions":{"strict":true,"jsx":"react-jsx"}}';
 
@@ -50,6 +51,43 @@ test('scss answers reflect on-disk mutations with no watcher (read-time backstop
       (c) => c.name,
     );
     assert.deepEqual(names4, ['one'], 'checkout must be picked up by the repo-global check');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('reindex-at-entry is reported even in terse; a clean query stays silent (§1.3)', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/a.module.scss': '.one { color: red; }\n',
+    'src/use.ts': `import s from './a.module.scss'; export const x = s;\n`,
+  });
+  try {
+    // A clean query reindexes nothing → no freshness line at all in terse (a default
+    // filter must never read as completeness, and a clean answer must not invent noise).
+    const clean = await p.op('scss_classes', {});
+    assert.ok('result' in clean && clean.result.ok);
+    assert.equal(clean.result.freshness?.reindexed, undefined, 'clean query reindexes nothing');
+    assert.doesNotMatch(
+      renderResult(clean.result, 'terse'),
+      /freshness:/,
+      'a clean terse query carries no freshness line',
+    );
+
+    // Mutate silently (watcher is nullWatcher), then query: the read-time backstop catches
+    // the drift, reindexes at entry, and must SAY it did — even in terse.
+    p.write('src/a.module.scss', '.one { color: red; }\n.two { color: blue; }\n');
+    const after = await p.op('scss_classes', {});
+    assert.ok('result' in after && after.result.ok);
+    assert.ok(
+      (after.result.freshness?.reindexed ?? 0) >= 1,
+      'a drift-triggered reindex must record a reindexed count',
+    );
+    assert.match(
+      renderResult(after.result, 'terse'),
+      /freshness: reindexed \d+ file\(s\) at entry/,
+      'the reindex-at-entry line survives terse',
+    );
   } finally {
     await p.dispose();
   }

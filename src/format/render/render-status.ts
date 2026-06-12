@@ -3,6 +3,8 @@
 // honest state of the machinery (watcher degraded? freshness mode? zero plugins?).
 // `StatusView` is the render contract; the daemon builds it, this module formats it.
 
+import type { OpExample } from '../../core/op-example.ts';
+
 export interface PluginStatusView {
   id: string;
   version: string;
@@ -16,7 +18,9 @@ export interface OpStatusView {
   mutating: boolean;
   /** Compact args description, e.g. '{ target: SymbolId, limit?: number }'. */
   argsHint: string;
-  example?: string;
+  /** Structured example call (§1.1); the display string is composed here, never
+   *  hand-written, so it can't drift from the real tool-args shape. */
+  example?: OpExample;
   /** Comma-joined column names when the op is tabular (usable under sql) — §6. */
   columns?: string;
 }
@@ -86,7 +90,16 @@ function renderOps(ops: readonly OpStatusView[]): string[] {
   for (const op of ops) {
     lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} ${op.argsHint} — ${op.summary}`);
     if (op.columns !== undefined) lines.push(`    columns: ${op.columns}`);
-    if (op.example !== undefined) lines.push(`    e.g. ${op.example}`);
+    if (op.example !== undefined) lines.push(`    e.g. ${renderExample(op.name, op.example)}`);
   }
   return lines;
+}
+
+/** Compose an op example into the EXACT tool-args JSON an agent would pass to the `op`
+ *  tool: `op <json>`, where `<json>` is `{name, args, …flags}` (§1.1). One canonical
+ *  shape, machine-derived from the structured `OpExample` — so the printed example can
+ *  never drift from the real tool schema (the anti-drift test parses it back). */
+function renderExample(name: string, example: OpExample): string {
+  const call = { name, args: example.args, ...(example.flags ?? {}) };
+  return `op ${JSON.stringify(call)}`;
 }

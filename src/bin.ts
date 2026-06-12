@@ -16,14 +16,7 @@ import { createChokidarWatcher } from './support/watch/chokidar.ts';
 import { Orchestrator } from './daemon/orchestrator.ts';
 import { createTsPlugin } from './plugins/ts/plugin.ts';
 import { createScssPlugin } from './plugins/scss/plugin.ts';
-import type { AnyOpDefinition } from './ops/registry.ts';
-import { searchSymbolOp } from './ops/search-symbol.ts';
-import { findDefinitionOp } from './ops/find-definition.ts';
-import { findUsagesOp } from './ops/find-usages.ts';
-import { expandTypeOp } from './ops/expand-type.ts';
-import { scssClassesOp } from './ops/scss-classes.ts';
-import { importersOfOp } from './ops/importers-of.ts';
-import { findUnusedScssClassesOp } from './ops/find-unused-scss-classes.ts';
+import { builtinOps } from './ops/builtins.ts';
 import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
@@ -32,18 +25,6 @@ const VERSION = '0.1.0';
 
 function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin[] {
   return [createTsPlugin(root, config.ts?.tsconfig), createScssPlugin(root)];
-}
-
-function builtinOps(): readonly AnyOpDefinition[] {
-  return [
-    searchSymbolOp,
-    findDefinitionOp,
-    findUsagesOp,
-    expandTypeOp,
-    importersOfOp,
-    scssClassesOp,
-    findUnusedScssClassesOp,
-  ];
 }
 
 function buildOrchestrator(): Orchestrator {

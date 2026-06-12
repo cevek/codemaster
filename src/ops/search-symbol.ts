@@ -55,7 +55,9 @@ export const searchSymbolOp = defineOp({
   argsSchema,
   argsHint:
     '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] }',
-  example: `op({name:'search_symbol', args:{query:'Dialog', kind:'function', exportedOnly:true, pathExclude:['**/ui/**']}})`,
+  example: {
+    args: { query: 'Dialog', kind: 'function', exportedOnly: true, pathExclude: ['**/ui/**'] },
+  },
   table: searchSymbolTable,
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

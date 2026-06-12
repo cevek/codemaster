@@ -51,10 +51,16 @@ export const batchToolSchema = z.object({
   verbosity: z.enum(['terse', 'normal', 'full']).optional(),
 });
 
-/** Handwritten JSON Schemas for tools/list. */
+/** Handwritten JSON Schemas for tools/list, each with a minimal valid `exampleCall` —
+ *  a complete, schema-valid arguments object for that tool. `badArgs` appends it to a
+ *  validation error so the message alone is enough to author the corrected call (§1.2);
+ *  the anti-drift test parses every `exampleCall` back through the tool's zod schema.
+ *  `exampleCall` is internal to codemaster — `tools/list` advertises only the MCP fields
+ *  (name/description/inputSchema). */
 export const TOOL_DESCRIPTORS = [
   {
     name: 'op',
+    exampleCall: { name: 'find_usages', args: { name: 'Button' } },
     description:
       'Run one codemaster op against this repo (catalogue + arg schemas: call status first). ' +
       'Results are dense and proof-carrying (file:line + verbatim spans). ' +
@@ -87,6 +93,7 @@ export const TOOL_DESCRIPTORS = [
   },
   {
     name: 'status',
+    exampleCall: {},
     description:
       'First contact: active plugins, per-repo op catalogue with arg schemas, freshness, debug topics.',
     inputSchema: {
@@ -96,6 +103,7 @@ export const TOOL_DESCRIPTORS = [
   },
   {
     name: 'batch',
+    exampleCall: { requests: [{ name: 'find_usages', args: { name: 'Button' } }] },
     description:
       'Run many ops in one round-trip; results in order, one consistent freshness view per plugin. ' +
       'Alias requests with `as` and pass top-level sql to anti-join/join/aggregate over their tables ' +
@@ -143,6 +151,12 @@ export const TOOL_DESCRIPTORS = [
     },
   },
 ] as const;
+
+/** The minimal valid arguments object for a tool, used to make a `bad args` error
+ *  self-correcting (§1.2). `undefined` only for an unknown tool name. */
+export function exampleCallFor(tool: string): JsonValue | undefined {
+  return TOOL_DESCRIPTORS.find((d) => d.name === tool)?.exampleCall;
+}
 
 export const SERVER_INSTRUCTIONS = `codemaster is a stateful codebase inspector for TS/React repos: a warm TypeScript LanguageService + domain plugins answer structural/semantic queries with proof spans (file:line + verbatim text).
 Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches aliased imports/JSX), definitions, type expansion, SCSS class usage. Call the 'status' tool first — it lists the per-repo op catalogue with arg schemas.

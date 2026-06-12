@@ -39,7 +39,7 @@ export const scssClassesOp = defineOp({
   requires: ['scss'],
   argsSchema,
   argsHint: '{ file?: string }',
-  example: `op({name:'scss_classes', args:{file:'src/button.module.scss'}})`,
+  example: { args: { file: 'src/button.module.scss' } },
   table: scssClassesTable,
   async run(ctx, args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');

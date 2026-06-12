@@ -13,13 +13,7 @@ import { nullWatcher } from '../../src/support/watch/seam.ts';
 import { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
-import { searchSymbolOp } from '../../src/ops/search-symbol.ts';
-import { findDefinitionOp } from '../../src/ops/find-definition.ts';
-import { findUsagesOp } from '../../src/ops/find-usages.ts';
-import { expandTypeOp } from '../../src/ops/expand-type.ts';
-import { scssClassesOp } from '../../src/ops/scss-classes.ts';
-import { importersOfOp } from '../../src/ops/importers-of.ts';
-import { findUnusedScssClassesOp } from '../../src/ops/find-unused-scss-classes.ts';
+import { builtinOps } from '../../src/ops/builtins.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
 import type { SqlBounds } from '../../src/daemon/sql-batch.ts';
 import type { createSqliteRunner } from '../../src/support/sql/better-sqlite3.ts';
@@ -104,15 +98,7 @@ export async function project(
       createTsPlugin(repoRoot, config.ts?.tsconfig),
       createScssPlugin(repoRoot),
     ],
-    opsFor: () => [
-      searchSymbolOp,
-      findDefinitionOp,
-      findUsagesOp,
-      expandTypeOp,
-      importersOfOp,
-      scssClassesOp,
-      findUnusedScssClassesOp,
-    ],
+    opsFor: () => builtinOps(),
   });
 
   return {

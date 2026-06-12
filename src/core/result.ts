@@ -33,6 +33,11 @@ export interface FreshnessNote {
   plugins: ReadonlyArray<{ id: string; fingerprint: string }>;
   /** Files changed but not yet reindexed at answer time, across all touched plugins. */
   pending: number;
+  /** Files reindexed at op entry for this call (drift the read-time backstop caught and
+   *  resolved before answering). Reported even when the answer is otherwise fully fresh,
+   *  so a drift-triggered reindex is never silent — an agent that just edited can see its
+   *  edit was picked up rather than having to trust it (§1.3, §3.5). */
+  reindexed?: number;
   /** The specific paths, when the set is small enough to be useful. */
   staleFiles?: RepoRelPath[];
   /** Git commit the workspace reflects, when on a clean tree. */

@@ -7,6 +7,7 @@
 import type { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
+import type { OpExample } from '../core/op-example.ts';
 import type { PluginRegistry } from '../core/plugin.ts';
 import type { OpFlags } from './contracts.ts';
 
@@ -64,7 +65,9 @@ export interface OpDefinition<A, D extends JsonValue> {
   /** Compact args rendering for the `status` cheat-sheet, e.g.
    *  `{ target: SymbolId, limit?: number }`. */
   readonly argsHint: string;
-  readonly example?: string;
+  /** A canonical example call, validated against `argsSchema` by the anti-drift test
+   *  (§1.1). The formatter composes the display string; ops never hand-write it. */
+  readonly example?: OpExample;
   /** Present when the op is list-shaped and usable under `batch + sql` (§3). */
   readonly table?: TableSpec<D>;
   run(ctx: OpContext, args: A): Promise<Result<D>>;

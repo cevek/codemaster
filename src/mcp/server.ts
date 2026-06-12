@@ -18,6 +18,7 @@ import {
   SERVER_INSTRUCTIONS,
   TOOL_DESCRIPTORS,
   batchToolSchema,
+  exampleCallFor,
   opToolSchema,
   statusToolSchema,
 } from './schema.ts';
@@ -43,7 +44,8 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
   process.on('SIGINT', shutdown);
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: TOOL_DESCRIPTORS.map((t) => ({ ...t })),
+    // `exampleCall` is internal (it feeds badArgs); advertise only the MCP tool fields.
+    tools: TOOL_DESCRIPTORS.map(({ exampleCall: _exampleCall, ...tool }) => ({ ...tool })),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
@@ -52,13 +54,13 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
       switch (request.params.name) {
         case 'status': {
           const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs(parsed.error.message);
+          if (!parsed.success) return badArgs('status', parsed.error.message);
           const view = await orchestrator.status(cwd, parsed.data.root);
           return text(renderStatus(view));
         }
         case 'op': {
           const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs(parsed.error.message);
+          if (!parsed.success) return badArgs('op', parsed.error.message);
           const { root, sql, return: returnMode, ...req } = parsed.data;
           if (sql !== undefined) {
             // §2.6: single-op sql sugar = a batch of one request aliased `t`.
@@ -79,7 +81,7 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
         }
         case 'batch': {
           const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs(parsed.error.message);
+          if (!parsed.success) return badArgs('batch', parsed.error.message);
           const { sql, return: returnMode, format, verbosity } = parsed.data;
           const outcome = await orchestrator.request(
             cwd,
@@ -178,6 +180,12 @@ function errorText(message: string): CallToolResult {
   return { content: [{ type: 'text', text: message }], isError: true };
 }
 
-function badArgs(message: string): CallToolResult {
-  return errorText(`bad args: ${message}`);
+/** A validation rejection that also teaches the fix: the zod message plus a minimal
+ *  valid arguments object for the tool (§1.2, §7 "agents author blind; pointed errors").
+ *  The example alone is enough to author the corrected call. Exported so the
+ *  example-carrying contract is unit-tested. */
+export function badArgs(tool: 'op' | 'status' | 'batch', message: string): CallToolResult {
+  const example = exampleCallFor(tool);
+  const valid = example === undefined ? '' : ` — valid: ${JSON.stringify(example)}`;
+  return errorText(`bad args: ${message}${valid}`);
 }

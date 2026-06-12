@@ -188,24 +188,28 @@ function planAliases(
     if (req === undefined) continue;
     const op = opsByName.get(req.name);
     if (op === undefined) {
-      return badArgs(`unknown op '${req.name}' in sql batch (see status for the catalogue)`);
+      return dispatchBadArgs(
+        `unknown op '${req.name}' in sql batch (see status for the catalogue)`,
+      );
     }
     const missing = op.requires.filter((id) => !hasPlugin(id));
     if (missing.length > 0) {
-      return badArgs(
+      return dispatchBadArgs(
         `op '${req.name}' needs plugin(s) [${missing.join(', ')}] not active in this workspace`,
       );
     }
     if (op.table === undefined) {
-      return badArgs(
+      return dispatchBadArgs(
         `op '${req.name}' has no table — it is not list-shaped and cannot be used under sql. Tabular ops: see status (each lists its columns).`,
       );
     }
     const alias = req.as ?? (reqs.length === 1 ? 't' : `t${i}`);
     const aliasError = validateTableName(alias);
-    if (aliasError !== undefined) return badArgs(aliasError);
+    if (aliasError !== undefined) return dispatchBadArgs(aliasError);
     if (seen.has(alias)) {
-      return badArgs(`duplicate table alias '${alias}' — each request's 'as' must be unique`);
+      return dispatchBadArgs(
+        `duplicate table alias '${alias}' — each request's 'as' must be unique`,
+      );
     }
     seen.add(alias);
     items.push({ req, op, table: op.table, alias });
@@ -213,6 +217,10 @@ function planAliases(
   return { ok: true, items };
 }
 
-function badArgs(message: string): { ok: false; error: DispatchError } {
+/** A dispatch-level rejection (a `DispatchError`, returned before any op runs) — distinct
+ *  from `mcp/server.ts`'s `badArgs`, which produces an agent-facing `CallToolResult` at
+ *  the MCP boundary. Different layers, different return shapes; named apart so the two
+ *  don't read as one helper. */
+function dispatchBadArgs(message: string): { ok: false; error: DispatchError } {
   return { ok: false, error: { kind: 'bad_args', message } };
 }

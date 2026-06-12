@@ -268,7 +268,7 @@ export class Orchestrator {
 
 const GUIDANCE = [
   'Query codemaster directly for structural/semantic answers instead of grepping or delegating to file-reading subagents.',
-  'Call op({name, args}) for any catalogued op; batch([...]) to run several in one round-trip. The catalogue above is per-repo.',
+  'Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.',
   'Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.',
 ] as const;
 

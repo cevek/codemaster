@@ -15,6 +15,7 @@ export function mergeFreshness(
 
   const plugins = present.flatMap((n) => n.plugins);
   const pending = present.reduce((sum, n) => sum + n.pending, 0);
+  const reindexed = present.reduce((sum, n) => sum + (n.reindexed ?? 0), 0);
   const staleFiles = dedupe(present.flatMap((n) => n.staleFiles ?? []));
   // A single commit only holds when every contributor reports the same one.
   const commits = new Set(present.map((n) => n.indexedAtCommit));
@@ -23,6 +24,7 @@ export function mergeFreshness(
   return {
     plugins,
     pending,
+    ...(reindexed > 0 ? { reindexed } : {}),
     ...(staleFiles.length > 0 ? { staleFiles } : {}),
     ...(indexedAtCommit !== undefined ? { indexedAtCommit } : {}),
   };

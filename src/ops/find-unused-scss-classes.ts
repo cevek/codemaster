@@ -50,7 +50,7 @@ export const findUnusedScssClassesOp = defineOp({
   requires: ['ts', 'scss'],
   argsSchema: z.strictObject({}),
   argsHint: '{}',
-  example: `op({name:'find_unused_scss_classes', args:{}})`,
+  example: { args: {} },
   table: findUnusedScssClassesTable,
   async run(ctx, _args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');

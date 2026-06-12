@@ -13,7 +13,7 @@ export const findDefinitionOp = defineOp({
   requires: ['ts'],
   argsSchema: tsTargetSchema,
   argsHint: TS_TARGET_HINT,
-  example: `op({name:'find_definition', args:{file:'src/app.ts', line:12, col:8}})`,
+  example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {

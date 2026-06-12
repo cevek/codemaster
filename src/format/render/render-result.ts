@@ -74,6 +74,18 @@ function renderRebind(rebind: HandleRebind): string {
 }
 
 function renderFreshness(note: FreshnessNote, verbosity: Verbosity): string | undefined {
+  // A reindex-at-entry is reported at EVERY verbosity including terse (§1.3): a
+  // drift-triggered reindex that produced a silent, otherwise-fresh answer left a field
+  // agent having to *trust* their edit was picked up. The commit anchor is optional — a
+  // mutated tree is dirty, so there is no clean commit to name.
+  const reindexed = note.reindexed ?? 0;
+  if (reindexed > 0) {
+    const at = note.indexedAtCommit === undefined ? '' : ` @${note.indexedAtCommit.slice(0, 9)}`;
+    const head = `freshness: reindexed ${reindexed} file(s) at entry${at}`;
+    if (note.pending === 0) return head;
+    // Reindexed some, but others remain pending (a reindex that didn't fully catch up).
+    return `${head}; PENDING ${note.pending} file(s) not yet reindexed`;
+  }
   if (note.pending === 0) {
     // Fully fresh: only worth a line outside terse mode, and only the commit anchor.
     if (verbosity === 'terse' || note.indexedAtCommit === undefined) return undefined;

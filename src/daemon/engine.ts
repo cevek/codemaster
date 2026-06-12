@@ -7,9 +7,8 @@
 
 import type { RepoId, RepoRelPath } from '../core/brands.ts';
 import type { Plugin, PluginRegistry } from '../core/plugin.ts';
-import type { FreshnessNote, Result } from '../core/result.ts';
-import type { JsonValue } from '../core/json.ts';
-import type { BatchOptions, OpFlags, OpRequest, OpResult } from '../ops/contracts.ts';
+import type { FreshnessNote } from '../core/result.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { Clock } from '../common/async/clock.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
@@ -19,7 +18,7 @@ import { unknownOpMessage } from './dispatch-errors.ts';
 import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
-import { mergeFreshness } from '../common/result/merge-freshness.ts';
+import { extractFlags, withBatchFreshness } from './request-helpers.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
@@ -164,17 +163,27 @@ class Engine implements WorkspaceEngine {
     const drift = await this.guard.check();
     this.freshnessMode = drift.mode;
     this.cleanAtCommit = drift.cleanAtCommit;
-    if (drift.changed.length > 0) await this.reindexAll(drift.changed);
+    // Files the read-time backstop caught drifted and resolved before answering (§1.3).
+    const reindexed = drift.changed.length;
+    if (reindexed > 0) await this.reindexAll(drift.changed);
 
     const pendingByPlugin = this.order.map((p) => ({ plugin: p, pending: p.pending() }));
     const pendingTotal = pendingByPlugin.reduce((sum, e) => sum + e.pending.length, 0);
-    if (pendingTotal === 0 && drift.failure === undefined && this.cleanAtCommit === undefined) {
+    // A reindex-at-entry is reported even on an otherwise-fresh answer, so it must survive
+    // this early-out — a silent reindex is the §1.3 lie this whole field exists to prevent.
+    if (
+      pendingTotal === 0 &&
+      reindexed === 0 &&
+      drift.failure === undefined &&
+      this.cleanAtCommit === undefined
+    ) {
       return undefined;
     }
     const staleFiles = [...new Set(pendingByPlugin.flatMap((e) => [...e.pending]))];
     return {
       plugins: this.order.map((p) => ({ id: p.id, fingerprint: p.freshness() })),
       pending: pendingTotal,
+      ...(reindexed > 0 ? { reindexed } : {}),
       ...(staleFiles.length > 0 ? { staleFiles } : {}),
       ...(this.cleanAtCommit !== undefined ? { indexedAtCommit: this.cleanAtCommit } : {}),
     };
@@ -332,17 +341,4 @@ class Engine implements WorkspaceEngine {
     const prefix = `${this.root}/`;
     return brandGitPath(posix.startsWith(prefix) ? posix.slice(prefix.length) : posix);
   }
-}
-
-function extractFlags(req: OpRequest): OpFlags {
-  const { name: _name, args: _args, as: _as, ...flags } = req;
-  return flags;
-}
-
-function withBatchFreshness(
-  result: Result<JsonValue>,
-  batchFreshness: FreshnessNote | undefined,
-): Result<JsonValue> {
-  const merged = mergeFreshness([batchFreshness, result.freshness]);
-  return merged === undefined ? result : { ...result, freshness: merged };
 }

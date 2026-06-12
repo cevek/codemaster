@@ -13,7 +13,7 @@ export const expandTypeOp = defineOp({
   requires: ['ts'],
   argsSchema: tsTargetSchema,
   argsHint: TS_TARGET_HINT,
-  example: `op({name:'expand_type', args:{symbol:'ts:Engine@src/daemon/engine.ts:70:7'}})`,
+  example: { args: { symbol: 'ts:Engine@src/daemon/engine.ts:70:7' } },
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {

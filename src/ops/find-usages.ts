@@ -184,7 +184,14 @@ export const findUsagesOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'read'|'write'|'decl', groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
-  example: `op({name:'find_usages', args:{symbols:['DialogContent','SheetContent'], role:'jsx', groupBy:'enclosing', filter:{pathExclude:['**/ui/**','**/*.test.*']}}})`,
+  example: {
+    args: {
+      symbols: ['DialogContent', 'SheetContent'],
+      role: 'jsx',
+      groupBy: 'enclosing',
+      filter: { pathExclude: ['**/ui/**', '**/*.test.*'] },
+    },
+  },
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

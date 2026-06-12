@@ -81,10 +81,13 @@ silent retarget.
   re-run or treat as approximate. No note / `current @commit` = answer reflects the
   working tree as of the call. Your own file edits are picked up automatically (no
   cache to bust).
+- **`freshness: reindexed N file(s) at entry`** — codemaster caught N drifted files on
+  read and reindexed them _before_ answering, so this answer already reflects them. You
+  don't have to trust that a just-made edit was picked up — it says so, even in terse.
 - **`FAIL tool=… — message`** — codemaster could not do it and says so instead of
   guessing. Fall back to your own tools (grep/read) for that question.
-- **`DISPATCH bad_args/unknown_op`** — your call was malformed; the message includes
-  the expected shape / a did-you-mean.
+- **`bad args: … — valid: {…}`** — your call was malformed; the message ends with a
+  minimal valid call you can copy and adapt.
 
 ## When codemaster vs your own tools
 

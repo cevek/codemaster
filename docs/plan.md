@@ -146,6 +146,22 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] MCP surface: `as`/`sql`/`return` on batch, `sql` sugar on op; status columns line
 - [x] tests per spec §7 (anti-join oracle, sandbox, truncation/partial honesty)
 
+## Read-side polish — agent field feedback, round 1
+
+> Spec: [docs/spec-feedback-polish.md](spec-feedback-polish.md) (approved). Six fixes
+> in three PR-stages; no architecture changes. Out of scope there (separate specs):
+> cross-repo per-request `root`, textual overlay on `find_usages`, `i18n` plugin.
+
+- [x] Stage 1 — call-shape ergonomics (structured examples + anti-drift test, errors
+      carry a valid example, fix `batch([...])` guidance) · freshness `reindexed`
+      marker (envelope + render, visible in terse)
+- [ ] Stage 2 — `find_usages`: `reexport` role split from `import` · conditional
+      import collapse (default on, never in sql tables, counters unchanged) · role
+      breakdown on filtered-empty results
+- [ ] Stage 3 — declaration spans (`find_definition` returns signature/body, not an
+      echo) · new multi-target `source` op · deep `expand_type` (members /
+      constituents, depth + memberLimit, cold-Program oracle)
+
 ## Phase 2 — mutating ops on `ts` plugin
 
 > **Exit**: edit-safety invariant green; symbol-anchored refactors + shape-based codemods
