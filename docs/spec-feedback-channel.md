@@ -61,7 +61,9 @@ assemble. One global inbox on the user's machine.
    only (not `partial` — partial is honest success), append one short clause:
    `— blocked? file it: op({name:'feedback', …})`. This is the lever that actually
    fires: the nudge lives at the point of pain, not in a doc read once.
-3. `docs/agent-guide.md` gains a short "Filing bugs & wishes" section.
+3. The op's own `notes` in the status catalogue explain when to file (see
+   [spec-status-as-the-doc.md](spec-status-as-the-doc.md) — `status` is the doc;
+   there is no separate agent guide).
 4. The structured-example + anti-drift test machinery from polish Stage 1.1 applies
    to this op like any other.
 

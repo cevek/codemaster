@@ -12,6 +12,7 @@ import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
+import { feedbackOp } from './feedback.ts';
 
 export function builtinOps(): readonly AnyOpDefinition[] {
   return [
@@ -23,5 +24,6 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     importersOfOp,
     scssClassesOp,
     findUnusedScssClassesOp,
+    feedbackOp,
   ];
 }

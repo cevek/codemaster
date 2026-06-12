@@ -31,6 +31,14 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
       lines.push(`data (incomplete — produced before the failure):`);
       lines.push(renderDense(condenseSpans(result.data, verbosity)));
     }
+    // The affordance at the moment of pain (spec-feedback-channel §3): only on a hard
+    // FAIL, never on `partial` (which is honest success). The nudge fires where the agent
+    // is blocked, not in a doc read once.
+    if (!partial) {
+      lines.push(
+        "— blocked or missing a capability? file it: op({name:'feedback', args:{kind:'bug', title:'…', detail:'…'}})",
+      );
+    }
   } else if (isSqlTableData(result.data)) {
     // sql-mode result (§5.6): a relation, not a span tree — its own dense table.
     lines.push(renderSqlTable(result.data));

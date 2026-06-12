@@ -18,7 +18,7 @@ import { unknownOpMessage } from './dispatch-errors.ts';
 import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
-import { extractFlags, withBatchFreshness } from './request-helpers.ts';
+import { buildDaemonInfo, extractFlags, withBatchFreshness } from './request-helpers.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
@@ -30,6 +30,11 @@ export interface EngineDeps {
   /** Canonical workspace root (from `canonicalizeRoot`). */
   root: string;
   configSource: string | undefined;
+  /** Codemaster version, surfaced to the `feedback` op's auto-context. */
+  version: string;
+  /** State base (`~/.codemaster` by default; a temp dir under test) — where the
+   *  `feedback` inbox lives. The same seam the per-repo debug log uses. */
+  stateDir: string;
   plugins: readonly Plugin[];
   ops: readonly AnyOpDefinition[];
   clock: Clock;
@@ -285,6 +290,7 @@ class Engine implements WorkspaceEngine {
             {
               plugins: this.registry,
               flags: extractFlags(req),
+              daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
               ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
             },
             parsed.data,

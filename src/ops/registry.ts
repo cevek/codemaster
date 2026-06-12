@@ -13,9 +13,28 @@ import type { OpFlags } from './contracts.ts';
 
 /** What an op sees at run time. Ops compose plugins through the registry's public
  *  APIs only — never internals (§5-L3). */
+/** Daemon-attached context, the same for every op in a call — assembled by the engine so
+ *  an op never has to (and cannot honestly) gather it. The `feedback` op stamps its inbox
+ *  entry from this; ordinary ops ignore it. `nowMs` comes from the injectable `Clock`
+ *  (never `Date.now` — §16). */
+export interface DaemonInfo {
+  nowMs: number;
+  version: string;
+  /** Absolute workspace root — identifies the repo for a human triager (repoId is an
+   *  internal hash, redundant here). */
+  root: string;
+  /** Codemaster's state base (`~/.codemaster` by default; a temp dir under test). */
+  stateDir: string;
+  plugins: readonly { id: string; version: string }[];
+  /** The op catalogue at filing time — a "wish: op X should exist" is triaged against it. */
+  opNames: readonly string[];
+}
+
 export interface OpContext {
   plugins: PluginRegistry;
   flags: OpFlags;
+  /** Daemon-attached runtime context (§ feedback-channel). Present on every op call. */
+  daemon?: DaemonInfo;
   /** Engine-level (NOT an agent-visible OpFlag — §5.2): set ONLY when this op is feeding
    *  an in-call SQLite table. A capped producer feeding a `NOT IN` makes the SQL answer a
    *  lie (§2.3), so a table-bearing op replaces its per-op `limit` with this bound — the

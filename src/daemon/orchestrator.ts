@@ -192,6 +192,8 @@ export class Orchestrator {
       repoId,
       root,
       configSource: source,
+      version: this.deps.version,
+      stateDir,
       plugins: this.deps.pluginsFor?.(config, root) ?? [],
       ops: this.deps.opsFor?.(config) ?? [],
       clock: this.deps.clock,
@@ -270,6 +272,7 @@ const GUIDANCE = [
   'Query codemaster directly for structural/semantic answers instead of grepping or delegating to file-reading subagents.',
   'Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.',
   'Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.',
+  "Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}).",
 ] as const;
 
 type HostWithEngine = ProjectHost & { engine?: WorkspaceEngine };
