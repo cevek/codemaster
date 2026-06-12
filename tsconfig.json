@@ -3,7 +3,8 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
+    "lib": ["ES2024"],
+    "types": ["node"],
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
@@ -16,6 +17,13 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    // Source imports use explicit `.ts` extensions; tsc rewrites them to `.js` at emit.
+    // This lets Node 22+ run src and tests directly via native type stripping — tests
+    // need no build step (test/README.md). `erasableSyntaxOnly` keeps every construct
+    // strippable (no enums/namespaces/parameter properties).
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

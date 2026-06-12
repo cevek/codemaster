@@ -1,5 +1,5 @@
-import type { OpRequest, OpResult } from '../ops/contracts.js';
-import type { RepoId } from '../core/brands.js';
+import type { OpRequest, OpResult } from '../ops/contracts.ts';
+import type { RepoId } from '../core/brands.ts';
 
 // The transport seam that makes the process model **optional** (ARCHITECTURE.md §2).
 // The orchestrator reaches one workspace's engine through a `ProjectHost`; two

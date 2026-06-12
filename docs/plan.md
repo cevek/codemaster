@@ -23,63 +23,77 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ## Phase 0 — Foundation (daemon · plugin registry · MCP surface · honesty harness skeleton)
 
-> **Phase 0 exit**: `status` round-trips agent → MCP → daemon → dense reply. The daemon
-> is alive, has zero plugins yet (Phase 1 ships the first one), and reports that
-> truthfully. Honesty harness skeleton green on the things it can check (no plugins, no
-> facts).
+> **Phase 0 exit**: `status` round-trips agent → MCP → daemon → dense reply, reporting
+> active plugins and the per-repo op catalogue truthfully.
 
-- [ ] **Settle the §19 platform decisions first** — `RepoRelPath` canonicalization, non-git
-      mtime racy-clean, monorepo project-references, watcher degrade-not-crash, daemon
-      singleton, socket path + `Transport` seam, child bootstrap. They gate everything below.
+- [~] **Settle the §19 platform decisions first** — settled: `RepoRelPath` canonicalization
+  (`realpathSync.native` true-casing at one minting chokepoint), non-git mtime
+  racy-clean (record-time-aware tie → hash), watcher degrade-not-crash (seam +
+  `onDegraded` → status). Deferred with the IPC transport: daemon singleton,
+  socket path, `process`-mode child bootstrap (monorepo project-references land with
+  the per-package Programs work).
 
-**Plugin infrastructure (no plugins yet):**
+**Plugin infrastructure:**
 
-- [ ] `core/plugin.ts` — `Plugin` interface + `PluginRegistry`; runtime DAG validation
-      (refuses cycles); composition-root self-registration
-- [ ] `daemon/` — per-engine registry, IPC server (newline-delimited JSON), injectable clock
-- [ ] **lifecycle** — lazy engine spin-up; idle-TTL eviction; **path-existence sweeper**
-      (`stat()` `repoRoot`/`.git`; dispose disappeared engines without waiting for TTL)
-- [ ] orchestrator memory governor (cross-engine RSS tracking; LRU evict; meaningful in
-      `process` mode)
+- [x] `core/plugin.ts` — `Plugin` interface + `PluginRegistry`; runtime DAG validation
+      (refuses cycles at init — tested); dep-scoped registries enforce declared `deps`
+      at runtime; composition root is `bin.ts` (`pluginsFor`/`opsFor` injection)
+- [ ] `daemon/` IPC server (newline-delimited JSON) + daemon singleton (bind-or-connect)
+      — deferred: today each MCP/CLI process hosts its own in-process orchestrator
+- [x] **lifecycle** — lazy engine spin-up; idle-TTL eviction; **path-existence sweeper**
+      (pre-flight + periodic `existsSync` of `repoRoot`); injectable clock throughout
+- [x] orchestrator governor — engine-count LRU budget (in-process shadow of the §9 RSS
+      governor; RSS tracking becomes meaningful with `process` mode)
 
 **Common (pure logic, no I/O):**
 
-- [ ] `common/result/` — `ok()`/`fail()`/`partial()` constructors; `isOk()`/`isFailure()`
-      narrowers; `mergeFreshness()` aggregator
-- [ ] `common/ids/codec.ts` — `SymbolId` encode/decode (plugin-prefix-routed format)
-- [ ] `common/span/` — `contains`/`intersects`/`equals`; `extractText` + Loc↔offset bridge
-- [ ] `common/fingerprint/` — `FileFingerprint` shape + mtime-tie hash comparator (§19)
-- [ ] `common/plugin-registry/dag.ts` — topological sort + cycle detection
-- [ ] `common/async/clock.ts` — `Clock` seam (injectable for tests, §16); `debounce` /
-      `deferred` / `withTimeout` on top
-- [ ] `common/debug-spec/` — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
-- [ ] `common/lru/map.ts` — generic LRU map (memory governor §9)
+- [x] `common/result/` — `ok()`/`fail()`/`partial()` constructors; `isOk()`/`isFailure()`
+      narrowers; `mergeFreshness()` + `combineFailures()` aggregators
+- [x] `common/ids/codec.ts` — `SymbolId` encode/decode (plugin-prefix-routed format)
+- [x] `common/span/` — `contains`/`intersects`/`equals`; `extractText` + Loc↔offset bridge
+- [x] `common/fingerprint/` — `FileFingerprint` + racy-clean comparator (§19) + rollup
+- [x] `common/plugin-registry/` — toposort + cycle detection; registry construct + scope
+- [x] `common/async/` — `Clock` seam; `debounce` / `deferred` / `withTimeout` on top
+- [x] `common/debug-spec/` — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
+- [x] `common/lru/map.ts` — generic LRU map
+- [x] `common/hash/fnv.ts` — FNV-1a (fingerprint rollups, repo-key naming)
 
-**Support utilities (used by Phase 1+ plugins and ops):**
+**Support utilities:**
 
-- [ ] `support/git/` — repo root, dirty gate, `HEAD` + `--porcelain` fingerprint, basic
-      blame/log
-- [ ] `support/fs/` — `.gitignore`-aware file walker; `realpath` canonicalization;
-      `stat` → `FileFingerprint`
+- [x] `support/git/` — repo root, `HEAD` + `--porcelain` fingerprint, `diff --name-only`,
+      ls-files (the exact gitignore-aware listing), basic blame/log
+- [x] `support/fs/` — default-ignore walker (non-git fallback; git ls-files is the exact
+      listing); `realpath` canonicalization chokepoint; `stat` → `FileFingerprint` +
+      hash-on-tie
+- [x] `support/debug/` — `DebugSystem` impl: ALS `req#N`, rotating capped per-repo log at
+      `~/.codemaster/<repoKey>/debug.log`, stderr sink, per-call capture (contract stays
+      types-only in `core/debug.ts`; I/O lives here per the §5 bright-line)
+- [x] `support/config-load/` — find/transpile/sandbox-eval `codemaster.config.*`, zod
+      schema with compile-time drift guard against `config/config.ts`
+- [x] `support/watch/` — watcher seam (`nullWatcher` for tests) + chokidar adapter
+      (debounced, degrade-not-crash §19)
 - [ ] `support/prettier/`, `support/text-edits/` — stubs; populated by Phase 2
 
-**Read-time freshness backstop (no plugins to ask yet; the backstop is in place for
-Phase 1 to consume):**
+**Read-time freshness backstop:**
 
-- [ ] read-time fingerprint check infrastructure (`git HEAD` + porcelain, mtime fallback)
-- [ ] `FreshnessNote` plumbing into `Result<T>`
-- [ ] never-silent-stale invariant tested with a stub plugin that records freshness
+- [x] repo-global fingerprint check at batch entry (`git HEAD` + porcelain; stat-walk
+      fallback with racy-clean hash-on-tie); drift → changed set → every plugin's
+      `reindex`
+- [x] `FreshnessNote` plumbing into `Result<T>` (batch-entry capture, worst-of merge)
+- [x] never-silent-stale invariant tested against real plugins with the watcher silenced
+      (mutate · **add** · `git checkout` — test/differential/freshness.test.ts)
 
 **Surface:**
 
-- [ ] MCP facade — three tools: `op({name, args, ...flags})`, `status()`,
-      `batch(requests)`. Op enum is empty in Phase 0 (no ops); `status` reports honestly.
-- [ ] `format/` — dense coded output, `file:line`, truncation, verbosity (§12)
-- [ ] `core/debug.ts` impl — namespaced tracing + `AsyncLocalStorage` `req#N` + rotating
-      capped log at `~/.codemaster/<repoId>/debug.log` (§13)
-- [ ] zod boundary validation — config load, IPC, MCP `op` args (§10/§11)
-- [ ] honesty harness skeleton — `project()` VFS mount (for Phase 1+ plugins), oracle
-      runners (ripgrep, cold `Program`), scenario runner (§16)
+- [x] MCP facade — exactly three tools: `op`, `status`, `batch`; usage guidance in the
+      initialize response; per-repo op catalogue via `status`
+- [x] `format/` — dense output, `file:line`, explicit truncation, verbosity (§12)
+- [x] debug subsystem (§13) — namespaced tracing, hot `configure()`, `CODEMASTER_DEBUG`
+- [x] zod boundary validation — config load, MCP tool args, op args (per-op schemas)
+- [x] honesty harness skeleton — `project()` temp-git mount driving the real pipeline;
+      proof-span oracle (`assertSpansValid`); manual clock (no sleeps)
+- [ ] oracle runners (ripgrep, cold `Program`) + scenario runner — with Phase 1
+      completion
 
 ## Phase 1 — `ts` plugin
 
@@ -87,23 +101,47 @@ Phase 1 to consume):**
 'assignability'|'search_symbol'})` and get oracle-equal answers. Per-plugin invariants
 > 1–3, 5 (§16) green for `ts`.
 
-- [ ] `plugins/ts/vfs` — in-memory overlay (powers both reads and dry-run edits)
-- [ ] `plugins/ts/ls-host` — long-lived `LanguageService` over the VFS host; lazy warm
-      (warms on first semantic op); resolves the project's own `typescript`/`tsconfig`
-      (`paths`/`baseUrl`), bundled TS as fallback
-- [ ] `plugins/ts/module-resolve` — import/path resolution incl. tsconfig aliases
-- [ ] `plugins/ts/watcher-bridge` — subscribes to the engine's watcher seam, marks
-      touched files dirty for the LS
-- [ ] `plugins/ts/freshness` — per-file fingerprints (size+mtime+hash-on-tie)
-- [ ] `plugins/ts/handles` — `SymbolId` mint + decode for `ts:` prefix; proof-carrying
-      rebind (§6) when a handle's file moved/changed
-- [ ] **public API**: `findDefinition`, `findUsages`, `expandType`, `assignability`,
-      `searchSymbol`, `imports(file)`, `symbolAccesses(file, base)` (the cross-tier
-      helper for other plugins), `freshness()`
-- [ ] `ops/find-definition.ts`, `ops/find-usages.ts`, `ops/expand-type.ts`,
-      `ops/assignability.ts`, `ops/search-symbol.ts` — passthrough wrappers
-- [ ] tests — per-fixture: proof-span validity, `find_usages` vs cold LS, freshness
-      honesty (mutate · **add** · `git checkout`), `cold == warm` for the `ts` plugin
+- [x] `plugins/ts/ls-host` — long-lived `LanguageService`, lazy warm, versioned
+      disk-backed host; `reindex` bumps script versions, structural changes rescan the
+      file list. _Simplifications, stated in code + status: bundled TS (project-own TS
+      resolution pending), root tsconfig only (per-package Programs pending §9)._
+- [ ] `plugins/ts/vfs` in-memory overlay (needed for Phase 2 dry-run edits)
+- [ ] `plugins/ts/module-resolve` — aliased (`paths`/`baseUrl`) scss-import resolution
+      and friends; today only relative scss specifiers resolve in `css-modules.ts`
+- [ ] watcher-bridge as its own seam consumer (today the engine fans watcher batches
+      into every plugin's `reindex` — same effect, revisit when plugins multiply)
+- [x] `plugins/ts/`: target resolution (SymbolId / file:line:col / unambiguous name) +
+      proof-carrying rebind (§6) — `rebound`/`gone`, location-not-identity confidence
+- [x] **public API**: `searchSymbol`, `findDefinition`, `findUsages`, `expandType`
+      (quick-info depth), `cssModuleUsages()` (the cross-tier helper);
+      `freshness()`/`pending()`/`reindex()`
+- [ ] `assignability`, `imports(file)`, deep `expandType`
+- [x] `ops/search-symbol.ts`, `ops/find-definition.ts`, `ops/find-usages.ts`,
+      `ops/expand-type.ts` — passthrough wrappers, zod-validated, explicit truncation
+- [~] tests — proof-span validity oracle on every e2e answer; freshness honesty
+  (mutate · add · checkout); aliased-JSX find_usages; stale-handle rebind; missing:
+  `find_usages` vs cold-LS differential, `cold == warm`
+
+## Phase 3 (pulled forward) — `scss` plugin + cross-tier ops
+
+- [x] `plugins/scss` — postcss-scss CST parse (classes + spans; interpolated selectors
+      flagged `partial` §19); per-file reindex; parse failures surfaced in op results
+- [x] cross-tier join: `ts.cssModuleUsages()` observes `import s from '*.scss'` +
+      `s.x`/`s['x']`/`s[expr]` (computed → `dynamic`, never guessed)
+- [x] `ops/scss-classes.ts`, `ops/find-unused-scss-classes.ts` — dynamic access demotes
+      a module's unused-claims to `partial` with a note
+
+## Relational post-filter — SQL over op outputs
+
+> Spec: [docs/spec-sql-over-ops.md](spec-sql-over-ops.md) (approved). Ephemeral
+> in-memory SQLite per call; `batch + as + sql`; producers uncapped in sql-mode;
+> read-only sandbox; table schemas declared per op and surfaced via `status`.
+
+- [ ] `OpDefinition.table` (schema + pure row projection) for the five list-shaped ops
+- [ ] `support/sql/` — seam + better-sqlite3 impl (lazy load, read-only sandbox)
+- [ ] engine sql-mode batch (uncapped producers, hard row bound, honesty envelope)
+- [ ] MCP surface: `as`/`sql`/`return` on batch, `sql` sugar on op; status columns line
+- [ ] tests per spec §7 (anti-join oracle, sandbox, truncation/partial honesty)
 
 ## Phase 2 — mutating ops on `ts` plugin
 

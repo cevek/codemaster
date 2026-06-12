@@ -6,8 +6,8 @@
 // See ARCHITECTURE.md §5-L3 for the layer, §11 for the MCP surface, §7 for the dry-run /
 // apply contract on mutating ops.
 
-import type { Result, Verbosity } from '../core/result.js';
-import type { JsonValue } from '../core/json.js';
+import type { Result, Verbosity } from '../core/result.ts';
+import type { JsonValue } from '../core/json.ts';
 
 /** Output-shape modifiers carried alongside every op call. Op implementations honor what
  *  they can; unrecognized fields are ignored (forward-compatible). */

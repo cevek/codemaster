@@ -8,7 +8,7 @@
 // `Result<T>`, brands, and proof types. It is **not** the agent-facing surface — that
 // is `src/mcp/` and the three MCP tools (§11).
 
-export { defineConfig } from './config/config.js';
+export { defineConfig } from './config/config.ts';
 export type {
   CodemasterConfig,
   TsConfig,
@@ -19,13 +19,13 @@ export type {
   OutputConfig,
   DaemonConfig,
   DebugConfig,
-} from './config/config.js';
+} from './config/config.ts';
 
-export type { RepoRelPath, Glob, RepoId, FileVersion } from './core/brands.js';
+export type { RepoRelPath, Glob, RepoId, FileVersion } from './core/brands.ts';
 
-export type { JsonValue } from './core/json.js';
+export type { JsonValue } from './core/json.ts';
 
-export type { Loc, Span, Confidence, Provenance } from './core/span.js';
+export type { Loc, Span, Confidence, Provenance } from './core/span.ts';
 
 export type {
   Fact,
@@ -36,14 +36,54 @@ export type {
   FailureResult,
   Result,
   Verbosity,
-} from './core/result.js';
+} from './core/result.ts';
 
-export type { SymbolId, SymbolKind, SymbolRef, HandleRebind } from './core/ids.js';
+export type { SymbolId, SymbolKind, SymbolRef, HandleRebind } from './core/ids.ts';
 
-export type { Plugin, PluginRegistry, FreshnessFingerprint } from './core/plugin.js';
+export type { Plugin, PluginRegistry, FreshnessFingerprint } from './core/plugin.ts';
 
-export type { DebugNamespace, Debugger, DebugSystem, RequestStore } from './core/debug.js';
+export type { DebugNamespace, Debugger, DebugSystem, RequestStore } from './core/debug.ts';
 
-export type { OpFlags, OpRequest, OpResult, DispatchError, Batch } from './ops/contracts.js';
+export type { OpFlags, OpRequest, OpResult, DispatchError, Batch } from './ops/contracts.ts';
 
-export type { ProjectHost } from './daemon/host.js';
+export type { ProjectHost } from './daemon/host.ts';
+
+// ── Plugin/op authoring surface (consumed by plugin authors and the test harness) ──
+
+export type { OpContext, OpDefinition, AnyOpDefinition } from './ops/registry.ts';
+export { defineOp } from './ops/registry.ts';
+
+export type { TsPluginApi, TsTargetInput, ResolvedTarget } from './plugins/ts/plugin.ts';
+export type {
+  SymbolView,
+  UsageView,
+  UsagesView,
+  UsageOptions,
+  GroupRow,
+  SearchFilter,
+  SearchView,
+  TypeView,
+} from './plugins/ts/queries.ts';
+export type { UsageRole } from './plugins/ts/usage-roles.ts';
+export type { ImporterRow, ImportersView } from './plugins/ts/importers.ts';
+export type { CssModuleAccess, CssModuleUsages } from './plugins/ts/css-modules.ts';
+export type {
+  ScssPluginApi,
+  ScssClassView,
+  UnusedClassView,
+  UnusedScssView,
+} from './plugins/scss/plugin.ts';
+
+export type { Watcher, WatcherEvents, WatcherHandle } from './support/watch/seam.ts';
+export type { DebugSink } from './support/debug/file-sink.ts';
+export type { DebugSystemHandle, RequestOptions } from './support/debug/system.ts';
+export type { MintResult } from './support/fs/canonicalize.ts';
+export type { StatOutcome } from './support/fs/stat-fingerprint.ts';
+export type { FileFingerprint } from './common/fingerprint/fingerprint.ts';
+export type { DriftCheck, FreshnessMode } from './daemon/freshness.ts';
+export type {
+  StatusView,
+  WorkspaceStatusView,
+  PluginStatusView,
+  OpStatusView,
+} from './format/render/render-status.ts';

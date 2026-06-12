@@ -7,7 +7,7 @@
 // ergonomics; the loader brands them (`RepoRelPath` / `Glob`) at the validation
 // boundary. (ARCHITECTURE.md §10.)
 
-import type { JsonValue } from '../core/json.js';
+import type { JsonValue } from '../core/json.ts';
 
 export interface TsConfig {
   /** Globs of source files the `ts` plugin tracks. */

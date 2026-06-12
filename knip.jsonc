@@ -1,17 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.ts"],
+  "entry": ["test/**/*.test.ts"],
+  "project": ["src/**/*.ts", "test/**/*.ts"],
   // Declared ahead of use, on purpose: these runtime deps are part of the planned design
-  // (ARCHITECTURE §13/§17) but aren't imported yet. Remove each from this list the moment
+  // (ARCHITECTURE §14/§17) but aren't imported yet. Remove each from this list the moment
   // its module wires it in — knip will then verify the real import and flag this entry as
   // redundant, so the list prunes itself.
   "ignoreDependencies": [
-    "@ast-grep/napi",
-    "@modelcontextprotocol/sdk",
-    "chokidar",
-    "diff",
-    "postcss",
-    "postcss-scss",
-    "zod",
+    "@ast-grep/napi", // codemod op — Phase 2
+    "diff", // mutating-op previews — Phase 2
   ],
 }

@@ -720,7 +720,7 @@ codemaster/
       result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure)
       ids.ts                 # SymbolId (plugin-routed) + proof-carrying rebind
       plugin.ts              # Plugin interface + PluginRegistry (the DAG manifest)
-      debug.ts               # namespaced tracing, AsyncLocalStorage req#N (§13)
+      debug.ts               # tracing contract (§13) — impl lives in support/debug/
     config/
       config.ts              # CodemasterConfig + defineConfig
     common/                  # L0.5 — pure logic over core types, no I/O; topical subfolders
@@ -729,15 +729,19 @@ codemaster/
       span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
       confidence/            # worstOf and per-hop reducers
       fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
+      hash/                  # FNV-1a — rollups + short stable keys (never security)
       plugin-registry/       # topological sort + cycle detection for the Plugin DAG
       async/                 # Clock seam; debounce / deferred / withTimeout over Clock
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
-      git/                   # rev-parse HEAD, porcelain, diff --name-only, blame, log
+      git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files, blame, log
+      fs/                    # walking (non-git fallback); realpath canonicalization; stat
+      debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
+      config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
+      watch/                 # watcher seam (tests inject a fake) + chokidar adapter
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
-      fs/                    # glob + .gitignore walking; realpath canonicalization; stat
     plugins/                 # L2 — the only domain layer
       ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts
       scss/                  # SCSS classes & usages (postcss-scss CST)

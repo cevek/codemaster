@@ -9,12 +9,13 @@ export default tseslint.config(
   { ignores: ['dist/', 'node_modules/', 'examples/', 'test/fixtures/'] },
 
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'test/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
         // Type-aware linting — required by the `any`-leak and promise rules below.
-        projectService: true,
+        // tsconfig.test.json covers src + test (tests typecheck without a build).
+        project: ['./tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -67,6 +68,18 @@ export default tseslint.config(
       'prefer-const': 'error',
       'no-debugger': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
+    },
+  },
+
+  {
+    // node:test's top-level `test()` returns a promise that the runner itself awaits;
+    // forcing `void test(...)` on every case is pure noise.
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        { allowForKnownSafeCalls: [{ from: 'package', name: 'test', package: 'node:test' }] },
+      ],
     },
   },
 );

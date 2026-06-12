@@ -1,4 +1,4 @@
-import type { Loc, Span, Confidence } from './span.js';
+import type { Loc, Span, Confidence } from './span.ts';
 
 /** Opaque, **per-file-version-scoped, plugin-routed** handle. Encodes a plugin prefix
  *  (e.g. `ts:`, `scss:`, `i18n:`, `react-query:`) plus a plugin-private payload that
@@ -27,12 +27,12 @@ export type SymbolKind = string & {};
 
 /** The lightweight shape returned by symbol-yielding ops and accepted everywhere a target
  *  is needed. `kind` is plugin-defined (see above). */
-export interface SymbolRef {
+export type SymbolRef = {
   id: SymbolId;
   name: string;
   kind: SymbolKind;
   loc: Loc;
-}
+};
 
 /** Proof-carrying rebind (ARCHITECTURE.md §6), carried on `Result.handle`. When a
  *  `SymbolId` minted at an older file version is used and that file has since changed,

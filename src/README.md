@@ -52,5 +52,11 @@ sub-subfolders. This is what stops the "hundred-file junk drawer".
 **Enforcement.** Today the contract is reviewed (see the `architecture-reviewer`
 agent), not yet machine-checked; an ESLint import-boundary rule lands once the modules
 fill in. Empty dirs carry a `.gitkeep` and fill per the roadmap (ARCHITECTURE §17).
-`bin.ts` is the entry / composition root; neither it nor `index.ts` (the public
-re-export barrel) is a layer.
+`bin.ts` is the entry / composition root (it injects built-in plugins and ops into the
+orchestrator via `pluginsFor`/`opsFor`); neither it nor `index.ts` (the public re-export
+barrel) is a layer.
+
+**Source imports use explicit `.ts` extensions** (`rewriteRelativeImportExtensions`
+rewrites them to `.js` at emit). This lets Node 22+ run src and tests directly via
+native type stripping — `npm test` needs no build step (`tsconfig.test.json` typechecks
+the tests; `erasableSyntaxOnly` keeps every construct strippable).

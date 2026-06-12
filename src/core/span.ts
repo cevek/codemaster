@@ -1,4 +1,4 @@
-import type { RepoRelPath } from './brands.js';
+import type { RepoRelPath } from './brands.ts';
 
 // The proof primitives every layer speaks: a location, a verbatim source span, and the
 // confidence attached to a fact. Kept in their own leaf module so `result`, `ids`, and
@@ -10,21 +10,21 @@ import type { RepoRelPath } from './brands.js';
  *  The TS compiler is 0-based (offsets, and 0-based line/char from
  *  `getLineAndCharacterOfPosition`). The `ts` plugin converts at its boundary, in one
  *  place — never let the two conventions mix, or proof spans drift by one. */
-export interface Loc {
+export type Loc = {
   file: RepoRelPath;
   line: number;
   col: number;
-}
+};
 
 /** A proof span: an exact source range plus the verbatim text it covers — what lets an
  *  agent confirm a claim without re-grepping. */
-export interface Span extends Loc {
+export type Span = Loc & {
   endLine: number;
   endCol: number;
   /** Verbatim source text of the span. May be elided for very large spans. */
   text: string;
   elided?: boolean;
-}
+};
 
 /** How sure are we? "Never lie" means uncertainty is explicit, never silent. */
 export type Confidence =
@@ -36,8 +36,8 @@ export type Confidence =
 /** How a fact or edge was *derived* — orthogonal to `Confidence` (how sure we are). Lets
  *  the agent see whether a relationship is proven by the type system, read off the syntax,
  *  or inferred by a plugin's heuristic — and which one. */
-export interface Provenance {
+export type Provenance = {
   kind: 'syntactic' | 'type' | 'heuristic';
   /** The plugin id whose heuristic produced it, when `heuristic` — e.g. 'react-query'. */
   by?: string;
-}
+};

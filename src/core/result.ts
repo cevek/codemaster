@@ -4,9 +4,9 @@
 // verify is a fact it will not trust. These types encode the trust contract
 // (ARCHITECTURE.md §3). `Loc`/`Span`/`Confidence` live in `./span`.
 
-import type { Span, Confidence } from './span.js';
-import type { RepoRelPath } from './brands.js';
-import type { HandleRebind } from './ids.js';
+import type { Span, Confidence } from './span.ts';
+import type { RepoRelPath } from './brands.ts';
+import type { HandleRebind } from './ids.ts';
 
 /** A value plus the spans that prove it and our confidence in it. */
 export interface Fact<T> {

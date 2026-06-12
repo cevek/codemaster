@@ -9,7 +9,7 @@
 // no enforced superset like "every plugin has findUsages". Ops know which methods each
 // plugin provides through TypeScript types; no runtime feature probing.
 
-import type { RepoRelPath } from './brands.js';
+import type { RepoRelPath } from './brands.ts';
 
 /** An opaque per-plugin freshness fingerprint. Plugins compute their own (e.g. a hash
  *  of `(path, size, mtime)` tuples; a counter incremented on internal commit; etc.); the
