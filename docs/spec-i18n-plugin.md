@@ -16,7 +16,10 @@ clean oracle (the JSON itself) — exactly what a plugin is for.
 - **Enabled iff `config.i18n` is present** (no autodetection v1). Config section
   (zod, pointed errors): `locales` — glob or list of locale JSON files (the locale
   id derives from filename or parent dir, e.g. `locales/en.json` → `en`);
-  `functions?: string[]` default `['t']`; `defaultLocale?: string`.
+  `functions?: string[]` default `['t']`. (Present state: the implemented `I18nConfig`
+  carries `locales` + `functions?` + a reserved `templateLiterals?`; `defaultLocale` was
+  dropped — the three ops report missing keys per-locale across all locales, so no
+  default-locale anchor is needed. Re-add it with the first op that requires one.)
 - **The config gate lives in `pluginsFor`, NEVER in `opsFor`/`builtinOps()`.** The
   i18n ops are registered unconditionally with `requires: ['i18n']`; availability is
   gated by plugin presence (the engine already filters the catalogue and rejects

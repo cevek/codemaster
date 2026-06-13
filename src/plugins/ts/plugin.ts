@@ -22,6 +22,7 @@ import type {
 } from './query-types.ts';
 import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
+import { scanLiteralCalls, type LiteralCall } from './literal-calls.ts';
 import { findImporters, type ImportersView } from './importers.ts';
 
 export type TsTargetInput = {
@@ -55,6 +56,10 @@ export interface TsPluginApi extends Plugin {
   referenceSpans(target: TsTargetInput): { spans: Span[]; rebind?: HandleRebind } | string;
   /** Cross-tier API for the scss plugin (§5-L2). */
   cssModuleUsages(): CssModuleUsages;
+  /** Cross-tier API (§5-L2): syntactic calls to the named functions — `t('a.b')`,
+   *  `i18n.t('x')`. The i18n plugin consumes it; non-literal args are flagged `dynamic`,
+   *  matching is by call name as written (no alias resolution). */
+  literalCalls(fnNames: readonly string[]): LiteralCall[];
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
@@ -187,6 +192,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),
+
+    literalCalls: (fnNames) => scanLiteralCalls(warm(), fnNames),
 
     importersOf: (module) => findImporters(warm(), module),
   };

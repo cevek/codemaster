@@ -16,6 +16,7 @@ import { createChokidarWatcher } from './support/watch/chokidar.ts';
 import { Orchestrator } from './daemon/orchestrator.ts';
 import { createTsPlugin } from './plugins/ts/plugin.ts';
 import { createScssPlugin } from './plugins/scss/plugin.ts';
+import { createI18nPlugin } from './plugins/i18n/plugin.ts';
 import { builtinOps } from './ops/builtins.ts';
 import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
@@ -24,7 +25,16 @@ import { serveMcp } from './mcp/server.ts';
 const VERSION = '0.1.0';
 
 function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin[] {
-  return [createTsPlugin(root, config.ts?.tsconfig), createScssPlugin(root)];
+  // The i18n plugin is config-gated (no autodetection v1): enabled iff `config.i18n` is
+  // present. The gate lives HERE in pluginsFor, never in opsFor — the i18n ops register
+  // unconditionally and are gated by plugin presence via `requires` (§ spec-i18n-plugin).
+  return [
+    createTsPlugin(root, config.ts?.tsconfig),
+    createScssPlugin(root),
+    ...(config.i18n !== undefined
+      ? [createI18nPlugin(root, config.i18n.locales, config.i18n.functions)]
+      : []),
+  ];
 }
 
 function buildOrchestrator(): Orchestrator {

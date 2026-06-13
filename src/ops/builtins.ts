@@ -12,6 +12,9 @@ import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
+import { i18nLookupOp } from './i18n-lookup.ts';
+import { findUnusedI18nKeysOp } from './find-unused-i18n-keys.ts';
+import { findMissingI18nKeysOp } from './find-missing-i18n-keys.ts';
 import { feedbackOp } from './feedback.ts';
 
 export function builtinOps(): readonly AnyOpDefinition[] {
@@ -24,6 +27,9 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     importersOfOp,
     scssClassesOp,
     findUnusedScssClassesOp,
+    i18nLookupOp,
+    findUnusedI18nKeysOp,
+    findMissingI18nKeysOp,
     feedbackOp,
   ];
 }

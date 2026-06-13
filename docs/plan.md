@@ -187,10 +187,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] `find_usages text:true` — textual-occurrence overlay, deduped against semantic
       refs, `unresolved` half stated; `support/text-search/` seam; ARCHITECTURE §16
       present-state rewrite ([spec-text-overlay.md](spec-text-overlay.md))
-- [ ] `i18n` plugin — `ts.parseJsonText` keys with proof spans, `ts.literalCalls`
+- [x] `i18n` plugin — `ts.parseJsonText` keys with proof spans, `ts.literalCalls`
       cross-tier usages, `i18n_lookup` / `find_unused_i18n_keys` /
       `find_missing_i18n_keys`; ARCHITECTURE §4 parser-cell update
-      ([spec-i18n-plugin.md](spec-i18n-plugin.md))
+      ([spec-i18n-plugin.md](spec-i18n-plugin.md)). _Deferred: the `i18n:` SymbolId +
+      rebind (spec §2) — no op consumes a key handle in this slice, so shipping it would
+      be dead exports (knip); add with the first op that chains an `i18n` handle._
 
 ## Phase 2 — mutating ops on `ts` plugin
 

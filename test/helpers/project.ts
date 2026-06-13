@@ -13,6 +13,7 @@ import { nullWatcher } from '../../src/support/watch/seam.ts';
 import { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
+import { createI18nPlugin } from '../../src/plugins/i18n/plugin.ts';
 import { builtinOps } from '../../src/ops/builtins.ts';
 import { renderStatus } from '../../src/format/render/render-status.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
@@ -110,6 +111,9 @@ export async function project(
     pluginsFor: (config, repoRoot) => [
       createTsPlugin(repoRoot, config.ts?.tsconfig),
       createScssPlugin(repoRoot),
+      ...(config.i18n !== undefined
+        ? [createI18nPlugin(repoRoot, config.i18n.locales, config.i18n.functions)]
+        : []),
     ],
     opsFor: () => builtinOps(),
   });
