@@ -4,7 +4,7 @@
 // freshness backstop, and an injected manual clock so nothing sleeps.
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { Clock } from '../../src/common/async/clock.ts';
@@ -109,7 +109,11 @@ export async function project(
   files: Record<string, string>,
   options?: ProjectOptions,
 ): Promise<TestProject> {
-  const root = mkdtempSync(path.join(tmpdir(), 'codemaster-fixture-'));
+  // Canonicalize the temp root through the same `realpath` policy the renderer/resolver
+  // apply (§19): on macOS `os.tmpdir()` is `/var/folders/…`, a symlink to `/private/var/…`,
+  // so the un-canonicalized mkdtemp path would not match the realpath'd root every answer
+  // reports — breaking path scrubs and golden snapshots across platforms.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'codemaster-fixture-')));
   const git = (...args: string[]): string =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 

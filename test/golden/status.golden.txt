@@ -1,6 +1,6 @@
 codemaster vtest pid=<PID> isolation=in-process engines=1
-warm roots: /private<ROOT>
-workspace: /private<ROOT>
+warm roots: <ROOT>
+workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
 ops (14):
