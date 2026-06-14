@@ -1,0 +1,11 @@
+// Partner partial for the S9 @use/@forward traps in base.scss. Defines a var + a mixin +
+// a base class other rules @extend.
+$gap: 8px;
+
+@mixin pad($n) {
+  padding: $n;
+}
+
+.base {
+  margin: 0;
+}

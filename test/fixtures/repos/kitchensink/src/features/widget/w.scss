@@ -1,0 +1,6 @@
+// trap S2 (bare side-effect stylesheet): pulled in with NO binding (`import './w.scss'`) —
+// its classes are NOT usage-trackable (only a CSS module's are). Pairs with the
+// Widget.module.scss module so both connection styles of the same dialect are present.
+.global-widget-frame {
+  border: 1px solid;
+}

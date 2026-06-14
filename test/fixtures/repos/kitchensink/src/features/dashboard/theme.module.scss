@@ -1,0 +1,11 @@
+// trap S3 (module #2 of ≥3) + S4 (unused direction #2): `dark`/`light` used in TS;
+// `unusedTheme` declared but never referenced → unused.
+.dark {
+  background: black;
+}
+.light {
+  background: white;
+}
+.unusedTheme {
+  background: gray;
+}

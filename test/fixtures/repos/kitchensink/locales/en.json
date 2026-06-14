@@ -1,0 +1,26 @@
+{
+  "widget": {
+    "title": "Widget",
+    "subtitle": "A widget card",
+    "actions": {
+      "save": "Save",
+      "cancel": "Cancel"
+    }
+  },
+  "dashboard": {
+    "heading": "Dashboard",
+    "empty": "Nothing here yet"
+  },
+  "panel": {
+    "label": "Panel"
+  },
+  "table": {
+    "header": "Rows"
+  },
+  "orphan": {
+    "neverUsed": "This key is declared but referenced nowhere"
+  },
+  "onlyInEn": {
+    "missingInRu": "Present in en, absent in ru"
+  }
+}

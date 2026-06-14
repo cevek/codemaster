@@ -1,0 +1,43 @@
+// trap S5 (access patterns from one module: static `s.row`, literal-computed `s['cell']`,
+// dynamic `s[expr]`, missing `s.ghost`) + S13 (computed indirection): `variant-a`/`variant-b`
+// are reached via a template-literal prefix (dynamic → partial) and `alpha`/`beta` via a
+// static indirection-map literal (counted USED, never falsely unused).
+.row {
+  display: table-row;
+}
+.cell {
+  display: table-cell;
+}
+.active {
+  font-weight: bold;
+}
+.variant-a {
+  color: green;
+}
+.variant-b {
+  color: blue;
+}
+.alpha {
+  opacity: 1;
+}
+.beta {
+  opacity: 0.5;
+}
+
+// trap S12 (composes:) — `.composed` pulls in `.cell`; `.cell` is used VIA composition, so
+// find_unused_scss_classes must count it used or honestly `partial`, never plainly "unused".
+.composed {
+  composes: cell;
+  font-style: italic;
+}
+
+// trap S11 — `:global(...)` break-out: `.escapeHatch` is NOT a module-local class; neither
+// scss_classes nor find_unused_scss_classes may list it as `s.escapeHatch`.
+:global(.escapeHatch) {
+  color: red;
+}
+
+// trap S11 — attribute-only top-level selector: not a class rule, scss_classes lists nothing.
+[data-state='busy'] {
+  cursor: wait;
+}

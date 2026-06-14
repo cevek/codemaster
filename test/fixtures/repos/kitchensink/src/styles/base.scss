@@ -1,0 +1,18 @@
+// trap S9 (cross-module @use / @forward; @include mixin; @extend; interpolated selector) +
+// M10 target (imported as a bare side-effect from App.tsx). Expected honest behavior:
+// cross-@use orphan check → partial; interpolation → partial (computed name, never guessed);
+// @extend / @include → unsafe.
+@use './_tokens.scss' as tokens;
+@forward './_tokens.scss';
+
+.btn {
+  @include tokens.pad(8px);
+  @extend .base;
+  background: gray;
+}
+
+// interpolated selector — computed name, must read as `partial` (SASS-VAR), never guessed.
+$n: 3;
+.icon-#{$n} {
+  width: 16px;
+}

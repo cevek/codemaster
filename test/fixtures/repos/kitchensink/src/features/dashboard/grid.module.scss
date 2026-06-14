@@ -1,0 +1,12 @@
+// trap S3 (one of ≥3 modules imported into Dashboard.tsx) + S4 (unused direction #1):
+// `container`/`cell` are used in TS; `unusedGrid` is declared but referenced nowhere →
+// genuinely unused (a simple single-class rule, so provably so, not just partial).
+.container {
+  display: grid;
+}
+.cell {
+  padding: 2px;
+}
+.unusedGrid {
+  display: none;
+}

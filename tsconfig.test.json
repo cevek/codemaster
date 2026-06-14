@@ -10,5 +10,9 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  // Committed repo-fixtures (test/fixtures/repos/*) are standalone mini-projects compiled
+  // by their OWN tsconfig (e.g. kitchensink: jsx + enums + @/ alias + ambient stubs). They
+  // must not be typechecked under the project's settings (erasableSyntaxOnly, NodeNext).
+  "exclude": ["test/fixtures/repos"]
 }

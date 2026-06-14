@@ -1,0 +1,86 @@
+// trap S1 (CSS module, sibling-colocated with Widget.tsx) + the §4.3.1 selector-shape zoo:
+// one rule of every shape so the safe-move classifier and find_unused_scss_classes honesty
+// paths all fire. Simple single-class rules are SAFE/attributable; contextual / nested /
+// compound / comma / at-rule / @extend shapes are unsafe → their classes must read as
+// `partial` (not-provably-unused), never plainly "unused".
+
+// SAFE — simple single-class, cleanly attributable / movable.
+.card {
+  display: block;
+}
+.title {
+  font-weight: bold;
+}
+.badge {
+  color: red;
+}
+
+// unsafe — descendant combinator (.row depends on .card ancestor).
+.card .row {
+  padding: 4px;
+}
+
+// unsafe — child / adjacent combinators.
+.card > .head {
+  margin: 0;
+}
+.row + .row {
+  border-top: 1px solid;
+}
+
+// unsafe/ambiguous — comma group declares two classes in one rule.
+.card,
+.frame {
+  box-sizing: border-box;
+}
+
+// unsafe — nested (.nested scoped under .card).
+.card {
+  .nested {
+    opacity: 0.5;
+  }
+}
+
+// unsafe — parent-ref compound (.card.active on one element).
+.card {
+  &.active {
+    outline: 1px solid;
+  }
+}
+
+// name-synthesis — BEM parent-ref concat: scss_classes must extract `block__el` / `block--mod`.
+.block {
+  &__el {
+    display: flex;
+  }
+  &--mod {
+    flex: 1;
+  }
+}
+
+// unsafe — attribute-context (class under an attribute condition).
+[data-theme='dark'] {
+  .themed {
+    color: white;
+  }
+}
+
+// not a class rule — attribute-only top-level selector; scss_classes lists nothing for it.
+[data-slot='control'] {
+  cursor: pointer;
+}
+
+// pseudo — class `card`/`title` attributable, rule shape varies.
+.card:hover {
+  cursor: pointer;
+}
+.title::before {
+  content: '';
+}
+
+// unsafe — at-rule context.
+@media (min-width: 600px) {
+  .responsive {
+    display: grid;
+  }
+}

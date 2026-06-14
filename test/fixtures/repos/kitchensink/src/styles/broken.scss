@@ -1,0 +1,6 @@
+// trap S10 (exactly one deliberately malformed .scss — unclosed block). The scss plugin must
+// surface a per-file parse failure HONESTLY; the TS program is unaffected (this file is not
+// in it). It is intentionally never imported. DO NOT "fix" this — it is the trap.
+.broken {
+  color: red;
+  // unclosed block — no closing brace below

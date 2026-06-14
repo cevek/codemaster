@@ -1,0 +1,5 @@
+/* trap S8 (plain global .css side-effect import) — handled as a side-effect; not parsed for
+   module classes. Imported bare from App.tsx. */
+.theme-root {
+  color: black;
+}

@@ -2,6 +2,9 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["test/**/*.test.ts"],
   "project": ["src/**/*.ts", "test/**/*.ts"],
+  // Committed repo-fixtures are standalone trees consumed only by the test harness at
+  // runtime (read into a VFS), not imported by project code — exclude from unused analysis.
+  "ignore": ["test/fixtures/repos/**"],
   // Declared ahead of use, on purpose: these runtime deps are part of the planned design
   // (ARCHITECTURE §14/§17) but aren't imported yet. Remove each from this list the moment
   // its module wires it in — knip will then verify the real import and flag this entry as
