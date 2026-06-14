@@ -4,10 +4,10 @@
 // over it — against REAL op output (the live LS / scss / i18n tiers), never "the file
 // contains X". If a future cleanup deletes or weakens a trap, an assertion here fails.
 //
-// It pins CURRENT codemaster behavior. Where current behavior is a known honesty gap the
-// fixture deliberately surfaces (contextual-selector classes reported `certain` unused; no
-// BEM `&__el` synthesis; `:global()` not excluded), those gaps are filed via the feedback
-// channel and NOT asserted as "correct" here — see the notes inline.
+// It pins CURRENT codemaster behavior. The three scss/css-module honesty gaps the fixture once
+// surfaced (contextual-selector classes reported `certain` unused; no BEM `&__el` synthesis;
+// `:global()` not excluded) were closed by spec-scss-css-honesty — the §4.3.1 test below now
+// asserts the corrected behavior.
 
 // Gate 1 (the cold `tsc --noEmit` over the fixture) lives in kitchensink-tsc.test.ts.
 // (Stage 4 oracle-hardening lives in the sibling kitchensink-oracle-hardening.test.ts — the
@@ -343,31 +343,33 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
     assert.ok(!unusedNames.has('beta'), 'beta (static map ref) must not read as unused');
   });
 
-  test('S11/§4.3.1 — KNOWN GAPS the fixture surfaces (feedback filed): assert CURRENT behavior', async () => {
-    // These pin codemaster's CURRENT scss behavior. The spec §4.3.1 wants the opposite; the
-    // gaps are recorded via op({name:'feedback'}). Each assertion BREAKS LOUDLY the moment
-    // codemaster improves — the signal to flip it to the spec's expected behavior.
+  test('S11/§4.3.1 — scss/css-module honesty (spec-scss-css-honesty Stages 1-2)', async () => {
+    // Flipped from the former KNOWN-GAP pins now that spec-scss-css-honesty landed: the
+    // synthesis / exclusion / contextual-honesty behaviors the fixture exercises are asserted
+    // as the CORRECT behavior. Oracle = the live scss tier over the fixture.
     const names = new Set(
       (okData(await p.op('scss_classes', {}))['classes'] as { name: string }[]).map((c) => c.name),
     );
-    // GAP: :global(.escapeHatch) is (incorrectly) listed as a module-local class.
-    assert.ok(names.has('escapeHatch'), 'KNOWN GAP — :global() not yet excluded');
-    // GAP: BEM parent-ref concat is not synthesized (`block__el`/`block--mod` absent; `block` kept).
-    assert.ok(!names.has('block__el'), 'KNOWN GAP — &__el concat not yet synthesized');
-    assert.ok(names.has('block'), 'the parent selector itself is extracted');
-    // GAP: a class existing ONLY in a contextual selector is reported `certain` unused.
+    // Stage 2: :global(.escapeHatch) breaks out of module scope → NOT a module-local class.
+    assert.ok(!names.has('escapeHatch'), ':global() class is excluded from the module-local set');
+    // Stage 2: BEM parent-ref concat is synthesized so `s['block__el']` can match.
+    assert.ok(names.has('block__el'), '&__el resolves to the flat class block__el');
+    assert.ok(names.has('block--mod'), '&--mod resolves to block--mod');
+    assert.ok(names.has('block'), 'the parent selector itself is still extracted');
+    // Stage 1: a class existing ONLY in a contextual selector can't be proven dead → partial,
+    // and the duplicate selectors collapse to a SINGLE unused row.
     const unused = okData(await p.op('find_unused_scss_classes', {}))['unused'] as {
       name: string;
       file: string;
       confidence: string;
     }[];
-    const widgetRow = unused.find(
-      (u) => u.name === 'nested' && u.file.includes('Widget.module.scss'),
-    );
-    assert.equal(
-      widgetRow?.confidence,
-      'certain',
-      'KNOWN GAP — contextual-only class reported certain-unused (§4.3.1 wants partial)',
-    );
+    // §4.3.1 contextual zoo (descendant/child/nested/attribute-context/at-rule): every such
+    // class is `partial`, never `certain` unused; `nested`'s duplicate selectors dedup to one.
+    const rows = (name: string): { confidence: string }[] =>
+      unused.filter((u) => u.name === name && u.file.includes('Widget.module.scss'));
+    assert.equal(rows('nested').length, 1, 'duplicate contextual rows collapse to one');
+    for (const name of ['nested', 'row', 'head', 'themed', 'responsive']) {
+      assert.equal(rows(name)[0]?.confidence, 'partial', `contextual-only \`${name}\` is partial`);
+    }
   });
 });

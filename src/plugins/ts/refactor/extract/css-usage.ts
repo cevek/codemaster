@@ -15,6 +15,7 @@
 
 import ts from 'typescript';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
+import { extendShadow } from '../../scope-shadow.ts';
 
 /** One css-module default import found in a file, with the offsets needed to rewrite it. */
 type CssImport = {
@@ -242,60 +243,4 @@ function walkAccesses(
     });
   };
   visit(sf, new Set());
-}
-
-// ---------- shared scope/shadow helpers ----------
-
-/** Return `shadowed` extended with any `pool` names this node binds (function params / catch
- *  var). The accessor identifier inside such a subtree is the local binding, not the import. */
-function extendShadow(
-  node: ts.Node,
-  pool: ReadonlySet<string>,
-  shadowed: ReadonlySet<string>,
-): ReadonlySet<string> {
-  const introduced = shadowsFrom(node, pool);
-  if (introduced.size === 0) return shadowed;
-  return new Set([...shadowed, ...introduced]);
-}
-
-function shadowsFrom(node: ts.Node, pool: ReadonlySet<string>): Set<string> {
-  const hit = new Set<string>();
-  const params = functionLikeParameters(node);
-  if (params !== undefined) {
-    for (const p of params) collectBoundNames(p.name, pool, hit);
-    return hit;
-  }
-  if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
-    collectBoundNames(node.variableDeclaration.name, pool, hit);
-  }
-  return hit;
-}
-
-function collectBoundNames(
-  binding: ts.BindingName,
-  pool: ReadonlySet<string>,
-  out: Set<string>,
-): void {
-  if (ts.isIdentifier(binding)) {
-    if (pool.has(binding.text)) out.add(binding.text);
-    return;
-  }
-  for (const el of binding.elements) {
-    if (ts.isBindingElement(el)) collectBoundNames(el.name, pool, out);
-  }
-}
-
-function functionLikeParameters(node: ts.Node): readonly ts.ParameterDeclaration[] | undefined {
-  if (
-    ts.isArrowFunction(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isFunctionDeclaration(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isConstructorDeclaration(node) ||
-    ts.isGetAccessorDeclaration(node) ||
-    ts.isSetAccessorDeclaration(node)
-  ) {
-    return node.parameters;
-  }
-  return undefined;
 }

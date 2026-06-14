@@ -173,7 +173,8 @@ of a shared sheet. Conservative-and-honest: the limitation is stated, never pape
 
 The op's envelope gains `cssCoExtract?: CssCoExtractReport[]`, one per source stylesheet:
 `{ sourceStylesheet, targetStylesheet, moved: string[], leftBehind: [{ class, code, detail?,
-reason }] }`. Rendered in the §12 house style — per-sheet `moved:` / `left:` lines with the
+reason, span? }] }` (a left-behind class declared at a sheet rule carries a `span` proof of its
+declaration — spec-scss-css-honesty Stage 4; `USED`/`NO-RULE` carry none). Rendered in the §12 house style — per-sheet `moved:` / `left:` lines with the
 short codes + a one-line legend (front-renamer's report **is** the house style §12 credits).
 A moved class is a `certain` proven claim; a left-behind class carries its reason, never a
 guess. If the sheet fails to parse → every candidate is left behind with an honest note,

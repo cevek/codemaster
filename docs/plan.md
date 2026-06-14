@@ -297,8 +297,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       bug filed) · Widget co-extract (KS-3 — CSS report correct: safe title/badge moved,
       card NESTED / block\_\_el NO-RULE; TS extract refused as sole-export importers dangle, bug filed)
 - [x] Stage 4 — oracle hardening (extend `kitchensink-traps.test.ts` + fixture): S12 isolable
-      `composes` target (KS-4 — find_unused ignores composes linkage → certain-unused; MUST
-      quarantined, bug filed) · S5 dynamic-module demotion (`.active` → partial, works) · M9
+      `composes` target (KS-4 — CLOSED by spec-scss-css-honesty Stage 1: find_unused now consults
+      `composes:` linkage → `composeBase` is `partial`, never plainly certain-unused) · S5
+      dynamic-module demotion (`.active` → partial, works) · M9
       honest-limitation (move rewrites the dynamic specifier; rename reaches the dynamic-import
       member + leaves the path string to move_file)
 

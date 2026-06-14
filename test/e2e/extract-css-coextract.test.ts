@@ -35,12 +35,28 @@ function coldTscErrors(root: string): string[] {
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
 }
 
+type SpanLike = {
+  file: string;
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  text: string;
+};
 type Report = {
   sourceStylesheet: string;
   targetStylesheet: string;
   moved: string[];
-  leftBehind: { class: string; code: string }[];
+  leftBehind: { class: string; code: string; span?: SpanLike }[];
 };
+
+// Independent span oracle (§16 inv.1 / spec-scss-css-honesty Stage 4): the source substring at
+// the span's [line,col]→[endLine,endCol] (1-based, end-exclusive) must equal span.text.
+function spanIsValid(source: string, span: SpanLike): boolean {
+  const lines = source.split('\n');
+  if (span.endLine !== span.line) return false;
+  return (lines[span.line - 1] ?? '').slice(span.col - 1, span.endCol - 1) === span.text;
+}
 type Envelope = {
   mode: string;
   applied?: boolean;
@@ -107,6 +123,20 @@ test('co-extract moves exactly the provably-safe classes, leaves & reports the r
     const codes = Object.fromEntries(report.leftBehind.map((l) => [l.class, l.code]));
     assert.equal(codes.card, 'EXTEND');
     assert.equal(codes.badge, 'COMPOUND');
+
+    // Stage 4 (§3.2): each spanned left-behind reason carries a proof span into the SOURCE
+    // sheet whose text equals the class's declaration there — verifiable without a re-grep.
+    const sheet = read('src/feature/Panel.module.scss');
+    const byClass = new Map(report.leftBehind.map((l) => [l.class, l]));
+    for (const cls of ['card', 'badge']) {
+      const entry = byClass.get(cls);
+      assert.ok(entry !== undefined, `${cls} must be left behind`);
+      const span = entry.span;
+      assert.ok(span !== undefined, `${cls} (${entry.code}) must carry a proof span`);
+      assert.ok(span.file.endsWith('Panel.module.scss'), 'span points at the source sheet');
+      assert.ok(spanIsValid(sheet, span), `${cls} span text must match the source`);
+      assert.equal(span.text, `.${cls}`, 'span covers the class declaration token');
+    }
 
     // Type-blind correctness: the compile is clean and the source sheet is untouched.
     assert.deepEqual(coldTscErrors(root), []);
@@ -186,7 +216,10 @@ test('co-extract: a class still used by the remainder stays behind on an sLegacy
     const report = (env.cssCoExtract ?? [])[0];
     assert.ok(report !== undefined);
     assert.deepEqual(report.moved, ['card']);
-    assert.equal(report.leftBehind.find((l) => l.class === 'title')?.code, 'USED');
+    const titleEntry = report.leftBehind.find((l) => l.class === 'title');
+    assert.equal(titleEntry?.code, 'USED');
+    // USED is a TS-usage reason, not a sheet location → no span fabricated (§3.2).
+    assert.equal(titleEntry?.span, undefined, 'a USED entry carries no sheet span');
 
     const card = read('src/widgets/Card.tsx');
     assert.match(card, /import s from ["']\.\/Card\.module\.scss["']/);

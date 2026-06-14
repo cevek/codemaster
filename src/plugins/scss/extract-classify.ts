@@ -181,7 +181,7 @@ function inspectBody(rule: Rule, ctx: SheetContext): ClassVerdict | undefined {
 
 /** Local `composes:` targets — the class names composed from THIS sheet. A `composes: x from
  *  '…'` pulls from another module (not a local class), so it contributes no local target. */
-function composesLocalTargets(value: string): string[] {
+export function composesLocalTargets(value: string): string[] {
   if (/\bfrom\b/.test(value)) return [];
   return value
     .split(/[\s,]+/)
@@ -189,16 +189,24 @@ function composesLocalTargets(value: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** True when some rule `@extend`s `.cls` — tolerant of `@extend .X !optional` and comma lists
- *  (`@extend .X, .Y`); a strict equality check would miss those and wrongly move `.cls`. */
+/** Class names targeted by one `@extend` — tolerant of `@extend .X !optional` and comma lists
+ *  (`@extend .X, .Y`). Returns names WITHOUT the leading dot; a non-class target (e.g.
+ *  `%placeholder`) is dropped. The single parser both `isExtendedBy` and find_unused share. */
+export function parseExtendTargets(params: string): string[] {
+  return params
+    .replace(/!optional/g, '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((t) => t.startsWith('.'))
+    .map((t) => t.slice(1));
+}
+
+/** True when some rule `@extend`s `.cls` — a strict equality check would miss the optional /
+ *  comma-list forms and wrongly move `.cls`. */
 function isExtendedBy(root: Root, cls: string): boolean {
   let extended = false;
   root.walkAtRules('extend', (atrule) => {
-    const targets = atrule.params
-      .replace(/!optional/g, '')
-      .split(',')
-      .map((s) => s.trim());
-    if (targets.includes(`.${cls}`)) extended = true;
+    if (parseExtendTargets(atrule.params).includes(cls)) extended = true;
   });
   return extended;
 }

@@ -108,8 +108,10 @@ it is not exported` (the export wasn't added on that path). The kitchensink `bui
      apply (`extract-symbol.ts:74`, before `applyRefactorPlan`), so it rides the refused
      envelope. For the classes Widget references: `title`, `badge` (simple single-class) → MOVED;
      `card` → left, `NESTED` (entangled in nested/compound/descendant/comma/`:hover` rules);
-     `block__el` → left, `NO-RULE` (the BEM `&__el` concat isn't synthesized into a flat selector
-     — a separately-known scss gap). Matches an independent hand classification of the sheet.
+     `block__el` → left, `NO-RULE` (the co-extract taxonomy in `extract-classify.ts` doesn't
+     resolve `&`, so it finds no flat rule to own — distinct from `scss_classes`, which since
+     spec-scss-css-honesty Stage 2 DOES synthesize the flat `block__el`/`block--mod` names).
+     Matches an independent hand classification of the sheet.
   2. **TS extract (honestly refused).** Moving the sole export leaves the source without a
      `Widget` export, so the importers dangle (`…has no exported member 'Widget'`; the dynamic
      `m.Widget` member access especially) → the §2.8 gate refuses (`applied:false`, nothing
@@ -120,29 +122,23 @@ it is not exported` (the export wasn't added on that path). The kitchensink `bui
   TS-side gap (extract of a symbol with external importers should re-export from the source or
   rewrite importers, like `move_file` does) filed as a **bug**.
 
-## KS-4 — find_unused_scss_classes ignores `composes:` linkage (QUARANTINE + bug filed)
+## KS-4 — find_unused_scss_classes consults `composes:` linkage (CLOSED by spec-scss-css-honesty)
 
 - **Stage / test.** Stage 4 · `test/e2e/kitchensink-oracle-hardening.test.ts` (the companion to
-  `kitchensink-traps.test.ts` — the 300-line cap forced the split) → the pinned "S12 — KNOWN
-  GAP (KS-4)…" (green) **and** the quarantined "S12 — a composes-only class is NOT reported
-  plainly unused…" (`test.skip` `// QUARANTINE(KS-4)`).
+  `kitchensink-traps.test.ts` — the 300-line cap forced the split) → "S12 (KS-4) — a composes-only
+  class is partial, never plainly certain-unused" (green; the former quarantine is removed).
 - **Fixture extension (spec §6 Notes — allowed).** Added an ISOLABLE composes target to
   `grid.module.scss` (a module with NO dynamic access, so its claims are `certain`):
   `.composeBase` is reachable ONLY via `.composeConsumer { composes: composeBase }`, and
   `composeConsumer` is now used in `Dashboard.tsx` while `composeBase` is never referenced
   directly. (The pre-existing `table.module.scss` composes target `.cell` is also used directly,
   so it can't isolate the composition path — the spec's stated reason for the extension.)
-- **Observed.** `find_unused_scss_classes` reports `composeBase` as **`certain`** unused — it
-  does not consult the `composes:` linkage. An agent acting on that would delete `composeBase`
-  and silently break the composition.
-- **Disposition.** Real honesty gap (a read-only op, non-destructive, but the report would
-  mislead a destructive edit). The `composes:` parsing already exists in
-  `src/plugins/scss/extract-classify.ts` (`composesLocalTargets`/`composedClasses`) for the
-  co-extract safe-move analysis, so the fix is to reuse it in `find_unused_scss_classes`
-  (count a composed-into class used, or at least demote to `partial`). No prod fix here (§1).
-  Spec §5 Stage 4 S12 requires the op to NOT report a composes-only class plainly unused — so
-  that MUST is **QUARANTINED**, the current `certain`-unused gap is **PINNED** (flips when fixed),
-  and a **bug** is filed (codemaster `feedback` inbox).
+- **Resolution (spec-scss-css-honesty Stage 1).** `find_unused_scss_classes` now consults the
+  `composes:`/`@extend` linkage: the scss parse builds per-sheet reachability (`parse.ts`
+  `SheetReachability.linkedReachable`, reusing `extract-classify.ts`'s `composesLocalTargets` /
+  `parseExtendTargets`), and `unusedClasses` demotes a composes-/extend-reachable class to
+  **`partial`** ("reachable via composes:/@extend linkage — cannot prove dead"), never plainly
+  `certain` unused. So `composeBase` reads `partial` — an agent can't be misled into deleting it.
 
 ### S5 dynamic-module demotion — no finding (pinned green)
 

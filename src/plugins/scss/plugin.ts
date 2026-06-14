@@ -12,7 +12,7 @@ import { walkFiles } from '../../support/fs/walk.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
-import { parseScssClasses, type ScssClass } from './parse.ts';
+import { parseScssClasses, type ScssClass, type SheetReachability } from './parse.ts';
 import { parseStylesheetRoot } from './parse-root.ts';
 import { classifyForExtract, type ClassVerdict } from './extract-classify.ts';
 import { extractRules, type ExtractedRules } from './extract-rules.ts';
@@ -68,34 +68,43 @@ export interface ScssPluginApi extends Plugin {
   extractRules(file: RepoRelPath, safeClassNames: readonly string[]): ExtractRulesResult;
 }
 
+/** Parsed facts for one stylesheet: its class declarations plus the reachability sets
+ *  `find_unused` consults. Held per-file in plugin state and rebuilt per-file on reindex. */
+type ParsedSheet = { classes: ScssClass[]; reachability: SheetReachability };
+
+const EMPTY_SHEET: ParsedSheet = {
+  classes: [],
+  reachability: { entangledOnly: new Set(), linkedReachable: new Set() },
+};
+
 export function createScssPlugin(root: string): ScssPluginApi {
   let registry: PluginRegistry | undefined;
-  let state: Map<RepoRelPath, ScssClass[]> | undefined;
+  let state: Map<RepoRelPath, ParsedSheet> | undefined;
   const failures = new Map<RepoRelPath, string>();
   let version = 0;
 
-  const parseOne = (rel: RepoRelPath): ScssClass[] => {
+  const parseOne = (rel: RepoRelPath): ParsedSheet => {
     const read = readTextOrAbsent(root, rel);
     // ENOENT is absence (a watcher race), not a failure; a real IO error is recorded so an
     // unreadable stylesheet never reads as "no classes" (§3.6).
     if (read.kind === 'absent') {
       failures.delete(rel);
-      return [];
+      return EMPTY_SHEET;
     }
     if (read.kind === 'error') {
       failures.set(rel, read.message);
-      return [];
+      return EMPTY_SHEET;
     }
     const parsed = parseScssClasses(rel, read.text);
     if (!parsed.ok) {
       failures.set(rel, parsed.message);
-      return [];
+      return EMPTY_SHEET;
     }
     failures.delete(rel);
-    return parsed.classes;
+    return { classes: parsed.classes, reachability: parsed.reachability };
   };
 
-  const warm = (): Map<RepoRelPath, ScssClass[]> => {
+  const warm = (): Map<RepoRelPath, ParsedSheet> => {
     if (state === undefined) {
       state = new Map();
       const walked = walkFiles(root);
@@ -138,9 +147,9 @@ export function createScssPlugin(root: string): ScssPluginApi {
       for (const rel of changed) {
         if (!rel.endsWith('.scss')) continue;
         touched = true;
-        const classes = parseOne(rel);
-        if (classes.length === 0 && !fileExists(root, rel)) state.delete(rel);
-        else state.set(rel, classes);
+        const sheet = parseOne(rel);
+        if (sheet.classes.length === 0 && !fileExists(root, rel)) state.delete(rel);
+        else state.set(rel, sheet);
       }
       if (touched) version++;
       return Promise.resolve();
@@ -150,9 +159,9 @@ export function createScssPlugin(root: string): ScssPluginApi {
     classes(file) {
       const all = warm();
       const views: ScssClassView[] = [];
-      for (const [rel, classes] of all) {
+      for (const [rel, sheet] of all) {
         if (file !== undefined && rel !== file) continue;
-        for (const c of classes) views.push(toView(rel, c));
+        for (const c of sheet.classes) views.push(toView(rel, c));
       }
       return views;
     },
@@ -166,22 +175,31 @@ export function createScssPlugin(root: string): ScssPluginApi {
       const unused: UnusedClassView[] = [];
       const dynamicModules: string[] = [];
       let scannedClasses = 0;
-      for (const [rel, classes] of all) {
-        scannedClasses += classes.length;
+      for (const [rel, sheet] of all) {
+        scannedClasses += sheet.classes.length;
         const accesses = usages.byModule.get(rel) ?? [];
         const hasDynamic = accesses.some((a) => a.confidence === 'dynamic');
         if (hasDynamic) dynamicModules.push(rel);
         const used = new Set(accesses.filter((a) => a.className !== '').map((a) => a.className));
-        for (const c of classes) {
-          if (used.has(c.name)) continue;
+        const { entangledOnly, linkedReachable } = sheet.reachability;
+
+        // Dedup: the same class declared across N selectors (`.card .row`, `.row + .row`)
+        // parses to N rows — collapse to ONE unused row, keeping its first span and OR-ing
+        // the interpolation flag (any interpolated occurrence keeps the class `partial`).
+        const collapsed = new Map<string, { rep: ScssClass; partial: boolean }>();
+        for (const c of sheet.classes) {
+          const prev = collapsed.get(c.name);
+          if (prev === undefined) collapsed.set(c.name, { rep: c, partial: c.partial });
+          else prev.partial = prev.partial || c.partial;
+        }
+
+        for (const [name, { rep, partial }] of collapsed) {
+          if (used.has(name)) continue;
+          const demoted = demote(name, partial, hasDynamic, entangledOnly, linkedReachable);
           unused.push({
-            ...toView(rel, c),
-            confidence: hasDynamic || c.partial ? 'partial' : 'certain',
-            ...(hasDynamic
-              ? { note: 'importer uses computed access — cannot prove unused' }
-              : c.partial
-                ? { note: 'declared via interpolated selector' }
-                : {}),
+            ...toView(rel, rep),
+            confidence: demoted.confidence,
+            ...(demoted.note !== undefined ? { note: demoted.note } : {}),
           });
         }
       }
@@ -213,6 +231,38 @@ export function createScssPlugin(root: string): ScssPluginApi {
       }
     },
   };
+}
+
+/** Decide an unused class's honest confidence + reason. "Could not prove dead" is `partial`,
+ *  never `certain` unused (§3.3/§3.4). A computed access anywhere in the module (`hasDynamic`)
+ *  demotes the whole module; a class reachable via `composes:`/`@extend`, or one living only in
+ *  an entangled contextual/compound/nested selector, or declared via interpolation, is likewise
+ *  not provably dead. Only a genuinely simple, cleanly-owned, statically-unreferenced class
+ *  stays `certain`. */
+function demote(
+  name: string,
+  partial: boolean,
+  hasDynamic: boolean,
+  entangledOnly: ReadonlySet<string>,
+  linkedReachable: ReadonlySet<string>,
+): { confidence: Confidence; note?: string } {
+  if (hasDynamic) {
+    return { confidence: 'partial', note: 'importer uses computed access — cannot prove unused' };
+  }
+  if (linkedReachable.has(name)) {
+    return {
+      confidence: 'partial',
+      note: 'reachable via composes:/@extend linkage — cannot prove dead',
+    };
+  }
+  if (entangledOnly.has(name)) {
+    return {
+      confidence: 'partial',
+      note: 'appears only in a contextual/compound/nested selector — cannot prove dead',
+    };
+  }
+  if (partial) return { confidence: 'partial', note: 'declared via interpolated selector' };
+  return { confidence: 'certain' };
 }
 
 /** Read a stylesheet from disk and parse it to a CST `Root`. A read OR parse failure is

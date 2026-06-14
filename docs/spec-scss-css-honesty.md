@@ -1,6 +1,7 @@
 # Spec: scss / css-module honesty hardening (inbox triage)
 
-Status: **proposed** (task brief for an implementing agent). Read ARCHITECTURE.md §3 (trust
+Status: **implemented** (all four stages landed; the kitchensink KNOWN-GAP tests flipped to
+assert the honest behavior). Read ARCHITECTURE.md §3 (trust
 contract — esp. §3.2 proof-carrying, §3.3 confidence, §3.4 no-silent-completeness), §4 (the scss
 parser cell), §16 (honesty harness); `docs/spec-css-coextract.md`, `docs/spec-synthetic-fixture.md`
 (§4.3.1 selector zoo); and CONTRIBUTING.md before starting. Refines the inbox `[wish]` items dated

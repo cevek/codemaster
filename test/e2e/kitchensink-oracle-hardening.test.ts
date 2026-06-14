@@ -47,40 +47,28 @@ void describe('kitchensink Stage 4 — oracle hardening (S12 composes · S5 demo
     );
   });
 
-  // S12 — the ISOLABLE composes target. `composeBase` (grid.module.scss) is reachable ONLY via
-  // the `composes:` linkage from `composeConsumer` (which IS used in Dashboard); it is never
-  // referenced directly. grid has no dynamic access, so its claims are `certain` — isolating
-  // whether find_unused consults composition reachability. KNOWN GAP (KS-4): it does NOT, so
-  // `composeBase` is reported `certain` unused. Pinned here; flips loudly the day it's fixed.
-  test('S12 — KNOWN GAP (KS-4): a composes-only class reads as certain-unused (composes not consulted)', async () => {
+  // S12 (KS-4) — the ISOLABLE composes target. `composeBase` (grid.module.scss) is reachable
+  // ONLY via the `composes:` linkage from `composeConsumer` (which IS used in Dashboard); it is
+  // never referenced directly. grid has no dynamic access, so an over-eager scan would call it
+  // `certain` unused. spec-scss-css-honesty Stage 1 closes KS-4: find_unused now consults the
+  // `composes:` linkage, so `composeBase` is `partial` ("reachable via composes:"), never
+  // plainly certain-unused — acting on a certain claim would delete the class and break the
+  // composition.
+  test('S12 (KS-4) — a composes-only class is partial, never plainly certain-unused', async () => {
     const rows = await unusedRows(p);
     const base = rows.find((u) => u.name === 'composeBase' && u.file.includes('grid.module.scss'));
-    assert.equal(
-      base?.confidence,
-      'certain',
-      'KS-4 — find_unused_scss_classes ignores `composes:` linkage (the gap the spec wants closed)',
+    // Counted used (absent) or honestly `partial` — never plainly `certain` unused.
+    assert.ok(
+      base === undefined || base.confidence !== 'certain',
+      'composes-reachable class must not read as certain-unused',
     );
+    if (base !== undefined) assert.equal(base.confidence, 'partial', 'reachable → partial');
     // The directly-used composer itself is correctly NOT unused (sanity: the trap is isolated).
     assert.ok(
       !rows.some((u) => u.name === 'composeConsumer'),
       'composeConsumer is used in Dashboard — must not read as unused',
     );
   });
-
-  // QUARANTINE(KS-4): spec §5 Stage 4 S12 requires find_unused_scss_classes to NOT report a
-  // composes-only class plainly "unused". codemaster currently does (certain) and this is a
-  // test-writing task (no prod fix, spec §1). Filed as a bug via feedback; the pinned gap above
-  // documents current behavior. Un-skip when find_unused consults `composes:` linkage.
-  test(
-    'S12 — a composes-only class is NOT reported plainly unused (spec §5 Stage 4 MUST)',
-    { skip: 'QUARANTINE(KS-4): find_unused_scss_classes ignores composes linkage' },
-    async () => {
-      const rows = await unusedRows(p);
-      const base = rows.find((u) => u.name === 'composeBase');
-      // Desired: counted used (absent) or at most `partial` — never plainly `certain` unused.
-      assert.ok(base === undefined || base.confidence !== 'certain');
-    },
-  );
 
   // M9 (move side) — a module behind the string-keyed lazy registry. Moving Table.tsx (a
   // registry target) must rewrite the dynamic `import('@/features/table/Table.tsx')` specifier in

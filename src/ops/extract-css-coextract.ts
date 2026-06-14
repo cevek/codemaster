@@ -12,6 +12,7 @@
 
 import * as path from 'node:path';
 import type { RepoRelPath } from '../core/brands.ts';
+import type { Span } from '../core/span.ts';
 import { readTextFile } from '../support/fs/read-file.ts';
 import type {
   RefactorPlan,
@@ -31,6 +32,11 @@ type LeftBehindEntry = {
   code: LeftBehindCode;
   detail?: string;
   reason: string;
+  /** Proof span of the class's declaration in the SOURCE sheet (§3.2) — so a COMPOUND / NESTED
+   *  / EXTEND / SASS-VAR (etc.) claim is verifiable without re-opening the sheet. Absent for
+   *  codes with no clean single sheet location (USED — a TS-usage reason; NO-RULE — the class
+   *  has no rule; PARSE-FAIL / ALIAS-IMP — nothing parsed). Never fabricated (§3.2). */
+  span?: Span;
 };
 
 export type CssCoExtractReport = {
@@ -232,12 +238,17 @@ function classifyCandidate(
     };
   }
 
+  // Declaration spans (proof, §3.2) for the left-behind reasons that point at a sheet rule —
+  // reuses the scss plugin's own class spans (assertSpansValid-clean), never re-derives them.
+  const declSpans = new Map<string, Span>();
+  for (const c of scss.classes(sheetRel)) if (!declSpans.has(c.name)) declSpans.set(c.name, c.span);
+
   const moved: string[] = [];
   const leftBehind: LeftBehindEntry[] = [];
   for (const cls of cand.refsInExtracted) {
     const verdict = classified.verdicts.get(cls);
     if (verdict !== undefined && verdict.kind === 'safe') moved.push(cls);
-    else leftBehind.push(toLeftEntry(cls, verdict));
+    else leftBehind.push(toLeftEntry(cls, verdict, declSpans));
   }
 
   const report: CssCoExtractReport = {
@@ -311,15 +322,36 @@ function stillUsedClasses(
   return used;
 }
 
-function toLeftEntry(cls: string, verdict: ClassVerdict | undefined): LeftBehindEntry {
+/** Codes whose class IS declared at a single sheet rule, so a declaration span is meaningful
+ *  proof. USED (a TS-usage reason) and NO-RULE (no rule at all) intentionally carry none. */
+const SPANNED_CODES = new Set<LeftBehindCode>([
+  'COMPOUND',
+  'NESTED',
+  'NEST-PARENT',
+  'AT-RULE',
+  'SASS-VAR',
+  'EXTEND',
+  'COMPOSES',
+  'KEYFRAMES',
+]);
+
+function toLeftEntry(
+  cls: string,
+  verdict: ClassVerdict | undefined,
+  declSpans: ReadonlyMap<string, Span>,
+): LeftBehindEntry {
   if (verdict === undefined || verdict.kind === 'safe') {
     return { class: cls, code: 'NO-RULE', reason: 'no verdict produced' };
   }
+  // Attach the declaration span only for codes that name a sheet rule AND only when we found
+  // one — a class with no scss row (NO-RULE-ish) gets no span rather than a fabricated one.
+  const span = SPANNED_CODES.has(verdict.code) ? declSpans.get(cls) : undefined;
   return {
     class: cls,
     code: verdict.code,
     ...(verdict.detail !== undefined ? { detail: verdict.detail } : {}),
     reason: verdict.reason,
+    ...(span !== undefined ? { span } : {}),
   };
 }
 
