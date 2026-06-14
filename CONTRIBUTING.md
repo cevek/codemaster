@@ -14,7 +14,7 @@ explicit (`unresolved` / `partial` / `dynamic`); partial or failed work is repor
 disguised as complete. Type/semantic facts come **only** from the live Language Service,
 never a snapshot. (§3.)
 
-## Resilience — never crash
+## Resilience — never crash, never hang
 
 Every call to an external tool — the TS LanguageService, git, ast-grep, prettier, the
 filesystem — is wrapped in try/catch. On failure we **do not guess or fabricate around
@@ -30,6 +30,25 @@ never blocks. Heavy work lives in the **workspace engine**, isolated in its own 
 `process` mode (§2). Write the engine **transport-agnostic** — never assume it shares a
 process with the orchestrator. (`in-process` mode collapses everything onto one loop for easy
 debugging and _does_ block there — the dev default, not the contract.)
+
+**Never hang — the worst failure.** A hang is worse than a crash or a wrong answer: it halts the
+agent entirely — no result, no fallback, all work stops. (We fight lies because trust is the
+product; a hang denies even an honest "couldn't.") Hard rules whenever you implement anything:
+
+- **No unbounded loops; no per-call work that scales with repo size — cache it.** Anything derived
+  from the tsconfig / file set / tree is computed once and cached, refreshed only on reindex.
+  _Incident:_ `ls-host` re-ran `parseJsonConfigFileContent` (a full recursive tree scan) on **every**
+  `getCompilationSettings` call → O(LS-calls × tree-scan) → an infinite hang on a 6k-file repo;
+  300+ tests over tiny fixtures never caught it (each re-scan was instant).
+- **Bound every long operation by a deadline** → on overrun return `ToolFailure{tool:'timeout',
+partial}` ("couldn't in N s — fall back to your own tools"), never spin. An honest "couldn't"
+  beats a freeze — the exact logic of never-lie, applied to latency.
+- **Know what's cancellable** (§19): a deadline `HostCancellationToken` cancels TS _checker/search_
+  ops (`find_usages`, navto, diagnostics) — wire it. It does **not** cancel TS _program build_ or
+  codemaster's _own_ sync code; bound those by design (cache / scope inputs) and ultimately by
+  engine isolation + kill.
+- **Test at scale.** A correctness test on a 3-file fixture cannot catch a scale hang — guard hot
+  paths with a real-big-repo latency budget, not just an inline fixture.
 
 ## Layering — hard rules ([src/README.md](src/README.md))
 

@@ -30,6 +30,11 @@ agent abandons the tool and falls back to its proven stack forever. So:
   workspaces; the orchestrator only routes and never blocks. Each workspace's heavy work is
   isolated — its own process in `process` mode (§2), with an `in-process` mode for easy
   debugging.
+- **Never hang.** A hang is the _worst_ failure — worse than a wrong answer or a crash: it halts
+  the agent entirely (no result, no fallback, all work stops). Every operation completes or fails
+  within a bounded time; on overrun it returns an honest `ToolFailure{tool:'timeout'}` ("couldn't
+  in N s — fall back"), never spins. No unbounded loop, no per-call work that scales with repo
+  size. The latency budget above assumes _termination_ — see §19 for what is and isn't cancellable.
 
 **Non-goals:** a human IDE, a linter, a language-agnostic universal index,
 runtime/execution analysis, AI inside the tool. Codemaster is deterministic
@@ -1016,8 +1021,16 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
   evict with `SIGTERM` → drain → `SIGKILL` on timeout; hard-kill is the OOM emergency
   only. (§9)
-- **No mid-call cancellation.** A synchronous LS call can't be interrupted; an abandoned query
-  is dropped only _between_ serialized requests, never mid-call. (§8)
+- **Cancellation is partial — and "never hang" (§1) is non-negotiable.** A deadline-based
+  `HostCancellationToken` (host `getCancellationToken`, `isCancellationRequested()` polled by TS)
+  DOES cancel TS _checker/search_ ops — `find_usages`, navto, `getSemanticDiagnostics`, completions
+  poll it throughout; wire it so they are deadline-bounded → `ToolFailure{tool:'timeout', partial}`
+  on overrun. It does NOT cancel TS _program build_ (`getProgram` runs to completion, empirically)
+  nor codemaster's _own_ synchronous code (host callbacks, plugin loops); those must be bounded by
+  DESIGN — cache/scope inputs, never a per-call tree scan (the `ls-host` config-reparse hang) — and,
+  for the hard guarantee on truly-uncancellable sync, by engine isolation + kill-on-deadline (the
+  orchestrator stays responsive in `process` mode and reaps an overrun child). An op never spins
+  unbounded; an abandoned query is otherwise dropped only _between_ serialized requests. (§1, §2, §8)
 - **Per-plugin tear-free reads.** Plugins choose their internal storage, but the contract
   is the same: a reader pins the plugin's current state reference at request entry and
   never re-reads it across an `await`; a writer (reindex, mutating op) does a synchronous

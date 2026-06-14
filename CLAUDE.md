@@ -20,6 +20,10 @@ Cross-reference these by `§`; keep this file a pointer, not a copy.
 - **Never lie.** Trust is the whole product, so truth > speed (a 5–60 s answer is fine; a
   wrong one is fatal). Every fact carries its `file:line` proof, uncertainty is explicit,
   and you state plainly what you _couldn't_ do.
+- **Never hang.** A hang is worse than a wrong answer — it halts the agent entirely: no result,
+  no fallback, all work stops. Every op is bounded: no unbounded loops, no per-call work that
+  scales with the repo (cache it), long work is deadline-capped → honest `ToolFailure{timeout}`,
+  never a spin. (CONTRIBUTING "never crash, never hang" · ARCHITECTURE §19.)
 - **Built for the long run.** Maintainability beats shortcuts — small, single-responsibility,
   strictly layered (imports flow downward; `ops/` import only `plugins/`/`support/`/`common/`/`format/`/`core/`;
   `plugins/` form a strict DAG; `common/` imports only `core/`; `core/` imports nothing internal).
