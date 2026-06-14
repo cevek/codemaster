@@ -18,7 +18,6 @@ import {
   findInterface,
   isNever,
   member,
-  memberLiteral,
   memberName,
   operationRef,
   spanOfNode,
@@ -135,19 +134,29 @@ function buildCard(
     };
   }
 
+  // A slot that is PRESENT but can't be reduced to a concrete shape (a `$ref`/alias
+  // `responses`/`parameters`, or a `default`/range-only response) must NOT yield a bare
+  // `certain` card with that slot silently missing — that reads as "no response/query" and is
+  // the §3.4/§3.6 completeness lie. Such a slot demotes the card to `partial` + a note.
   const query = queryRef(op, sf, rel);
   const body = bodyRef(op, sf, rel);
   const resp = responseRef(op, sf, rel);
+  const notes: string[] = [];
+  if (query !== undefined && 'unresolved' in query) notes.push(`query: ${query.unresolved}`);
+  if (resp !== undefined && 'unresolved' in resp) notes.push(`response: ${resp.unresolved}`);
+  const queryRefVal = query !== undefined && 'ref' in query ? query.ref : undefined;
+  const respVal = resp !== undefined && 'status' in resp ? resp : undefined;
   return {
     ...base,
-    confidence: 'certain',
-    ...(query !== undefined ? { query } : {}),
+    confidence: notes.length > 0 ? 'partial' : 'certain',
+    ...(queryRefVal !== undefined ? { query: queryRefVal } : {}),
     ...(body !== undefined ? { body } : {}),
     // The selected 2xx status is reported even when it carries no body (a 204) — so a
     // no-content response is `{ status: 204 }`, distinct from "no 2xx at all" (no status).
-    ...(resp !== undefined
-      ? { status: resp.status, ...(resp.ref !== undefined ? { response: resp.ref } : {}) }
+    ...(respVal !== undefined
+      ? { status: respVal.status, ...(respVal.ref !== undefined ? { response: respVal.ref } : {}) }
       : {}),
+    ...(notes.length > 0 ? { note: notes.join('; ') } : {}),
   };
 }
 
@@ -216,11 +225,18 @@ function queryRef(
   op: ts.TypeLiteralNode,
   sf: ts.SourceFile,
   rel: RepoRelPath,
-): TypeRef | undefined {
-  const params = memberLiteral(op, 'parameters');
-  const query = params !== undefined ? member(params, 'query') : undefined;
-  if (query?.type === undefined || isNever(query.type)) return undefined;
-  return refOf(query.type, sf, rel);
+): { ref: TypeRef } | { unresolved: string } | undefined {
+  const params = member(op, 'parameters');
+  if (params?.type === undefined || isNever(params.type)) return undefined; // no parameters slot
+  if (!ts.isTypeLiteralNode(params.type)) {
+    // `parameters: components["parameters"]["X"]` / a bare alias — present, not enumerable.
+    return {
+      unresolved: 'parameters is a $ref/alias — query not enumerable (expand_type at the span)',
+    };
+  }
+  const query = member(params.type, 'query');
+  if (query?.type === undefined || isNever(query.type)) return undefined; // no query
+  return { ref: refOf(query.type, sf, rel) };
 }
 
 function bodyRef(op: ts.TypeLiteralNode, sf: ts.SourceFile, rel: RepoRelPath): TypeRef | undefined {
@@ -233,20 +249,39 @@ function responseRef(
   op: ts.TypeLiteralNode,
   sf: ts.SourceFile,
   rel: RepoRelPath,
-): { status: number; ref?: TypeRef } | undefined {
-  const responses = memberLiteral(op, 'responses');
-  if (responses === undefined) return undefined;
+): { status: number; ref?: TypeRef } | { unresolved: string } | undefined {
+  const responses = member(op, 'responses');
+  if (responses?.type === undefined || isNever(responses.type)) return undefined; // no responses
+  if (!ts.isTypeLiteralNode(responses.type)) {
+    // `responses: components["responses"]["X"]` / a bare alias — present, not enumerable, so we
+    // can't pick a 2xx. Don't pretend there's no response; surface it as partial.
+    return {
+      unresolved: 'responses is a $ref/alias — statuses not enumerable (expand_type at the span)',
+    };
+  }
   // Pick the lowest 2xx status across ALL response members (inline OR `$ref`), so a `$ref`
   // 200 is never skipped in favour of a higher inline 201 — that would report a wrong
   // status under `certain`. A no-content (204) yields a status with no body ref.
   let best: { status: number; type: ts.TypeNode } | undefined;
-  for (const m of responses.members) {
+  let sawMember = false;
+  for (const m of responses.type.members) {
     if (!ts.isPropertySignature(m) || m.type === undefined) continue;
+    sawMember = true;
     const code = Number(memberName(m));
     if (!Number.isInteger(code) || code < 200 || code > 299) continue;
     if (best === undefined || code < best.status) best = { status: code, type: m.type };
   }
-  if (best === undefined) return undefined;
-  const ref = contentRef(best.type, sf, rel);
-  return ref !== undefined ? { status: best.status, ref } : { status: best.status };
+  if (best !== undefined) {
+    const ref = contentRef(best.type, sf, rel);
+    return ref !== undefined ? { status: best.status, ref } : { status: best.status };
+  }
+  // Responses declared but no 2xx integer status resolved — e.g. only `default` / a `2XX` range
+  // (`Number(...)` is NaN) or only non-2xx codes. Don't report a `certain` card with a silently
+  // missing response; say so (partial). An empty `{}` is genuinely no response.
+  return sawMember
+    ? {
+        unresolved:
+          'responses declared but no 2xx status resolved (`default` / range / non-2xx keys)',
+      }
+    : undefined;
 }

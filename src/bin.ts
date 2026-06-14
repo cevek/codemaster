@@ -36,7 +36,12 @@ function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin
     ...(config.i18n !== undefined
       ? [createI18nPlugin(root, config.i18n.locales, config.i18n.functions)]
       : []),
-    ...(config.schema !== undefined ? [createSchemaPlugin(root, [config.schema.entrypoint])] : []),
+    // Only the `openapi-typescript` shape is parsed; `generator: 'custom'` (orval etc.) is a
+    // stated follow-up, so don't load a parser that can't read it — keep `list_endpoints` out
+    // of the catalogue honestly rather than offer an op that yields zero cards.
+    ...(config.schema !== undefined && config.schema.generator !== 'custom'
+      ? [createSchemaPlugin(root, [config.schema.entrypoint])]
+      : []),
   ];
 }
 

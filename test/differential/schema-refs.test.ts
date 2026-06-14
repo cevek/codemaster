@@ -51,6 +51,8 @@ type Card = {
   body?: { text: string; confidence: string };
   response?: { text: string; confidence: string };
   status?: number;
+  confidence?: string;
+  note?: string;
 };
 
 function cardsOf(res: unknown): Card[] {
@@ -127,6 +129,91 @@ test('a union / bare-type slot is surfaced as a partial ref, never silently drop
     // A bare-type requestBody is likewise surfaced, partial, not dropped.
     assert.equal(card?.body?.text, 'BodyAlias');
     assert.equal(card?.body?.confidence, 'partial');
+
+    assertSpansValid(p.root, res as never);
+  } finally {
+    await p.dispose();
+  }
+});
+
+// A slot that is PRESENT but can't be reduced — a whole-`responses` or `parameters` `$ref`,
+// or a `responses` with only `default`/range keys — must NOT yield a bare `certain` card with
+// that slot silently missing (reads as "no response/query": the §3.4/§3.6 completeness lie).
+// It demotes the card to `partial` + a note. (Review finding KS — schema plugin, 8207a55.)
+const UNRESOLVED_SCHEMA = `export interface paths {
+  "/ref-responses": {
+    parameters: { query?: never; header?: never; path?: never; cookie?: never };
+    get: operations["refResp"];
+    put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;
+  };
+  "/default-only": {
+    parameters: { query?: never; header?: never; path?: never; cookie?: never };
+    get: operations["defaultOnly"];
+    put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;
+  };
+  "/ref-params": {
+    parameters: { query?: never; header?: never; path?: never; cookie?: never };
+    get: operations["refParams"];
+    put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;
+  };
+}
+export interface operations {
+  refResp: {
+    parameters: { query?: never; header?: never; path?: never; cookie?: never };
+    requestBody?: never;
+    responses: components["responses"]["Wrapped"];
+  };
+  defaultOnly: {
+    parameters: { query?: never; header?: never; path?: never; cookie?: never };
+    requestBody?: never;
+    responses: { default: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["Err"] } } };
+  };
+  refParams: {
+    parameters: components["parameters"]["Shared"];
+    requestBody?: never;
+    responses: { 200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["Ok"] } } };
+  };
+}
+export interface components {
+  schemas: { Err: { e: number }; Ok: { o: number } };
+  responses: { Wrapped: { content: { "application/json": components["schemas"]["Ok"] } } };
+  parameters: { Shared: { query: { q?: string } } };
+}
+`;
+
+test('a present-but-unresolvable slot demotes the card to partial + a note, never silent certain', async () => {
+  const p = await project({
+    'codemaster.config.ts': CONFIG,
+    'tsconfig.json': TSCONFIG,
+    'src/api/openapi.d.ts': UNRESOLVED_SCHEMA,
+  });
+  try {
+    const res = await p.op('list_endpoints', {});
+    const by = new Map(cardsOf(res).map((c) => [`${c.method} ${c.path}`, c]));
+
+    // (1) whole-`responses` $ref — NOT "no response": partial + note, no fabricated status.
+    const refResp = by.get('GET /ref-responses');
+    assert.equal(refResp?.confidence, 'partial');
+    assert.equal(refResp?.status, undefined, 'no status fabricated for an unenumerable responses');
+    assert.match(refResp?.note ?? '', /responses is a \$ref/);
+
+    // (2) responses present but only `default` (no 2xx) — partial, not certain-no-response.
+    const def = by.get('GET /default-only');
+    assert.equal(def?.confidence, 'partial');
+    assert.equal(def?.status, undefined);
+    assert.match(def?.note ?? '', /no 2xx status resolved/);
+
+    // (3) parameters is a $ref — query unenumerable: partial + note, but the resolvable 200
+    //     response IS still surfaced (a card can be partial on one slot while resolving another).
+    const refParams = by.get('GET /ref-params');
+    assert.equal(refParams?.confidence, 'partial');
+    assert.match(refParams?.note ?? '', /parameters is a \$ref/);
+    assert.equal(refParams?.status, 200, 'the resolvable response is still surfaced');
+    assert.equal(
+      refParams?.query,
+      undefined,
+      'the unenumerable query is absent (flagged in the note)',
+    );
 
     assertSpansValid(p.root, res as never);
   } finally {

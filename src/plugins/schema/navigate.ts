@@ -54,8 +54,9 @@ export function isNever(type: ts.TypeNode | undefined): boolean {
   return type !== undefined && type.kind === ts.SyntaxKind.NeverKeyword;
 }
 
-/** The type literal of a member, if its type is an inline object (`{ … }`). */
-export function memberLiteral(lit: MembersHolder, name: string): ts.TypeLiteralNode | undefined {
+/** The type literal of a member, if its type is an inline object (`{ … }`). Internal: only
+ *  `contentJsonType` needs it now (parse.ts distinguishes present-but-non-literal slots itself). */
+function memberLiteral(lit: MembersHolder, name: string): ts.TypeLiteralNode | undefined {
   const m = member(lit, name);
   if (m?.type !== undefined && ts.isTypeLiteralNode(m.type)) return m.type;
   return undefined;
