@@ -103,13 +103,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] zod boundary validation — config load, MCP tool args, op args (per-op schemas)
 - [x] honesty harness skeleton — `project()` temp-git mount driving the real pipeline;
       proof-span oracle (`assertSpansValid`); manual clock (no sleeps)
-- [~] oracle runners (ripgrep, cold `Program`) + scenario runner — cold `Program`
-  home (`test/helpers/cold-ls.ts`: `coldMembers`/`coldDiagnostics`) and the ripgrep
-  distinctness oracle (`test/helpers/ripgrep.ts`: `rgSites`, honest-skip when absent;
-  `text-overlay.test.ts` re-pointed onto it) both landed; the scenario runner resolved to
-  not-needed — the freshness tests interleave assertions between steps, so inline
-  `write`/`git`/`op` over `project()` reads cleaner than a step-list wrapper (knip-clean,
-  no one-use abstraction)
+- [x] oracle runners (ripgrep, cold `Program`) + scenario runner — cold `Program`
+      home (`test/helpers/cold-ls.ts`: `coldMembers`/`coldDiagnostics`) and the ripgrep
+      distinctness oracle (`test/helpers/ripgrep.ts`: `rgSites`, honest-skip when absent;
+      `text-overlay.test.ts` re-pointed onto it) both landed; the scenario runner resolved to
+      not-needed — the freshness tests interleave assertions between steps, so inline
+      `write`/`git`/`op` over `project()` reads cleaner than a step-list wrapper (knip-clean,
+      no one-use abstraction)
 
 ## Phase 1 — `ts` plugin
 
@@ -139,27 +139,27 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [ ] `assignability`, `imports(file)`, deep `expandType`
 - [x] `ops/search-symbol.ts`, `ops/find-definition.ts`, `ops/find-usages.ts`,
       `ops/expand-type.ts` — passthrough wrappers, zod-validated, explicit truncation
-- [~] tests — proof-span validity swept over **every** span-bearing read op
-  (`test/differential/span-validity.test.ts`: coverage-gated against `builtinOps()`,
-  non-vacuous ≥1-span guard, drift negative-control); freshness honesty
-  (mutate · add · checkout); aliased-JSX find*usages; stale-handle rebind;
-  `find_usages` trap distinctness vs grep (`test/differential/find-usages.test.ts`:
-  alias/barrel/type-only/cross-file ⊋ grep, same-name-scope ⊊ grep, hand-curated oracle +
-  rg cross-check — NOT cold-`findReferences`, which §16 flags as circular); confidence
-  honesty (`scss-confidence.test.ts`: computed `s[expr]` demotes unused-claims to partial,
-  never falsely dead). \_Deviation: the spec's "provenance syntactic/type" is unproduced by
-  shipped ops (core `Provenance.kind` lands with trace/adapter ops); the find_usages
-  semantic/text provenance axis is already asserted in `text-overlay.test.ts`.* Freshness
-  honesty extended (`freshness.test.ts`): ts in-place mutation, bulk multi-file checkout,
-  i18n checkout, and the §19 racy-clean mtime-tie resolved by content **end-to-end**. `cold == warm` for ts + scss (`cold-equals-warm.test.ts`: warm-after-edits
-  fact arrays incl. proof spans == a cold boot over the identical tree). Read-side `gone`
-  rebind (`ops.test.ts`: deleted decl with no sibling → structured `{status:'gone'}` +
-  empty data, never a false rebind; a same-named sibling → `rebound` at `partial`
-  confidence with the "identity not proven" note — the honest non-silent retarget). §19
-  canonicalization (`support.test.ts`: injected-realpath seam — case-fold collapses two
-  spellings to one `RepoRelPath`, symlink resolves to target, escape refused — deterministic,
-  not FS-dependent). Plugin-DAG honesty (`common.test.ts`: a realistic 3-node a→b→c→a cycle
-  refused at registry init, naming every node).
+- [x] tests — proof-span validity swept over **every** span-bearing read op
+      (`test/differential/span-validity.test.ts`: coverage-gated against `builtinOps()`,
+      non-vacuous ≥1-span guard, drift negative-control); freshness honesty
+      (mutate · add · checkout); aliased-JSX find*usages; stale-handle rebind;
+      `find_usages` trap distinctness vs grep (`test/differential/find-usages.test.ts`:
+      alias/barrel/type-only/cross-file ⊋ grep, same-name-scope ⊊ grep, hand-curated oracle +
+      rg cross-check — NOT cold-`findReferences`, which §16 flags as circular); confidence
+      honesty (`scss-confidence.test.ts`: computed `s[expr]` demotes unused-claims to partial,
+      never falsely dead). \_Deviation: the spec's "provenance syntactic/type" is unproduced by
+      shipped ops (core `Provenance.kind` lands with trace/adapter ops); the find_usages
+      semantic/text provenance axis is already asserted in `text-overlay.test.ts`.* Freshness
+      honesty extended (`freshness.test.ts`): ts in-place mutation, bulk multi-file checkout,
+      i18n checkout, and the §19 racy-clean mtime-tie resolved by content **end-to-end**. `cold == warm` for ts + scss (`cold-equals-warm.test.ts`: warm-after-edits
+      fact arrays incl. proof spans == a cold boot over the identical tree). Read-side `gone`
+      rebind (`ops.test.ts`: deleted decl with no sibling → structured `{status:'gone'}` +
+      empty data, never a false rebind; a same-named sibling → `rebound` at `partial`
+      confidence with the "identity not proven" note — the honest non-silent retarget). §19
+      canonicalization (`support.test.ts`: injected-realpath seam — case-fold collapses two
+      spellings to one `RepoRelPath`, symlink resolves to target, escape refused — deterministic,
+      not FS-dependent). Plugin-DAG honesty (`common.test.ts`: a realistic 3-node a→b→c→a cycle
+      refused at registry init, naming every node).
 
 ## Phase 3 (pulled forward) — `scss` plugin + cross-tier ops
 
@@ -265,6 +265,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       read-time freshness check (the engine reindexes touched plugins) self-corrects (§7)
 - [x] tests (git-backed) — dry-run zero-write · `diff(dry)==diff(apply)` · post-apply
       `tsc` clean (cold Program) · rollback byte-exact (rename overlay-gate + move revert unit)
+- [ ] follow-up (deferred — DRY-only, not a correctness gap): the two mutating-op envelope
+      builders (`ops/refactor-apply.ts` flat-edit path + `ops/refactor-plan-apply.ts` move/extract
+      path) encode the same §2.10 dry-run/apply/rollback contract with near-verbatim gate /
+      envelope / post-typecheck blocks. Both are verified correct; consolidating touches the
+      rollback path with no CI to catch a regression — so defer. Extract a shared scaffold (commit + rollback injected; the move-specific collision-check / `removed` tombstones / `git mv` stay
+      in the plan path) **when the next change to the §2.10 contract forces editing both.**
 
 ## Phase 3 — non-TS plugins (`scss` · `i18n` · `schema`)
 

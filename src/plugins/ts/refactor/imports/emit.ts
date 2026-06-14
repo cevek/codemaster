@@ -70,17 +70,21 @@ export function emitSpecifier(
 ): string {
   const targetCurrent = String(targetNode.currentPath());
   const wasAlias = !originalSpec.startsWith('.');
-  const originalExt = moduleExtOf(targetNode.initialName);
+  // The strip decision uses the target's CURRENT extension, not its initial one: extract can
+  // coerce `.ts`→`.tsx` (JSX body), so a node whose initialName is `Foo.ts` now lives at
+  // `Foo.tsx`. Deriving the ext from initialName would make the `endsWith` strip below fail and
+  // emit a spurious `./Foo.tsx` where the importer omitted the extension.
+  const targetExt = moduleExtOf(path.posix.basename(targetCurrent));
   const includedExt = /\.(tsx?|jsx?|module\.scss|module\.css|scss|css)$/.test(originalSpec);
   // Symmetric with the importer filter (rewrite.ts): .mts/.cts/.mjs/.cjs are TS/JS modules too;
   // `.d.ts` is stripped as one unit by moduleExtOf (else a naive `.ts` strip leaves `foo.d`).
-  const isTsModule = /^(\.d\.[mc]?ts|\.(tsx?|jsx?|mts|cts|mjs|cjs))$/.test(originalExt);
+  const isTsModule = /^(\.d\.[mc]?ts|\.(tsx?|jsx?|mts|cts|mjs|cjs))$/.test(targetExt);
 
   let target = targetCurrent;
   // Strip the extension when the original omitted it and the target is a TS/JS module
   // (bundler resolution lets you drop `.tsx`/`.ts`, but never `.json`/`.scss`).
-  if (!includedExt && isTsModule && target.endsWith(originalExt)) {
-    target = target.slice(0, -originalExt.length);
+  if (!includedExt && isTsModule && target.endsWith(targetExt)) {
+    target = target.slice(0, -targetExt.length);
   }
 
   if (wasAlias) {

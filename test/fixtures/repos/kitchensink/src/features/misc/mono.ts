@@ -2,8 +2,9 @@
 // and an EXTRACT ANCHOR that captures outer-scope types/vars). Stresses extract_symbol scope
 // analysis (port Stage G): the extracted symbol's outer-scope type/closure deps must move or
 // import correctly, never silently break. Mined from a real repo (10k-line files, 80+
-// symbols); this is a representative ~250-line condensation. Also calls the high-fan-in
-// formatLabel (T2) and instantiates Registry (T3).
+// symbols); this condensation keeps the load-bearing shape — the closure-capture extract
+// anchor + nested local helpers/types — which is the point of the trap, not the raw line
+// count. Also calls the high-fan-in formatLabel (T2) and instantiates Registry (T3).
 import { formatLabel } from '@/core/format.ts';
 import { Registry } from '@/core/registry.ts';
 import type { Status } from '@/core/status.ts';

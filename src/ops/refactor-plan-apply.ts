@@ -33,6 +33,7 @@ export async function applyRefactorPlan(
   const prettier = await resolvePrettier(root);
   const formatted = new Map<string, string>();
   const notes: string[] = [];
+  if (plan.notes !== undefined) notes.push(...plan.notes);
   if (plan.rescued === true) {
     notes.push('extract edits produced via the patched-LS rescue (§4) — verified by the gate');
   }

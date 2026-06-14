@@ -1,9 +1,10 @@
 // The independent cold-LS oracle home (§16). A fresh-from-cold `ts.Program` built over the
 // whole fixture repo — never the warm daemon's own Language Service — so a differential test
 // compares two independent TS views and catches incremental-update drift, not the checker
-// against itself. Stage 1 ships `coldMembers` (lifted out of `expand-type.test.ts`, which now
-// imports it — its still-green run is the behaviour-preserving proof). `coldFindReferences`
-// (Stage 3) lands here too, on the same `coldProgram`, when a consumer imports it.
+// against itself. Ships `coldMembers`/`coldDiagnostics` (lifted out of `expand-type.test.ts`,
+// which now imports them — its still-green run is the behaviour-preserving proof). (`find_usages`
+// is pinned against a HAND-CURATED ground truth, not a cold `findReferences` — that would run the
+// identical LS algorithm and be circular, §16.)
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

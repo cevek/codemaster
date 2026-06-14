@@ -73,6 +73,33 @@ test('change_signature: removeParam drops an unused parameter and its arguments'
   }
 });
 
+test('change_signature: removeParam WARNS (never silently drops) a side-effecting argument', async () => {
+  // The removed param is unused in the body → the edit is valid and compiles clean (gate-blind).
+  // But the call site's argument is a CALL, so dropping it deletes a side effect. The op must
+  // not silently delete user code: it surfaces a proof-carrying note naming the site (§3.6).
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/api.ts': 'export const foo = (a: number, b: number, c: number): number => a + c;\n',
+    'src/use.ts':
+      "import { foo } from './api';\nexport const sideEffect = (): number => 0;\nexport const r = foo(10, sideEffect(), 30);\n",
+  });
+  try {
+    const [res] = await p.request([
+      { name: 'change_signature', args: { name: 'foo', removeParam: 1 } },
+    ]);
+    assert.ok(res !== undefined && 'result' in res && res.result.ok, JSON.stringify(res));
+    const data = res.result.data as { typecheck: { clean: boolean }; notes?: string[] };
+    assert.equal(data.typecheck.clean, true); // the edit itself type-checks — the gate is blind here
+    const notes = data.notes ?? [];
+    assert.ok(
+      notes.some((n) => /side effect/i.test(n) && /use\.ts/.test(n) && /sideEffect\(\)/.test(n)),
+      `expected a proof-carrying side-effect warning naming the call site, got: ${JSON.stringify(notes)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('change_signature: removing a parameter still used in the body is REFUSED (§2.8)', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,

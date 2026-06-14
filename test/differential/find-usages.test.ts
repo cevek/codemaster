@@ -47,6 +47,10 @@ const has = (u: Usage[], file: string, line: number, role?: string): boolean =>
   u.some(
     (x) => x.span.file === file && x.span.line === line && (role === undefined || x.role === role),
   );
+// The EXACT semantic set as `file:line:role` strings, sorted — for set-equality assertions
+// (inclusion alone passes a spurious-extra or dropped site, §3 completeness/precision).
+const projset = (u: Usage[]): string[] =>
+  u.map((x) => `${x.span.file}:${x.span.line}:${x.role}`).sort();
 
 test('alias + barrel + cross-file: find_usages includes sites a word-grep misses', async () => {
   const p: TestProject = await project(FILES);
@@ -56,6 +60,23 @@ test('alias + barrel + cross-file: find_usages includes sites a word-grep misses
     // canonical thing grep cannot follow. And the barrel re-export (index.ts:1).
     assert.ok(has(u, 'src/App.tsx', 4, 'jsx'), 'aliased <B/> usage found semantically');
     assert.ok(has(u, 'src/index.ts', 1, 'reexport'), 'barrel re-export found');
+
+    // §3 completeness + precision: the EXACT hand-curated set, not just inclusion — a spurious
+    // extra usage (misidentification) or a dropped site would slip an inclusion-only check.
+    assert.deepEqual(
+      projset(u),
+      [
+        // The alias import line carries TWO Button refs at distinct columns — the imported name
+        // `Button` and the alias binding `B` — both role 'import'; findReferences reports each.
+        // (The alias's USE is the separate jsx site at line 4.)
+        'src/App.tsx:1:import',
+        'src/App.tsx:1:import',
+        'src/App.tsx:4:jsx',
+        'src/Button.tsx:2:decl',
+        'src/index.ts:1:reexport',
+      ].sort(),
+      'find_usages returns EXACTLY the hand-read semantic set for Button',
+    );
 
     // Distinctness: a word grep for "Button" never matches App.tsx line 4 (it reads `<B`),
     // yet find_usages has it → find_usages ⊋ grep on that site.
@@ -106,6 +127,14 @@ test('same-named symbols in different scopes: find_usages excludes the unrelated
     assert.ok(
       !files.has('src/scopeB.ts'),
       'the UNRELATED same-named `dup` in scopeB is excluded — identity, not text',
+    );
+
+    // Exact set: scopeA's decl (line 1) + its one read (line 2), and NOTHING else — pins both
+    // that scopeB is excluded AND that no spurious site crept in.
+    assert.deepEqual(
+      projset(u),
+      ['src/scopeA.ts:1:decl', 'src/scopeA.ts:2:read'].sort(),
+      'find_usages returns EXACTLY scopeA’s own refs',
     );
 
     // Distinctness the other way: grep for "dup" DOES hit scopeB → find_usages ⊊ grep here.

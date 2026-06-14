@@ -75,6 +75,37 @@ function callOf(node: ts.Node): ts.CallExpression | undefined {
   return undefined;
 }
 
+/** True if an expression subtree may carry a side effect (a call / new / await / yield / tagged
+ *  template / delete / assignment / `++` / `--`). Dropping such an argument on `removeParam` is a
+ *  gate-invisible behavior change — the §2.8 cold-tsc gate stays clean — so we WARN (naming the
+ *  site), rather than silently delete user code (§3.6: state what you couldn't guarantee). */
+function mayHaveSideEffect(node: ts.Node): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isCallExpression(n) ||
+      ts.isNewExpression(n) ||
+      ts.isAwaitExpression(n) ||
+      ts.isYieldExpression(n) ||
+      ts.isTaggedTemplateExpression(n) ||
+      ts.isDeleteExpression(n) ||
+      (ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        (n.operator === ts.SyntaxKind.PlusPlusToken ||
+          n.operator === ts.SyntaxKind.MinusMinusToken))
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
 /** Source indices in their new order: removeParam drops one, reorder is the permutation. */
 function resolveOrder(count: number, change: SignatureChange): number[] | string {
   if (change.reorder !== undefined) {
@@ -177,6 +208,9 @@ export function planChangeSignature(
   push(sourceAbs, listEdit(sf, decl.parameters, order));
 
   const blockers: string[] = [];
+  // removeParam can drop a side-effecting argument expression that compiles clean (gate-blind) —
+  // we don't refuse (the removal IS the request), but we surface a proof-carrying warning per site.
+  const sideEffectNotes: string[] = [];
   const refs = host.service.findReferences(sourceAbs, offset) ?? [];
   for (const sym of refs) {
     for (const ref of sym.references) {
@@ -219,6 +253,17 @@ export function planChangeSignature(
         );
         continue;
       }
+      if (change.removeParam !== undefined) {
+        const dropped = call.arguments[change.removeParam];
+        if (dropped !== undefined && mayHaveSideEffect(dropped)) {
+          const { line } = refSf.getLineAndCharacterOfPosition(dropped.getStart(refSf));
+          const text = dropped.getText(refSf);
+          const shown = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+          sideEffectNotes.push(
+            `${at}:${line + 1}: removed argument \`${shown}\` may have a side effect — dropped`,
+          );
+        }
+      }
       push(ref.fileName, listEdit(refSf, call.arguments, order));
     }
   }
@@ -235,5 +280,7 @@ export function planChangeSignature(
     node.setContent(applyEdits(before, edits));
   }
 
-  return assemblePlan(host, tree, options);
+  const plan = assemblePlan(host, tree, options);
+  if (typeof plan === 'string' || sideEffectNotes.length === 0) return plan;
+  return { ...plan, notes: [...(plan.notes ?? []), ...sideEffectNotes] };
 }

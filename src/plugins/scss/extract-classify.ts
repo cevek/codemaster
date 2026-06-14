@@ -134,7 +134,10 @@ function classSafetyVerdict(
   });
 
   if (unsafe !== undefined) return unsafe;
-  if (owning.length === 0) return left('NO-RULE');
+  // The class owns no top-level rule of its own. If it still APPEARS in some selector
+  // (descendant / compound / comma group), it is entangled → COMPOUND (leave it behind), not
+  // NO-RULE ("no such class"). Only a class that appears in no selector at all is NO-RULE.
+  if (owning.length === 0) return left(referencedElsewhere ? 'COMPOUND' : 'NO-RULE');
   if (referencedElsewhere) return left('COMPOUND');
   if (isExtendedBy(root, cls)) return left('EXTEND');
   if (ctx.composedClasses.has(cls)) return left('COMPOSES'); // another rule composes this class

@@ -42,6 +42,10 @@ export interface RefactorPlan {
   /** Proof-carrying rebind (§6) when the target was a stale SymbolId re-located by name —
    *  the op surfaces it on `Result.handle`, never silently. Absent for path-based ops. */
   rebind?: HandleRebind;
+  /** Advisory notes the op surfaces verbatim (e.g. `change_signature` dropping a side-effecting
+   *  argument the §2.8 typecheck can't see) — honest disclosure of a gate-invisible consequence
+   *  (§3.6), never a silent edit. */
+  notes?: readonly string[];
   /** Ordered `git mv` list (move only; extract leaves this empty). */
   moves: { from: RepoRelPath; to: RepoRelPath; kind: 'file' | 'dir' }[];
   /** Files to write fresh (no disk history) — e.g. an extract target. */

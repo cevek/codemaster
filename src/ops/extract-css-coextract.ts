@@ -92,6 +92,21 @@ export function applyCssCoExtract(ctx: OpContext, plan: RefactorPlan): CssCoExtr
       for (const m of group) demoteToLeftBehind(reports[m.reportIdx], m.moved, extracted.message);
       continue;
     }
+    // Read the pre-op source bytes NOW — needed for the diff `before` AND the rollback `restore`.
+    // On a genuine IO failure, abort THIS sheet HONESTLY (leave its classes behind, write nothing)
+    // rather than guess before='' — a guessed empty renders the whole sheet as an add and, worse,
+    // becomes the rollback restore content, truncating the sheet to empty on a later failure (data
+    // loss). Done before any new-sheet state is created so the abort is clean.
+    const before = readTextFile(path.join(root, sheetRel));
+    if (!before.ok) {
+      for (const m of group)
+        demoteToLeftBehind(
+          reports[m.reportIdx],
+          m.moved,
+          `source sheet unreadable (${before.failure.message}) — left behind`,
+        );
+      continue;
+    }
     // A DISTINCT source sheet must land in a DISTINCT new sheet — two sheets sharing a class
     // name collapsed into one file would silently alias the two definitions (type-blind, no
     // gate catches it). The default name is `<Component>.module.<ext>`; a collision (a second
@@ -99,7 +114,7 @@ export function applyCssCoExtract(ctx: OpContext, plan: RefactorPlan): CssCoExtr
     const newSheetRel = uniqueNewSheet(analysis.extractedFile, sheetRel, usedNewSheets);
     usedNewSheets.add(newSheetRel);
     appendSheet(newSheetByPath, newSheetRel, extracted.sheets.newSheet);
-    foldSourceSheetEdit(plan, root, sheetRel, extracted.sheets.sourceSheet);
+    foldSourceSheetEdit(plan, sheetRel, before.data, extracted.sheets.sourceSheet);
     for (const m of group) {
       const report = reports[m.reportIdx];
       if (report !== undefined) {
@@ -340,16 +355,17 @@ function appendSheet(map: Map<RepoRelPath, string>, sheetPath: RepoRelPath, cont
 }
 
 /** Add the edited source sheet to the plan as a content write + diff (scss isn't TS, so it
- *  never joins the overlay/typecheck set). Reads the pre-op bytes for the diff `before`. */
+ *  never joins the overlay/typecheck set). `before` is the pre-op bytes the caller already read
+ *  (and aborted on if unreadable) — so the diff `before` and the rollback `restore` are always
+ *  the real prior content, never a guessed empty. */
 function foldSourceSheetEdit(
   plan: RefactorPlan,
-  root: string,
   sheetRel: RepoRelPath,
+  before: string,
   after: string,
 ): void {
-  const before = readTextFile(path.join(root, sheetRel));
   plan.contentWrites.push({ path: sheetRel, content: after });
-  plan.diff.push({ from: sheetRel, to: sheetRel, before: before.ok ? before.data : '', after });
+  plan.diff.push({ from: sheetRel, to: sheetRel, before, after });
 }
 
 /** Rewrite the extracted file's css imports/refs and update its plan entries in lockstep: the
