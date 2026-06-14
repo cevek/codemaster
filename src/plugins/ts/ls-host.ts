@@ -47,11 +47,17 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
   const overlay = new Overlay();
 
   const configPath = resolveConfigPath(root, tsconfigOverride);
+  // Parse the tsconfig ONCE and cache it. The LS calls `getCompilationSettings` on every
+  // synchronize / module-resolution pass; re-parsing there reruns `parseJsonConfigFileContent`'s
+  // recursive whole-tree directory scan each time → O(LS-calls × tree-scan) = an unbounded HANG
+  // on a large repo (tiny test fixtures made each re-parse instant, so it never surfaced). We
+  // re-parse only on a structural reindex (`loadFileList`), where a re-glob IS the intent.
+  let parsed: ts.ParsedCommandLine;
   const loadFileList = (): void => {
+    parsed = parseConfig(root, configPath); // (re-)glob the project: picks up added/removed files
     const next = new Map<string, { version: number }>();
-    for (const abs of readProjectFileNames(root, configPath)) {
-      const prev = files.get(abs);
-      next.set(abs, prev ?? { version: 1 });
+    for (const abs of parsed.fileNames.map(toPosix).filter((f) => !f.includes('/node_modules/'))) {
+      next.set(abs, files.get(abs) ?? { version: 1 });
     }
     files = next;
     projectVersion++;
@@ -87,7 +93,7 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       }
     },
     getCurrentDirectory: () => root,
-    getCompilationSettings: () => readCompilerOptions(root, configPath),
+    getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path (above)
     getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
     fileExists: (fileName) => {
       const posix = toPosix(fileName);
@@ -187,15 +193,6 @@ function loadRescueTs(): typeof ts | undefined {
 function resolveConfigPath(root: string, override?: string): string | undefined {
   if (override !== undefined) return path.join(root, override);
   return ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json');
-}
-
-function readProjectFileNames(root: string, configPath: string | undefined): string[] {
-  const parsed = parseConfig(root, configPath);
-  return parsed.fileNames.map(toPosix).filter((f) => !f.includes('/node_modules/'));
-}
-
-function readCompilerOptions(root: string, configPath: string | undefined): ts.CompilerOptions {
-  return parseConfig(root, configPath).options;
 }
 
 function parseConfig(root: string, configPath: string | undefined): ts.ParsedCommandLine {
