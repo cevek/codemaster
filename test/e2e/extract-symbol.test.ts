@@ -1,8 +1,9 @@
-// Stage G edit-safety oracle for extract_symbol (§16.4, TS-only — CSS co-extract and the
-// patched-LS rescue §4 are deferred). Oracles: a cold ts.Program compile (the extracted
-// symbol resolves from its new home, the source imports it back), diff(dry)==diff(apply),
-// and the honest-failure path — an extract the LS can't make clean is REFUSED (§2.8),
-// never half-written. The `Expected symbol to be a module` assertion recognizer is unit-pinned.
+// Stage G edit-safety oracle for extract_symbol (§16.4). Oracles: a cold ts.Program compile
+// (the extracted symbol resolves from its new home, the source imports it back),
+// diff(dry)==diff(apply), and the honest-failure path — an extract the LS can't make clean is
+// REFUSED (§2.8), never half-written. The `Expected symbol to be a module` assertion recognizer
+// is unit-pinned; a css-using component that trips it is rescued via the §4 patched LS (below).
+// CSS co-extract has its own end-to-end suite (extract-css-coextract.test.ts).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,6 +25,7 @@ type Envelope = {
   touched: string[];
   typecheck: { clean: boolean };
   applied?: boolean;
+  notes?: string[];
 };
 type Proj = Awaited<ReturnType<typeof project>>;
 
@@ -121,6 +123,41 @@ test('extract_symbol: refuses to overwrite a gitignored file at dest, even with 
     assert.equal(
       readFileSync(path.join(p.root, 'src/gen/helper.ts'), 'utf8'),
       'export const precious = 99;\n',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('extract_symbol: §4 rescue extracts a css-using component the stock LS asserts on', async () => {
+  // The extracted block uses `s.card` — the stock LS throws `Expected symbol to be a module`
+  // here. The patched-LS rescue produces the edits; the project's own TS post-typecheck still
+  // gates apply (§2.8). Oracle: an independent cold compile + the `rescued` provenance note.
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true,"module":"preserve","jsx":"preserve"}}',
+    'src/scss.d.ts':
+      "declare module '*.module.scss' { const s: { [k: string]: string }; export default s; }",
+    'src/jsx.d.ts':
+      'declare namespace JSX { interface Element {} interface IntrinsicElements { [e: string]: unknown } }',
+    'src/feature/Panel.module.scss': '.card { color: red; }\n.shared { margin: 0; }\n',
+    'src/feature/Panel.tsx':
+      "import s from './Panel.module.scss';\n" +
+      'export const Card = (): JSX.Element => <div className={s.card} />;\n' +
+      'export const Panel = (): JSX.Element => <section className={s.shared} />;\n',
+  });
+  try {
+    const applied = await extract(p, { name: 'Card', dest: 'src/widgets/Card.tsx' }, true);
+    assert.equal(applied.mode, 'applied');
+    assert.equal(applied.applied, true);
+    assert.equal(applied.typecheck.clean, true);
+    assert.ok(
+      (applied.notes ?? []).some((n) => /rescue/.test(n)),
+      `expected a rescue provenance note, got ${JSON.stringify(applied.notes)}`,
+    );
+    assert.deepEqual(coldTscErrors(p.root), []); // the moved .tsx compiles from its new home
+    assert.match(
+      readFileSync(path.join(p.root, 'src/widgets/Card.tsx'), 'utf8'),
+      /export const Card/,
     );
   } finally {
     await p.dispose();

@@ -5,8 +5,11 @@
 // call is WRAPPED — the `Expected symbol to be a module` Debug Failure is thrown by the LS,
 // so without this it would crash instead of failing honestly (§3.6).
 //
-// §4 (patched-LS rescue) and CSS co-extract are NOT wired here yet — deliberately deferred;
-// the assertion path fails honestly with the `ts-ls-internal` category.
+// §4 patched-LS rescue: the `Expected symbol to be a module` assertion (thrown e.g. when the
+// extracted block uses a css-module member) is retried through the host's fallback LS from the
+// patched fork; the result still passes the project's own §2.8 typecheck. When the rescue is
+// unavailable the assertion path fails honestly with the `ts-ls-internal` category. The css
+// co-extract analysis (`plan.cssExtract`) is built here when requested; the op does the join.
 
 import type ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
@@ -14,8 +17,9 @@ import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import { messageOfThrown } from '../../../../common/result/construct.ts';
 import { applyEdits } from '../../../../support/text-edits/apply.ts';
-import type { RefactorPlan } from '../plan.ts';
+import type { RefactorPlan, CssExtractAnalysis } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
+import { analyzeCssExtractUsage } from './css-usage.ts';
 import { isExtractAssertion, isLsDebugFailure, EXTRACT_ASSERTION_NOTE } from './taxonomy.ts';
 
 const FORMAT: ts.FormatCodeSettings = { convertTabsToSpaces: true, tabSize: 2, indentSize: 2 };
@@ -54,6 +58,7 @@ export function planExtractTo(
   sourceAbs: string,
   offset: number,
   destArg: RepoRelPath,
+  css = false,
 ): RefactorPlan | string {
   const program = host.service.getProgram();
   const sf = program?.getSourceFile(sourceAbs);
@@ -62,23 +67,38 @@ export function planExtractTo(
   if (stmt === undefined) return 'no top-level declaration at the target position';
   const range: ts.TextRange = { pos: stmt.getStart(sf), end: stmt.getEnd() };
 
+  const requestEdits = (service: ts.LanguageService): ts.RefactorEditInfo | undefined =>
+    service.getEditsForRefactor(
+      sourceAbs,
+      FORMAT,
+      range,
+      'Move to a new file',
+      'Move to a new file',
+      {},
+    ) ?? undefined;
+
   let edits: ts.RefactorEditInfo | undefined;
+  let rescued = false;
   try {
-    edits =
-      host.service.getEditsForRefactor(
-        sourceAbs,
-        FORMAT,
-        range,
-        'Move to a new file',
-        'Move to a new file',
-        {},
-      ) ?? undefined;
+    edits = requestEdits(host.service);
   } catch (thrown) {
     const msg = messageOfThrown(thrown);
-    if (isExtractAssertion(msg)) return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (${msg})`;
-    if (isLsDebugFailure(msg))
-      return `ts-ls-internal: the LS hit an internal assertion — extract manually (${msg})`;
-    return `extract failed: ${msg}`;
+    if (!isExtractAssertion(msg)) {
+      if (isLsDebugFailure(msg))
+        return `ts-ls-internal: the LS hit an internal assertion — extract manually (${msg})`;
+      return `extract failed: ${msg}`;
+    }
+    // §4 rescue: the stock LS asserted on a shape it can't move (e.g. the extracted block
+    // uses a css-module member). Retry through the patched fork; if unavailable or it also
+    // fails, surface the honest ts-ls-internal failure — never a guessed edit.
+    const fallback = host.rescueService();
+    if (fallback === undefined) return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (${msg})`;
+    try {
+      edits = requestEdits(fallback);
+      rescued = true;
+    } catch (rethrown) {
+      return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (rescue also failed: ${messageOfThrown(rethrown)})`;
+    }
   }
   if (edits === undefined || edits.edits.length === 0) {
     return 'ts-ls-no-edits: the LS produced no edits for this extract — extract manually';
@@ -135,5 +155,87 @@ export function planExtractTo(
     tree.rekeyByInitialPath(createdNode, dest);
   }
 
-  return assemblePlan(host, tree, options);
+  const plan = assemblePlan(host, tree, options);
+  if (typeof plan === 'string') return plan;
+  if (rescued) plan.rescued = true;
+  if (css) {
+    const analysis = buildCssExtractAnalysis(host, tree, dest, sourceAbs);
+    if (analysis !== undefined) plan.cssExtract = analysis;
+  }
+  return plan;
+}
+
+/** Read the planned extracted + remaining contents from the tree and run the §2.3 block-scoped
+ *  css analysis, resolving each import's sheet relative to the extracted file via the tree
+ *  (`findByCurrentPath ?? findByInitialPath` — robust to the new file's two coordinate
+ *  systems). Returns undefined when the extracted file has no css-module import. */
+function buildCssExtractAnalysis(
+  host: TsProjectHost,
+  tree: VFSTree,
+  dest: RepoRelPath,
+  sourceAbs: string,
+): CssExtractAnalysis | undefined {
+  const extractedNode = tree.findByCurrentPath(dest);
+  const extractedContent = extractedNode?.contentOverride();
+  if (extractedNode === null || extractedContent === null || extractedContent === undefined) {
+    return undefined;
+  }
+  const sourceRel = host.relOf(sourceAbs);
+  const sourceNode = tree.findByCurrentPath(sourceRel) ?? tree.findByInitialPath(sourceRel);
+  const remainingContent =
+    sourceNode?.contentOverride() ??
+    host.service.getProgram()?.getSourceFile(sourceAbs)?.text ??
+    '';
+
+  const usages = analyzeCssExtractUsage(
+    { fileName: dest, content: extractedContent },
+    { fileName: sourceRel, content: remainingContent },
+  );
+  if (usages.length === 0) return undefined;
+
+  const destDir = posixDirname(dest);
+  const candidates = usages.map((u) => {
+    const sheetRel = resolveSheetRel(tree, destDir, u.specifier);
+    return {
+      localName: u.localName,
+      specifier: u.specifier,
+      ...(sheetRel !== undefined ? { sheetRel } : {}),
+      refsInExtracted: u.refsInExtracted,
+      refsInRemaining: u.refsInRemaining,
+      remainingWildcard: u.remainingWildcard,
+      extractedWildcard: u.extractedWildcard,
+    };
+  });
+  return { extractedFile: dest, sourceFile: sourceRel, candidates };
+}
+
+/** Resolve a css import specifier (relative to the extracted file's dir) to a tracked sheet
+ *  path. Aliased (non-relative) or untracked specifiers → undefined (the op moves nothing). */
+function resolveSheetRel(
+  tree: VFSTree,
+  destDir: string,
+  specifier: string,
+): RepoRelPath | undefined {
+  if (!specifier.startsWith('.')) return undefined;
+  const joined = destDir === '' ? specifier : `${destDir}/${specifier}`;
+  const rel = normalizePosix(joined);
+  if (rel === undefined) return undefined; // climbed above the repo root → can't resolve safely
+  const node =
+    tree.findByCurrentPath(rel as RepoRelPath) ?? tree.findByInitialPath(rel as RepoRelPath);
+  return node !== null ? (rel as RepoRelPath) : undefined;
+}
+
+/** Normalize a posix path (resolve `.`/`..` segments) without touching the filesystem. Returns
+ *  undefined if a `..` climbs above the root — resolving such a path would silently point at the
+ *  wrong file (e.g. a same-named sheet at root), so the caller must decline. */
+function normalizePosix(p: string): string | undefined {
+  const out: string[] = [];
+  for (const seg of p.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (out.length === 0) return undefined; // underflow above root
+      out.pop();
+    } else out.push(seg);
+  }
+  return out.join('/');
 }

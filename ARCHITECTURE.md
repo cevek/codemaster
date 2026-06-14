@@ -170,6 +170,16 @@ semantic ones (types, references, signatures, assignability). The `ts` plugin us
 both depths through one LS, so a "syntactic vs semantic" disagreement can never happen
 within it — there is only one parser.
 
+**Bounded exception — the extract rescue's second TS (§14).** `extract_symbol` builds its
+"Move to a new file" edits from a patched TypeScript fork (`@cevek/typescript-extract-refactor-fix`)
+_only_ when the project's own LS throws the `Expected symbol to be a module` assertion (e.g. the
+extracted block uses a css-module member). This does not break "one parser per domain": the fork
+is an **edit producer, not a fact oracle** — its edits are verified by the **project's own** LS
+post-typecheck (the §2.8 gate runs on `host.service`, never the fork), it is gated to the project's
+TS major (a mismatch declines the rescue), and the provenance is surfaced (`rescued` → an envelope
+note). An unavailable or failed rescue fails honestly with the `ts-ls` category — never a guessed
+edit. No fact codemaster reports ever originates from the fork.
+
 Tree-sitter returns only if we ever must index a language the TS parser can't read.
 
 ---
@@ -711,6 +721,14 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`zod`** — runtime validation at the boundaries where serialized/external data enters:
   config load, MCP `op` args, IPC messages. Internal typed data is trusted — only the
   edges are guarded.
+- **`@cevek/typescript-extract-refactor-fix`** — a patched TypeScript fork, loaded **lazily**
+  (via `createRequire`, gated to the project's TS major) **only** as the `extract_symbol`
+  rescue (§4): it produces "Move to a new file" edits for shapes the stock LS asserts on (e.g.
+  an extracted block using a css-module member, which co-extract — spec-css-coextract — needs).
+  It is an **edit producer, not a fact oracle** — every rescued edit is verified by the
+  project's own LS typecheck (the §2.8 gate), so it never originates a reported fact, and an
+  unavailable/incompatible fork degrades to an honest `ts-ls` failure. The bounded exception to
+  "one parser per domain" is recorded in §4.
 - **(ported) `front-renamer`** — symbol-anchored refactor engine (the project's prior art
   for safe edits over a VFS-backed LS). The relevant code is **vendored** inside
   `plugins/ts/refactor/`; codemaster does **not** depend on the `front-renamer` npm

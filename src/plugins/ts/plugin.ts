@@ -29,6 +29,7 @@ import { computeRename, type RenameChange } from './refactor/rename/rename-sites
 import { collectDiagnostics, type TsDiagnostic } from './diagnostics.ts';
 import { planMove } from './refactor/imports/plan-move.ts';
 import { planExtractTo } from './refactor/extract/move-to-file.ts';
+import { rewriteExtractedCss, type ImportRewrite } from './refactor/extract/css-usage.ts';
 import { planChangeSignature, type SignatureChange } from './refactor/change-signature/plan.ts';
 import { loadTreeFromGit } from './refactor/tree/build.ts';
 import { isOk } from '../../common/result/narrow.ts';
@@ -38,7 +39,8 @@ import type { RefactorPlan } from './refactor/plan.ts';
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
-export type { RefactorPlan } from './refactor/plan.ts';
+export type { RefactorPlan, CssExtractCandidate, CssExtractAnalysis } from './refactor/plan.ts';
+export type { ImportRewrite } from './refactor/extract/css-usage.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
  *  diagnostic `check` scope (defaults to the overlaid files). */
@@ -78,6 +80,14 @@ export interface TsPluginApi extends Plugin {
   referenceSpans(target: TsTargetInput): { spans: Span[]; rebind?: HandleRebind } | string;
   /** Cross-tier API for the scss plugin (§5-L2). */
   cssModuleUsages(): CssModuleUsages;
+  /** Scope-aware rewrite of the extracted file's css imports for co-extract (§2.5): repoint
+   *  each import at its new sheet, inject a `<name>Legacy` import, and repoint left-behind
+   *  `s.X` refs to it. Pure — operates on the given content string. */
+  rewriteExtractedCss(
+    fileName: string,
+    content: string,
+    rewrites: readonly ImportRewrite[],
+  ): string;
   /** Cross-tier API (§5-L2): syntactic calls to the named functions — `t('a.b')`,
    *  `i18n.t('x')`. The i18n plugin consumes it; non-literal args are flagged `dynamic`,
    *  matching is by call name as written (no alias resolution). */
@@ -105,7 +115,11 @@ export interface TsPluginApi extends Plugin {
   /** Plan extracting the top-level symbol at `target` to a new file `dest` via the LS
    *  "Move to a new file" refactor. A message on a bad target; a structured failure (with
    *  the `ts-ls-failures` category) when the LS refuses — never a throw. */
-  planExtract(target: TsTargetInput, dest: RepoRelPath): Promise<RefactorPlan | string>;
+  planExtract(
+    target: TsTargetInput,
+    dest: RepoRelPath,
+    opts?: { css?: boolean },
+  ): Promise<RefactorPlan | string>;
   /** Plan a parameter remove/reorder on the function at `target`, applied to the declaration
    *  and every call site (§7). A message on a bad target / invalid change. */
   planChangeSignature(
@@ -250,6 +264,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),
+    rewriteExtractedCss: (fileName, content, rewrites) =>
+      rewriteExtractedCss(fileName, content, rewrites),
 
     literalCalls: (fnNames) => scanLiteralCalls(warm(), fnNames),
 
@@ -292,14 +308,15 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return planMove(h, tree.data, options, source, dest);
     },
 
-    async planExtract(target, dest) {
+    async planExtract(target, dest, opts) {
       const h = warm();
       const resolved = resolve(target);
       if (!resolved.ok) return resolved.message;
       const tree = await loadTreeFromGit(root);
       if (!isOk(tree)) return tree.failure.message;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      const plan = planExtractTo(h, tree.data, options, resolved.abs, resolved.offset, dest);
+      const css = opts?.css ?? false;
+      const plan = planExtractTo(h, tree.data, options, resolved.abs, resolved.offset, dest, css);
       if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
       return plan;
     },

@@ -37,7 +37,7 @@ export function scanCssModuleUsages(host: TsProjectHost): CssModuleUsages {
     for (const stmt of sourceFile.statements) {
       if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
       const spec = stmt.moduleSpecifier.text;
-      if (!spec.endsWith('.scss') && !spec.endsWith('.css')) continue;
+      if (!/\.(scss|sass|css)$/.test(spec)) continue;
       const name = stmt.importClause?.name?.text;
       if (name === undefined) continue;
       const resolved = resolveRelative(rel, spec);

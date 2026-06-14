@@ -19,5 +19,5 @@ export function isLsDebugFailure(message: string): boolean {
 
 export const EXTRACT_ASSERTION_NOTE =
   'a known TS language-service limitation on some shapes (e.g. several cross-referencing ' +
-  'declarations in one file) — cut the symbol manually. (The patched-LS rescue, spec §4, ' +
-  'is not wired yet.)';
+  'declarations in one file). The §4 patched-LS rescue was attempted but is unavailable ' +
+  '(the fork is not installed, or its TS major differs from the project) — cut the symbol manually.';

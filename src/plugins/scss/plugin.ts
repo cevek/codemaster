@@ -11,6 +11,18 @@ import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
 import { parseScssClasses, type ScssClass } from './parse.ts';
+import { parseStylesheetRoot } from './parse-root.ts';
+import { classifyForExtract, type ClassVerdict } from './extract-classify.ts';
+import { extractRules, type ExtractedRules } from './extract-rules.ts';
+
+// Re-export the co-extract shapes ops consume so they go through the plugin's public surface.
+export type { ClassVerdict, LeftBehindCode } from './extract-classify.ts';
+
+type ClassifyResult =
+  | { ok: true; verdicts: Map<string, ClassVerdict> }
+  | { ok: false; message: string };
+
+type ExtractRulesResult = { ok: true; sheets: ExtractedRules } | { ok: false; message: string };
 
 export type ScssClassView = {
   name: string;
@@ -38,6 +50,20 @@ export interface ScssPluginApi extends Plugin {
   classes(file?: string): ScssClassView[];
   unusedClasses(): UnusedScssView;
   parseFailures(): ReadonlyMap<RepoRelPath, string>;
+  /** Co-extract safety taxonomy (spec-css-coextract §2.7): classify each candidate class in
+   *  `file` as safe-to-move or left-behind-with-a-code. `usedInRemaining` are the classes the
+   *  post-extract source still references (so they stay). Reads the sheet fresh; a parse
+   *  failure is returned, never thrown (§3.6). */
+  classifyForExtract(
+    file: RepoRelPath,
+    classNames: readonly string[],
+    usedInRemaining: ReadonlySet<string>,
+  ): ClassifyResult;
+  /** Co-extract rule transform (spec-css-coextract §2.4): clone the rules owned by the
+   *  `safeClassNames` (with their leading comments) into a fresh sheet, and return the source
+   *  sheet with those rules removed. Pure — the op writes both strings. A parse failure is
+   *  returned, never thrown (§3.6). */
+  extractRules(file: RepoRelPath, safeClassNames: readonly string[]): ExtractRulesResult;
 }
 
 export function createScssPlugin(root: string): ScssPluginApi {
@@ -157,7 +183,42 @@ export function createScssPlugin(root: string): ScssPluginApi {
     },
 
     parseFailures: () => failures,
+
+    classifyForExtract(file, classNames, usedInRemaining): ClassifyResult {
+      const parsed = readAndParse(root, file);
+      if (!parsed.ok) return { ok: false, message: parsed.message };
+      // The taxonomy walk (selector parsing) must not escape as a throw — these methods
+      // promise a Result, and the co-extract op relies on that to stay total (§3.6).
+      try {
+        return { ok: true, verdicts: classifyForExtract(parsed.root, classNames, usedInRemaining) };
+      } catch (thrown) {
+        return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+      }
+    },
+
+    extractRules(file, safeClassNames): ExtractRulesResult {
+      const parsed = readAndParse(root, file);
+      if (!parsed.ok) return { ok: false, message: parsed.message };
+      // CST clone/serialize can throw on a pathological tree — return it, never throw.
+      try {
+        return { ok: true, sheets: extractRules(parsed.root, safeClassNames, file) };
+      } catch (thrown) {
+        return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+      }
+    },
   };
+}
+
+/** Read a stylesheet from disk and parse it to a CST `Root`. A read OR parse failure is
+ *  returned, never thrown (§3.6) — the co-extract op leaves every class behind on failure. */
+function readAndParse(root: string, file: RepoRelPath): ReturnType<typeof parseStylesheetRoot> {
+  let source: string;
+  try {
+    source = readFileSync(path.join(root, file), 'utf8');
+  } catch (thrown) {
+    return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+  }
+  return parseStylesheetRoot(source, file);
 }
 
 function exists(root: string, rel: string): boolean {

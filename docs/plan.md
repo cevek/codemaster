@@ -246,18 +246,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 > **Exit**: edit-safety invariant green; symbol-anchored refactors + shape-based codemods
 > work dry-run-first with explicit `apply: true`.
 
-- [~] vendor `front-renamer` engine inside `plugins/ts/refactor/` (symbol-anchored): tree
-  (C) + rename (D) + change_signature (E, remove/reorder params) + move/import-rewrite (F)
-  - extract TS-only (G) landed; pending: extract's **CSS co-extract** + **patched-LS (spec §4)**
+- [x] vendor `front-renamer` engine inside `plugins/ts/refactor/` (symbol-anchored): tree
+      (C) + rename (D) + change_signature (E, remove/reorder params) + move/import-rewrite (F)
+  - extract (G): TS move + **patched-LS rescue (spec §4)** + **CSS co-extract**
+    (`css: 'copy-safe'`, spec-css-coextract) all landed
 - [x] `support/text-edits` — span-based edits (`apply`/`conflict`/`quote`/`write`); atomic
       temp-then-rename apply; overlap detection (non-empty same-start pairs conflict)
 - [x] `support/prettier` — `resolve` (project copy → bundled fallback, reports which) +
       `format` (honest `ok(null)` skip; broken config → `ToolFailure`, never throws)
 - [x] `ops/rename-symbol.ts` (D) · `ops/move-file.ts` (F) · `ops/extract-symbol.ts` (G,
-      TS-only — LS "Move to a new file", re-targeted + import-rewritten; honest ts-ls taxonomy)
+      TS-domain core — LS "Move to a new file", re-targeted + import-rewritten; honest ts-ls taxonomy)
       · `ops/change-signature.ts` (E, remove/reorder positional params at decl + call sites) —
       dry-run preview → explicit `apply`; git-aware (dirty gate, rollback to HEAD). Extract's
-      CSS co-extract + patched-LS (spec §4) still pending
+      patched-LS rescue (§4) + CSS co-extract (`ops/extract-css-coextract.ts`) landed
 - [x] `ops/codemod.ts` — ast-grep matcher; declarative pattern + rewrite; **never claims
       to target a symbol** (§7), gated by the spec §2.8 post-edit typecheck
 - [x] resync — mutating ops write through `support/text-edits` + `support/git`; the next op's

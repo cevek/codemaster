@@ -19,7 +19,7 @@ import { commitMove, revertMove, type CommitMovePlan, type RevertSpec } from './
 export async function applyRefactorPlan(
   ctx: OpContext,
   plan: RefactorPlan,
-  opts: { dirtyOk?: boolean; refusalLabel: string },
+  opts: { dirtyOk?: boolean; refusalLabel: string; cssCoExtract?: JsonValue },
 ): Promise<Result<JsonValue>> {
   const root = ctx.daemon?.root;
   if (root === undefined)
@@ -33,6 +33,9 @@ export async function applyRefactorPlan(
   const prettier = await resolvePrettier(root);
   const formatted = new Map<string, string>();
   const notes: string[] = [];
+  if (plan.rescued === true) {
+    notes.push('extract edits produced via the patched-LS rescue (§4) — verified by the gate');
+  }
   const formatInto = async (rel: RepoRelPath, content: string): Promise<void> => {
     const f = await formatOne(prettier, root, rel, content);
     formatted.set(String(rel), f.content);
@@ -53,7 +56,10 @@ export async function applyRefactorPlan(
       ...plan.newFiles.map((f) => f.path),
     ]),
   ];
-  const baseNotes = notes.length > 0 ? { notes } : {};
+  const baseNotes = {
+    ...(notes.length > 0 ? { notes } : {}),
+    ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
+  };
 
   // §2.8 gate — typecheck the post-edit content; tombstone removed paths, scope to the whole
   // program so a missed rewrite surfaces as a dangling import rather than a silent clean.
