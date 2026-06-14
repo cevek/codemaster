@@ -155,13 +155,13 @@ Codemaster has no standalone "structural index" built ahead of the LanguageServi
 would be a parallel copy of what TS already parses, with its own staleness problem. Each
 plugin owns the parser for its domain and is the only oracle for it:
 
-| Domain             | Plugin              | Parser                                          | Cost                                    |
-| ------------------ | ------------------- | ----------------------------------------------- | --------------------------------------- |
-| TypeScript / TSX   | `plugins/ts`        | TS `LanguageService` (AST + types)              | AST lazy per-file; types lazy on demand |
-| SCSS modules       | `plugins/scss`      | `postcss` + `postcss-scss` (CST only)           | cheap, per-file, syntactic only (§19)   |
-| Locale JSON        | `plugins/i18n`      | `ts.parseJsonText` (position-carrying JSON AST) | trivial; dotted-key flatten, spans      |
-| Generated schema   | `plugins/schema`    | TS-aware reader over `schema.d.ts`              | one-shot per session                    |
-| Framework concepts | `plugins/<adapter>` | consumes `ts` plugin's API                      | derived, no own parser                  |
+| Domain             | Plugin              | Parser                                                           | Cost                                    |
+| ------------------ | ------------------- | ---------------------------------------------------------------- | --------------------------------------- |
+| TypeScript / TSX   | `plugins/ts`        | TS `LanguageService` (AST + types)                               | AST lazy per-file; types lazy on demand |
+| SCSS modules       | `plugins/scss`      | `postcss` + `postcss-scss` (CST only)                            | cheap, per-file, syntactic only (§19)   |
+| Locale JSON        | `plugins/i18n`      | `ts.parseJsonText` (position-carrying JSON AST)                  | trivial; dotted-key flatten, spans      |
+| Generated schema   | `plugins/schema`    | `ts.createSourceFile` AST over openapi-typescript `openapi.d.ts` | one-shot per session                    |
+| Framework concepts | `plugins/<adapter>` | consumes `ts` plugin's API                                       | derived, no own parser                  |
 
 For TypeScript specifically, the TS LS exposes both depths inside one engine: cheap
 `SourceFile` access (already cached after first touch) for structural queries — symbols,
@@ -301,7 +301,7 @@ probing.
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
   missing/orphan keys.
-- **`schema`** — generated `schema.d.ts` → endpoint cards (input/response/path/query/body).
+- **`schema`** — generated openapi-typescript `openapi.d.ts` → endpoint cards (method/path/query/body/response).
 
 **Framework plugins** (autodetected, config-gated, can be shipped by anyone):
 
@@ -789,7 +789,7 @@ codemaster/
       ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
-      schema/                # schema.d.ts → endpoint cards
+      schema/                # openapi-typescript openapi.d.ts → endpoint cards
       react/                 # framework plugin (deps: ts) — components/hooks/conventions
       react-query/           # framework plugin (deps: ts) — mutations/queries/invalidates
       tanstack-router/       # framework plugin (deps: ts) — routes

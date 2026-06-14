@@ -279,12 +279,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 - [x] `plugins/scss` — done, pulled forward (see the §"Phase 3 (pulled forward)" section)
 - [x] `plugins/i18n` — done (see the §"Field feedback, round 2" i18n plugin entry)
-- [ ] `plugins/schema` — `schema.d.ts` reader → endpoint cards
-- [ ] config sections wired + zod-validated (`scss`, `i18n`, `schema`)
-- [ ] `ops/find-unused-scss-classes.ts`, `ops/find-unused-i18n-keys.ts`,
-      `ops/list-endpoints.ts`, `ops/i18n-lookup.ts`, `ops/scss-class-diff.ts`
-- [ ] tests — per-plugin oracles (cold reparse); cross-plugin op correctness against the
-      same fixtures
+- [x] `plugins/schema` — openapi-typescript `openapi.d.ts` reader → endpoint cards (method ·
+      path · params · query · body · response), proof-carrying; own parser
+      (`ts.createSourceFile`, AST only — no `deps: ['ts']`); config-gated; freshness/reindex
+      per entrypoint ([spec-schema-plugin.md](spec-schema-plugin.md)). _Deferred: orval/custom
+      runtime-client shape (`generator: 'custom'`) — stated follow-up, not a silent partial
+      (spec §2); the `schema:` SymbolId/rebind — no op chains an endpoint handle yet (knip)._
+- [x] config sections wired + zod-validated (`scss`, `i18n`, `schema`) — `schema` gated in
+      `bin.ts`/`project.ts` `pluginsFor`
+- [x] `ops/list-endpoints.ts` (cards + `pathInclude`/`method` filters + SQL table); response/
+      body/query are proof-carrying type REFERENCES that chain into `expand_type` at the span.
+      _Still todo: `ops/scss-class-diff.ts` (the remaining Phase-3 op)._
+- [x] tests — `schema` per-plugin oracle (hand-enumerated cards, cold reparse, span validity,
+      `expand_type` chain end-to-end, freshness honesty, cold==warm, op gating —
+      `test/differential/schema.test.ts`); `list_endpoints` in the universal span sweep
 
 ## Phase 4 — framework plugins + `list` ops
 

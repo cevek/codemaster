@@ -9,6 +9,8 @@ import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/pl
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
+import { fileExists } from '../../support/fs/exists.ts';
+import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
 import { parseScssClasses, type ScssClass } from './parse.ts';
 import { parseStylesheetRoot } from './parse-root.ts';
@@ -73,20 +75,24 @@ export function createScssPlugin(root: string): ScssPluginApi {
   let version = 0;
 
   const parseOne = (rel: RepoRelPath): ScssClass[] => {
-    try {
-      const source = readFileSync(path.join(root, rel), 'utf8');
-      const parsed = parseScssClasses(rel, source);
-      if (!parsed.ok) {
-        failures.set(rel, parsed.message);
-        return [];
-      }
-      failures.delete(rel);
-      return parsed.classes;
-    } catch {
-      // File vanished between listing and reading — not an error, just absent.
+    const read = readTextOrAbsent(root, rel);
+    // ENOENT is absence (a watcher race), not a failure; a real IO error is recorded so an
+    // unreadable stylesheet never reads as "no classes" (§3.6).
+    if (read.kind === 'absent') {
       failures.delete(rel);
       return [];
     }
+    if (read.kind === 'error') {
+      failures.set(rel, read.message);
+      return [];
+    }
+    const parsed = parseScssClasses(rel, read.text);
+    if (!parsed.ok) {
+      failures.set(rel, parsed.message);
+      return [];
+    }
+    failures.delete(rel);
+    return parsed.classes;
   };
 
   const warm = (): Map<RepoRelPath, ScssClass[]> => {
@@ -133,7 +139,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
         if (!rel.endsWith('.scss')) continue;
         touched = true;
         const classes = parseOne(rel);
-        if (classes.length === 0 && !exists(root, rel)) state.delete(rel);
+        if (classes.length === 0 && !fileExists(root, rel)) state.delete(rel);
         else state.set(rel, classes);
       }
       if (touched) version++;
@@ -219,13 +225,4 @@ function readAndParse(root: string, file: RepoRelPath): ReturnType<typeof parseS
     return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
   }
   return parseStylesheetRoot(source, file);
-}
-
-function exists(root: string, rel: string): boolean {
-  try {
-    readFileSync(path.join(root, rel), { encoding: 'utf8', flag: 'r' });
-    return true;
-  } catch {
-    return false;
-  }
 }

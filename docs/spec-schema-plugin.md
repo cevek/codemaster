@@ -1,8 +1,11 @@
 # Spec: the `schema` plugin — generated API types → endpoint cards (Phase 3 closure)
 
-Status: **proposed** (task brief for an implementing agent). Read ARCHITECTURE.md §4 (parser per
-domain — the schema cell), §5-L2/L3 (plugins + ops), §10 (config), §16 (honesty harness), and
-CONTRIBUTING.md before starting. Refines [plan.md](plan.md) Phase 3.
+Status: **shipped**. The `schema` plugin reads openapi-typescript `openapi.d.ts` into endpoint
+cards; the `list_endpoints` op surfaces them; both are config-gated. See
+[`src/plugins/schema/`](../src/plugins/schema/), [`src/ops/list-endpoints.ts`](../src/ops/list-endpoints.ts),
+and [`test/differential/schema.test.ts`](../test/differential/schema.test.ts). ARCHITECTURE.md §4
+(parser per domain — the schema cell), §5-L2/L3 (plugins + ops), §10 (config), §16 (honesty
+harness) frame it.
 
 ## 1. Purpose
 
@@ -12,33 +15,41 @@ project's **generated API type surface** (OpenAPI → TypeScript) and exposes **
 what's the shape of this request" in one call instead of spelunking a 1000-line generated file.
 Op: **`list_endpoints`** (and the per-endpoint card it returns chains into `expand_type`).
 
-## 2. The load-bearing decision — the input contract is REAL, not invented
+## 2. The load-bearing decision — DECIDED: target openapi-typescript `openapi.d.ts`
 
-Everything downstream is determined by **what the generated file actually looks like**. Do **not**
-invent a schema format. **Mine the real shape** from the projects codemaster already runs over
-(NDA-safe — extract the _shape_, neutral names, no proprietary endpoints):
+The reader is built to the **real** generated shape, mined (NDA-safe) from the two projects
+codemaster runs over. Two shapes dominate, and per §3.4 the common one ships first:
 
-- **amiro** (`/Users/cody/Dev/amiro`) — `src/api/generated/` (OpenAPI-generated TS: `types.ts`,
-  `hooks.ts`, `api.ts`); ~570 LOC generated, string-literal-union statuses, `Record`-keyed paths.
-- **backoffice** (`/Users/cody/Dev/backoffice`) — `openApiSchemes/<service>/` (the raw OpenAPI per
-  service) + `packages/common` generated types; multiple services.
+- **backoffice** (`/Users/cody/Dev/backoffice`) — **openapi-typescript** `clients/openApiSchemes/
+<service>/openapi.d.ts`: a generated `.d.ts` with `export interface paths { "/users/{id}": {
+parameters; get: operations["getUser"]; put?: never; … } }`, `export interface operations {
+getUser: { parameters: { query; path; … }; requestBody?; responses: { 200: { content: {
+"application/json": components["schemas"]["UserDto"] } } } } }`, and `export interface components
+{ schemas: { … } }`. Multiple services, all this shape. **This is the target.** It is the
+  ARCHITECTURE §4 "TS-aware reader over the generated schema d.ts" cell.
+- **amiro** (`/Users/cody/Dev/amiro`) — `src/api/generated/api.ts`: an **orval-style runtime
+  client** (`export const api = { getUser: (p) => m<t.UserDto>({url:`/users/${p.id}`,
+method:'GET', …}) }`). A runtime `.ts`, not a `.d.ts`. **Follow-up** (`generator: 'custom'`):
+  declared in config but not yet parsed — a foreign/absent shape yields **zero cards honestly,
+  never a guess** (§3.4); it is NOT a silent partial.
 
-**Stage 1 is to characterize this shape and commit a concrete fixture that mirrors it** (e.g. the
-`openapi-typescript` `paths`-interface style: `interface paths { '/users/{id}': { get: {...} } }`,
-or the `operations` map, or a generated client's request/response types — whichever the real
-generators emit). State in the spec which generator(s) the plugin targets; the reader is built to
-that contract, with the fixture as the pinned example. ARCHITECTURE §4 frames this as a "TS-aware
-reader over `schema.d.ts`" — confirm whether the real input is a `.d.ts`, a `.ts`, or raw OpenAPI
-JSON/YAML, and target what's actually generated. If two generator shapes dominate, support the
-common one first and state the other as a follow-up (no silent partial — §3.4).
+**The contract** (what the reader reads): iterate `interface paths`; for each path, each HTTP-method
+member that is not `?: never` is one endpoint; dereference its `operations["…"]` (or an inline
+operation literal) for `parameters.query` / `requestBody` / the lowest-2xx `responses[…]` content.
+Each query/body/response is surfaced as a proof-carrying **type reference** (the schema name + a span
+anchored at it) — resolution into members is deferred to `expand_type` at that span (§1). An
+`operations["X"]` with no matching operation is `unresolved`, never a guessed card. A no-content
+(204) response yields no body ref. The reader uses the TS compiler's own parser
+(`ts.createSourceFile`, AST only — no checker, so no `deps: ['ts']`).
 
 ## 3. Fixed decisions
 
 - **Plugin, not op-level parsing.** A new `plugins/schema/` plugin owns the parse (its own cell,
-  §4). It is a **TS-aware reader**: if the input is generated TS/`.d.ts`, read it through a cold
-  `ts.Program` / the `ts` plugin's checker (declared `deps: ['ts']` if it leans on the ts plugin's
-  type resolution) — do **not** hand-roll a TS parser. If the input is raw OpenAPI JSON, parse with
-  `ts.parseJsonText` (the i18n-plugin pattern) — no new JSON-parser dep.
+  §4). It is a **TS-aware reader** using the TS compiler's own parser, never a hand-rolled one.
+  As shipped it reads the generated `.d.ts` through `ts.createSourceFile` (AST only — no checker,
+  so `deps: []`): the cards carry verbatim type _references_ and member resolution is deferred to
+  `expand_type` at the span (§1), so no `ts.Program`/checker is needed in the plugin. (A future
+  shape that genuinely needs type resolution would declare `deps: ['ts']`; this one does not.)
 - **Endpoint card shape** (plain data, JsonValue-satisfying): `{ method, path, pathParams[],
 query?, body?, response?, status? }` with **proof spans** (`file:line` into the generated source)
   for each — proof-carrying like every other plugin (§3.2). A type that can't be resolved is

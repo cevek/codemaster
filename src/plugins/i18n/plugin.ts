@@ -8,12 +8,13 @@
 // composition root's `pluginsFor`, never in `opsFor` — the ops register unconditionally
 // with `requires`, gated by plugin presence (§ spec-i18n-plugin).
 
-import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
+import { fileExists } from '../../support/fs/exists.ts';
+import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
@@ -96,20 +97,24 @@ export function createI18nPlugin(
   const localeIdOf = (rel: RepoRelPath): string => path.posix.basename(rel).replace(/\.json$/, '');
 
   const parseOne = (rel: RepoRelPath): LocaleFile => {
-    try {
-      const source = readFileSync(path.join(root, rel), 'utf8');
-      const parsed = parseLocaleKeys(rel, source);
-      if (!parsed.ok) {
-        failures.set(rel, parsed.message);
-        return { id: localeIdOf(rel), keys: [] };
-      }
-      failures.delete(rel);
-      return { id: localeIdOf(rel), keys: parsed.keys };
-    } catch {
-      // Vanished between listing and reading — absent, not an error.
+    const read = readTextOrAbsent(root, rel);
+    // ENOENT is absence (a watcher race), not a failure; a real IO error is recorded so an
+    // unreadable locale never reads as "no keys" (§3.6).
+    if (read.kind === 'absent') {
       failures.delete(rel);
       return { id: localeIdOf(rel), keys: [] };
     }
+    if (read.kind === 'error') {
+      failures.set(rel, read.message);
+      return { id: localeIdOf(rel), keys: [] };
+    }
+    const parsed = parseLocaleKeys(rel, read.text);
+    if (!parsed.ok) {
+      failures.set(rel, parsed.message);
+      return { id: localeIdOf(rel), keys: [] };
+    }
+    failures.delete(rel);
+    return { id: localeIdOf(rel), keys: parsed.keys };
   };
 
   const warm = (): Map<RepoRelPath, LocaleFile> => {
@@ -163,7 +168,7 @@ export function createI18nPlugin(
       for (const rel of changed) {
         if (!matchesAnyGlob(rel, localeGlobs)) continue;
         touched = true;
-        if (exists(root, rel)) state.set(rel, parseOne(rel));
+        if (fileExists(root, rel)) state.set(rel, parseOne(rel));
         else {
           state.delete(rel);
           failures.delete(rel);
@@ -283,13 +288,4 @@ export function createI18nPlugin(
 
     parseFailures: () => failures,
   };
-}
-
-function exists(root: string, rel: string): boolean {
-  try {
-    readFileSync(path.join(root, rel), { encoding: 'utf8', flag: 'r' });
-    return true;
-  } catch {
-    return false;
-  }
 }

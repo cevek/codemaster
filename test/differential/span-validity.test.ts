@@ -17,7 +17,10 @@ import type { JsonValue } from '../../src/core/json.ts';
 
 const CONFIG =
   `import { defineConfig } from 'codemaster';\n` +
-  `export default defineConfig({ i18n: { locales: ['locales/*.json'], functions: ['t'] } });\n`;
+  `export default defineConfig({\n` +
+  `  i18n: { locales: ['locales/*.json'], functions: ['t'] },\n` +
+  `  schema: { entrypoint: 'src/api/openapi.d.ts' },\n` +
+  `});\n`;
 const TSCONFIG = '{"compilerOptions":{"strict":true,"jsx":"react-jsx"}}';
 // `extra` lives in en only (→ missing in de); `unused_key` is referenced by nobody (→ unused).
 const EN = JSON.stringify({ greeting: 'Hi', extra: 'x', unused_key: 'u' }, null, 2);
@@ -31,6 +34,20 @@ const BUTTON =
   `  <button className={styles.used}>{t('greeting')}{t('extra')}{p.size}</button>;\n`;
 const APP =
   `import { Button } from './Button';\n` + `export const App = () => <Button size="lg" />;\n`;
+const OPENAPI =
+  `export interface paths {\n` +
+  `  "/users/{id}": {\n` +
+  `    parameters: { query?: never; header?: never; path?: never; cookie?: never };\n` +
+  `    get: operations["getUser"];\n` +
+  `    put?: never; post?: never; delete?: never; options?: never; head?: never; patch?: never; trace?: never;\n` +
+  `  };\n}\n` +
+  `export interface operations {\n` +
+  `  getUser: {\n` +
+  `    parameters: { query?: never; header?: never; path: { id: number }; cookie?: never };\n` +
+  `    requestBody?: never;\n` +
+  `    responses: { 200: { headers: { [name: string]: unknown }; content: { "application/json": components["schemas"]["UserDto"] } } };\n` +
+  `  };\n}\n` +
+  `export interface components { schemas: { UserDto: { id: number; name: string } } }\n`;
 
 function sweepProject(): Promise<TestProject> {
   return project({
@@ -41,6 +58,7 @@ function sweepProject(): Promise<TestProject> {
     'src/styles.module.scss': SCSS,
     'src/Button.tsx': BUTTON,
     'src/App.tsx': APP,
+    'src/api/openapi.d.ts': OPENAPI,
   });
 }
 
@@ -56,6 +74,7 @@ const SWEEP: Record<string, JsonValue> = {
   i18n_lookup: { key: 'greeting' },
   find_unused_i18n_keys: {},
   find_missing_i18n_keys: {},
+  list_endpoints: {},
 };
 
 /** Read ops that legitimately carry no proof `Span`, and the mutating family the refactor
