@@ -1,0 +1,47 @@
+# The authoritative honesty gate (ARCHITECTURE.md §16, CONTRIBUTING "Done means").
+# Runs the non-mutating `check` form of fix-and-check + the full test suite on every push and
+# PR. CODEMASTER_REQUIRE_RG=1 makes the find_usages distinctness oracle fail loud if ripgrep
+# is missing, so the semantic-≠-grep half can never silently no-op to green in the gate.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A PR push fires both `push` and `pull_request`; cancel any superseded run for the same ref
+# so only the latest commit's gate occupies a runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Fail loud, not honest-skip, if ripgrep is absent — see test/helpers/ripgrep.ts.
+      CODEMASTER_REQUIRE_RG: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install ripgrep (find_usages distinctness oracle)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Verify ripgrep present
+        run: rg --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Non-mutating: fails on unformatted code (prettier --check) instead of silently
+      # rewriting it in a throwaway runner, unlike the local `fix-and-check`.
+      - name: Lint, format, types, dead-code
+        run: npm run check
+
+      - name: Test
+        run: npm test

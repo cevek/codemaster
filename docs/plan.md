@@ -17,7 +17,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Layered scaffold — `common/` (result/ids/span/confidence/fingerprint/plugin-registry/
       async/debug-spec/lru) and `support/` (git/prettier/text-edits/fs) topical subfolders
 - [x] Toolchain — strict TS, ESLint (300-line · no-any · no-console · exhaustive switch),
-      Prettier, knip, lint-staged + husky, `fix-and-check`
+      Prettier, knip, lint-staged + husky, `fix-and-check`, `check` (non-mutating CI twin),
+      GitHub Actions gate (`.github/workflows/ci.yml`) + optional pre-push
 - [x] Docs — CLAUDE.md, CONTRIBUTING.md, test/README.md
 - [x] Reviewer agents — architecture / bug / copy-paste / doc-sync (`.claude/agents/`)
 
@@ -268,8 +269,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [ ] follow-up (deferred — DRY-only, not a correctness gap): the two mutating-op envelope
       builders (`ops/refactor-apply.ts` flat-edit path + `ops/refactor-plan-apply.ts` move/extract
       path) encode the same §2.10 dry-run/apply/rollback contract with near-verbatim gate /
-      envelope / post-typecheck blocks. Both are verified correct; consolidating touches the
-      rollback path with no CI to catch a regression — so defer. Extract a shared scaffold (commit + rollback injected; the move-specific collision-check / `removed` tombstones / `git mv` stay
+      envelope / post-typecheck blocks. Both are verified correct and the edit-safety suite
+      already covers both paths — a pure DRY consolidation with no behavior change to buy, so
+      defer. Extract a shared scaffold (commit + rollback injected; the move-specific collision-check / `removed` tombstones / `git mv` stay
       in the plan path) **when the next change to the §2.10 contract forces editing both.**
 
 ## kitchensink integration — the port's first realistic workout

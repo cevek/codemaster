@@ -843,7 +843,9 @@ op — agents call ripgrep directly. The one textual surface, `find_usages text:
 files and a hit overlapping any semantic ref is deduped away; the remainder returns in a
 separate `text-only` section flagged `unresolved` (same text, identity not proven). The
 oracle is an independent naive scanner plus a ripgrep cross-check — never grep parity,
-since the two sets differ by design.
+since the two sets differ by design. The cross-check honest-skips when `rg` is absent
+locally, but under `CODEMASTER_REQUIRE_RG` (set by CI) a missing `rg` fails loud instead of
+skipping, so the distinctness half can never silently no-op to green in the gate.
 
 **Fixtures — mostly no folders.** The engine runs on a VFS, so most "projects" are
 mounted from an in-memory map and run the full pipeline hermetically, in milliseconds,

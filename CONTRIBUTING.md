@@ -4,8 +4,24 @@ You are most likely an agent building codemaster. Read **[ARCHITECTURE.md](ARCHI
 §1 (north star) and §3 (trust contract), plus **[src/README.md](src/README.md)** (layering),
 before editing. ARCHITECTURE.md is the source of truth; this file is the working rulebook.
 
-**One command:** `npm run fix-and-check` — `eslint --fix` → `prettier` → `tsc` → `knip`.
-Green before anything is "done".
+**One command:** `npm run fix-and-check` — `eslint --fix` → `prettier --write` → `tsc` →
+`knip`. Green before anything is "done".
+
+## The gate (CI is authoritative)
+
+`.github/workflows/ci.yml` runs on every push and pull request and is the contract: `npm ci`
+→ `npm run check` → `npm test` on the Node major pinned in `.nvmrc` (≥ 22 — the test runner
+strips types via `node --test`, which Node 20 can't do; `engines` matches). **`check` is the
+non-mutating twin of `fix-and-check`** (`eslint` without `--fix`, `prettier --check`, `tsc`,
+`knip`) — CI fails on unformatted code instead of silently rewriting it in a throwaway runner.
+
+The job sets `CODEMASTER_REQUIRE_RG=1` and installs + verifies ripgrep, so the `find_usages`
+distinctness oracle (`test/helpers/ripgrep.ts`) **fails loud** if `rg` is missing rather than
+honest-skipping — locally a missing `rg` still skips that cross-check (see §16).
+
+**Pre-push (optional, convenience):** `.husky/pre-push` runs `npm test` so a red suite never
+reaches the remote; `.husky/pre-commit` runs `lint-staged`. Both are local fast gates,
+skippable with `git push --no-verify`; CI is the authoritative one.
 
 ## Prime directive — never lie
 

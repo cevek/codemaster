@@ -33,5 +33,5 @@ Cross-reference these by `§`; keep this file a pointer, not a copy.
 - **Docs describe the present**, never the past — git holds history.
 - **Tokens are scarce** — dense, coded output; no noise.
 
-Stack: Node ≥ 20, ESM, strict TS via the raw compiler API (no ts-morph), `node:test`.
+Stack: Node ≥ 22, ESM, strict TS via the raw compiler API (no ts-morph), `node:test`.
 Status: scaffolding — build order in ARCHITECTURE.md §17.
