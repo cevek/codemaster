@@ -15,6 +15,11 @@ import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
 import { i18nLookupOp } from './i18n-lookup.ts';
 import { findUnusedI18nKeysOp } from './find-unused-i18n-keys.ts';
 import { findMissingI18nKeysOp } from './find-missing-i18n-keys.ts';
+import { renameSymbolOp } from './rename-symbol.ts';
+import { moveFileOp } from './move-file.ts';
+import { extractSymbolOp } from './extract-symbol.ts';
+import { changeSignatureOp } from './change-signature.ts';
+import { codemodOp } from './codemod.ts';
 import { feedbackOp } from './feedback.ts';
 
 export function builtinOps(): readonly AnyOpDefinition[] {
@@ -30,6 +35,11 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     i18nLookupOp,
     findUnusedI18nKeysOp,
     findMissingI18nKeysOp,
+    renameSymbolOp,
+    moveFileOp,
+    extractSymbolOp,
+    changeSignatureOp,
+    codemodOp,
     feedbackOp,
   ];
 }

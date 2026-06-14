@@ -12,6 +12,8 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
+import { toPosix } from '../../support/fs/canonicalize.ts';
+import { Overlay, type OverlayEntry } from './vfs/overlay.ts';
 
 export interface TsProjectHost {
   readonly service: ts.LanguageService;
@@ -24,12 +26,18 @@ export interface TsProjectHost {
   reindex(changed: readonly RepoRelPath[]): void;
   /** Monotonic project version — bumps whenever anything changes. */
   projectVersion(): number;
+  /** Overlay post-edit content (and tombstone moved-away `removed` paths) so the LS
+   *  typechecks unsaved source (§2.7). Inert when empty — reads resolve exactly as from
+   *  disk. Always paired with a `clear`. */
+  setOverlay(entries: readonly OverlayEntry[], removed?: readonly RepoRelPath[]): void;
+  clearOverlay(): void;
   dispose(): void;
 }
 
 export function createTsProjectHost(root: string, tsconfigOverride?: string): TsProjectHost {
   let files = new Map<string, { version: number }>(); // abs path (posix) → version
   let projectVersion = 1;
+  const overlay = new Overlay();
 
   const configPath = resolveConfigPath(root, tsconfigOverride);
   const loadFileList = (): void => {
@@ -44,9 +52,24 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
   loadFileList();
 
   const servicesHost: ts.LanguageServiceHost = {
-    getScriptFileNames: () => [...files.keys()],
-    getScriptVersion: (fileName) => String(files.get(toPosix(fileName))?.version ?? 1),
+    // Overlay files join the script set so a synthetic (overlay-only) file is visible to
+    // the LS even when not on disk; tombstoned (moved-away) paths drop out so a stale
+    // import dangles. For an in-place rename the overlay ⊆ tracked files, removed is empty.
+    getScriptFileNames: () =>
+      [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
+    getScriptVersion: (fileName) => {
+      const posix = toPosix(fileName);
+      const over = overlay.get(posix);
+      // A distinct, monotonic token while overlaid → the LS re-reads; reverts to the disk
+      // version on clear (also distinct from the last overlay token, forcing a re-read).
+      if (over !== undefined) return `o${over.version}`;
+      return String(files.get(posix)?.version ?? 1);
+    },
     getScriptSnapshot: (fileName) => {
+      const posix = toPosix(fileName);
+      if (overlay.isRemoved(posix)) return undefined;
+      const over = overlay.get(posix);
+      if (over !== undefined) return ts.ScriptSnapshot.fromString(over.content);
       try {
         return ts.ScriptSnapshot.fromString(readFileSync(fileName, 'utf8'));
       } catch {
@@ -56,10 +79,19 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     getCurrentDirectory: () => root,
     getCompilationSettings: () => readCompilerOptions(root, configPath),
     getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-    fileExists: ts.sys.fileExists,
-    readFile: ts.sys.readFile,
+    fileExists: (fileName) => {
+      const posix = toPosix(fileName);
+      if (overlay.isRemoved(posix)) return false; // tombstoned: the moved-away source is gone
+      return overlay.has(posix) || ts.sys.fileExists(fileName);
+    },
+    readFile: (fileName, encoding) => {
+      const posix = toPosix(fileName);
+      if (overlay.isRemoved(posix)) return undefined;
+      const over = overlay.get(posix);
+      return over !== undefined ? over.content : ts.sys.readFile(fileName, encoding);
+    },
     readDirectory: ts.sys.readDirectory,
-    directoryExists: ts.sys.directoryExists,
+    directoryExists: (dir) => overlay.hasDirectory(toPosix(dir)) || ts.sys.directoryExists(dir),
     getDirectories: ts.sys.getDirectories,
     getProjectVersion: () => String(projectVersion),
   };
@@ -89,6 +121,17 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       if (structural) loadFileList();
     },
     projectVersion: () => projectVersion,
+    setOverlay(entries, removed = []) {
+      overlay.set(
+        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        removed.map((r) => toPosix(path.join(root, r))),
+      );
+      projectVersion++;
+    },
+    clearOverlay() {
+      overlay.clear();
+      projectVersion++;
+    },
     dispose() {
       service.dispose();
     },
@@ -131,8 +174,4 @@ function parseConfig(root: string, configPath: string | undefined): ts.ParsedCom
 
 function isTsLike(p: string): boolean {
   return /\.(ts|tsx|js|jsx|mts|cts)$/.test(p);
-}
-
-function toPosix(p: string): string {
-  return p.split(path.sep).join('/');
 }

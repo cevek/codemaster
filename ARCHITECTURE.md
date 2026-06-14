@@ -697,6 +697,8 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
 - **`postcss` + `postcss-scss`** — used by the `scss` plugin.
 - **`diff`** — unified diffs for mutating-op previews.
+- **`prettier`** — resolved from the target project (bundled fallback); post-edit formatting
+  for mutating ops, with the response reporting which copy is active (§5-L1).
 - **`better-sqlite3`** — the ephemeral in-memory SQL evaluator behind `batch + sql`
   (§11). Loaded **lazily** on the first sql-carrying call (cold start never pays for the
   native module) and hidden behind the `support/sql/` seam so a DuckDB impl can drop in.
@@ -733,6 +735,7 @@ codemaster/
       span.ts                # Loc, Span, Confidence, Provenance — proof primitives
       result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure)
       ids.ts                 # SymbolId (plugin-routed) + proof-carrying rebind
+      op-example.ts          # canonical op example shape (status anti-drift)
       plugin.ts              # Plugin interface + PluginRegistry (the DAG manifest)
       debug.ts               # tracing contract (§13) — impl lives in support/debug/
     config/
@@ -744,6 +747,8 @@ codemaster/
       confidence/            # worstOf and per-hop reducers
       fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
       hash/                  # FNV-1a — rollups + short stable keys (never security)
+      glob/                  # glob matching over RepoRelPath
+      json/                  # JsonValue zod schema (boundary validation)
       plugin-registry/       # topological sort + cycle detection for the Plugin DAG
       async/                 # Clock seam; debounce / deferred / withTimeout over Clock
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher

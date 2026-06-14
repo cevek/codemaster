@@ -72,7 +72,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       schema with compile-time drift guard against `config/config.ts`
 - [x] `support/watch/` — watcher seam (`nullWatcher` for tests) + chokidar adapter
       (debounced, degrade-not-crash §19)
-- [ ] `support/prettier/`, `support/text-edits/` — stubs; populated by Phase 2
+- [x] `support/prettier/`, `support/text-edits/` — populated by Phase 2 (Stages A/B)
 
 **Read-time freshness backstop:**
 
@@ -105,7 +105,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       disk-backed host; `reindex` bumps script versions, structural changes rescan the
       file list. _Simplifications, stated in code + status: bundled TS (project-own TS
       resolution pending), root tsconfig only (per-package Programs pending §9)._
-- [ ] `plugins/ts/vfs` in-memory overlay (needed for Phase 2 dry-run edits)
+- [x] `plugins/ts/vfs` in-memory overlay on `ls-host` (dry-run typecheck engine, spec §2.7;
+      inert when empty; `typecheckOverlay` self-contained set→diagnose→clear)
 - [ ] `plugins/ts/module-resolve` — aliased (`paths`/`baseUrl`) scss-import resolution
       and friends; today only relative scss specifiers resolve in `css-modules.ts`
 - [ ] watcher-bridge as its own seam consumer (today the engine fans watcher batches
@@ -196,33 +197,37 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 
 ## Phase 2 — mutating ops on `ts` plugin
 
+> Spec: [docs/spec-refactor-port.md](spec-refactor-port.md) (approved). The front-renamer
+> transform brains vendored into `plugins/ts/refactor/`, reusing codemaster's plumbing.
 > **Exit**: edit-safety invariant green; symbol-anchored refactors + shape-based codemods
 > work dry-run-first with explicit `apply: true`.
 
-- [ ] vendor `front-renamer` engine inside `plugins/ts/refactor/` (symbol-anchored:
-      rename/move/extract/changeSignature; resolves through the LS)
-- [ ] `support/text-edits` — span-based edits, atomic apply, conflict detection
-- [ ] `support/prettier` — wrap project prettier for post-edit format
-- [ ] `ops/rename-symbol.ts`, `ops/move-file.ts`, `ops/extract-symbol.ts`,
-      `ops/change-signature.ts` — dry-run preview (diff + touched + typecheck) → explicit
-      `apply`; git-aware (dirty gate, rollback)
-- [ ] `ops/codemod.ts` — ast-grep matcher; declarative pattern + rewrite; **never claims
-      to target a symbol** (§7)
-- [ ] resync — mutating ops mark plugin state dirty via VFS; the next op self-corrects
-      on read (§7)
-- [ ] tests (git-backed) — dry-run zero-write · `diff(dry)==diff(apply)` · post-apply
-      `tsc` clean · rollback byte-exact
+- [~] vendor `front-renamer` engine inside `plugins/ts/refactor/` (symbol-anchored): tree
+  (C) + rename (D) + change_signature (E, remove/reorder params) + move/import-rewrite (F)
+  - extract TS-only (G) landed; pending: extract's **CSS co-extract** + **patched-LS (spec §4)**
+- [x] `support/text-edits` — span-based edits (`apply`/`conflict`/`quote`/`write`); atomic
+      temp-then-rename apply; overlap detection (non-empty same-start pairs conflict)
+- [x] `support/prettier` — `resolve` (project copy → bundled fallback, reports which) +
+      `format` (honest `ok(null)` skip; broken config → `ToolFailure`, never throws)
+- [x] `ops/rename-symbol.ts` (D) · `ops/move-file.ts` (F) · `ops/extract-symbol.ts` (G,
+      TS-only — LS "Move to a new file", re-targeted + import-rewritten; honest ts-ls taxonomy)
+      · `ops/change-signature.ts` (E, remove/reorder positional params at decl + call sites) —
+      dry-run preview → explicit `apply`; git-aware (dirty gate, rollback to HEAD). Extract's
+      CSS co-extract + patched-LS (spec §4) still pending
+- [x] `ops/codemod.ts` — ast-grep matcher; declarative pattern + rewrite; **never claims
+      to target a symbol** (§7), gated by the spec §2.8 post-edit typecheck
+- [x] resync — mutating ops write through `support/text-edits` + `support/git`; the next op's
+      read-time freshness check (the engine reindexes touched plugins) self-corrects (§7)
+- [x] tests (git-backed) — dry-run zero-write · `diff(dry)==diff(apply)` · post-apply
+      `tsc` clean (cold Program) · rollback byte-exact (rename overlay-gate + move revert unit)
 
 ## Phase 3 — non-TS plugins (`scss` · `i18n` · `schema`)
 
 > **Exit**: cross-tier ops work — agent can `find_unused_scss_classes`,
 > `find_unused_i18n_keys`, `list_endpoints`.
 
-- [ ] `plugins/scss` — postcss-scss CST; classes + literal usages observed in TS files
-      (via the `ts` plugin's `imports`/`symbolAccesses` cross-tier API). Cross-`@use`
-      orphan check `partial` (§19).
-- [ ] `plugins/i18n` — locale-JSON keys (defs) + `t('…')` usages (via `ts` plugin);
-      template literals `dynamic`; missing/orphan checks
+- [x] `plugins/scss` — done, pulled forward (see the §"Phase 3 (pulled forward)" section)
+- [x] `plugins/i18n` — done (see the §"Field feedback, round 2" i18n plugin entry)
 - [ ] `plugins/schema` — `schema.d.ts` reader → endpoint cards
 - [ ] config sections wired + zod-validated (`scss`, `i18n`, `schema`)
 - [ ] `ops/find-unused-scss-classes.ts`, `ops/find-unused-i18n-keys.ts`,

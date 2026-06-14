@@ -3,10 +3,10 @@
 // (§6), and the cross-tier `cssModuleUsages` other plugins consume. Public API only;
 // internals (ls-host, queries) stay behind this module.
 
+import * as path from 'node:path';
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { HandleRebind, SymbolId } from '../../core/ids.ts';
-import { decodeSymbolId } from '../../common/ids/codec.ts';
+import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
 import { findDefinitions } from './definitions.ts';
@@ -24,6 +24,27 @@ import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { scanLiteralCalls, type LiteralCall } from './literal-calls.ts';
 import { findImporters, type ImportersView } from './importers.ts';
+import { computeRename, type RenameChange } from './refactor/rename/rename-sites.ts';
+import { collectDiagnostics, type TsDiagnostic } from './diagnostics.ts';
+import { planMove } from './refactor/imports/plan-move.ts';
+import { planExtractTo } from './refactor/extract/move-to-file.ts';
+import { planChangeSignature, type SignatureChange } from './refactor/change-signature/plan.ts';
+import { loadTreeFromGit } from './refactor/tree/build.ts';
+import { isOk } from '../../common/result/narrow.ts';
+import { resolveSymbolId, dedupeByDefinition, type ResolvedTarget } from './resolve-target.ts';
+import type { RefactorPlan } from './refactor/plan.ts';
+
+// Re-export the shapes ops consume so they go through the plugin's public surface rather
+// than reaching into internal query/refactor modules (§5-L3).
+export type { TsDiagnostic } from './diagnostics.ts';
+export type { RefactorPlan } from './refactor/plan.ts';
+
+/** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
+ *  diagnostic `check` scope (defaults to the overlaid files). */
+interface OverlayCheck {
+  removed?: readonly RepoRelPath[];
+  check?: readonly RepoRelPath[];
+}
 
 export type TsTargetInput = {
   /** A `ts:`-prefixed SymbolId from a previous answer. */
@@ -36,9 +57,7 @@ export type TsTargetInput = {
   name?: string | undefined;
 };
 
-export type ResolvedTarget =
-  | { ok: true; abs: string; offset: number; rebind?: HandleRebind }
-  | { ok: false; message: string; rebind?: HandleRebind };
+export type { ResolvedTarget };
 
 export interface TsPluginApi extends Plugin {
   searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
@@ -62,6 +81,42 @@ export interface TsPluginApi extends Plugin {
   literalCalls(fnNames: readonly string[]): LiteralCall[];
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
+  /** Symbol-anchored rename (§7): every semantic reference site as a per-file before/after
+   *  pair, or a message when the position cannot be renamed. A rebound stale handle (§6)
+   *  surfaces on `rebind`. The new name's legality is the post-edit typecheck's call. */
+  renameSites(
+    target: TsTargetInput,
+    newName: string,
+  ): { changes: RenameChange[]; dropped: RepoRelPath[]; rebind?: HandleRebind } | string;
+  /** Typecheck post-edit `content` for each file via the overlay (§2.7/§2.8) — set, diagnose,
+   *  ALWAYS clear (self-contained: the overlay never leaks into a later read as a fact).
+   *  `opts.removed` tombstones moved-away paths; `opts.check` widens the diagnostic scope
+   *  beyond the overlaid files (to catch a dangling import in an un-rewritten importer). */
+  typecheckOverlay(
+    files: readonly { path: RepoRelPath; content: string }[],
+    opts?: OverlayCheck,
+  ): TsDiagnostic[];
+  /** Plan a file/folder move: tree move + sibling carry + import rewrite → the plain-data
+   *  plan the op executes, plus the dry-run typecheck inputs. A message on a bad source/dest. */
+  planMove(source: RepoRelPath, dest: RepoRelPath): Promise<RefactorPlan | string>;
+  /** Plan extracting the top-level symbol at `target` to a new file `dest` via the LS
+   *  "Move to a new file" refactor. A message on a bad target; a structured failure (with
+   *  the `ts-ls-failures` category) when the LS refuses — never a throw. */
+  planExtract(target: TsTargetInput, dest: RepoRelPath): Promise<RefactorPlan | string>;
+  /** Plan a parameter remove/reorder on the function at `target`, applied to the declaration
+   *  and every call site (§7). A message on a bad target / invalid change. */
+  planChangeSignature(
+    target: TsTargetInput,
+    change: SignatureChange,
+  ): Promise<RefactorPlan | string>;
+  /** Diagnostics over the current disk-backed state for `paths` — the post-apply check
+   *  (call `reindex` first so the LS sees the freshly written files). */
+  diagnostics(paths: readonly RepoRelPath[]): TsDiagnostic[];
+  /** Every project TS file currently in the program (under root, excl node_modules) — the
+   *  whole-program diagnostic scope a content-edit op (rename/codemod) passes to
+   *  `typecheckOverlay`/`diagnostics`, so a rewrite that breaks an un-edited importer is
+   *  caught, never silently shipped (§2.8 completeness; the plan ops use `checkPaths`). */
+  programTsFiles(): readonly RepoRelPath[];
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }
@@ -196,97 +251,101 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     literalCalls: (fnNames) => scanLiteralCalls(warm(), fnNames),
 
     importersOf: (module) => findImporters(warm(), module),
-  };
 
-  function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
-    const decoded = decodeSymbolId(id);
-    if (decoded === undefined || decoded.plugin !== 'ts') {
-      return { ok: false, message: `not a ts SymbolId: '${id}'` };
-    }
-    const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)$/);
-    if (m === null) return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-    const [, name, rel, lineStr, colStr] = m;
-    if (name === undefined || rel === undefined) {
-      return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-    }
-    const abs = h.absOf(rel as RepoRelPath);
-    const sourceFile = h.service.getProgram()?.getSourceFile(abs);
-    const line = Number(lineStr);
-    const col = Number(colStr);
-
-    if (sourceFile !== undefined) {
-      const offset = offsetOfLoc(sourceFile, line, col);
-      // Still the same symbol at the recorded position? Then the handle holds.
-      if (offset !== undefined && sourceFile.text.startsWith(name, offset)) {
-        return { ok: true, abs, offset };
-      }
-    }
-
-    // Rebind (§6): re-locate by name — same file first, then workspace-wide.
-    const candidates = searchSymbols(h, name, 20).matches.filter((c) => c.name === name);
-    const sameFile = candidates.find((c) => c.span.file === rel);
-    const candidate = sameFile ?? candidates[0];
-    if (candidate === undefined) {
+    renameSites(target, newName) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return resolved.message;
+      const outcome = computeRename(warm(), resolved.abs, resolved.offset, newName);
+      if (typeof outcome === 'string') return outcome;
       return {
-        ok: false,
-        message: `symbol '${name}' no longer found (handle ${id})`,
-        rebind: {
-          status: 'gone',
-          from: id as SymbolId,
-          reason: 'no symbol of this name/kind remains in the workspace',
-        },
+        changes: outcome.changes,
+        dropped: outcome.dropped,
+        ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
       };
-    }
-    const candAbs = h.absOf(candidate.span.file);
-    const candFile = h.service.getProgram()?.getSourceFile(candAbs);
-    const candOffset =
-      candFile === undefined
-        ? undefined
-        : offsetOfLoc(candFile, candidate.span.line, candidate.span.col);
-    if (candOffset === undefined) {
-      return { ok: false, message: `cannot re-locate '${name}' after file change` };
-    }
-    const rebind: HandleRebind = {
-      status: 'rebound',
-      from: id as SymbolId,
-      to: {
-        id: candidate.id as SymbolId,
-        name: candidate.name,
-        kind: candidate.kind,
-        loc: { file: candidate.span.file, line: candidate.span.line, col: candidate.span.col },
-      },
-      proof: candidate.span,
-      confidence: 'partial',
-      note: `a ${candidate.kind} named '${name}' is here now; structural continuity not proven`,
-    };
-    return { ok: true, abs: candAbs, offset: candOffset, rebind };
-  }
-}
+    },
 
-/** Collapse same-named navto candidates that resolve to one declaration (decl +
- *  `export { X }` re-mention). Candidates whose definition can't be resolved stay —
- *  dropping them could hide a real ambiguity. */
-function dedupeByDefinition(h: TsProjectHost, matches: readonly SymbolView[]): SymbolView[] {
-  const byDefinition = new Map<string, SymbolView>();
-  for (const match of matches) {
-    const abs = h.absOf(match.span.file);
-    const sourceFile = h.service.getProgram()?.getSourceFile(abs);
-    const offset =
-      sourceFile === undefined
-        ? undefined
-        : offsetOfLoc(sourceFile, match.span.line, match.span.col);
-    let key = `${match.span.file}:${match.span.line}:${match.span.col}`;
-    if (offset !== undefined) {
-      const def = h.service.getDefinitionAtPosition(abs, offset)?.[0];
-      if (def !== undefined) key = `${def.fileName}:${def.textSpan.start}`;
-    }
-    // Prefer the candidate that IS the definition site (matches its own key) over a
-    // re-mention; otherwise first wins.
-    if (!byDefinition.has(key)) byDefinition.set(key, match);
-  }
-  return [...byDefinition.values()];
-}
+    typecheckOverlay(files, opts) {
+      const h = warm();
+      try {
+        h.setOverlay(
+          files.map((f) => ({ abs: h.absOf(f.path), content: f.content })),
+          opts?.removed,
+        );
+        const checkPaths = opts?.check ?? files.map((f) => f.path);
+        return collectDiagnostics(
+          h,
+          checkPaths.map((p) => h.absOf(p)),
+        );
+      } finally {
+        h.clearOverlay(); // never leak the overlay into a subsequent read (§2.4)
+      }
+    },
 
+    async planMove(source, dest) {
+      const h = warm();
+      const tree = await loadTreeFromGit(root);
+      if (!isOk(tree)) return tree.failure.message;
+      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+      return planMove(h, tree.data, options, source, dest);
+    },
+
+    async planExtract(target, dest) {
+      const h = warm();
+      const resolved = resolve(target);
+      if (!resolved.ok) return resolved.message;
+      const tree = await loadTreeFromGit(root);
+      if (!isOk(tree)) return tree.failure.message;
+      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+      const plan = planExtractTo(h, tree.data, options, resolved.abs, resolved.offset, dest);
+      if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
+      return plan;
+    },
+
+    async planChangeSignature(target, change) {
+      const h = warm();
+      const resolved = resolve(target);
+      if (!resolved.ok) return resolved.message;
+      const tree = await loadTreeFromGit(root);
+      if (!isOk(tree)) return tree.failure.message;
+      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+      const plan = planChangeSignature(
+        h,
+        tree.data,
+        options,
+        resolved.abs,
+        resolved.offset,
+        change,
+      );
+      if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
+      return plan;
+    },
+
+    diagnostics(paths) {
+      const h = warm();
+      return collectDiagnostics(
+        h,
+        paths.map((p) => h.absOf(p)),
+      );
+    },
+
+    programTsFiles() {
+      const h = warm();
+      const program = h.service.getProgram();
+      if (program === undefined) return [];
+      const out: RepoRelPath[] = [];
+      for (const sf of program.getSourceFiles()) {
+        if (sf.fileName.includes('/node_modules/')) continue; // deps + bundled lib.d.ts
+        const rel = h.relOf(sf.fileName);
+        // relOf returns an ABSOLUTE path for a file OUTSIDE root (a path-mapped / symlinked
+        // source dir, project-references spillover) — not ours to typecheck. A repo-relative
+        // path is never absolute, so this filters exactly the out-of-root files.
+        if (path.isAbsolute(String(rel))) continue;
+        out.push(rel);
+      }
+      return out;
+    },
+  };
+}
 function tsVersionString(): string {
   // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
   return `bundled-ts`;

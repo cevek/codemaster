@@ -6,8 +6,5 @@
   // (ARCHITECTURE §14/§17) but aren't imported yet. Remove each from this list the moment
   // its module wires it in — knip will then verify the real import and flag this entry as
   // redundant, so the list prunes itself.
-  "ignoreDependencies": [
-    "@ast-grep/napi", // codemod op — Phase 2
-    "diff", // mutating-op previews — Phase 2
-  ],
+  "ignoreDependencies": [],
 }
