@@ -286,7 +286,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] Stage 1 — `rename_symbol` over the substrate (`test/e2e/kitchensink-rename.test.ts`):
       high-fan-in `formatLabel` (M4 dual-path) + `Registry` (T3) + const-enum member `Code.Ok`
       (T13, inlined refs); cold-LS refs + cold `tsc` + git byte-exact. Surfaced **KS-1** (rename
-      preserves the old name through a re-export chain — PINNED honest behavior, wish filed).
+      preserves the old name through a re-export chain — RESOLVED: completeness signal added, an
+      `oldNameSurvives` note on the rename envelope, `docs/spec-rename-completeness-signal.md`).
 - [x] Stage 2 — `move_file` over the substrate (`test/e2e/kitchensink-move.test.ts`):
       M11 dual-spelling (both spellings rewritten, ext-style preserved) · M12 `import().Type` (3
       embedded paths + ES type import) · M9 dynamic specifier · folder move + sibling scss/bare-scss

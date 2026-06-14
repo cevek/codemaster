@@ -10,13 +10,14 @@ quarantine, every pinned honest-limitation the integration workout found over th
 
 **Disposition legend.** `PINNED` = correct/honest current behavior, asserted as-is so it flips
 loudly if it changes (the §2 KNOWN-GAP pattern); a wish may be filed to improve it. `FIXED` =
-localized non-destructive bug, fixed with a regression test. `QUARANTINE` = a bug touching the
-destructive path (or not certainly localized): filed via `feedback`, test `skip`ped with a
-`// QUARANTINE(<id>)` marker, never red-and-ignored.
+localized non-destructive bug, fixed with a regression test. `RESOLVED` = a surfaced wish since
+implemented (the disclosure/signal now exists), asserted by a regression test. `QUARANTINE` = a
+bug touching the destructive path (or not certainly localized): filed via `feedback`, test
+`skip`ped with a `// QUARANTINE(<id>)` marker, never red-and-ignored.
 
 ---
 
-## KS-1 — rename through a re-export chain preserves the old name (PINNED, wish filed)
+## KS-1 — rename through a re-export chain preserves the old name (RESOLVED — signal added)
 
 - **Stage / test.** Stage 1 · `test/e2e/kitchensink-rename.test.ts` → "formatLabel — direct
   path fully renamed; star-reached deep path keeps old name (KS-1)".
@@ -34,17 +35,32 @@ destructive path (or not certainly localized): filed via `feedback`, test `skip`
 - **Oracle.** A cold full-program `tsc` over the applied result is **clean** (zero diagnostics)
   — nothing dangles, the result is semantically correct. A cold `getReferencesAtPosition` on the
   renamed symbol resolves all 10 referencing files (the symbol stayed coherent across the chain).
-- **Disposition: PINNED — honest TS behavior, not a port bug.** Adjudicated by `bug-reviewer`:
+- **Disposition: RESOLVED — honest TS behavior, now disclosed.** Adjudicated by `bug-reviewer`:
   `src/plugins/ts/refactor/rename/rename-sites.ts` is a pure pass-through of the LS rename
   locations (it adds no propagation logic), and the result compiles clean. codemaster cannot have
-  introduced the aliasing; it is faithful `findRenameLocations` behavior.
-- **Trust gap (the wish).** The op envelope reports `{mode:'applied', touched: 8, no partial,
-empty dropped}` — which reads as a COMPLETE rename. It isn't: the old name survives as
-  re-export aliases and a live `Dashboard` consumer call, with no surfaced note. Filed as a
-  **wish** (codemaster `feedback` inbox): a post-rename note — "old name survives N re-export
-  alias(es); consumers reached only via `export *` were not updated" — surfaced the way `dropped`
-  is, so the op stops looking complete when it isn't. The test pins the current behavior; it
-  flips loudly the day codemaster surfaces the gap or propagates through the star.
+  introduced the aliasing; it is faithful `findRenameLocations` behavior — so the rewrite is left
+  unchanged (the wish was a missing _signal_, not a correctness bug).
+- **The signal (`docs/spec-rename-completeness-signal.md`).** The op envelope used to report
+  `{mode:'applied', touched: 8, no partial, empty dropped}` — which read as a COMPLETE rename. It
+  isn't: the old name survives as re-export aliases and a live `Dashboard` consumer call.
+  `ops/rename-symbol.ts` now discloses the survivors whenever the old name lives on, split by where
+  each is VERIFIABLE (§3.2):
+  - a span-free `summary` (plan-relative: "rename → `renderLabel` would not fully replace
+    `formatLabel`: N alias(es) and M `export *` site(s) keep it") rides the envelope `notes` in
+    EVERY mode — so a dry-run preview already warns the rename is incomplete;
+  - the proof-carrying `oldNameSurvives` field rides the **applied-success** envelope only (its
+    alias spans are computed from the post-rename content, so they match disk only after a clean
+    apply — never emitted on a dry-run/refused/rolled-back envelope, where disk still holds the old
+    text). Its two span lists: `reExportAliases` — `export { renderLabel as formatLabel }` the LS
+    introduced (`chain/c.ts`, `shared/index.ts`); `exportStarConsumers` — sites the LS rename never
+    traversed (the `export *`-reached `chain/a.ts` re-export + `Dashboard.tsx` call), computed as
+    the symbol's `referenceSpans` (which DOES walk `export *`) minus the rename's touch-set.
+    Absent entirely on a genuinely complete rename (`Registry` / `Code.Ok` carry no note — asserted
+    as the no-false-positive controls).
+- **Test.** `test/e2e/kitchensink-rename.test.ts` now asserts the note names both survivor
+  classes with valid spans, and that the two control renames carry none. The behavior flips
+  loudly if the rewrite ever changes (the rename never propagates through the star — a deliberate
+  non-goal; honest disclosure first).
 
 ---
 

@@ -8,10 +8,11 @@ import { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
-import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import { findReExportAliasSites, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget } from './ts-target.ts';
 import { applyMutation } from './refactor-apply.ts';
+import { buildOldNameSurvives, touchedSet } from './rename-survivors.ts';
 
 const renameArgsSchema = z
   .strictObject({
@@ -55,10 +56,63 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
             `could not edit ${outcome.dropped.length} rename site(s) in file(s) not in the TS program (${outcome.dropped.join(', ')}) — the rename is PARTIAL`,
           ]
         : undefined;
+
+    // Completeness signal (KS-1): the LS rename is faithful and compiles clean, but the old
+    // name can survive as re-export aliases it introduced and as consumers reached only via
+    // `export *` (which `findRenameLocations` does not traverse). `referenceSpans` DOES walk the
+    // star, so the reference sites the rename's touch-set never rewrote are exactly those
+    // survivors — disclosed as a note, never blocking (§3.4 / spec §2). The LS call is wrapped
+    // (§3.6): a fault degrades the signal (no consumers; the alias scan still runs) — it never
+    // fails the rename, which is correct independent of this disclosure. A `string` (target
+    // could not be resolved for references) degrades the same way.
+    let refs: ReturnType<TsPluginApi['referenceSpans']>;
+    try {
+      refs = ts.referenceSpans({
+        symbol: args.symbol,
+        file: args.file,
+        line: args.line,
+        col: args.col,
+        name: args.name,
+      });
+    } catch {
+      refs = 'reference resolution failed';
+    }
+    const touched = touchedSet(outcome.changes.map((c) => c.path));
+    // Exclude `dropped` files too: a ref there is already surfaced as PARTIAL (could-not-edit),
+    // and is not a faithful `export *` survivor — don't double-count / mislabel it.
+    const dropped = touchedSet(outcome.dropped);
+    // A survivor is a ref the rename never rewrote that STILL SPELLS the old name. The
+    // `text === oldName` guard drops a star-reached aliased binding's local usages (e.g. a
+    // `foo()` from `import { formatLabel as foo }`) — those don't spell the old name, so the
+    // "keep `<old>`" claim stays literally true of every span we report (§3.2).
+    const exportStarConsumers =
+      typeof refs === 'string'
+        ? []
+        : refs.spans.filter(
+            (s) =>
+              s.text === outcome.oldName &&
+              !touched.has(String(s.file)) &&
+              !dropped.has(String(s.file)),
+          );
+
     return applyMutation(ctx, outcome.changes, {
       ...(args.dirtyOk !== undefined ? { dirtyOk: args.dirtyOk } : {}),
       ...(outcome.rebind !== undefined ? { handle: outcome.rebind } : {}),
       ...(warnings !== undefined ? { warnings } : {}),
+      buildNote: (changes) => {
+        // Aliases are AST-found in the FORMATTED post-rename content (per touched file), so the
+        // spans match exactly what apply writes (§3.2). The op resolves the helper through the
+        // plugin's public surface — the TS parse stays in the ts plugin (§4 one parser/domain).
+        const reExportAliases = changes.flatMap((c) =>
+          findReExportAliasSites(c.path, c.after, args.newName, outcome.oldName),
+        );
+        return buildOldNameSurvives(
+          outcome.oldName,
+          args.newName,
+          reExportAliases,
+          exportStarConsumers,
+        );
+      },
     });
   },
 });

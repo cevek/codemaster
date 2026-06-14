@@ -23,6 +23,21 @@ import { projectFromDir } from '../helpers/repo-fixture.ts';
 import type { TestProject } from '../helpers/project.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 
+interface ProofSpan {
+  file: string;
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  text: string;
+}
+
+interface OldNameSurvives {
+  reExportAliases: ProofSpan[];
+  exportStarConsumers: ProofSpan[];
+  summary: string;
+}
+
 interface Envelope {
   mode: string;
   diff: string;
@@ -30,6 +45,29 @@ interface Envelope {
   typecheck: { clean: boolean };
   applied?: boolean;
   rollback?: { performed: boolean };
+  notes?: string[];
+  oldNameSurvives?: OldNameSurvives;
+}
+
+/** Validate a proof span against the file ACTUALLY on disk (§16 inv.1): the bytes at
+ *  [line:col, endLine:endCol) must equal `span.text` verbatim — a single-line span here. An
+ *  independent oracle for the note's spans: re-derives the text from disk, never trusts the op. */
+function assertSpanValid(root: string, span: ProofSpan): void {
+  const lines = readFileSync(path.join(root, span.file), 'utf8').split('\n');
+  assert.equal(span.endLine, span.line, `span ${span.file}:${span.line} expected single-line`);
+  const line = lines[span.line - 1];
+  assert.ok(line !== undefined, `span ${span.file}:${span.line} past EOF`);
+  assert.equal(
+    line.slice(span.col - 1, span.endCol - 1),
+    span.text,
+    `span ${span.file}:${span.line}:${span.col} text drifted from disk`,
+  );
+}
+
+/** repo-relative files of a span list, sorted & deduped — the hand-curated survivor sets are
+ *  asserted at file granularity (the spec names the FILES; spans are validated separately). */
+function spanFiles(spans: ProofSpan[]): string[] {
+  return [...new Set(spans.map((s) => s.file))].sort();
 }
 
 async function rename(p: TestProject, args: JsonValue, apply = false): Promise<Envelope> {
@@ -131,6 +169,15 @@ void describe('kitchensink rename_symbol (Stage 1 — high fan-in blast radius)'
       assert.deepEqual([...dry.touched].sort(), RENAMED_FILES);
       assert.equal(p.git('status', '--porcelain'), '');
 
+      // KS-1 SIGNAL — dry-run mode: the preview WARNS (a span-free summary in `notes`) but does
+      // NOT carry the proof-carrying `oldNameSurvives` field, whose alias spans describe the
+      // post-rename content that is not yet on disk (§3.2 — a span must match its file:line).
+      assert.equal(dry.oldNameSurvives, undefined);
+      assert.ok(
+        (dry.notes ?? []).some((n) => /would not fully replace `formatLabel`/.test(n)),
+        'dry-run must still warn the rename is incomplete',
+      );
+
       // Apply: identical diff, clean typecheck, no rollback.
       const applied = await rename(p, { name: 'formatLabel', newName: 'renderLabel' }, true);
       assert.equal(applied.mode, 'applied');
@@ -163,6 +210,46 @@ void describe('kitchensink rename_symbol (Stage 1 — high fan-in blast radius)'
       assert.match(
         readFileSync(path.join(p.root, 'src/shared/chain/c.ts'), 'utf8'),
         /export \{ renderLabel as formatLabel \}/, // the boundary alias TS inserted
+      );
+
+      // KS-1 SIGNAL (this spec) — the envelope now DISCLOSES the surviving old name instead of
+      // reading as a complete rename. The two survivor classes, HAND-CURATED from the fixture:
+      //   · re-export aliases the LS introduced — chain/c + shared/index (`renderLabel as
+      //     formatLabel`); · consumers reached ONLY via `export *` (untraversed by the rename) —
+      //     chain/a (the named re-export) + Dashboard (the call site). Both also carried in the
+      //     OLD_NAME_SURVIVES pin above; here they're split by HOW the name survived.
+      const survives = applied.oldNameSurvives;
+      assert.ok(survives !== undefined, 'rename must disclose the surviving old name (KS-1)');
+      assert.deepEqual(spanFiles(survives.reExportAliases), [
+        'src/shared/chain/c.ts',
+        'src/shared/index.ts',
+      ]);
+      assert.deepEqual(spanFiles(survives.exportStarConsumers), [
+        'src/features/dashboard/Dashboard.tsx',
+        'src/shared/chain/a.ts',
+      ]);
+      // SPAN COUNTS, not just file-sets (a per-site regression — e.g. dropping one of Dashboard's
+      // TWO formatLabel spans — must flip the test): 2 aliases; 3 consumer sites (chain/a × 1 +
+      // Dashboard import + Dashboard call). The summary's numerals are pinned by value too.
+      assert.equal(survives.reExportAliases.length, 2);
+      assert.equal(survives.exportStarConsumers.length, 3);
+      assert.match(survives.summary, /2 re-export alias\(es\).*3 site\(s\) reached only via/);
+      // Every alias is the verbatim `renderLabel as formatLabel`; every consumer still spells the
+      // OLD name — and every span is valid against the file on disk (§16 inv.1).
+      for (const s of survives.reExportAliases) {
+        assert.equal(s.text, 'renderLabel as formatLabel');
+        assertSpanValid(p.root, s);
+      }
+      for (const s of survives.exportStarConsumers) {
+        assert.equal(s.text, 'formatLabel');
+        assertSpanValid(p.root, s);
+      }
+      // The human summary names both names and rides in the envelope `notes` (surfaced like
+      // `dropped`), so an agent reading the result sees the rename is NOT a complete purge.
+      assert.match(survives.summary, /would not fully replace `formatLabel`/);
+      assert.ok(
+        (applied.notes ?? []).includes(survives.summary),
+        'the survivor summary must ride in envelope notes',
       );
     } finally {
       await p.dispose();
@@ -209,6 +296,12 @@ void describe('kitchensink rename_symbol (Stage 1 — high fan-in blast radius)'
       );
       // No orphaned bare `Registry` identifier remains (lazyRegistry is NOT a `\bRegistry\b` match).
       assert.deepEqual(filesContaining(p.root, 'Registry'), []);
+
+      // KS-1 CONTROL — `Registry` is re-exported via `export *` (no identifier) and has no
+      // downstream consumer reached through the star, so the rename is COMPLETE: the old name
+      // does not survive and the envelope carries NO survivor note (no false positive).
+      assert.equal(applied.oldNameSurvives, undefined);
+      assert.equal(applied.notes, undefined);
     } finally {
       await p.dispose();
     }
@@ -241,6 +334,10 @@ void describe('kitchensink rename_symbol (Stage 1 — high fan-in blast radius)'
       assert.deepEqual(coldFindReferences(p.root, 'src/core/codes.ts', 'Done'), CODE_OK_FILES);
       // The old member identifier `Ok` is gone from code (comments are not identifiers).
       assert.deepEqual(filesContaining(p.root, 'Ok'), []);
+
+      // KS-1 CONTROL — a const-enum member rename with no surviving alias / star consumer is
+      // complete, so no survivor note (no false positive on the non-re-export-chain path).
+      assert.equal(applied.oldNameSurvives, undefined);
     } finally {
       await p.dispose();
     }

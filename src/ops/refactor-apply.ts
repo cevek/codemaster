@@ -44,6 +44,16 @@ export interface ApplyOptions {
    *  caller (rename: the LS `findRenameLocations` set is complete) leaves it off, keeping the
    *  hot path narrow and not refusing on a repo with unrelated pre-existing errors. */
   crossFileScope?: boolean;
+  /** Build a disclosure from the FORMATTED changes (post-prettier), run once after formatting.
+   *  Its `notes` (plain text, NO span claims) append to the envelope `notes` in EVERY mode — a
+   *  preview warning. Its `fields` carry proof spans computed from the post-edit content, so they
+   *  are valid against disk ONLY after a successful apply: they are attached to the
+   *  applied-success envelope ALONE — never to a dry-run / refused / rolled-back one, where disk
+   *  still holds the pre-edit text (§3.2 — a span must match the bytes at its `file:line`). Used
+   *  by `rename_symbol` to disclose old-name survivors; absent when the rename is complete. */
+  buildNote?: (
+    changes: readonly MutationChange[],
+  ) => { fields?: Record<string, JsonValue>; notes?: string[] } | undefined;
 }
 
 /** Write every `before` back to disk (byte-exact revert) and reindex. Best-effort: a failed
@@ -97,8 +107,26 @@ export async function applyMutation(
     if (f.note !== undefined) formatNotes.push(f.note);
     changes.push({ path: c.path, before: c.before, after: f.content });
   }
-  const notes = [...(options.warnings ?? []), ...formatNotes];
+  // Built from the FORMATTED `changes`. `notes` are span-free text → safe in every envelope;
+  // `appliedFields` carry proof spans valid only post-write → spread into the applied-success
+  // envelope alone (below), never into a dry-run/refused/rollback one. Wrapped (§3.6): a note
+  // builder that throws degrades the disclosure to a warning — it never sinks the mutation,
+  // whose correctness (diff + typecheck) is independent of this optional signal.
+  let built: { fields?: Record<string, JsonValue>; notes?: string[] } | undefined;
+  const buildNotes: string[] = [];
+  try {
+    built = options.buildNote?.(changes);
+  } catch (thrown) {
+    buildNotes.push(`could not compute the completeness signal (${messageOfThrown(thrown)})`);
+  }
+  const notes = [
+    ...(options.warnings ?? []),
+    ...(built?.notes ?? []),
+    ...buildNotes,
+    ...formatNotes,
+  ];
   const baseNotes = notes.length > 0 ? { notes } : {};
+  const appliedFields = built?.fields ?? {};
   const touched = changes.map((c) => c.path);
   const diff = changes
     .map((c) => createTwoFilesPatch(c.path, c.path, c.before, c.after, '', ''))
@@ -209,6 +237,8 @@ export async function applyMutation(
       typecheck: { clean: true },
       rollback: { performed: false },
       ...baseNotes,
+      // Proof spans valid only now that the post-edit content is on disk (§3.2).
+      ...appliedFields,
     },
     handleExtra,
   );

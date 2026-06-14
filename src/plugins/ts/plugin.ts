@@ -25,7 +25,7 @@ import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { scanLiteralCalls, type LiteralCall } from './literal-calls.ts';
 import { findImporters, type ImportersView } from './importers.ts';
-import { computeRename, type RenameChange } from './refactor/rename/rename-sites.ts';
+import { computeRename, type RenameOutcome } from './refactor/rename/rename-sites.ts';
 import { collectDiagnostics, type TsDiagnostic } from './diagnostics.ts';
 import { planMove } from './refactor/imports/plan-move.ts';
 import { planExtractTo } from './refactor/extract/move-to-file.ts';
@@ -41,6 +41,9 @@ import type { RefactorPlan } from './refactor/plan.ts';
 export type { TsDiagnostic } from './diagnostics.ts';
 export type { RefactorPlan, CssExtractCandidate, CssExtractAnalysis } from './refactor/plan.ts';
 export type { ImportRewrite } from './refactor/extract/css-usage.ts';
+// Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
+// state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
+export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
  *  diagnostic `check` scope (defaults to the overlaid files). */
@@ -100,7 +103,7 @@ export interface TsPluginApi extends Plugin {
   renameSites(
     target: TsTargetInput,
     newName: string,
-  ): { changes: RenameChange[]; dropped: RepoRelPath[]; rebind?: HandleRebind } | string;
+  ): (RenameOutcome & { rebind?: HandleRebind }) | string;
   /** Typecheck post-edit `content` for each file via the overlay (§2.7/§2.8) — set, diagnose,
    *  ALWAYS clear (self-contained: the overlay never leaks into a later read as a fact).
    *  `opts.removed` tombstones moved-away paths; `opts.check` widens the diagnostic scope
@@ -204,7 +207,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     id: 'ts',
     version: '0.1.0',
     deps: [],
-    tsVersion: tsVersionString(),
+    // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
+    tsVersion: `bundled-ts`,
 
     init(_deps: PluginRegistry) {
       // Fully lazy: the LS warms on the first query (§9).
@@ -279,6 +283,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return {
         changes: outcome.changes,
         dropped: outcome.dropped,
+        oldName: outcome.oldName,
         ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
       };
     },
@@ -366,11 +371,6 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
   };
 }
-function tsVersionString(): string {
-  // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
-  return `bundled-ts`;
-}
-
 /** The shared §6 miss chokepoint for every SymbolId-taking read method: a failed resolve
  *  that carries a `{status:'gone'}` rebind surfaces structurally (so the op states it on
  *  `Result.handle`); a miss with no held handle stays a plain message. Lifting this here

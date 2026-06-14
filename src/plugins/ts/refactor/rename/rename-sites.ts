@@ -6,11 +6,14 @@
 // decided here — the post-edit typecheck (§2.8) is the oracle for that (e.g. a collision
 // with an existing binding surfaces as a duplicate-identifier diagnostic), never a guess.
 
+import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
+import type { Span } from '../../../../core/span.ts';
+import { spanFromRange } from '../../spans.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
 
-export interface RenameChange {
+interface RenameChange {
   path: RepoRelPath;
   before: string;
   after: string;
@@ -23,6 +26,10 @@ export interface RenameOutcome {
    *  drop here is surfaced as a partial, never swallowed (else the op would claim a clean,
    *  complete rename over a knowingly trimmed edit set). Normally empty. */
   dropped: RepoRelPath[];
+  /** The symbol's identifier text BEFORE the rename — the name the op scans for as a
+   *  surviving re-export alias / `export *` consumer (the completeness signal). Faithfully
+   *  read off the renamed position; not part of the rewrite. */
+  oldName: string;
 }
 
 /** Compute the per-file rename edits for the symbol at `abs:offset`, or a message string
@@ -67,5 +74,54 @@ export function computeRename(
     changes.push({ path: host.relOf(fileName), before, after: applyEdits(before, edits) });
   }
   if (changes.length === 0) return 'rename produced no in-project edits';
-  return { changes, dropped };
+  return { changes, dropped, oldName: identifierAround(host, abs, offset) };
+}
+
+/** The `export { <new> as <old> }` re-export aliases in `content` — the public name the LS
+ *  preserved when it renamed `<old>`→`<new>`. Found via the TS AST (NOT a text scan): only a real
+ *  ExportSpecifier matches, so a value/type assertion `x as Old`, a comment, a string literal, or
+ *  a `$`/unicode identifier can neither false-positive nor be silently missed. `content` is the
+ *  FORMATTED post-rename text, so each span matches the bytes apply writes (§3.2). */
+export function findReExportAliasSites(
+  rel: RepoRelPath,
+  content: string,
+  newName: string,
+  oldName: string,
+): Span[] {
+  const sf = ts.createSourceFile(
+    String(rel),
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const out: Span[] = [];
+  const visit = (node: ts.Node): void => {
+    // `export { new as old }`: propertyName is the local (renamed) name, name is the exported
+    // (preserved old) name. A plain `export { x }` has propertyName === undefined — skipped.
+    if (
+      ts.isExportSpecifier(node) &&
+      node.propertyName?.text === newName &&
+      node.name.text === oldName
+    ) {
+      out.push(spanFromRange(sf, rel, node.getStart(sf), node.getEnd()));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/** The identifier text covering `offset` (the renamed position) — expanded both ways to the
+ *  word boundaries so a target landing mid-token still yields the whole name. Empty when the
+ *  position isn't in the program (the op then simply skips the old-name-survives scan). */
+function identifierAround(host: TsProjectHost, abs: string, offset: number): string {
+  const text = host.service.getProgram()?.getSourceFile(abs)?.text;
+  if (text === undefined) return '';
+  const word = /[\w$]/;
+  let start = offset;
+  let end = offset;
+  while (start > 0 && word.test(text[start - 1] ?? '')) start--;
+  while (end < text.length && word.test(text[end] ?? '')) end++;
+  return text.slice(start, end);
 }
