@@ -17,6 +17,7 @@ import type {
   ExpandOptions,
   SymbolView,
   TypeView,
+  UnresolvedTarget,
   UsageOptions,
   UsagesView,
 } from './query-types.ts';
@@ -61,15 +62,17 @@ export type { ResolvedTarget };
 
 export interface TsPluginApi extends Plugin {
   searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
-  findDefinition(target: TsTargetInput): { views: SymbolView[]; rebind?: HandleRebind } | string;
+  findDefinition(
+    target: TsTargetInput,
+  ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;
   findUsages(
     target: TsTargetInput,
     options: UsageOptions,
-  ): { view: UsagesView; rebind?: HandleRebind } | string;
+  ): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   expandType(
     target: TsTargetInput,
     options?: ExpandOptions,
-  ): { view: TypeView; rebind?: HandleRebind } | string;
+  ): { view: TypeView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Every semantic reference-site span for a target (all files/roles, unfiltered) — the
    *  dedup set for the textual overlay (§ text-overlay). */
   referenceSpans(target: TsTargetInput): { spans: Span[]; rebind?: HandleRebind } | string;
@@ -218,14 +221,14 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 
     findDefinition(target) {
       const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
+      if (!resolved.ok) return missOf(resolved);
       const views = findDefinitions(warm(), resolved.abs, resolved.offset) ?? [];
       return { views, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
     findUsages(target, options) {
       const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
+      if (!resolved.ok) return missOf(resolved);
       const view = findUsages(warm(), resolved.abs, resolved.offset, options);
       if (view === undefined) return 'no symbol at the resolved position';
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
@@ -233,7 +236,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 
     expandType(target, options) {
       const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
+      if (!resolved.ok) return missOf(resolved);
       const view = expandTypeAt(warm(), resolved.abs, resolved.offset, options);
       if (view === undefined) return 'no type information at the resolved position';
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
@@ -349,4 +352,15 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 function tsVersionString(): string {
   // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
   return `bundled-ts`;
+}
+
+/** The shared §6 miss chokepoint for every SymbolId-taking read method: a failed resolve
+ *  that carries a `{status:'gone'}` rebind surfaces structurally (so the op states it on
+ *  `Result.handle`); a miss with no held handle stays a plain message. Lifting this here
+ *  keeps `findDefinition`/`findUsages`/`expandType` uniform — one of them surfacing gone and
+ *  the others flattening it would be a silent, inconsistent retarget signal. */
+function missOf(resolved: { message: string; rebind?: HandleRebind }): UnresolvedTarget | string {
+  return resolved.rebind !== undefined
+    ? { unresolved: resolved.message, rebind: resolved.rebind }
+    : resolved.message;
 }

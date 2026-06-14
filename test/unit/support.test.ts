@@ -10,7 +10,11 @@ import { gitLsFiles } from '../../src/support/git/ls-files.ts';
 import { gitLog } from '../../src/support/git/log.ts';
 import { gitBlame } from '../../src/support/git/blame.ts';
 import { gitRepoFingerprint } from '../../src/support/git/fingerprint.ts';
-import { canonicalizeRoot, mintRepoRelPath } from '../../src/support/fs/canonicalize.ts';
+import {
+  canonicalizeRoot,
+  mintRepoRelPath,
+  type Realpath,
+} from '../../src/support/fs/canonicalize.ts';
 import { statFingerprint, hashFileContent } from '../../src/support/fs/stat-fingerprint.ts';
 import { walkFiles } from '../../src/support/fs/walk.ts';
 import { loadConfig } from '../../src/support/config-load/load.ts';
@@ -70,6 +74,45 @@ test('fs wrappers: canonical minting, stat fingerprints, walk', async () => {
   } finally {
     await p.dispose();
   }
+});
+
+test('§19 canonicalization: case-fold collapses spellings, symlink resolves, escape refused', () => {
+  // Deterministic and FS-INDEPENDENT: the casing/symlink verdict is injected, so the test
+  // does not depend on whether the CI volume happens to be case-insensitive (§19).
+  const root = '/repo';
+
+  // A case-insensitive volume folds every spelling of src/foo.tsx onto the on-disk Foo.tsx.
+  const caseFold: Realpath = (abs) =>
+    abs.toLowerCase().endsWith('/src/foo.tsx') ? '/repo/src/Foo.tsx' : abs;
+  const upper = mintRepoRelPath(root, '/repo/src/FOO.tsx', caseFold);
+  const lower = mintRepoRelPath(root, '/repo/src/foo.tsx', caseFold);
+  assert.ok(upper.ok && lower.ok);
+  assert.equal(upper.path, lower.path, 'two spellings of one file brand to ONE RepoRelPath');
+  assert.equal(upper.path, 'src/Foo.tsx', 'branded to the true on-disk casing');
+  assert.equal(upper.casing, 'on-disk');
+
+  // A symlink resolves (realpath) to its target inside the repo.
+  const symlink: Realpath = (abs) => (abs.endsWith('/src/link.ts') ? '/repo/src/real.ts' : abs);
+  const linked = mintRepoRelPath(root, '/repo/src/link.ts', symlink);
+  assert.ok(linked.ok && linked.path === 'src/real.ts', 'a symlink keys to its real target');
+
+  // A symlink whose real location escapes the root is refused, never mis-keyed inside it.
+  const escaping: Realpath = (abs) => (abs.endsWith('/src/evil.ts') ? '/elsewhere/evil.ts' : abs);
+  const escaped = mintRepoRelPath(root, '/repo/src/evil.ts', escaping);
+  assert.ok(!escaped.ok, 'a symlink resolving outside the root is refused');
+
+  // A path that does not exist (deleted / about to be created) — realpath throws, so casing
+  // is honestly labelled `syntactic-only`, but the path still mints (callers must create it).
+  const missing: Realpath = () => {
+    throw new Error('ENOENT');
+  };
+  const ghost = mintRepoRelPath(root, '/repo/src/new.ts', missing);
+  assert.ok(ghost.ok && ghost.path === 'src/new.ts', 'a not-yet-existing path mints syntactically');
+  assert.equal(
+    ghost.casing,
+    'syntactic-only',
+    'unproven casing is labelled, never claimed on-disk',
+  );
 });
 
 test('config load: valid file parses, unknown key fails pointedly, none is fine', async () => {

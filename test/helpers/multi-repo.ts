@@ -51,8 +51,11 @@ export async function multiRepo(
       writeFileSync(abs, content);
     }
     gitIn(root, 'init', '-q');
-    gitIn(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A');
-    gitIn(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
+    gitIn(root, 'config', 'user.email', 't@t');
+    gitIn(root, 'config', 'user.name', 't');
+    gitIn(root, 'config', 'commit.gpgsign', 'false');
+    gitIn(root, 'add', '-A');
+    gitIn(root, 'commit', '-qm', 'fixture');
   }
 
   const first = [...roots.values()][0] ?? tmpdir();

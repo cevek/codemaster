@@ -20,6 +20,8 @@ import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.
 import type { SqlBounds } from '../../src/daemon/sql-batch.ts';
 import type { createSqliteRunner } from '../../src/support/sql/better-sqlite3.ts';
 import type { TextScanner } from '../../src/support/text-search/scan.ts';
+import type { GitRunner } from '../../src/support/git/run.ts';
+import type { TsPluginApi } from '../../src/plugins/ts/plugin.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Result } from '../../src/core/result.ts';
 import { extractText } from '../../src/common/span/extract-text.ts';
@@ -34,6 +36,9 @@ export interface TestProject {
   write(rel: string, content: string): void;
   remove(rel: string): void;
   git(...args: string[]): string;
+  /** `git add -A` + commit with a fixed test identity (configured at init, so no per-call
+   *  `-c user.email/-c user.name` incantation is needed). */
+  commit(message: string): void;
   clock: Clock & { advance(ms: number): void };
   dispose(): Promise<void>;
 }
@@ -49,6 +54,28 @@ export interface ProjectOptions {
    *  that assert the repo tree is untouched point this OUTSIDE the repo (as production's
    *  `~/.codemaster` is). */
   stateDir?: string;
+  /** Force the freshness-path git runner to fail (§3.6 resilience injection via seam,
+   *  never by breaking the host). `args[0]` selects which git subcommand faults. */
+  gitRunner?: GitRunner;
+  /** Break one `ts` plugin method so it throws — proves the op-level wrap turns an LS
+   *  fault into an honest `ToolFailure` (not an `op_threw` crash), daemon staying live. */
+  faultTsMethod?: 'findUsages' | 'expandType';
+  /** Codemaster's own source fingerprint (the self-staleness seam — §3.6). Defaults to a
+   *  constant so tests never walk the real `src/`; a staleness test injects a value that
+   *  changes after spawn to drive the "daemon behind source" signal. */
+  sourceFingerprint?: () => string;
+}
+
+/** Replace one method on the `ts` plugin object with a throwing stub (§3.6 fault injection
+ *  via a seam, not by breaking the host). The op that calls it must turn the throw into an
+ *  honest `ToolFailure`; if the op forgot its wrap, the engine reports `op_threw` and the
+ *  resilience test catches the regression. */
+function faultTs(api: TsPluginApi, method: 'findUsages' | 'expandType' | undefined): TsPluginApi {
+  if (method === undefined) return api;
+  api[method] = (): never => {
+    throw new Error(`injected ${method} LS fault`);
+  };
+  return api;
 }
 
 export function manualClock(): Clock & { advance(ms: number): void } {
@@ -90,10 +117,19 @@ export async function project(
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, content);
   };
+  const commit = (message: string): void => {
+    git('add', '-A');
+    git('commit', '-qm', message);
+  };
   for (const [rel, content] of Object.entries(files)) write(rel, content);
   git('init', '-q');
-  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A');
-  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
+  // Configure the test identity ONCE so bare `git commit` works everywhere — no per-call
+  // `-c user.email/-c user.name` incantation in test bodies or here. Disable signing so a
+  // developer's global `commit.gpgsign=true` can't hang/fail the fixture commits in CI.
+  git('config', 'user.email', 't@t');
+  git('config', 'user.name', 't');
+  git('config', 'commit.gpgsign', 'false');
+  commit('fixture');
 
   const clock = manualClock();
   const debug = createDebugSystem(clock);
@@ -108,8 +144,12 @@ export async function project(
     ...(options?.createTextScanner !== undefined
       ? { createTextScanner: options.createTextScanner }
       : {}),
+    ...(options?.gitRunner !== undefined ? { gitRunner: options.gitRunner } : {}),
+    // Default to a constant so the suite never stat-walks the real `src/`; a staleness test
+    // overrides it with a value that changes after spawn.
+    sourceFingerprint: options?.sourceFingerprint ?? ((): string => 'test-src'),
     pluginsFor: (config, repoRoot) => [
-      createTsPlugin(repoRoot, config.ts?.tsconfig),
+      faultTs(createTsPlugin(repoRoot, config.ts?.tsconfig), options?.faultTsMethod),
       createScssPlugin(repoRoot),
       ...(config.i18n !== undefined
         ? [createI18nPlugin(repoRoot, config.i18n.locales, config.i18n.functions)]
@@ -122,6 +162,7 @@ export async function project(
     root,
     clock,
     git,
+    commit,
     write,
     remove: (rel) => rmSync(path.join(root, rel)),
     async op(name, args) {
@@ -159,8 +200,10 @@ type SpanLike = {
   elided?: boolean;
 };
 
-export function assertSpansValid(root: string, result: OpResult): void {
-  if (!('result' in result)) return;
+/** Returns the number of proof spans validated — lets a caller assert an op was actually
+ *  exercised (a zero-span answer passing vacuously is the §16 inv. 1 hollow-green trap). */
+export function assertSpansValid(root: string, result: OpResult): number {
+  if (!('result' in result)) return 0;
   const spans: SpanLike[] = [];
   collectSpans(resultData(result.result), spans);
   for (const span of spans) {
@@ -180,7 +223,7 @@ export function assertSpansValid(root: string, result: OpResult): void {
       );
     }
   }
-  if (spans.length === 0) return;
+  return spans.length;
 }
 
 function resultData(result: Result<JsonValue>): JsonValue {

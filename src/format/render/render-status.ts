@@ -6,6 +6,11 @@
 import type { OpExample } from '../../core/op-example.ts';
 import { CONCEPTS_LINES } from './concepts.ts';
 
+/** The self-staleness line (§3.6 applied to the tool). Shared by `status` (first line) and
+ *  the MCP op/batch banner so the two surfaces never drift in wording. */
+export const SOURCE_STALE_LINE =
+  '!! daemon code behind source — reconnect MCP (running pre-edit behavior)';
+
 export interface PluginStatusView {
   id: string;
   version: string;
@@ -50,12 +55,20 @@ export interface StatusView {
   workspace: WorkspaceStatusView | undefined;
   debugTopics: readonly string[];
   guidance: readonly string[];
+  /** True when codemaster's own source changed since the daemon spawned — it is serving
+   *  behavior older than the code on disk (§3.6 applied to the tool itself). */
+  sourceStale: boolean;
 }
 
 export function renderStatus(view: StatusView): string {
   const lines: string[] = [
     `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
+  // §3.6 applied to the tool itself: if our own source moved since spawn, say so loudly and
+  // first — the agent is otherwise talking to a daemon serving pre-edit behavior.
+  if (view.sourceStale) {
+    lines.push(SOURCE_STALE_LINE);
+  }
   // Warm engines by root (cross-repo §2): a query/batch request may carry `root` to target
   // any of these sibling repos; this is the agent's signal that multi-root is live.
   if (view.engineRoots.length > 0) {

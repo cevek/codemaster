@@ -4,9 +4,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as path from 'node:path';
-import ts from 'typescript';
 import { project } from '../helpers/project.ts';
+import { coldMembers } from '../helpers/cold-ls.ts';
 
 type Member = {
   name: string;
@@ -31,45 +30,6 @@ export interface User extends Base {
 }
 export type Status = 'active' | 'inactive';
 `;
-
-/** Independent oracle: a cold ts.Program over the same file, reading the same
- *  {name, optional, type} set the warm checker should produce. */
-function coldMembers(
-  root: string,
-  fileRel: string,
-  typeName: string,
-): Omit<Member, 'inherited' | 'members'>[] {
-  const file = path.join(root, fileRel);
-  const program = ts.createProgram([file], { strict: true });
-  const checker = program.getTypeChecker();
-  const sf = program.getSourceFile(file);
-  assert.ok(sf !== undefined);
-  let nameNode: ts.Identifier | undefined;
-  sf.forEachChild((node) => {
-    if (
-      (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) &&
-      node.name.text === typeName
-    ) {
-      nameNode = node.name;
-    }
-  });
-  assert.ok(nameNode !== undefined, `oracle could not find ${typeName}`);
-  const symbol = checker.getSymbolAtLocation(nameNode);
-  assert.ok(symbol !== undefined);
-  const type = checker.getApparentType(checker.getDeclaredTypeOfSymbol(symbol));
-  return type
-    .getProperties()
-    .map((p) => ({
-      name: p.getName(),
-      optional: (p.flags & ts.SymbolFlags.Optional) !== 0,
-      type: checker.typeToString(
-        checker.getTypeOfSymbolAtLocation(p, nameNode as ts.Node),
-        undefined,
-        ts.TypeFormatFlags.NoTruncation,
-      ),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
 
 test('expand_type members equal a cold ts.Program view; optional + inherited correct', async () => {
   const p = await project({

@@ -32,9 +32,19 @@ export function canonicalizeRoot(
   }
 }
 
+/** The casing/symlink oracle: maps an absolute path to its true on-disk form (the §19
+ *  case-fold + symlink resolution). Production uses `realpathSync.native`; a test injects a
+ *  deterministic fake so the §19 behaviour is verified without depending on the CI volume's
+ *  case sensitivity. */
+export type Realpath = (absolute: string) => string;
+
 /** Mint a `RepoRelPath` for `input` (absolute, or relative to `canonRoot`).
  *  `canonRoot` must come from `canonicalizeRoot`. */
-export function mintRepoRelPath(canonRoot: string, input: string): MintResult {
+export function mintRepoRelPath(
+  canonRoot: string,
+  input: string,
+  realpath: Realpath = realpathSync.native,
+): MintResult {
   const absolute = path.isAbsolute(input)
     ? path.normalize(input)
     : path.resolve(fromPosix(canonRoot), input);
@@ -43,7 +53,7 @@ export function mintRepoRelPath(canonRoot: string, input: string): MintResult {
   let resolved = absolute;
   let casing: 'on-disk' | 'syntactic-only' = 'syntactic-only';
   try {
-    resolved = realpathSync.native(absolute);
+    resolved = realpath(absolute);
     casing = 'on-disk';
   } catch {
     // Path doesn't exist (yet/anymore) — keep the syntactic form, honestly labelled.

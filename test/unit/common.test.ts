@@ -142,6 +142,15 @@ test('plugin DAG honesty (§16 invariant 7): registry refuses cycles at init', (
   assert.ok(!refused.ok);
   assert.match(refused.message, /cycle/);
 
+  // A realistic multi-hop cycle a→b→c→a (a 2-node check could pass a buggy toposort that
+  // only catches direct mutual deps) — the registry must still refuse at init, naming it.
+  const threeNode = createPluginRegistry([stub('a', ['b']), stub('b', ['c']), stub('c', ['a'])]);
+  assert.ok(!threeNode.ok, 'a 3-node cycle is refused at registry init, not at op time');
+  assert.match(threeNode.message, /cycle/);
+  for (const id of ['a', 'b', 'c']) {
+    assert.ok(threeNode.message.includes(id), `the cycle report names '${id}'`);
+  }
+
   const missing = createPluginRegistry([stub('a', ['ghost'])]);
   assert.ok(!missing.ok);
   assert.match(missing.message, /ghost/);
@@ -185,6 +194,28 @@ test('mergeFreshness unions pending state, never drops it', () => {
     ['ts', 'scss'],
   );
   assert.deepEqual(merged.staleFiles, [FILE]);
+});
+
+test('mergeFreshness carries unverified (worst-of) and suppresses a false commit anchor', () => {
+  // §3.6: if ANY contributor could not verify freshness, the merged answer is unverified
+  // too — and must not stamp a commit anchor, or a cross-root join reads as fresh while
+  // one engine was silent-stale. (BUG-2 regression: the field used to be dropped.)
+  const merged = mergeFreshness([
+    { plugins: [{ id: 'ts', fingerprint: 'v1' }], pending: 0, indexedAtCommit: 'abc123' },
+    {
+      plugins: [{ id: 'scss', fingerprint: 'v2' }],
+      pending: 0,
+      indexedAtCommit: 'abc123',
+      unverified: { tool: 'git', message: 'diff failed' },
+    },
+  ]);
+  assert.ok(merged !== undefined);
+  assert.deepEqual(merged.unverified, { tool: 'git', message: 'diff failed' });
+  assert.equal(
+    merged.indexedAtCommit,
+    undefined,
+    'an unverified contributor forbids a clean anchor',
+  );
 });
 
 function manualClock(): Clock & { advance(ms: number): void } {

@@ -6,7 +6,7 @@
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 import { isOk } from '../../common/result/narrow.ts';
-import { runGit } from './run.ts';
+import { runGit, type GitRunner } from './run.ts';
 
 export interface GitStatus {
   /** Every path the working tree differs on (relative to the repo root, git-style
@@ -16,11 +16,11 @@ export interface GitStatus {
   porcelain: string;
 }
 
-export async function gitStatus(root: string): Promise<Result<GitStatus>> {
+export async function gitStatus(root: string, git: GitRunner = runGit): Promise<Result<GitStatus>> {
   // -z: NUL-separated, no quoting/escaping of unusual filenames; renames carry the
   // second path as the following NUL field. --untracked-files=all surfaces files
   // inside untracked directories individually (an added file must trip freshness).
-  const result = await runGit(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
+  const result = await git(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
   if (!isOk(result)) return fail(result.failure);
 
   const fields = result.data.split('\u0000');

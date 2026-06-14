@@ -6,7 +6,7 @@
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 import { isOk } from '../../common/result/narrow.ts';
-import { runGit } from './run.ts';
+import { runGit, type GitRunner } from './run.ts';
 import { gitStatus } from './status.ts';
 
 export interface GitRepoFingerprint {
@@ -18,10 +18,13 @@ export interface GitRepoFingerprint {
   fingerprint: string;
 }
 
-export async function gitRepoFingerprint(root: string): Promise<Result<GitRepoFingerprint>> {
+export async function gitRepoFingerprint(
+  root: string,
+  git: GitRunner = runGit,
+): Promise<Result<GitRepoFingerprint>> {
   const [headResult, statusResult] = await Promise.all([
-    runGit(root, ['rev-parse', '--verify', '--quiet', 'HEAD']),
-    gitStatus(root),
+    git(root, ['rev-parse', '--verify', '--quiet', 'HEAD']),
+    gitStatus(root, git),
   ]);
   // An unborn branch (fresh `git init`) has no HEAD — still a valid git repo.
   const head = isOk(headResult) ? headResult.data.trim() : 'no-head';

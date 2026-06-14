@@ -13,7 +13,7 @@ import {
 import type { Orchestrator } from '../daemon/orchestrator.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
 import { renderResult } from '../format/render/render-result.ts';
-import { renderStatus } from '../format/render/render-status.ts';
+import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
 import {
   SERVER_INSTRUCTIONS,
   TOOL_DESCRIPTORS,
@@ -62,6 +62,7 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
           const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
           if (!parsed.success) return badArgs('op', parsed.error.message);
           const { root, sql, return: returnMode, ...req } = parsed.data;
+          const banner = opBanner(req.format, orchestrator.sourceStale());
           if (sql !== undefined) {
             // §2.6: single-op sql sugar = a batch of one request aliased `t`.
             const outcome = await orchestrator.request(
@@ -71,13 +72,13 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
               { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) },
             );
             if (!outcome.ok) return errorText(outcome.message);
-            return text(renderResults(outcome.results, req.format, req.verbosity));
+            return text(banner + renderResults(outcome.results, req.format, req.verbosity));
           }
           const outcome = await orchestrator.request(cwd, root, [req as OpRequest]);
           if (!outcome.ok) return errorText(outcome.message);
           const result = outcome.results[0];
           if (result === undefined) return errorText('no result (codemaster bug)');
-          return opResultText(result, req.format, req.verbosity);
+          return opResultText(result, req.format, req.verbosity, banner);
         }
         case 'batch': {
           const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
@@ -93,11 +94,12 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
           );
           if (!outcome.ok) return errorText(outcome.message);
           return text(
-            renderBatch(outcome.results, parsed.data.requests, {
-              sqlPresent: sql !== undefined,
-              format,
-              verbosity,
-            }),
+            staleBanner(orchestrator.sourceStale()) +
+              renderBatch(outcome.results, parsed.data.requests, {
+                sqlPresent: sql !== undefined,
+                format,
+                verbosity,
+              }),
           );
         }
         default:
@@ -118,11 +120,12 @@ function opResultText(
   result: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
+  banner = '',
 ): CallToolResult {
   if ('error' in result) {
     return errorText(`${result.error.kind}: ${result.error.message}`);
   }
-  return text(renderOne(result, format, verbosity));
+  return text(banner + renderOne(result, format, verbosity));
 }
 
 function renderOne(
@@ -170,6 +173,21 @@ export function renderBatch(
       return `[${i}] ${r.name}\n${renderOne(r, format, verbosity)}`;
     })
     .join('\n\n');
+}
+
+/** The one-line self-staleness banner (§3.6 applied to the tool). Prepended to op/batch
+ *  responses when the daemon's own source moved since spawn, so an agent acting on a
+ *  stale answer is told to reconnect. Empty when fresh — pure, exported, unit-tested. */
+export function staleBanner(sourceStale: boolean): string {
+  return sourceStale ? `${SOURCE_STALE_LINE}\n` : '';
+}
+
+/** The op-response banner, suppressed for `format:'json'`: prepending a line to the single
+ *  JSON payload an agent feeds into the next call would corrupt it (§12). A json-mode agent
+ *  still learns staleness from `status().sourceStale`. (batch output is always text-framed,
+ *  so it keeps the banner.) Exported so the json-suppression is unit-tested. */
+export function opBanner(format: 'text' | 'json' | undefined, sourceStale: boolean): string {
+  return format === 'json' ? '' : staleBanner(sourceStale);
 }
 
 function text(body: string): CallToolResult {

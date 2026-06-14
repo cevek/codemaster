@@ -7,25 +7,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import ts from 'typescript';
+import { coldDiagnostics as coldTscErrors } from '../helpers/cold-ls.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import { project } from '../helpers/project.ts';
 
 const TSCONFIG = '{"compilerOptions":{"strict":true,"module":"preserve"}}';
-
-function coldTscErrors(root: string): string[] {
-  const configPath = ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json');
-  if (configPath === undefined) return ['no tsconfig'];
-  const parsed = ts.parseJsonConfigFileContent(
-    ts.readConfigFile(configPath, ts.sys.readFile).config,
-    ts.sys,
-    path.dirname(configPath),
-  );
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
-  return ts
-    .getPreEmitDiagnostics(program)
-    .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
-}
 
 type Envelope = { mode: string; diff: string; typecheck: { clean: boolean }; applied?: boolean };
 type Proj = Awaited<ReturnType<typeof project>>;

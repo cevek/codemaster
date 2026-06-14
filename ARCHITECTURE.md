@@ -598,7 +598,11 @@ all it still works: defaults honor `.gitignore` (nested + `!` negation), and alw
   versions/freshness fingerprints), the op catalogue for _this_ repo (op names + one-line
   what-it-does + args schema), available debug namespaces (§13), and a steer toward
   codemaster vs grep. Teaches the op catalogue **dynamically**, so ops cost zero standing
-  context — only `op`/`status`/`batch` do.
+  context — only `op`/`status`/`batch` do. It also carries the **self-staleness** line
+  (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
+  is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend a
+  one-line "reconnect MCP" banner — suppressed in `format:'json'` (it would corrupt the
+  payload) and silent where the source can't be located (global/`npx` — §19).
 - **`batch(requests)`** — one tool carrying a list of op invocations; results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
   ops in the batch see a consistent view per plugin (each plugin pins its state at

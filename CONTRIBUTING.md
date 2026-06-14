@@ -76,6 +76,21 @@ Everything entering from outside — config load, MCP `op` args, IPC messages �
 - Never golden-only for a correctness claim — pair it with an oracle.
 - No `sleep` in scenarios — drive the injected `clock` / `watcher` seams.
 
+## Self-dev loop (dogfooding)
+
+Drive codemaster against its own tree from the CLI — same front door as MCP, no rebuild
+(Node strips types): `node src/bin.ts status` and `node src/bin.ts op <name> '<json-args>'`
+(e.g. `node src/bin.ts op find_usages '{"name":"Orchestrator"}'`). Each invocation is a
+fresh one-shot process, so it always reflects the current source.
+
+A **long-lived** daemon (the MCP server your editor connects to) does **not** — it serves
+the behavior it spawned with. So after you edit `src/`, the running MCP daemon is stale.
+`status` and every op response say so outright (`!! daemon code behind source — reconnect
+MCP`), driven by a `src/**` fingerprint taken at spawn (§3.6 applied to the tool itself);
+**reconnect the MCP client to pick up your change** (hot-reload is a wishlist item — the
+client owns the process lifetime). The signal degrades silently to off where the source
+tree can't be located (a global / `npx` install — §19), never a false positive.
+
 ## Output is the product
 
 Dense, coded, for agents — not humans. Always emit clickable `file:line`. Cap large results

@@ -2,7 +2,7 @@
 // to keep the engine under the line cap): strip the dispatch fields off a request to get
 // its `OpFlags`, and fold the batch-entry freshness note into one op's result.
 
-import type { FreshnessNote, Result } from '../core/result.ts';
+import type { FreshnessNote, Result, ToolFailure } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { Clock } from '../common/async/clock.ts';
@@ -20,24 +20,38 @@ export function extractFlags(req: OpRequest): OpFlags {
 /** Assemble the per-call `FreshnessNote` from the touched plugins' pending state (§3.5).
  *  Returns `undefined` only when the answer is fully fresh AND nothing was reindexed at
  *  entry AND no drift-check failure AND no clean commit to anchor — otherwise the note is
- *  surfaced (a silent reindex-at-entry is the §1.3 lie this guards against). */
+ *  surfaced (a silent reindex-at-entry is the §1.3 lie this guards against).
+ *
+ *  When `driftFailure` is set the backstop could not establish what changed (e.g. the
+ *  drift `git diff` failed): we surface it as `unverified` AND suppress `indexedAtCommit`
+ *  — stamping a commit whose changes we could not confirm were applied would be the exact
+ *  silent-stale lie §3.5 exists to catch (a clean-tree checkout whose diff failed). */
 export function buildFreshnessNote(
   order: readonly Plugin[],
   reindexed: number,
   cleanAtCommit: string | undefined,
-  driftFailed: boolean,
+  driftFailure: ToolFailure | undefined,
 ): FreshnessNote | undefined {
   const pendingTotal = order.reduce((sum, p) => sum + p.pending().length, 0);
-  if (pendingTotal === 0 && reindexed === 0 && !driftFailed && cleanAtCommit === undefined) {
+  if (
+    pendingTotal === 0 &&
+    reindexed === 0 &&
+    driftFailure === undefined &&
+    cleanAtCommit === undefined
+  ) {
     return undefined;
   }
   const staleFiles = [...new Set(order.flatMap((p) => [...p.pending()]))];
+  const anchorCommit = driftFailure === undefined ? cleanAtCommit : undefined;
   return {
     plugins: order.map((p) => ({ id: p.id, fingerprint: p.freshness() })),
     pending: pendingTotal,
     ...(reindexed > 0 ? { reindexed } : {}),
     ...(staleFiles.length > 0 ? { staleFiles } : {}),
-    ...(cleanAtCommit !== undefined ? { indexedAtCommit: cleanAtCommit } : {}),
+    ...(anchorCommit !== undefined ? { indexedAtCommit: anchorCommit } : {}),
+    ...(driftFailure !== undefined
+      ? { unverified: { tool: driftFailure.tool, message: driftFailure.message } }
+      : {}),
   };
 }
 

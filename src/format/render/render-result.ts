@@ -87,6 +87,14 @@ function renderRebind(rebind: HandleRebind): string {
 }
 
 function renderFreshness(note: FreshnessNote, verbosity: Verbosity): string | undefined {
+  // Unverified freshness is the dominant signal — surfaced at EVERY verbosity (§3.6):
+  // the backstop could not establish what changed (e.g. the drift `git diff` failed), so
+  // the answer may be stale. Said outright rather than dressed as fresh; no commit anchor
+  // is stamped (suppressed upstream) so this can never read as "current @<commit>".
+  if (note.unverified !== undefined) {
+    const pend = note.pending > 0 ? `; PENDING ${note.pending} file(s)` : '';
+    return `freshness: UNVERIFIED — ${note.unverified.tool} failed (${note.unverified.message}); answer may be stale, re-run or fall back${pend}`;
+  }
   // A reindex-at-entry is reported at EVERY verbosity including terse (§1.3): a
   // drift-triggered reindex that produced a silent, otherwise-fresh answer left a field
   // agent having to *trust* their edit was picked up. The commit anchor is optional — a

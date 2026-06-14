@@ -156,6 +156,12 @@ export const findUsagesOp = defineOp({
             unresolved.push({ name, reason: outcome });
             continue;
           }
+          if ('unresolved' in outcome) {
+            // By-name targets never carry a rebind (no handle was held), but the type admits
+            // it; record the reason in the sectioned `unresolved` list either way.
+            unresolved.push({ name, reason: outcome.unresolved });
+            continue;
+          }
           const { view } = outcome;
           shownRows += rowsShown(view);
           totalRows += rowsTotal(view);
@@ -201,6 +207,11 @@ export const findUsagesOp = defineOp({
 
       const outcome = ts.findUsages(args, options);
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
+      if ('unresolved' in outcome) {
+        // §6: the held handle's symbol is gone — state the structured `{status:'gone'}` on
+        // `handle` (empty data), never a guessed rebind to an unrelated same-named symbol.
+        return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
+      }
       const { view, rebind } = outcome;
       let shown = rowsShown(view);
       let total = rowsTotal(view);

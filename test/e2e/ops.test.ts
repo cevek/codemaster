@@ -82,6 +82,82 @@ test('a stale SymbolId rebinds with proof and stated confidence (§6)', async ()
   }
 });
 
+test('a stale handle whose symbol is deleted is GONE — empty data, never a false rebind (§6)', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/util.ts': 'export const onlyhere = (n: number) => n * 2;\n',
+    'src/a.ts': "import { onlyhere } from './util.ts';\nexport const a = onlyhere(1);\n",
+  });
+  try {
+    const search = await p.op('search_symbol', { query: 'onlyhere' });
+    assert.ok('result' in search && search.result.ok);
+    const id = (search.result.data as { matches: { id: string }[] }).matches[0]?.id;
+    assert.ok(id !== undefined);
+
+    // Delete the declaration AND its only user → no symbol of this name anywhere.
+    p.write('src/util.ts', 'export const somethingElse = 1;\n');
+    p.write('src/a.ts', 'export const a = 1;\n');
+
+    // Every SymbolId-taking read op states the gone handle uniformly (one surfacing it and
+    // the others flattening would be an inconsistent §6 signal).
+    for (const op of ['find_usages', 'find_definition', 'expand_type'] as const) {
+      const r = await p.op(op, { symbol: id });
+      assert.ok('result' in r, `${op}: ${JSON.stringify(r)}`);
+      assert.ok(!r.result.ok, `${op}: a gone symbol yields no answer`);
+      assert.equal(r.result.data, undefined, `${op}: empty data — a guess would be the §6 lie`);
+      assert.ok(r.result.handle !== undefined, `${op}: the gone status is stated, never silent`);
+      assert.equal(r.result.handle.status, 'gone', `${op}: truly absent — not a silent retarget`);
+    }
+
+    // `source` is multi-target — the gone handle is stated per target in `unresolved`.
+    const src = await p.op('source', { targets: [{ symbol: id }] });
+    assert.ok('result' in src && src.result.ok);
+    const un = (src.result.data as { unresolved?: { handle?: { status: string } }[] }).unresolved;
+    assert.equal(un?.[0]?.handle?.status, 'gone', 'source states the gone handle per target');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a deleted symbol with a same-named sibling rebinds at PARTIAL confidence, never a silent retarget (§6)', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/util.ts': 'export const dup = (n: number) => n * 2;\n',
+    'src/other.ts': 'export const dup = (n: number) => n * 3;\n', // same name, UNRELATED
+  });
+  try {
+    const search = await p.op('search_symbol', { query: 'dup' });
+    assert.ok('result' in search && search.result.ok);
+    const matches = (search.result.data as { matches: { id: string; span: { file: string } }[] })
+      .matches;
+    const utilId = matches.find((m) => m.span.file === 'src/util.ts')?.id;
+    assert.ok(utilId !== undefined);
+
+    // Remove util.ts's `dup`; other.ts still has a same-named one the rebind can reach
+    // workspace-wide. That rebind is honest ONLY if it admits identity is unproven.
+    p.write('src/util.ts', 'export const removed = 1;\n');
+
+    const r = await p.op('find_usages', { symbol: utilId });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    assert.ok(r.result.handle !== undefined, 'the workspace-wide rebind is stated, never silent');
+    assert.equal(r.result.handle.status, 'rebound');
+    if (r.result.handle.status === 'rebound') {
+      assert.equal(
+        r.result.handle.confidence,
+        'partial',
+        'identity to a same-named sibling is NOT proven — never claimed certain',
+      );
+      assert.match(
+        r.result.handle.note ?? '',
+        /not proven/,
+        'the unproven identity is said outright',
+      );
+    }
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('unknown op and bad args fail with pointed messages, daemon stays up', async () => {
   const p = await project({ 'tsconfig.json': TSCONFIG, 'src/x.ts': 'export const x = 1;\n' });
   try {

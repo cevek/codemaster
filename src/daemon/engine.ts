@@ -30,6 +30,7 @@ import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
 import { createFreshnessGuard, type FreshnessMode } from './freshness.ts';
+import type { GitRunner } from '../support/git/run.ts';
 import type { WorkspaceStatusView } from '../format/render/render-status.ts';
 
 export interface EngineDeps {
@@ -55,6 +56,9 @@ export interface EngineDeps {
   /** Text-scanner factory for `find_usages text:true` (§ text-overlay). Test seam;
    *  defaults to the pure-JS scanner. */
   createTextScanner?: () => TextScanner;
+  /** Git runner for the freshness path (§3.6). Test seam; defaults to the real `runGit`.
+   *  A faulting runner proves the read-time backstop degrades honestly, never crashes. */
+  gitRunner?: GitRunner;
 }
 
 export interface WorkspaceEngine {
@@ -118,7 +122,7 @@ class Engine implements WorkspaceEngine {
     this.root = deps.root;
     this.registry = registry;
     this.order = order;
-    this.guard = createFreshnessGuard(deps.root, deps.clock, deps.debug);
+    this.guard = createFreshnessGuard(deps.root, deps.clock, deps.debug, deps.gitRunner);
     this.opsByName = new Map(deps.ops.map((op) => [op.name, op]));
     this.sqlBounds = {
       maxTableRows: deps.sqlBounds?.maxTableRows ?? DEFAULT_MAX_TABLE_ROWS,
@@ -188,12 +192,7 @@ class Engine implements WorkspaceEngine {
     // Files the read-time backstop caught drifted and resolved before answering (§1.3).
     const reindexed = drift.changed.length;
     if (reindexed > 0) await this.reindexAll(drift.changed);
-    return buildFreshnessNote(
-      this.order,
-      reindexed,
-      this.cleanAtCommit,
-      drift.failure !== undefined,
-    );
+    return buildFreshnessNote(this.order, reindexed, this.cleanAtCommit, drift.failure);
   }
 
   private async reindexAll(changed: readonly RepoRelPath[]): Promise<void> {

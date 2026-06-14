@@ -17,9 +17,15 @@ export function mergeFreshness(
   const pending = present.reduce((sum, n) => sum + n.pending, 0);
   const reindexed = present.reduce((sum, n) => sum + (n.reindexed ?? 0), 0);
   const staleFiles = dedupe(present.flatMap((n) => n.staleFiles ?? []));
-  // A single commit only holds when every contributor reports the same one.
+  // Worst-of: if ANY contributor could not verify its freshness, the merged answer is
+  // unverified too — and no commit anchor may be stamped (same coupling as
+  // `buildFreshnessNote`), or a cross-root join would read as fresh while one engine was
+  // silent-stale (§3.5/§3.6).
+  const unverified = present.find((n) => n.unverified !== undefined)?.unverified;
+  // A single commit only holds when every contributor reports the same one AND none is unverified.
   const commits = new Set(present.map((n) => n.indexedAtCommit));
-  const indexedAtCommit = commits.size === 1 ? first?.indexedAtCommit : undefined;
+  const indexedAtCommit =
+    unverified === undefined && commits.size === 1 ? first?.indexedAtCommit : undefined;
 
   return {
     plugins,
@@ -27,6 +33,7 @@ export function mergeFreshness(
     ...(reindexed > 0 ? { reindexed } : {}),
     ...(staleFiles.length > 0 ? { staleFiles } : {}),
     ...(indexedAtCommit !== undefined ? { indexedAtCommit } : {}),
+    ...(unverified !== undefined ? { unverified } : {}),
   };
 }
 

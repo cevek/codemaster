@@ -8,6 +8,11 @@ import { fail, ok } from '../../common/result/construct.ts';
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
+/** The injectable shape of `runGit` — a test seam (§3.6 fault injection via seams, never
+ *  by breaking the host) threaded through the freshness path so a forced git failure is
+ *  deterministic. Production always uses `runGit`; only tests pass a faulting runner. */
+export type GitRunner = (cwd: string, args: readonly string[]) => Promise<Result<string>>;
+
 export function runGit(cwd: string, args: readonly string[]): Promise<Result<string>> {
   return new Promise((resolve) => {
     execFile(

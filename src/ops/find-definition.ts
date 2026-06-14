@@ -22,6 +22,10 @@ export const findDefinitionOp = defineOp({
     try {
       const outcome = ts.findDefinition(args);
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
+      if ('unresolved' in outcome) {
+        // §6: the held handle's symbol is gone — state it structurally on `handle`.
+        return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
+      }
       return ok(
         { definitions: outcome.views },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,

@@ -5,10 +5,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { project, assertSpansValid } from '../helpers/project.ts';
+import { rgSites } from '../helpers/ripgrep.ts';
 import { fail } from '../../src/common/result/construct.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
@@ -242,27 +242,17 @@ test('a same-named UNRELATED symbol lands in textOnly, never the semantic sectio
 });
 
 test('ripgrep cross-check: every word match is accounted for (skipped when rg absent)', async () => {
-  let rgAvailable = true;
-  try {
-    execFileSync('rg', ['--version'], { stdio: 'ignore' });
-  } catch {
-    rgAvailable = false;
-  }
-  if (!rgAvailable) return; // independent oracle unavailable on this box — skip, don't fail
-
   const p = await project(FILES);
   try {
+    const sites = rgSites(p.root, 'widget');
+    if (sites === undefined) return; // independent oracle unavailable on this box — skip, don't fail
     const r = await p.op('find_usages', { name: 'widget', text: true, collapseImports: false });
     assert.ok('result' in r && r.result.ok);
     const view = r.result.data as View;
     // No aliases in this fixture → every semantic ref is also a literal "widget", so the
     // total word-boundary occurrences = semantic refs + text-only hits.
     const opTotal = (view.usages ?? []).length + (view.textOnly ?? []).length;
-    const rgOut = execFileSync('rg', ['-w', '-o', '--no-filename', 'widget', p.root], {
-      encoding: 'utf8',
-    });
-    const rgCount = rgOut.split('\n').filter((l) => l === 'widget').length;
-    assert.equal(opTotal, rgCount, 'op accounts for exactly ripgrep’s word-boundary matches');
+    assert.equal(opTotal, sites.length, 'op accounts for exactly ripgrep’s word-boundary matches');
   } finally {
     await p.dispose();
   }

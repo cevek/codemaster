@@ -40,8 +40,15 @@ export interface FreshnessNote {
   reindexed?: number;
   /** The specific paths, when the set is small enough to be useful. */
   staleFiles?: RepoRelPath[];
-  /** Git commit the workspace reflects, when on a clean tree. */
+  /** Git commit the workspace reflects, when on a clean tree **and** freshness was
+   *  verified. Suppressed when `unverified` is set — stamping a commit whose changes we
+   *  could not confirm were applied would be a silent-stale lie (§3.5, §3.6). */
   indexedAtCommit?: string;
+  /** Set when the read-time backstop could NOT establish what changed — e.g. the drift
+   *  `git diff` itself failed. The op still answers from current plugin state, but the
+   *  answer may be stale and we say so outright rather than imply freshness (§3.6: report
+   *  what we couldn't do). The agent should fall back / re-run. */
+  unverified?: { tool: string; message: string };
 }
 
 /** Truncation is always explicit — silent capping reads as "this is everything". */

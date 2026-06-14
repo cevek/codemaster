@@ -5,7 +5,15 @@
 
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
+import type { HandleRebind } from '../../core/ids.ts';
 import type { UsageRole } from './usage-roles.ts';
+
+/** A target that could not be resolved but whose stale handle DID rebind — carries the
+ *  structured `HandleRebind` (notably `{status:'gone'}`, §6) so the op surfaces it on the
+ *  failure's `handle` field instead of flattening the §6 signal into a bare message. The
+ *  plain-`string` miss (no handle held, or a position that exists but cannot be re-located)
+ *  stays a message. */
+export type UnresolvedTarget = { unresolved: string; rebind: HandleRebind };
 
 export type SymbolView = {
   id: string;

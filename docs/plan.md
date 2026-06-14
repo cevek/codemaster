@@ -82,6 +82,17 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] `FreshnessNote` plumbing into `Result<T>` (batch-entry capture, worst-of merge)
 - [x] never-silent-stale invariant tested against real plugins with the watcher silenced
       (mutate · **add** · `git checkout` — test/differential/freshness.test.ts)
+- [x] **resilience (§3.6)** — git + TS-LS fault injection via `project()` seams
+      (`gitRunner` / `faultTsMethod`; test/differential/resilience.test.ts): a throwing LS
+      read op → honest `ToolFailure(ts-ls)`, never `op_threw`, daemon stays live; a git
+      fingerprint failure degrades to the mtime walk; a drift `git diff` failure surfaces
+      `FreshnessNote.unverified` and suppresses a false `indexedAtCommit` (the clean-checkout
+      silent-stale lie — fixed in `buildFreshnessNote`; the drift baseline is not advanced
+      past an un-diffed change so `unverified` stays sticky until a diff succeeds, and
+      `mergeFreshness` carries it worst-of across cross-root joins). A git⇄mtime-walk **mode
+      transition** (git availability flips between ops) forces a full reindex — the two
+      baselines are incomparable, so reporting `changed:[]` would serve the other mode's
+      possibly-stale state dressed as fresh; tested both directions.
 
 **Surface:**
 
@@ -92,8 +103,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [x] zod boundary validation — config load, MCP tool args, op args (per-op schemas)
 - [x] honesty harness skeleton — `project()` temp-git mount driving the real pipeline;
       proof-span oracle (`assertSpansValid`); manual clock (no sleeps)
-- [ ] oracle runners (ripgrep, cold `Program`) + scenario runner — with Phase 1
-      completion
+- [~] oracle runners (ripgrep, cold `Program`) + scenario runner — cold `Program`
+  home (`test/helpers/cold-ls.ts`: `coldMembers`/`coldDiagnostics`) and the ripgrep
+  distinctness oracle (`test/helpers/ripgrep.ts`: `rgSites`, honest-skip when absent;
+  `text-overlay.test.ts` re-pointed onto it) both landed; the scenario runner resolved to
+  not-needed — the freshness tests interleave assertions between steps, so inline
+  `write`/`git`/`op` over `project()` reads cleaner than a step-list wrapper (knip-clean,
+  no one-use abstraction)
 
 ## Phase 1 — `ts` plugin
 
@@ -112,16 +128,38 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
 - [ ] watcher-bridge as its own seam consumer (today the engine fans watcher batches
       into every plugin's `reindex` — same effect, revisit when plugins multiply)
 - [x] `plugins/ts/`: target resolution (SymbolId / file:line:col / unambiguous name) +
-      proof-carrying rebind (§6) — `rebound`/`gone`, location-not-identity confidence
+      proof-carrying rebind (§6) — `rebound`/`gone`, location-not-identity confidence. The
+      SymbolId-taking read ops surface the structured `{status:'gone'}` uniformly through a
+      shared `missOf` chokepoint: `find_usages`/`find_definition`/`expand_type` on the failed
+      result's `handle`, `source` per target in `unresolved`; `referenceSpans` (internal, no
+      agent handle chain) and the mutating ops still flatten a gone handle to an honest message
 - [x] **public API**: `searchSymbol`, `findDefinition`, `findUsages`, `expandType`
       (quick-info depth), `cssModuleUsages()` (the cross-tier helper);
       `freshness()`/`pending()`/`reindex()`
 - [ ] `assignability`, `imports(file)`, deep `expandType`
 - [x] `ops/search-symbol.ts`, `ops/find-definition.ts`, `ops/find-usages.ts`,
       `ops/expand-type.ts` — passthrough wrappers, zod-validated, explicit truncation
-- [~] tests — proof-span validity oracle on every e2e answer; freshness honesty
-  (mutate · add · checkout); aliased-JSX find_usages; stale-handle rebind; missing:
-  `find_usages` vs cold-LS differential, `cold == warm`
+- [~] tests — proof-span validity swept over **every** span-bearing read op
+  (`test/differential/span-validity.test.ts`: coverage-gated against `builtinOps()`,
+  non-vacuous ≥1-span guard, drift negative-control); freshness honesty
+  (mutate · add · checkout); aliased-JSX find*usages; stale-handle rebind;
+  `find_usages` trap distinctness vs grep (`test/differential/find-usages.test.ts`:
+  alias/barrel/type-only/cross-file ⊋ grep, same-name-scope ⊊ grep, hand-curated oracle +
+  rg cross-check — NOT cold-`findReferences`, which §16 flags as circular); confidence
+  honesty (`scss-confidence.test.ts`: computed `s[expr]` demotes unused-claims to partial,
+  never falsely dead). \_Deviation: the spec's "provenance syntactic/type" is unproduced by
+  shipped ops (core `Provenance.kind` lands with trace/adapter ops); the find_usages
+  semantic/text provenance axis is already asserted in `text-overlay.test.ts`.* Freshness
+  honesty extended (`freshness.test.ts`): ts in-place mutation, bulk multi-file checkout,
+  i18n checkout, and the §19 racy-clean mtime-tie resolved by content **end-to-end**. `cold == warm` for ts + scss (`cold-equals-warm.test.ts`: warm-after-edits
+  fact arrays incl. proof spans == a cold boot over the identical tree). Read-side `gone`
+  rebind (`ops.test.ts`: deleted decl with no sibling → structured `{status:'gone'}` +
+  empty data, never a false rebind; a same-named sibling → `rebound` at `partial`
+  confidence with the "identity not proven" note — the honest non-silent retarget). §19
+  canonicalization (`support.test.ts`: injected-realpath seam — case-fold collapses two
+  spellings to one `RepoRelPath`, symlink resolves to target, escape refused — deterministic,
+  not FS-dependent). Plugin-DAG honesty (`common.test.ts`: a realistic 3-node a→b→c→a cycle
+  refused at registry init, naming every node).
 
 ## Phase 3 (pulled forward) — `scss` plugin + cross-tier ops
 
@@ -169,16 +207,22 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       the parallel usage guide retired with a no-living-references guard test
       ([spec-status-as-the-doc.md](spec-status-as-the-doc.md))
 
-## Self-hosting DX (inbox triage, small — pick up after round 2)
+## Self-hosting DX (inbox triage)
 
-- [ ] daemon self-staleness signal: record codemaster's OWN source fingerprint at
-      spawn; when the daemon's code is behind its source tree, `status` (and op
-      results, one line) say "daemon code behind source — reconnect MCP" instead of
-      silently serving pre-edit behavior. §3.6 applied to ourselves: the index
-      freshness contract covers the inspected repo's data, this covers the tool's own
-      binary — the gap two inbox entries hit while self-developing. Document the
-      `node src/bin.ts op …` CLI loop in CONTRIBUTING as the self-dev dogfood path.
-      Hot-reload stays out (wishlist) — the client owns the MCP process lifetime.
+- [x] daemon self-staleness signal: the orchestrator records its OWN `src/**` fingerprint
+      at spawn (`daemon/source-fingerprint.ts`, reusing `common/fingerprint/rollup` +
+      `support/fs` walk) and `sourceStale()` compares on demand; `status` prints a
+      first-line `!! daemon code behind source — reconnect MCP` and the MCP `op`/`batch`
+      responses prepend the same one-line banner (`mcp/server.ts` `staleBanner`). §3.6
+      applied to ourselves: the freshness contract covers the inspected repo's data, this
+      covers the tool's own running code. Degrades silently to off where `src/` isn't
+      locatable (global/`npx` — §19), never a false positive (tested both directions). The
+      `node src/bin.ts op …` self-dev loop is documented in CONTRIBUTING; hot-reload stays
+      out (wishlist) — the MCP client owns the process lifetime.
+- [x] root-placement clarification (inbox `[friction]`): the `status` concepts line states
+      `root` is a TOP-LEVEL field beside `name`/`args` (not inside `args`); validation is
+      unchanged, so `root` smuggled into `args` still fails with a self-correcting `bad_args`
+      (asserted in `self-staleness.test.ts`); concepts golden updated.
 
 ## Field feedback, round 2 — sequential, one PR each, in this order
 

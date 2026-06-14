@@ -5,6 +5,7 @@
 
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { createSourceStaleTracker, type SourceStaleTracker } from './source-fingerprint.ts';
 import type { RepoId } from '../core/brands.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
@@ -17,6 +18,7 @@ import type { SqlBounds } from './sql-batch.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
 import type { TextScanner } from '../support/text-search/scan.ts';
+import type { GitRunner } from '../support/git/run.ts';
 import {
   crossRootSql,
   engineOf,
@@ -55,6 +57,11 @@ export interface OrchestratorDeps {
   createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
   /** Text-scanner factory (§ text-overlay) — test seam, forwarded to every engine. */
   createTextScanner?: () => TextScanner;
+  /** Git runner for the freshness path (§3.6) — test seam, forwarded to every engine. */
+  gitRunner?: GitRunner;
+  /** Codemaster's OWN source fingerprint (self-staleness — §3.6). Recorded at spawn; a later
+   *  difference means the daemon is behind its source. Test seam; default = `src/**` rollup. */
+  sourceFingerprint?: () => string;
 }
 
 interface EngineSlot {
@@ -75,12 +82,20 @@ export class Orchestrator {
   private sweepTimer: CancelTimer | undefined;
   private disposed = false;
   private readonly startedAtMs: number;
+  private readonly sourceTracker: SourceStaleTracker;
 
   constructor(deps: OrchestratorDeps) {
     this.deps = deps;
     this.trace = deps.debug.ns('daemon');
     this.startedAtMs = deps.clock.now();
+    this.sourceTracker = createSourceStaleTracker(() => deps.clock.now(), deps.sourceFingerprint);
     this.scheduleSweep(DEFAULT_SWEEP_SECONDS);
+  }
+
+  /** True when codemaster's own source changed since spawn (§3.6 applied to the tool); an
+   *  `unknown` baseline (global/npx) never fires. Used by `status` + the MCP op banner. */
+  sourceStale(): boolean {
+    return this.sourceTracker.stale();
   }
 
   /** Resolve the target workspace: explicit `root` wins; otherwise the git toplevel
@@ -167,6 +182,7 @@ export class Orchestrator {
       workspace,
       debugTopics: this.deps.debug.topics(),
       guidance: GUIDANCE,
+      sourceStale: this.sourceStale(),
     };
   }
 
@@ -224,7 +240,8 @@ export class Orchestrator {
     }
 
     // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.
-    const stateDir = this.deps.stateDir ?? path.join(homeDir(), '.codemaster');
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
+    const stateDir = this.deps.stateDir ?? path.join(home, '.codemaster');
     const repoKey = `${path.basename(root)}-${fnv1a64Hex(repoId).slice(0, 8)}`;
     const logMaxBytes =
       config.debug?.logMaxMB !== undefined ? config.debug.logMaxMB * 1024 * 1024 : undefined;
@@ -251,6 +268,7 @@ export class Orchestrator {
       ...(this.deps.createTextScanner !== undefined
         ? { createTextScanner: this.deps.createTextScanner }
         : {}),
+      ...(this.deps.gitRunner !== undefined ? { gitRunner: this.deps.gitRunner } : {}),
     });
     if (!created.ok) return { ok: false, message: created.message };
 
@@ -344,8 +362,4 @@ const GUIDANCE = [
 
 async function statusOf(host: ProjectHost): Promise<WorkspaceStatusView | undefined> {
   return engineOf(host)?.status();
-}
-
-function homeDir(): string {
-  return process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
 }

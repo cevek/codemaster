@@ -59,6 +59,16 @@ export const sourceOp = defineOp({
           unresolved.push({ target: describeTarget(target), reason: outcome });
           continue;
         }
+        if ('unresolved' in outcome) {
+          // §6: a chained handle whose symbol is gone — stated per target (status + reason),
+          // never silently dropped or retargeted to a same-named other.
+          unresolved.push({
+            target: describeTarget(target),
+            reason: outcome.unresolved,
+            handle: { status: outcome.rebind.status },
+          });
+          continue;
+        }
         const view = outcome.views[0];
         if (view === undefined) {
           unresolved.push({ target: describeTarget(target), reason: 'no definition found' });
