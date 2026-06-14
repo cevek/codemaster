@@ -107,14 +107,15 @@ export function parseScssClasses(rel: RepoRelPath, source: string): ScssParseOut
     // Parent-ref concat → synthesized flat class name (`&__el` under `.block` → `block__el`).
     // These never own a top-level rule (their rule is nested), so they stay entangled.
     if (selector.includes('&')) {
-      const base = ampBase(rule);
-      if (base !== undefined) {
-        for (const match of selector.matchAll(AMP_CONCAT)) {
-          const suffix = match[1];
-          if (suffix === undefined || match.index === undefined) continue;
-          if (inRanges(match.index, globals)) continue;
-          push(base + suffix, match.index, match[0]);
-        }
+      // `&` substitutes the parent selector; a glued suffix attaches to the LAST class of each
+      // parent comma-branch's trailing compound (`.a.b { &__el }` → `b__el`, not `a__el`;
+      // `.a, .b { &__el }` → both `a__el` and `b__el`). One synthesized name per (base × suffix).
+      const bases = ampBases(rule);
+      for (const match of selector.matchAll(AMP_CONCAT)) {
+        const suffix = match[1];
+        if (suffix === undefined || match.index === undefined) continue;
+        if (inRanges(match.index, globals)) continue;
+        for (const base of bases) push(base + suffix, match.index, match[0]);
       }
     }
   });
@@ -156,27 +157,46 @@ function hasNestedRule(rule: Rule): boolean {
   return nested;
 }
 
-/** The class an `&` at the start of a child selector concatenates onto: the parent rule's
- *  primary class (itself `&`-resolved, so deeper BEM nesting chains correctly). `undefined`
- *  when there is no parent rule or its primary class can't be read — we then don't guess a
- *  synthesized name (§3). */
-function ampBase(rule: Rule): string | undefined {
+/** The base class name(s) a child's `&` concatenates onto — the LAST class of EACH parent
+ *  comma-branch's trailing compound (the segment `&` glues to), itself `&`-resolved so deeper
+ *  BEM chains follow (`.a.b { &__c { &--d } }` → `b__c--d`). Empty when there is no parent rule
+ *  or no branch yields a clean class — we then synthesize nothing (§3: never guess a name). */
+function ampBases(rule: Rule): string[] {
   const parent = rule.parent;
-  if (parent === undefined || parent.type !== 'rule') return undefined;
-  return primaryClass(parent as Rule);
+  if (parent === undefined || parent.type !== 'rule') return [];
+  return primaryClasses(parent as Rule);
 }
 
-/** The single class name a rule's selector resolves to at its head — used as the base for a
- *  child's `&` concat. A `&suffix` head resolves through the grandparent recursively. */
-function primaryClass(rule: Rule): string | undefined {
-  const selector = rule.selector;
-  const amp = /^&([\w-]+)/.exec(selector);
-  if (amp?.[1] !== undefined) {
-    const base = ampBase(rule);
-    return base === undefined ? undefined : base + amp[1];
+/** The class name(s) a rule's selector resolves to at the point an `&` child glues on — one per
+ *  comma-branch. A `&suffix` head resolves through the grandparent recursively; a branch whose
+ *  trailing compound has no clean class (pseudo / attribute / element tail) is dropped, not guessed. */
+function primaryClasses(rule: Rule): string[] {
+  const out: string[] = [];
+  for (const branch of rule.selector.split(',')) {
+    const head = branch.trim();
+    if (head.length === 0) continue;
+    const ampHead = /^&([\w-]+)/.exec(head);
+    if (ampHead?.[1] !== undefined) {
+      for (const base of ampBases(rule)) out.push(base + ampHead[1]);
+      continue;
+    }
+    const base = trailingCompoundClass(head);
+    if (base !== undefined) out.push(base);
   }
-  const cls = /\.(-?[_a-zA-Z][\w-]*)/.exec(selector);
-  return cls?.[1];
+  return out;
+}
+
+/** The last simple `.class` of a selector branch's TRAILING compound — the segment a glued `&`
+ *  suffix attaches to. `.a.b` → `b`; `.outer .blk` → `blk`; `.blk:hover` / `.blk[x]` → undefined
+ *  (a pseudo / attribute tail isn't a clean class to glue onto, so we don't synthesize a name). */
+function trailingCompoundClass(branch: string): string | undefined {
+  const compounds = branch.split(/[\s>+~]+/).filter((s) => s.length > 0);
+  const last = compounds[compounds.length - 1];
+  if (last === undefined || /[:[]/.test(last)) return undefined;
+  const classes = last.match(/\.(-?[_a-zA-Z][\w-]*)/g);
+  const lastClass = classes?.[classes.length - 1];
+  // It must be the literal tail of the compound (no element / `*` / other token after it).
+  return lastClass !== undefined && last.endsWith(lastClass) ? lastClass.slice(1) : undefined;
 }
 
 /** Index ranges of the selector string that sit inside a `:global` break-out (the paren form

@@ -60,3 +60,34 @@ test('a parent-ref compound `&.active` still yields the literal class (unchanged
   const names = new Set(parse('.card {\n  &.active { outline: 1px; }\n}\n').map((c) => c.name));
   assert.ok(names.has('card') && names.has('active'), 'card + active both present');
 });
+
+test('parent-ref concat glues to the LAST class of the parent trailing compound — never fabricated', () => {
+  // `.a.b { &__el }` compiles to `.a.b__el` → the synthesized class is `b__el`, NOT `a__el`
+  // (the first token); recording `a__el` is a class that does not exist in the CSS (§3.2 lie).
+  const compound = new Set(parse('.a.b {\n  &__el { flex: 1; }\n}\n').map((c) => c.name));
+  assert.ok(compound.has('b__el'), 'glues to the last class of the compound');
+  assert.ok(!compound.has('a__el'), 'NOT the first class — that name is not in the CSS');
+
+  // Descendant: `.outer .blk { &__el }` → `.outer .blk__el` → `blk__el`, not `outer__el`.
+  const desc = new Set(parse('.outer .blk {\n  &__el { flex: 1; }\n}\n').map((c) => c.name));
+  assert.ok(desc.has('blk__el') && !desc.has('outer__el'), 'glues to the trailing compound');
+
+  // Comma list: `.a, .b { &__el }` compiles to BOTH `.a__el` and `.b__el` — emit each branch.
+  const comma = new Set(parse('.a, .b {\n  &__el { flex: 1; }\n}\n').map((c) => c.name));
+  assert.ok(comma.has('a__el') && comma.has('b__el'), 'both comma branches synthesized');
+
+  // Deep chain: `.a.b { &__c { &--d } }` → `b__c--d` (the last-class fix propagates down).
+  const deep = new Set(
+    parse('.a.b {\n  &__c {\n    &--d { flex: 1; }\n  }\n}\n').map((c) => c.name),
+  );
+  assert.ok(deep.has('b__c--d') && !deep.has('a__c--d'), 'chain resolves through the last class');
+
+  // Pseudo tail: `.blk:hover { &__el }` has no clean class to glue onto → synthesize NOTHING
+  // (never a fabricated `blk__el` / `hover__el`); the literal `blk` is still extracted.
+  const pseudo = new Set(parse('.blk:hover {\n  &__el { flex: 1; }\n}\n').map((c) => c.name));
+  assert.ok(
+    !pseudo.has('blk__el') && !pseudo.has('hover__el'),
+    'no fabricated name on a pseudo tail',
+  );
+  assert.ok(pseudo.has('blk'), 'the parent class itself is still present');
+});

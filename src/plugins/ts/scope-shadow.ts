@@ -6,6 +6,15 @@
 // SHADOWS it inside its subtree. Counting that shadowed `s.field` as a class access would be a
 // false "class used" (§3) — so consumers thread a `shadowed` set down the AST and skip any
 // binding name in it. This module owns the binding-introduction logic; it is NOT duplicated.
+//
+// KNOWN LIMITATION (tracked, not silent — §3.6): only function params + catch vars (and their
+// destructuring) introduce a shadow here. A `const`/`let`/`var` rebind of the import name
+// (`const s = getThing(); s.notCss`) is NOT skipped, so such an access is still mis-counted as a
+// class use. A correct fix needs block-POSITION-aware shadowing (a `const s` shadows only from
+// its declaration onward in its block — a subtree-wide skip would over-skip a real `s.x` earlier
+// in the same block, a worse, false-"unused" lie), so it is deferred rather than naively patched.
+// Low-frequency (rebinding a css-import default name with a local const is rare) and the safe
+// direction (a false "used", never a false "certain unused").
 
 import ts from 'typescript';
 
