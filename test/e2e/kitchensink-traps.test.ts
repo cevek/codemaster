@@ -10,6 +10,9 @@
 // channel and NOT asserted as "correct" here — see the notes inline.
 
 // Gate 1 (the cold `tsc --noEmit` over the fixture) lives in kitchensink-tsc.test.ts.
+// (Stage 4 oracle-hardening lives in the sibling kitchensink-oracle-hardening.test.ts — the
+// 300-line-per-file cap (CONTRIBUTING) forced the split; spec §5 Stage 4's "extend
+// kitchensink-traps.test.ts" is satisfied by that clearly-linked companion file.)
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { projectFromDir } from '../helpers/repo-fixture.ts';

@@ -1,6 +1,7 @@
-// trap S3 (one of ≥3 modules imported into Dashboard.tsx) + S4 (unused direction #1):
-// `container`/`cell` are used in TS; `unusedGrid` is declared but referenced nowhere →
-// genuinely unused (a simple single-class rule, so provably so, not just partial).
+// traps S3 (one of ≥3 modules imported into Dashboard.tsx) + S4 (unused direction #1) + S12
+// (isolable composes target, below): `container`/`cell` are used in TS; `unusedGrid` is declared
+// but referenced nowhere → genuinely unused (a simple single-class rule, so provably so, not just
+// partial).
 .container {
   display: grid;
 }
@@ -9,4 +10,17 @@
 }
 .unusedGrid {
   display: none;
+}
+
+// trap S12 (ISOLABLE composes target — Stage 4 oracle): `composeBase` is reachable ONLY via
+// the `composes:` linkage from `composeConsumer` (which IS used in Dashboard.tsx); it is never
+// referenced directly in TS. This module has NO dynamic css access, so its unused-claims are
+// `certain` — making it the clean place to isolate whether find_unused_scss_classes counts
+// composition reachability (it must NOT report `composeBase` plainly "unused").
+.composeBase {
+  font-weight: 600;
+}
+.composeConsumer {
+  composes: composeBase;
+  padding: 1px;
 }

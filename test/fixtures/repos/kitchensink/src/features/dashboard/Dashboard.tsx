@@ -2,7 +2,8 @@
 // direction: `grid.missingCol` and `theme.missingTone` are referenced with no scss rule) ·
 // M4 (imports formatLabel via the DEEP 3-hop path @/shared/chain/a.ts — others use the hub /
 // the decl) · T13 (references the const-enum member Code.Ok, inlined) · T2 (formatLabel) ·
-// i18n (t() static + a missing key via Panel/forms).
+// S12 (uses `grid.composeConsumer`, the isolable composes consumer) · i18n (t() static + a
+// missing key via Panel/forms).
 import { formatLabel } from '@/shared/chain/a.ts';
 import { t } from '@/core/i18n.ts';
 import { Code } from '@/core/codes.ts';
@@ -32,6 +33,9 @@ export function Dashboard(props: { section?: string }): JSX.Element {
         <span className={theme.missingTone}>{ok}</span>
       </div>
       <p className={`${theme.light} ${zoo.empty}`} />
+      {/* S12 — uses composeConsumer (which `composes: composeBase`); composeBase is reachable
+          ONLY through that composition, never referenced directly. */}
+      <footer className={grid.composeConsumer} />
     </section>
   );
 }

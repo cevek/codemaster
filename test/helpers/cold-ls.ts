@@ -2,12 +2,13 @@
 // whole fixture repo — never the warm daemon's own Language Service — so a differential test
 // compares two independent TS views and catches incremental-update drift, not the checker
 // against itself. Ships `coldMembers`/`coldDiagnostics` (lifted out of `expand-type.test.ts`,
-// which now imports them — its still-green run is the behaviour-preserving proof). (`find_usages`
-// is pinned against a HAND-CURATED ground truth, not a cold `findReferences` — that would run the
-// identical LS algorithm and be circular, §16.)
+// which now imports them — its still-green run is the behaviour-preserving proof) and
+// `coldFindReferences` (a cold LS over the post-op tree — the rename/move cross-check, §3).
+// (`find_usages` is pinned against a HAND-CURATED ground truth, not a cold `findReferences` —
+// that would run the identical LS algorithm and be circular, §16.)
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
 
@@ -68,6 +69,58 @@ export function coldMembers(root: string, fileRel: string, typeName: string): Co
       ),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The post-op cross-check oracle for rename_symbol / move_file (spec-kitchensink §3): a
+ *  fresh-from-cold `ts.LanguageService` over the ON-DISK post-op tree — never the warm daemon
+ *  that performed the edit — answering `getReferencesAtPosition`. After a rename, a cold
+ *  find-references on the NEW name must resolve the SAME set of files the op claimed to
+ *  rewrite (no reference left dangling, none added). This is a secondary cross-check; the
+ *  primary completeness gate stays `coldDiagnostics() == []` (a missed rewrite fails to
+ *  compile) + a hand-curated touched-set. For `find_usages` this oracle would be CIRCULAR
+ *  (identical LS algorithm, §16) — use a hand-curated set there, not this. */
+function coldLanguageService(root: string): { service: ts.LanguageService; fileNames: string[] } {
+  const configPath = path.join(root, 'tsconfig.json');
+  const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
+  const { config, error } = raw as { config: unknown; error?: unknown };
+  assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
+  const fileNames = parsed.fileNames;
+  const host: ts.LanguageServiceHost = {
+    getScriptFileNames: () => fileNames,
+    getScriptVersion: () => '1', // cold + immutable: every file is read once, never edited
+    getScriptSnapshot: (fileName) =>
+      existsSync(fileName)
+        ? ts.ScriptSnapshot.fromString(readFileSync(fileName, 'utf8'))
+        : undefined,
+    getCurrentDirectory: () => root,
+    getCompilationSettings: () => parsed.options,
+    getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
+    fileExists: ts.sys.fileExists,
+    readFile: ts.sys.readFile,
+    readDirectory: ts.sys.readDirectory,
+    directoryExists: ts.sys.directoryExists,
+    getDirectories: ts.sys.getDirectories,
+  };
+  return { service: ts.createLanguageService(host, ts.createDocumentRegistry()), fileNames };
+}
+
+/** The set of repo-relative files a cold LS finds referencing `symbolName` — located at its
+ *  first word-boundary occurrence in `fileRel`. Includes the declaration file, every
+ *  import/usage, and re-export sites. Sorted for set comparison.
+ *
+ *  CALLER CONTRACT: pass a `fileRel` whose FIRST occurrence of `symbolName` is the declaration
+ *  (e.g. the decl file after a rename) — the lookup anchors there, so a leading comment/import
+ *  mentioning the name first would mis-anchor. The current callers pass decl files. */
+export function coldFindReferences(root: string, fileRel: string, symbolName: string): string[] {
+  const { service } = coldLanguageService(root);
+  const abs = path.join(root, fileRel);
+  const source = readFileSync(abs, 'utf8');
+  const at = new RegExp(`\\b${symbolName}\\b`).exec(source);
+  assert.ok(at !== null, `oracle could not find ${symbolName} in ${fileRel}`);
+  const refs = service.getReferencesAtPosition(abs, at.index) ?? [];
+  const files = new Set(refs.map((r) => path.relative(root, r.fileName).split(path.sep).join('/')));
+  return [...files].sort();
 }
 
 /** Independent edit-safety oracle (§16.4): the pre-emit diagnostics a cold compile of the

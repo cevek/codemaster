@@ -272,6 +272,36 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       rollback path with no CI to catch a regression — so defer. Extract a shared scaffold (commit + rollback injected; the move-specific collision-check / `removed` tombstones / `git mv` stay
       in the plan path) **when the next change to the §2.10 contract forces editing both.**
 
+## kitchensink integration — the port's first realistic workout
+
+> Spec: [docs/spec-kitchensink-integration.md](spec-kitchensink-integration.md). Drive the
+> Phase 2 symbol-anchored ops over the dense `test/fixtures/repos/kitchensink/` trap-zoo
+> (spec-synthetic-fixture). Test-writing only (no production code); expected to SURFACE port
+> bugs — handled per the failure discipline (§2), audited in
+> [docs/findings-kitchensink.md](findings-kitchensink.md).
+> **Exit**: each stage's tests green-or-honestly-quarantined; oracles independent (cold-LS /
+> `tsc` / git byte-exact / independent css scan).
+
+- [x] oracle: `test/helpers/cold-ls.ts` → `coldFindReferences` (cold LS over the post-op tree)
+- [x] Stage 1 — `rename_symbol` over the substrate (`test/e2e/kitchensink-rename.test.ts`):
+      high-fan-in `formatLabel` (M4 dual-path) + `Registry` (T3) + const-enum member `Code.Ok`
+      (T13, inlined refs); cold-LS refs + cold `tsc` + git byte-exact. Surfaced **KS-1** (rename
+      preserves the old name through a re-export chain — PINNED honest behavior, wish filed).
+- [x] Stage 2 — `move_file` over the substrate (`test/e2e/kitchensink-move.test.ts`):
+      M11 dual-spelling (both spellings rewritten, ext-style preserved) · M12 `import().Type` (3
+      embedded paths + ES type import) · M9 dynamic specifier · folder move + sibling scss/bare-scss
+      carry + history. All green — no port bugs surfaced.
+- [x] Stage 3 — `extract_symbol` (+ CSS co-extract) (`test/e2e/kitchensink-extract.test.ts`):
+      closure-capture from the T12 monolith (KS-2 — scope analysis works, extract refused under
+      verbatimModuleSyntax: type-only captures imported as values; tsc-clean MUST quarantined,
+      bug filed) · Widget co-extract (KS-3 — CSS report correct: safe title/badge moved,
+      card NESTED / block\_\_el NO-RULE; TS extract refused as sole-export importers dangle, bug filed)
+- [x] Stage 4 — oracle hardening (extend `kitchensink-traps.test.ts` + fixture): S12 isolable
+      `composes` target (KS-4 — find_unused ignores composes linkage → certain-unused; MUST
+      quarantined, bug filed) · S5 dynamic-module demotion (`.active` → partial, works) · M9
+      honest-limitation (move rewrites the dynamic specifier; rename reaches the dynamic-import
+      member + leaves the path string to move_file)
+
 ## Phase 3 — non-TS plugins (`scss` · `i18n` · `schema`)
 
 > **Exit**: cross-tier ops work — agent can `find_unused_scss_classes`,
