@@ -40,19 +40,28 @@ test (cold reparse / independent scan — §16) · the matching kitchensink KNOW
 assert the fix · ≤300 real-code lines/file · no upward import · no duplicated traversal · docs at
 present state.
 
-### Stage 1 — `find_unused_scss_classes`: contextual classes are `partial`, not `certain` unused; dedup
+### Stage 1 — `find_unused_scss_classes` reachability honesty (contextual + `composes:`); dedup
 
-- **Gap (#2a).** A class that appears ONLY inside a contextual / nested / compound / at-rule /
-  parent-ref selector (`.card .row`, `.card>.head`, `.card{ .nested }`, `.card{ &.active }`,
+- **Gap (#2a — contextual).** A class that appears ONLY inside a contextual / nested / compound /
+  at-rule / parent-ref selector (`.card .row`, `.card>.head`, `.card{ .nested }`, `.card{ &.active }`,
   `[data-theme]{ .themed }`, `@media{ .responsive }`) is reported `confidence:'certain'` unused. Per
   §4.3.1 these are **not provably unused** → must be `partial` ("could not prove dead"), never
   plainly unused. Also: the same class seen in N selectors emits **N duplicate rows** — collapse to one.
-- **Build.** Reuse `extract-classify.ts`'s verdict notion (a class with no top-level owning rule but
-  referenced in a compound/contextual selector is entangled). In `find_unused`, demote such a class to
-  `partial` with a note (mirror the existing dynamic-access `partial` demotion); dedup the result by
-  class+file.
-- **Oracle.** Flip the kitchensink §4.3.1 KNOWN-GAP assertion: `row/head/nested/themed/responsive` →
-  `partial`, single row each; a genuinely-dead simple class stays `certain`. Independent class scan.
+- **Gap (#KS-4 — `composes:` reachability).** A class pulled in ONLY by another rule's
+  `composes: <class>` (CSS-modules composition) is reported `certain` unused — e.g. `.composeBase {…}`
+  referenced only by `.composeConsumer { composes: composeBase }` where `composeConsumer` IS used in
+  TS. An agent acting on it would delete the class and break the composition. `find_unused` does not
+  consult `composes:` linkage at all.
+- **Build.** Reuse, don't re-derive: `extract-classify.ts` already knows both shapes — the
+  contextual/compound verdict notion (a class with no top-level owning rule but referenced in a
+  compound/contextual selector is entangled) AND `composes:` linkage (`composesLocalTargets` /
+  `composedClasses`, used by the co-extract safe-move). In `find_unused`, demote a contextual-only
+  class to `partial`; count a `composes:`-target class as **used** (or at least `partial`), never
+  plainly `certain` unused; dedup the result by class+file.
+- **Oracle.** Flip the kitchensink KNOWN-GAP assertions: §4.3.1 `row/head/nested/themed/responsive` →
+  `partial`, single row each; KS-4 `composeBase` in `grid.module.scss` (no dynamic access, so claims
+  are otherwise `certain`) → not `certain` unused; a genuinely-dead simple class stays `certain`.
+  Independent class scan; flips the KS-4 quarantine in `test/e2e/kitchensink-traps.test.ts`.
 
 ### Stage 2 — `scss_classes`: synthesize BEM parent-ref concat names; exclude `:global`
 
