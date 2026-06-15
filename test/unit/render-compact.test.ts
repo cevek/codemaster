@@ -1,0 +1,133 @@
+// Compaction of the dense renderer (§12 "output is for agents — maximally compact"). Oracle:
+// the rendered text must collapse known one-fact shapes to a SINGLE line and never repeat a
+// path that the condensed span already carries. Each case pins a shape the live audit found
+// bloated (scss lists, expand_type union members, find_definition:full).
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { renderResult } from '../../src/format/render/render-result.ts';
+import { ok } from '../../src/common/result/construct.ts';
+import type { JsonValue } from '../../src/core/json.ts';
+
+const span = (file: string, line: number, col: number, text: string): JsonValue => ({
+  file,
+  line,
+  col,
+  endLine: line,
+  endCol: col + text.length,
+  text,
+});
+
+test('scss class list collapses to one line per class (no duplicated file=)', () => {
+  const out = renderResult(
+    ok({
+      classes: [
+        {
+          name: 'badge',
+          file: 'a.module.scss',
+          span: span('a.module.scss', 1, 1, '.badge'),
+          confidence: 'certain',
+        },
+      ],
+    }),
+  );
+  assert.match(out, /a\.module\.scss:1:1 · badge/, 'one-liner: span · name');
+  assert.doesNotMatch(out, /\n\s*file=/, 'no separate file= line (the span already carries it)');
+  assert.doesNotMatch(out, /confidence=certain/, 'certain confidence stays implicit');
+});
+
+test('unused scss class surfaces non-certain confidence + note on the same line', () => {
+  const out = renderResult(
+    ok({
+      unused: [
+        {
+          name: 'card',
+          file: 'a.module.scss',
+          span: span('a.module.scss', 5, 1, '.card'),
+          confidence: 'partial',
+          note: 'appears only in a contextual/compound/nested selector — cannot prove dead',
+        },
+      ],
+    }),
+  );
+  assert.match(
+    out,
+    /a\.module\.scss:5:1 · card · partial · appears only/,
+    'span · name · conf · note, one line',
+  );
+});
+
+test('expand_type union member stays one line (name?: type), no 3-line explosion', () => {
+  const out = renderResult(
+    ok({
+      about: 'interface X',
+      span: span('t.ts', 1, 11, 'X'),
+      members: [
+        { name: 'id', optional: false, type: 'string' },
+        { name: 'awaiting', optional: true, type: 'string | undefined' },
+      ],
+    }),
+  );
+  assert.match(out, /\n {2}id: string/, 'leaf member: name: type');
+  assert.match(out, /\n {2}awaiting\?: string \| undefined/, 'optional union member on ONE line');
+  assert.doesNotMatch(out, /\n\s*optional=/, 'no separate optional= line');
+});
+
+test('find_definition at full reuses the source body renderer (header + body, not exploded spans)', () => {
+  const out = renderResult(
+    ok({
+      definitions: [
+        {
+          id: 'ts:Foo@a.ts:1:17',
+          name: 'Foo',
+          kind: 'function',
+          span: span('a.ts', 1, 17, 'Foo'),
+          decl: span('a.ts', 1, 1, 'export function Foo() {\n  return 1;\n}'),
+          container: './a',
+        },
+      ],
+    }),
+    'full',
+  );
+  assert.match(out, /^ts:Foo@a\.ts:1:17 · function @ a\.ts:1:1/, 'source-style header line');
+  assert.match(out, /export function Foo\(\) \{/, 'the verbatim body is shown');
+  assert.doesNotMatch(out, /endLine=|endCol=/, 'no exploded span fields');
+  assert.doesNotMatch(
+    out,
+    /container=/,
+    'redundant container dropped (id already encodes the file)',
+  );
+});
+
+test('find_definition:full carries the elided flag → truncation is stated, not a silent …', () => {
+  // A decl body cut at the span cap (elided:true) MUST surface the "[body truncated …]" line —
+  // dropping the flag in the source projection would present a cut body as complete (§3.4).
+  const out = renderResult(
+    ok({
+      definitions: [
+        {
+          id: 'ts:Big@a.ts:1:17',
+          name: 'Big',
+          kind: 'function',
+          span: span('a.ts', 1, 17, 'Big'),
+          decl: {
+            file: 'a.ts',
+            line: 1,
+            col: 1,
+            endLine: 9,
+            endCol: 1,
+            text: 'export function Big() { /* huge … */',
+            elided: true,
+          },
+        },
+      ],
+    }),
+    'full',
+  );
+  assert.match(out, /\[body truncated at span cap/, 'truncation stated, never a bare …');
+});
+
+test('find_definition:full with empty definitions renders the dense "(0)" marker, not a blank', () => {
+  const out = renderResult(ok({ definitions: [] }), 'full');
+  assert.match(out, /definitions \(0\)/, 'explicit 0, never an empty render');
+});

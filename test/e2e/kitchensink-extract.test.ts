@@ -36,7 +36,7 @@ interface Envelope {
   mode: string;
   diff: string;
   touched: string[];
-  typecheck: { clean: boolean; diagnostics?: { message: string }[] };
+  typecheck: { clean: boolean; introduced?: { message: string }[]; preExisting?: number };
   applied?: boolean;
   reason?: string;
   notes?: string[];
@@ -53,7 +53,7 @@ async function extract(p: TestProject, args: JsonValue, apply = false): Promise<
 }
 
 const diagText = (e: Envelope): string =>
-  (e.typecheck.diagnostics ?? []).map((d) => d.message).join('\n');
+  (e.typecheck.introduced ?? []).map((d) => d.message).join('\n');
 
 void describe('kitchensink extract_symbol (Stage 3 — scope analysis + CSS co-extract)', () => {
   // T12 / KS-2 — `buildReport` (top-level export in mono.ts) captures the local non-exported

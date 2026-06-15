@@ -25,6 +25,12 @@ export const DEFAULT_IGNORED_DIRS: ReadonlySet<string> = new Set([
   '.vscode',
   '.turbo',
   '.cache',
+  // Agent state — `.claude/worktrees/<id>` holds whole-tree COPIES of the repo; walking
+  // them indexes every source file N times over (a `find_unused_*` answer turns to noise,
+  // a per-query freshness stat-walk balloons). This is the non-git fallback's blind spot:
+  // the git `ls-files` listing already excludes it via `.gitignore`, but the plugins on
+  // this raw walk (scss/i18n/schema) and the freshness backstop do not — so exclude it here.
+  '.claude',
 ]);
 
 /** Editor atomic-save / swap / backup churn (§19). */

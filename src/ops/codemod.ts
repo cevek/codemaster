@@ -92,7 +92,7 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
   example: { args: { pattern: 'oldApi($A)', rewrite: 'newApi($A)' } },
   notes: [
     'matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).',
-    'dry-run/apply like every mutating op; the post-edit typecheck gates apply and rolls back a rewrite that breaks compilation.',
+    'dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const root = ctx.daemon?.root;

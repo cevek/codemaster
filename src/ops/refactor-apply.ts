@@ -4,10 +4,13 @@
 //
 //   1. format each `after` in-memory (project prettier) so the dry-run PREVIEW is
 //      byte-identical to what apply writes — `diff(dry) == diff(apply)` (§16.4).
-//   2. §2.8 GATE: typecheck the post-edit content over the overlay. No clean typecheck →
-//      no write, ever (a mis-port surfaces as a diagnostic, never silent corruption).
+//   2. §2.8 GATE: typecheck the post-edit content over the overlay, DIFFED against a pre-edit
+//      baseline over the same scope. An error the edit INTRODUCES → no write, ever (a mis-port
+//      surfaces as a diagnostic, never silent corruption); a repo's pre-existing errors don't
+//      block (reported as a preExisting count) — the gate judges the edit, not the repo's state.
 //   3. apply: dirty-gate the touched files → write → reindex → post-apply DISK typecheck →
-//      roll back byte-exact iff THAT typecheck fails (never on a prettier hiccup).
+//      roll back byte-exact iff THAT typecheck shows newly-introduced errors (never on a
+//      prettier hiccup, never on a pre-existing error the edit didn't cause).
 //
 // Any failure that leaves disk touched (a write that died mid-loop, a post-apply rollback)
 // reports the rollback outcome explicitly — a partially-mutated tree is never hidden behind
@@ -22,7 +25,13 @@ import { ok, fail, failFromThrown, messageOfThrown } from '../common/result/cons
 import { writeFileAtomic } from '../support/text-edits/write.ts';
 import type { TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
-import { absOf, diagsToJson, formatOne, resolvePrettier, dirtyAmong } from './mutation-support.ts';
+import {
+  absOf,
+  buildTypecheckField,
+  formatOne,
+  resolvePrettier,
+  dirtyAmong,
+} from './mutation-support.ts';
 
 /** One file's full before/after content (offsets already applied by the plugin). */
 export interface MutationChange {
@@ -40,9 +49,10 @@ export interface ApplyOptions {
    *  merged into the envelope's `notes` so an incomplete edit is never reported as clean. */
   warnings?: readonly string[];
   /** Widen the §2.8 gate to the WHOLE program. Set ONLY by a caller whose changeset is NOT
-   *  complete — a shape-based `codemod` can break an un-matched importer. A symbol-anchored
-   *  caller (rename: the LS `findRenameLocations` set is complete) leaves it off, keeping the
-   *  hot path narrow and not refusing on a repo with unrelated pre-existing errors. */
+   *  complete — a shape-based `codemod` can break an un-matched importer, so it must look beyond
+   *  the touched files. A symbol-anchored caller (rename: the LS `findRenameLocations` set is
+   *  complete) leaves it off, keeping the typecheck cheap. Either way a repo's pre-existing errors
+   *  do not block — the gate diffs post-edit diagnostics against a pre-edit baseline (§3.6). */
   crossFileScope?: boolean;
   /** Build a disclosure from the FORMATTED changes (post-prettier), run once after formatting.
    *  Its `notes` (plain text, NO span claims) append to the envelope `notes` in EVERY mode — a
@@ -134,13 +144,18 @@ export async function applyMutation(
 
   // §2.8 gate — typecheck the post-edit content over the overlay. Scope depends on whether the
   // changeset is COMPLETE: a symbol-anchored rename (LS findRenameLocations) touches every ref
-  // site, so checking just the changed files is sound AND keeps the hot path narrow (it won't
-  // refuse on a repo with unrelated pre-existing errors). A shape-based codemod has no such
-  // guarantee — it can break an un-matched importer — so it (and only it) widens to the whole
-  // program (which, like the plan ops, then refuses on a pre-existing-error repo).
+  // site, so checking just the changed files is sound AND keeps the typecheck cheap. A shape-based
+  // codemod has no such guarantee — it can break an un-matched importer — so it (and only it)
+  // widens to the whole program. Pre-existing repo errors don't block either scope: the gate
+  // diffs against a pre-edit baseline and refuses only on what THIS edit introduced (below).
   const checkScope = options.crossFileScope === true ? ts.programTsFiles() : touched;
+  let baselineDiag: TsDiagnostic[];
   let overlayDiag: TsDiagnostic[];
   try {
+    // Baseline FIRST (pre-edit disk), then the overlay check — so a pre-existing repo error is
+    // told apart from one THIS edit introduced. The gate refuses on the latter only; a repo's
+    // unrelated errors must never make a sound rename/move inapplicable (§2.8 / §3.6).
+    baselineDiag = ts.diagnostics(checkScope);
     overlayDiag = ts.typecheckOverlay(
       changes.map((c) => ({ path: c.path, content: c.after })),
       { check: checkScope },
@@ -148,10 +163,8 @@ export async function applyMutation(
   } catch (thrown) {
     return failFromThrown('ts-ls', thrown);
   }
-  const typecheck: JsonValue =
-    overlayDiag.length === 0
-      ? { clean: true }
-      : { clean: false, diagnostics: diagsToJson(overlayDiag) };
+  const gate = buildTypecheckField(baselineDiag, overlayDiag);
+  const typecheck = gate.field;
 
   // A requested apply we decline to perform (gate unclean / dirty tree) — nothing written.
   const refused = (reason: string): Result<JsonValue> =>
@@ -163,8 +176,8 @@ export async function applyMutation(
   if (ctx.flags.apply !== true) {
     return ok<JsonValue>({ mode: 'dry-run', diff, touched, typecheck, ...baseNotes }, handleExtra);
   }
-  if (overlayDiag.length > 0) {
-    return refused('post-edit typecheck not clean — apply refused (§2.8)');
+  if (!gate.clean) {
+    return refused('this edit introduces new typecheck errors — apply refused (§2.8)');
   }
 
   // Dirty gate — refuse if a TOUCHED file has uncommitted changes (rollback restores the
@@ -208,10 +221,12 @@ export async function applyMutation(
       return appliedWithRollback(typecheck, reverted, `write failed (${w.failure.message})`);
     }
   }
-  let postDiag: TsDiagnostic[];
+  let postGate: { clean: boolean; field: JsonValue };
   try {
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    postDiag = ts.diagnostics(checkScope);
+    // Diff post-apply disk diagnostics against the SAME pre-edit baseline — a pre-existing repo
+    // error must not trigger a (byte-exact, but pointless) rollback of a sound edit.
+    postGate = buildTypecheckField(baselineDiag, ts.diagnostics(checkScope));
   } catch (thrown) {
     const reverted = await revertAll(root, changes, ts);
     return appliedWithRollback(
@@ -220,13 +235,9 @@ export async function applyMutation(
       `post-apply typecheck threw (${messageOfThrown(thrown)})`,
     );
   }
-  if (postDiag.length > 0) {
+  if (!postGate.clean) {
     const reverted = await revertAll(root, changes, ts);
-    return appliedWithRollback(
-      { clean: false, diagnostics: diagsToJson(postDiag) },
-      reverted,
-      'post-apply typecheck failed',
-    );
+    return appliedWithRollback(postGate.field, reverted, 'post-apply typecheck failed');
   }
   return ok<JsonValue>(
     {
@@ -234,7 +245,9 @@ export async function applyMutation(
       applied: true,
       diff,
       touched,
-      typecheck: { clean: true },
+      // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
+      // error count rides along on success too — honest, and consistent with the dry-run field.
+      typecheck: postGate.field,
       rollback: { performed: false },
       ...baseNotes,
       // Proof spans valid only now that the post-edit content is on disk (§3.2).

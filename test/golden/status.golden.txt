@@ -36,17 +36,18 @@ ops (14):
     · syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.
     columns: name,file,line,col,confidence
     e.g. op {"name":"scss_classes","args":{"file":"src/button.module.scss"}}
-  find_unused_scss_classes {} — SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial
+  find_unused_scss_classes { pathInclude?: string[], pathExclude?: string[] } — SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial
     · a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.
+    · pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.
     columns: name,file,line,col,confidence,note
-    e.g. op {"name":"find_unused_scss_classes","args":{}}
+    e.g. op {"name":"find_unused_scss_classes","args":{"pathInclude":["src/features/**"]}}
   rename_symbol [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)
-    · dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused unless that typecheck is clean.
-    · apply rolls back byte-exact if the post-apply typecheck fails; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.
+    · dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.
+    · apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.
     e.g. op {"name":"rename_symbol","args":{"file":"src/app.ts","line":12,"col":8,"newName":"renamed"}}
   move_file [mutating] { source: RepoRelPath, dest: RepoRelPath (full new path), dirtyOk?: boolean } — Move a file/folder and rewrite every importer (dry-run unless apply:true)
     · dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.
-    · dry-run writes nothing; apply is refused unless the post-move typecheck is clean, and rolls back to the pre-op state if the post-apply typecheck fails.
+    · dry-run writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back to the pre-op state if the post-apply typecheck shows newly-introduced errors.
     e.g. op {"name":"move_file","args":{"source":"src/old/Button.tsx","dest":"src/ui/Button.tsx"}}
   extract_symbol [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' } — Move a top-level symbol to a new file, rewriting imports (dry-run unless apply:true)
     · dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.
@@ -60,7 +61,7 @@ ops (14):
     e.g. op {"name":"change_signature","args":{"name":"greet","removeParam":1}}
   codemod [mutating] { pattern: string, rewrite: string, paths?: string[], dirtyOk?: boolean } — Shape-based structural find/replace via ast-grep — NOT symbol-anchored (§7)
     · matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).
-    · dry-run/apply like every mutating op; the post-edit typecheck gates apply and rolls back a rewrite that breaks compilation.
+    · dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.
     e.g. op {"name":"codemod","args":{"pattern":"oldApi($A)","rewrite":"newApi($A)"}}
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.

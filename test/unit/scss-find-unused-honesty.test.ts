@@ -120,3 +120,54 @@ test('cross-sheet composes-from with an unresolvable/unindexed provider never re
     await p.dispose();
   }
 });
+
+// pathInclude/pathExclude scope WHICH sheets are reported on (the whole-repo answer caps fast).
+// The load-bearing invariant: scoping must NOT fabricate a dead class an EXCLUDED sheet keeps
+// alive — cross-sheet `composes:` reachability is resolved over every sheet regardless of scope.
+type ScopedView = { unused: Unused[]; scanned: { modules: number; classes: number } };
+
+test('pathInclude scopes the report; cross-sheet composes reachability survives (no scoped-away false dead)', async () => {
+  const p = await project(CROSS_SHEET_FIXTURE);
+  try {
+    // Scope the report to the provider sheet ONLY — the consumer sheet that composes `.shared`
+    // is OUT of scope, yet `.shared` must not flip to certain-dead.
+    const r = await p.op('find_unused_scss_classes', { pathInclude: ['src/provider.module.scss'] });
+    assert.ok('result' in r && r.result.ok);
+    const data = r.result.data as ScopedView;
+    const row = (name: string): Unused | undefined => data.unused.find((u) => u.name === name);
+
+    assert.equal(data.scanned.modules, 1, 'scanned scope = the one included sheet');
+    assert.equal(row('orphan')?.confidence, 'certain', 'in-scope, truly dead → still certain');
+    assert.equal(
+      row('shared')?.confidence,
+      'partial',
+      'composed from an EXCLUDED sheet → still partial, never a scoped-away false dead',
+    );
+    assert.equal(row('box'), undefined, 'the excluded consumer sheet is not reported');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('pathExclude drops a sheet from the report (scanned scope shrinks)', async () => {
+  const p = await project(CROSS_SHEET_FIXTURE);
+  try {
+    const r = await p.op('find_unused_scss_classes', {
+      pathExclude: ['**/provider.module.scss'],
+    });
+    assert.ok('result' in r && r.result.ok);
+    const data = r.result.data as ScopedView;
+    assert.equal(
+      data.unused.find((u) => u.name === 'orphan'),
+      undefined,
+      'excluded sheet hidden',
+    );
+    assert.equal(
+      data.unused.find((u) => u.name === 'shared'),
+      undefined,
+      'excluded sheet hidden',
+    );
+  } finally {
+    await p.dispose();
+  }
+});

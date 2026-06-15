@@ -76,6 +76,31 @@ test('fs wrappers: canonical minting, stat fingerprints, walk', async () => {
   }
 });
 
+test('walk excludes .claude (agent worktrees) — gitignored whole-tree copies must not be indexed', async () => {
+  // `.claude/worktrees/<id>` holds whole-tree COPIES of the repo; the non-git walk (scss/i18n/
+  // schema + the freshness backstop) must skip them or every source file is indexed N times over.
+  const p = await project({
+    'src/App.tsx': 'export const App = 1;\n',
+    '.claude/worktrees/dupe/src/App.tsx': 'export const App = 1;\n',
+  });
+  try {
+    const canon = canonicalizeRoot(p.root);
+    assert.ok(canon.ok);
+    const walked = walkFiles(canon.root);
+    assert.ok(walked.ok);
+    assert.ok(
+      walked.data.some((f) => f.path === 'src/App.tsx'),
+      'real source still walked',
+    );
+    assert.ok(
+      !walked.data.some((f) => f.path.includes('.claude/')),
+      '.claude (worktree tree-copies) must be excluded',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('§19 canonicalization: case-fold collapses spellings, symlink resolves, escape refused', () => {
   // Deterministic and FS-INDEPENDENT: the casing/symlink verdict is injected, so the test
   // does not depend on whether the CI volume happens to be case-insensitive (§19).

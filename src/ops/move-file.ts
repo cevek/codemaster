@@ -29,7 +29,7 @@ export const moveFileOp = defineOp<MoveArgs, JsonValue>({
   example: { args: { source: 'src/old/Button.tsx', dest: 'src/ui/Button.tsx' } },
   notes: [
     'dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.',
-    'dry-run writes nothing; apply is refused unless the post-move typecheck is clean, and rolls back to the pre-op state if the post-apply typecheck fails.',
+    'dry-run writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back to the pre-op state if the post-apply typecheck shows newly-introduced errors.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

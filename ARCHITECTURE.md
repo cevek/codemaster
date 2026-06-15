@@ -257,7 +257,8 @@ gets its own subfolder; same "one operation per file" rule as `common/`.
   `diff --name-only`, blame, log, snapshot/rollback.
 - **`prettier/`** — invoke the **project's own** prettier for post-edit formatting.
 - **`text-edits/`** — span-based edits, atomic application, conflict detection.
-- **`fs/`** — glob + `.gitignore`-aware file walking; `realpath` canonicalization;
+- **`fs/`** — recursive file walking with a built-in ignore set (the **non-git fallback** — git
+  `ls-files` is the `.gitignore`-aware listing the engine prefers); `realpath` canonicalization;
   `stat` → `FileFingerprint`.
 
 > **Every tool that interprets the project runs the project's _own_ version** —
@@ -594,8 +595,12 @@ generator), `plugins` (which framework plugins to enable, autodetect overrides),
 (verbosity, limits), `daemon` (idle eviction, path-existence sweep interval), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
-all it still works: defaults honor `.gitignore` (nested + `!` negation), and always skip
-`node_modules`/`dist`/`build`/`.next` and files > 1 MB. See
+all it still works: TS indexing (and `codemod` / text-search) drives off git `ls-files`, which
+honors `.gitignore` (nested + `!` negation); the `scss`/`i18n`/`schema` plugins and the non-git
+freshness fallback instead use a built-in ignore set — `node_modules`/`dist`/`build`/`.next`,
+tool/agent state dirs (`.idea`/`.vscode`/`.claude`/…), and files > 1 MB — not a full
+`.gitignore` evaluation (a repo gitignoring e.g. `generated/` would still have its SCSS indexed;
+honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
 [`src/config/config.ts`](src/config/config.ts).
 
 ---
@@ -893,7 +898,9 @@ misses). The harness rests on invariants that do:
    against a cold-booted daemon's same plugin. This invariant guards per-plugin
    incremental-update drift (each plugin maintains its own state independently).
 4. **Edit safety** — dry-run leaves `git status` clean; `diff(dry-run) == diff(apply)`;
-   post-apply `tsc` clean; rollback restores byte-exact prior state.
+   post-apply the edit introduces **no new** `tsc` errors vs the pre-edit baseline (a repo's
+   pre-existing errors are reported as a `preExisting` count, never gated on — so an edit applies
+   on a repo that doesn't already compile); rollback restores byte-exact prior state.
 5. **Op golden against oracle** — `find_usages` pinned against cold LS on fixtures;
    `find_unused_scss_classes` pinned against cold reparse; etc. (regression net, not a
    correctness proof — paired with the oracle).

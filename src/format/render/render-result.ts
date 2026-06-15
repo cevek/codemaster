@@ -9,7 +9,7 @@ import type { JsonValue } from '../../core/json.ts';
 import { renderDense } from './render-dense.ts';
 import { condenseSpans } from './condense.ts';
 import { isSqlTableData, renderSqlTable } from './render-table.ts';
-import { isSourceData, renderSource } from './render-source.ts';
+import { isSourceData, renderSource, type SourceEntry, type SourceSpan } from './render-source.ts';
 
 /** Hard self-cap on one rendered result. Blowing the agent's context with a dump is a
  *  failure mode of its own — past the cap the output is cut AT A LINE BOUNDARY with an
@@ -47,6 +47,20 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
     // `source` op (§3.2): always show bodies (never condensed to loc), budget + elision.
     lines.push(renderSource(result.data));
     if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
+  } else if (verbosity === 'full' && isDefinitionsData(result.data)) {
+    // find_definition at full carries the same {id,name,kind,decl(body)} as `source`, just
+    // under `definitions` — render it through source's compact body path (header + raw body)
+    // instead of exploding each Span into file=/line=/col=/endLine= lines. The redundant
+    // name-token `span` and the `container` fall away (the id already encodes both).
+    const src = definitionsToSourceData(result.data.definitions);
+    const usable =
+      result.data.definitions.length > 0 &&
+      src.sources.length === result.data.definitions.length &&
+      src.sources.every((s) => s.decl.text.length > 0);
+    // Empty, OR no usable body on some definition → dense path: never a blank render, never a
+    // silently dropped definition (the dense fallback shows `definitions (N):` + every span).
+    lines.push(usable ? renderSource(src) : renderDense(condenseSpans(result.data, verbosity)));
+    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
   } else {
     lines.push(renderDense(condenseSpans(result.data, verbosity)));
     if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
@@ -72,6 +86,47 @@ function capOutput(rendered: string): string {
 
 function renderTruncation(t: Truncation): string {
   return `… ${t.total - t.shown} more (shown ${t.shown}/${t.total}; ${t.hint})`;
+}
+
+/** find_definition's envelope: `{ definitions: SymbolView[] }`. */
+function isDefinitionsData(data: JsonValue): data is { definitions: JsonValue[] } {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    !Array.isArray(data) &&
+    Array.isArray((data as { definitions?: unknown }).definitions)
+  );
+}
+
+/** Project SymbolView definitions onto the `source` op's shape (reusing its canonical
+ *  SourceEntry/SourceSpan types so the two never drift): keep id/name/kind + the decl body, drop
+ *  the redundant name-token span and container. The `elided` flag MUST ride along — renderSource
+ *  turns it into the "[body truncated …]" honesty line; dropping it would present a span-capped
+ *  body as complete (§3.4). A definition missing a decl object is skipped — the caller's `usable`
+ *  guard then routes the whole result to the dense fallback. */
+function definitionsToSourceData(defs: readonly JsonValue[]): { sources: SourceEntry[] } {
+  const sources: SourceEntry[] = [];
+  for (const d of defs) {
+    if (typeof d !== 'object' || d === null || Array.isArray(d)) continue;
+    const o = d as Record<string, JsonValue>;
+    const decl = o['decl'];
+    if (typeof decl !== 'object' || decl === null || Array.isArray(decl)) continue;
+    const dd = decl as Record<string, JsonValue>;
+    const span: SourceSpan = {
+      file: String(dd['file']),
+      line: Number(dd['line']),
+      col: Number(dd['col']),
+      text: String(dd['text']),
+      ...(dd['elided'] === true ? { elided: true } : {}),
+    };
+    sources.push({
+      id: String(o['id']),
+      name: String(o['name']),
+      kind: String(o['kind']),
+      decl: span,
+    });
+  }
+  return { sources };
 }
 
 function renderRebind(rebind: HandleRebind): string {

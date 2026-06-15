@@ -65,6 +65,22 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'at,imports') {
     return `${String(v['at'])} · ${String(v['imports'])}`;
   }
+  // ScssClassView: { name, file, span(condensed), confidence } and UnusedClassView (+ note?).
+  // The condensed span already carries file:line:col, so the separate `file` key is pure
+  // repetition — drop it. certain confidence is the default and stays implicit (like UsageView).
+  if (keys === 'confidence,file,name,span' || keys === 'confidence,file,name,note,span') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const note = v['note'] !== undefined ? ` · ${String(v['note'])}` : '';
+    return `${String(v['span'])} · ${String(v['name'])}${conf}${note}`;
+  }
+  // MemberView (leaf — no nested `members`): { name, optional, type, inherited? }. A union type
+  // carries spaces so it never inlines as k=v; render it as the familiar `name[?]: type` instead
+  // of three keyed lines. A member WITH nested members keeps the structured form (falls through).
+  if (keys === 'name,optional,type' || keys === 'inherited,name,optional,type') {
+    const opt = v['optional'] === true ? '?' : '';
+    const inh = v['inherited'] === true ? ' (inherited)' : '';
+    return `${String(v['name'])}${opt}: ${String(v['type'])}${inh}`;
+  }
   return v;
 }
 

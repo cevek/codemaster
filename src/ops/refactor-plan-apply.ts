@@ -12,7 +12,13 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { ok, fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsDiagnostic, TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
-import { absOf, diagsToJson, formatOne, resolvePrettier, dirtyAmong } from './mutation-support.ts';
+import {
+  absOf,
+  buildTypecheckField,
+  formatOne,
+  resolvePrettier,
+  dirtyAmong,
+} from './mutation-support.ts';
 import { commitMove, revertMove, type CommitMovePlan, type RevertSpec } from './refactor-commit.ts';
 
 /** Apply a planned refactor. `refusalReason` tailors the §2.8 / dirty-gate message per op. */
@@ -68,24 +74,28 @@ export async function applyRefactorPlan(
     path: o.path,
     content: contentOf(o.path, o.content),
   }));
+  let baselineDiag: TsDiagnostic[];
   let diag: TsDiagnostic[];
   try {
+    // Baseline (pre-edit disk) over the same scope, then the overlay check — the gate refuses on
+    // errors THIS refactor introduces, not on the repo's pre-existing ones (§2.8 / §3.6).
+    baselineDiag = ts.diagnostics(plan.checkPaths);
     diag = ts.typecheckOverlay(overlayFiles, { removed: plan.removed, check: plan.checkPaths });
   } catch (thrown) {
     return failFromThrown('ts-ls', thrown);
   }
-  const typecheck: JsonValue =
-    diag.length === 0 ? { clean: true } : { clean: false, diagnostics: diagsToJson(diag) };
+  const gate = buildTypecheckField(baselineDiag, diag);
+  const typecheck = gate.field;
 
   if (ctx.flags.apply !== true) {
     return ok<JsonValue>({ mode: 'dry-run', diff, touched, typecheck, ...baseNotes }, handleExtra);
   }
-  if (diag.length > 0) {
+  if (!gate.clean) {
     return ok<JsonValue>(
       {
         mode: 'dry-run',
         applied: false,
-        reason: `post-${opts.refusalLabel} typecheck not clean — apply refused (§2.8)`,
+        reason: `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`,
         diff,
         touched,
         typecheck,
@@ -181,18 +191,17 @@ export async function applyRefactorPlan(
   const committed = await commitMove(root, commitPlan);
   if (!committed.ok) return rollback(`commit failed (${committed.failure.message})`, typecheck);
 
-  let postDiag: TsDiagnostic[];
+  let postGate: { clean: boolean; field: JsonValue };
   try {
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    postDiag = ts.diagnostics(plan.checkPaths);
+    // Diff against the SAME pre-edit baseline — a pre-existing repo error must not roll back a
+    // sound refactor.
+    postGate = buildTypecheckField(baselineDiag, ts.diagnostics(plan.checkPaths));
   } catch (thrown) {
     return rollback(`post-apply typecheck threw (${String(thrown)})`, typecheck);
   }
-  if (postDiag.length > 0) {
-    return rollback('post-apply typecheck failed', {
-      clean: false,
-      diagnostics: diagsToJson(postDiag),
-    });
+  if (!postGate.clean) {
+    return rollback('post-apply typecheck failed', postGate.field);
   }
   return ok<JsonValue>(
     {
@@ -200,7 +209,9 @@ export async function applyRefactorPlan(
       applied: true,
       diff,
       touched,
-      typecheck: { clean: true },
+      // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
+      // error count rides along on success too — honest, and consistent with the dry-run field.
+      typecheck: postGate.field,
       rollback: { performed: false },
       ...baseNotes,
     },

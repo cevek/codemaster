@@ -9,6 +9,7 @@ import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/pl
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
+import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { resolveRelativeSpecifier } from '../../support/fs/resolve-relative.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
@@ -49,9 +50,18 @@ export type UnusedScssView = {
   scannedClasses: number;
 };
 
+/** Stylesheet-path scoping for `unusedClasses` (globs over the .scss RepoRelPath), mirroring
+ *  search_symbol's pathInclude/pathExclude. Scopes which sheets are REPORTED on; cross-sheet
+ *  `composes:` reachability is still resolved over every sheet, so scoping never fabricates a
+ *  dead class that another (excluded) sheet keeps alive (§3). */
+type ScssUnusedFilter = {
+  pathInclude?: readonly string[];
+  pathExclude?: readonly string[];
+};
+
 export interface ScssPluginApi extends Plugin {
   classes(file?: string): ScssClassView[];
-  unusedClasses(): UnusedScssView;
+  unusedClasses(filter?: ScssUnusedFilter): UnusedScssView;
   parseFailures(): ReadonlyMap<RepoRelPath, string>;
   /** Co-extract safety taxonomy (spec-css-coextract §2.7): classify each candidate class in
    *  `file` as safe-to-move or left-behind-with-a-code. `usedInRemaining` are the classes the
@@ -167,9 +177,19 @@ export function createScssPlugin(root: string): ScssPluginApi {
       return views;
     },
 
-    unusedClasses() {
+    unusedClasses(filter) {
       const all = warm();
       if (registry === undefined) throw new Error('scss plugin not initialized');
+      // Scope which sheets we REPORT on. Applied to the emit loop only — the cross-sheet
+      // reachability below still walks every sheet, so an excluded sheet that `composes:` an
+      // included class keeps it alive (never a scoped-away false dead, §3).
+      const inScope = (rel: RepoRelPath): boolean => {
+        const inc = filter?.pathInclude;
+        const exc = filter?.pathExclude;
+        if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(rel, inc)) return false;
+        if (exc !== undefined && exc.length > 0 && matchesAnyGlob(rel, exc)) return false;
+        return true;
+      };
       const ts = registry.get<TsPluginApi>('ts');
       const usages = ts.cssModuleUsages();
 
@@ -199,8 +219,11 @@ export function createScssPlugin(root: string): ScssPluginApi {
 
       const unused: UnusedClassView[] = [];
       const dynamicModules: string[] = [];
+      let scannedModules = 0;
       let scannedClasses = 0;
       for (const [rel, sheet] of all) {
+        if (!inScope(rel)) continue;
+        scannedModules++;
         scannedClasses += sheet.classes.length;
         const accesses = usages.byModule.get(rel) ?? [];
         const hasDynamic = accesses.some((a) => a.confidence === 'dynamic');
@@ -238,7 +261,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
           });
         }
       }
-      return { unused, dynamicModules, scannedModules: all.size, scannedClasses };
+      return { unused, dynamicModules, scannedModules, scannedClasses };
     },
 
     parseFailures: () => failures,

@@ -35,8 +35,8 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
     "{ symbol?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean }",
   example: { args: { file: 'src/app.ts', line: 12, col: 8, newName: 'renamed' } },
   notes: [
-    'dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused unless that typecheck is clean.',
-    'apply rolls back byte-exact if the post-apply typecheck fails; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.',
+    'dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.',
+    'apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

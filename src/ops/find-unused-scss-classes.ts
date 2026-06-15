@@ -48,17 +48,24 @@ export const findUnusedScssClassesOp = defineOp({
     'SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial',
   mutating: false,
   requires: ['ts', 'scss'],
-  argsSchema: z.strictObject({}),
-  argsHint: '{}',
-  example: { args: {} },
+  argsSchema: z.strictObject({
+    pathInclude: z.array(z.string()).optional(),
+    pathExclude: z.array(z.string()).optional(),
+  }),
+  argsHint: '{ pathInclude?: string[], pathExclude?: string[] }',
+  example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
     'a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
+    'pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.',
   ],
   table: findUnusedScssClassesTable,
-  async run(ctx, _args) {
+  async run(ctx, args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');
     try {
-      const view = scss.unusedClasses();
+      const view = scss.unusedClasses({
+        ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),
+        ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
+      });
       const failures = [...scss.parseFailures()].map(([file, message]) => ({ file, message }));
       return ok({
         unused: view.unused,

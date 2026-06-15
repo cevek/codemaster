@@ -11,12 +11,18 @@ import type { JsonValue } from '../../core/json.ts';
  *  graceful "… source elided for K" collapse happens before the blunt output cap. */
 const SOURCE_BODY_BUDGET = 12_000;
 
-type Span = { file: string; line: number; col: number; text: string; elided?: boolean };
-type SourceEntry = {
+export type SourceSpan = {
+  file: string;
+  line: number;
+  col: number;
+  text: string;
+  elided?: boolean;
+};
+export type SourceEntry = {
   id: string;
   name: string;
   kind: string;
-  decl: Span;
+  decl: SourceSpan;
   rebound?: { from: string; to: string; confidence: string };
   moreDefinitions?: string[];
 };
