@@ -73,6 +73,38 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const note = v['note'] !== undefined ? ` · ${String(v['note'])}` : '';
     return `${String(v['span'])} · ${String(v['name'])}${conf}${note}`;
   }
+  // UnusedKeyView (i18n): { key, file, span(condensed), confidence }. The condensed span carries
+  // file:line:col, so the separate `file` is dropped; `certain` stays implicit. The demote reason
+  // is global (stated once as the envelope's degradedReason), never repeated per row.
+  if (keys === 'confidence,file,key,span') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    return `${String(v['span'])} · ${String(v['key'])}${conf}`;
+  }
+  // MissingKeyView (i18n): { key, locale, span(condensed), confidence } — a usage site whose key
+  // is absent from `locale`. The span points at the t() call; key + locale name the gap.
+  if (keys === 'confidence,key,locale,span') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}${conf}`;
+  }
+  // i18n_lookup KeyDef: { key, locale, file, span(condensed), value }. Drop the redundant
+  // `file` (the condensed span carries it); the value runs to end-of-line.
+  if (keys === 'file,key,locale,span,value') {
+    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}=${String(v['value'])}`;
+  }
+  // i18n_lookup usage site: { key, span(condensed) }.
+  if (keys === 'key,span') {
+    return `${String(v['span'])} · ${String(v['key'])}`;
+  }
+  // i18n_lookup missing-per-key: { key, missingLocales[] }.
+  if (keys === 'key,missingLocales') {
+    const locs = Array.isArray(v['missingLocales']) ? v['missingLocales'].join(',') : '';
+    return `${String(v['key'])} · missing in [${locs}]`;
+  }
+  // A bare single-span object (e.g. find_missing `dynamicUsages: {span}[]`): the `span=` key is
+  // noise — render just the clickable location.
+  if (keys === 'span') {
+    return String(v['span']);
+  }
   // MemberView (leaf — no nested `members`): { name, optional, type, inherited? }. A union type
   // carries spaces so it never inlines as k=v; render it as the familiar `name[?]: type` instead
   // of three keyed lines. A member WITH nested members keeps the structured form (falls through).

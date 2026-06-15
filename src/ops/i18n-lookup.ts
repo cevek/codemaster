@@ -31,21 +31,30 @@ const i18nLookupTable: TableSpec<JsonValue> = {
   },
 };
 
-const argsSchema = z.strictObject({
-  key: z.string().optional(),
-  prefix: z.string().optional(),
-});
+const argsSchema = z
+  .strictObject({
+    key: z.string().optional(),
+    prefix: z.string().optional(),
+    /** Reverse lookup: find the key(s) whose locale VALUE matches (case-insensitive substring by
+     *  default — "I see this UI string, which key is it?"). `valueMode:'exact'` for a whole-value match. */
+    value: z.string().optional(),
+    valueMode: z.enum(['substring', 'exact']).optional(),
+  })
+  .refine((a) => [a.key, a.prefix, a.value].filter((x) => x !== undefined).length <= 1, {
+    message: 'provide at most one selector: key, prefix, or value',
+  });
 
 export const i18nLookupOp = defineOp({
   name: 'i18n_lookup',
-  summary: 'Locale values + proof spans + usage sites for a key (or dotted prefix)',
+  summary: 'Locale values + usage sites for a key/prefix — OR reverse-lookup the key by its value',
   mutating: false,
   requires: ['ts', 'i18n'],
   argsSchema,
-  argsHint: '{ key?: string, prefix?: string }',
+  argsHint: '{ key?: string, prefix?: string, value?: string, valueMode?: "substring"|"exact" }',
   example: { args: { key: 'profile.greeting' } },
   notes: [
     'values are opaque text (no ICU/plural semantics); keys missing in some locale are listed per key.',
+    'reverse lookup: value (case-insensitive substring; valueMode:"exact" for a whole-value match) finds the dotted key(s) for a string you see in the UI — returns the same defs (full key + locale + span + value). At most one selector (key | prefix | value).',
     'usage sites are found by call name as written — an `import { t as tr }` alias is missed (syntactic, not symbol-resolved).',
   ],
   table: i18nLookupTable,

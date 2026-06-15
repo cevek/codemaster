@@ -131,3 +131,50 @@ test('find_definition:full with empty definitions renders the dense "(0)" marker
   const out = renderResult(ok({ definitions: [] }), 'full');
   assert.match(out, /definitions \(0\)/, 'explicit 0, never an empty render');
 });
+
+test('i18n unused key is one line (span · key · conf); the demote reason is stated ONCE', () => {
+  const out = renderResult(
+    ok({
+      unused: [
+        {
+          key: 'errors.x',
+          file: 'locales/en.json',
+          span: span('locales/en.json', 5, 9, '"X"'),
+          confidence: 'partial',
+        },
+      ],
+      degraded: true,
+      degradedReason: 'cannot prove dead — a dynamic t(`…`) call exists',
+      scanned: { keys: 1, usages: 0 },
+    }),
+  );
+  assert.match(out, /locales\/en\.json:5:9 · errors\.x · partial/, 'one-liner row');
+  assert.doesNotMatch(out, /\n\s*file=/, 'no separate file= line');
+  // The reason rides ONCE on the envelope, not on every row.
+  assert.match(out, /degradedReason=cannot prove dead/, 'reason stated once');
+  assert.equal((out.match(/cannot prove dead/g) ?? []).length, 1, 'reason appears exactly once');
+});
+
+test('i18n_lookup defs / usages / missing-per-key each collapse to one line', () => {
+  const out = renderResult(
+    ok({
+      defs: [
+        {
+          key: 'common.ok',
+          locale: 'en',
+          file: 'locales/en.json',
+          span: span('locales/en.json', 12, 9, '"OK"'),
+          value: 'OK',
+        },
+      ],
+      usages: [{ key: 'common.ok', span: span('src/a.ts', 3, 10, "t('common.ok')") }],
+      missingPerKey: [{ key: 'common.ok', missingLocales: ['ru'] }],
+      locales: ['en', 'ru'],
+      matched: 1,
+    }),
+  );
+  assert.match(out, /locales\/en\.json:12:9 · common\.ok · en=OK/, 'KeyDef one-liner');
+  assert.match(out, /src\/a\.ts:3:10 · common\.ok/, 'usage one-liner');
+  assert.match(out, /common\.ok · missing in \[ru\]/, 'missing-per-key one-liner');
+  assert.doesNotMatch(out, /\n\s*locale=/, 'no exploded locale= line');
+});

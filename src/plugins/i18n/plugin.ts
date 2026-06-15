@@ -45,7 +45,6 @@ export type UnusedKeyView = {
   file: RepoRelPath;
   span: Span;
   confidence: Confidence;
-  note?: string;
 };
 
 type I18nUnusedView = {
@@ -53,8 +52,22 @@ type I18nUnusedView = {
   /** True when EVERY unused-claim was demoted to partial — a dynamic call or a locale
    *  parse failure makes "definitely dead" unprovable for all keys. */
   degraded: boolean;
+  /** The single global reason for the demotion (set iff degraded). Stated ONCE here, never
+   *  stamped per row — every row would carry the identical string (a 1-per-key repeat). */
+  degradedReason?: string;
   scannedKeys: number;
   scannedUsages: number;
+};
+
+/** Scoping for `unusedKeys` (the whole-locale answer caps fast on a real key set). `prefix`
+ *  narrows by dotted key namespace (the natural i18n axis, e.g. 'errors.codes.'); pathInclude/
+ *  pathExclude are globs over the locale .json path. Scopes which keys are REPORTED — the
+ *  `degraded` verdict still reflects the WHOLE usage scan (a dynamic t(`…`) anywhere demotes,
+ *  regardless of scope), so scoping never upgrades a key to a false `certain` dead. */
+type I18nUnusedFilter = {
+  prefix?: string;
+  pathInclude?: readonly string[];
+  pathExclude?: readonly string[];
 };
 
 export type MissingKeyView = {
@@ -73,8 +86,13 @@ type I18nMissingView = {
 };
 
 export interface I18nPluginApi extends Plugin {
-  lookup(filter: { key?: string | undefined; prefix?: string | undefined }): I18nLookupView;
-  unusedKeys(): I18nUnusedView;
+  lookup(filter: {
+    key?: string | undefined;
+    prefix?: string | undefined;
+    value?: string | undefined;
+    valueMode?: 'substring' | 'exact' | undefined;
+  }): I18nLookupView;
+  unusedKeys(filter?: I18nUnusedFilter): I18nUnusedView;
   missingKeys(): I18nMissingView;
   parseFailures(): ReadonlyMap<RepoRelPath, string>;
 }
@@ -181,10 +199,16 @@ export function createI18nPlugin(
 
     lookup(filter) {
       const all = warm();
-      const matches = (key: string): boolean => {
+      // Forward (key/prefix) OR reverse (value): the value branch is the "I see this UI string —
+      // which key?" lookup. Substring is case-insensitive (default); exact matches the whole value.
+      const matches = (key: string, value: string): boolean => {
         if (filter.key !== undefined) return key === filter.key;
         if (filter.prefix !== undefined)
           return key === filter.prefix || key.startsWith(`${filter.prefix}.`);
+        if (filter.value !== undefined)
+          return filter.valueMode === 'exact'
+            ? value === filter.value
+            : value.toLowerCase().includes(filter.value.toLowerCase());
         return true;
       };
       const locales = localeIds(all);
@@ -195,7 +219,7 @@ export function createI18nPlugin(
       const definedLocales = new Map<string, Set<string>>(); // key → locale ids present
       for (const [rel, file] of all) {
         for (const k of file.keys) {
-          if (!matches(k.key)) continue;
+          if (!matches(k.key, k.value)) continue;
           defs.push({ key: k.key, locale: file.id, file: rel, span: k.span, value: k.value });
           const set = definedLocales.get(k.key) ?? new Set<string>();
           set.add(file.id);
@@ -216,8 +240,25 @@ export function createI18nPlugin(
       return { defs, usages, locales, missingPerKey, matched: matchedKeys.size };
     },
 
-    unusedKeys() {
+    unusedKeys(filter) {
       const all = warm();
+      // Scope which keys we REPORT. `degraded`/`used` below are computed over the WHOLE usage
+      // scan regardless, so scoping never turns a globally-demoted key into a false certain dead.
+      const inScope = (key: string, file: RepoRelPath): boolean => {
+        // Segment-aware prefix, identical to i18n_lookup: `errors.codes` matches `errors.codes`
+        // and `errors.codes.*`, never an unrelated `errors.codesX` — one convention across both ops.
+        if (
+          filter?.prefix !== undefined &&
+          key !== filter.prefix &&
+          !key.startsWith(`${filter.prefix}.`)
+        )
+          return false;
+        const inc = filter?.pathInclude;
+        const exc = filter?.pathExclude;
+        if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(file, inc)) return false;
+        if (exc !== undefined && exc.length > 0 && matchesAnyGlob(file, exc)) return false;
+        return true;
+      };
       const calls = ts().literalCalls(functions);
       const dynamic = calls.some((c) => c.dynamic);
       const used = new Set(
@@ -232,8 +273,9 @@ export function createI18nPlugin(
       const reasons: string[] = [];
       if (dynamic) reasons.push('a dynamic t(`…`) call exists');
       if (hasFailures) reasons.push('a locale file failed to parse');
-      const note =
-        reasons.length > 0 ? `cannot prove this key is dead — ${reasons.join(' and ')}` : undefined;
+      // ONE global reason — never stamped per row (it is identical for every key when degraded).
+      const degradedReason =
+        reasons.length > 0 ? `cannot prove dead — ${reasons.join(' and ')}` : undefined;
 
       // One representative definition per key (first locale file, by sorted path).
       const rep = new Map<string, { file: RepoRelPath; span: Span }>();
@@ -243,17 +285,25 @@ export function createI18nPlugin(
         }
       }
       const unused: UnusedKeyView[] = [];
+      let scannedKeys = 0;
       for (const [key, where] of rep) {
+        if (!inScope(key, where.file)) continue;
+        scannedKeys++;
         if (used.has(key)) continue;
         unused.push({
           key,
           file: where.file,
           span: where.span,
           confidence: degraded ? 'partial' : 'certain',
-          ...(note !== undefined ? { note } : {}),
         });
       }
-      return { unused, degraded, scannedKeys: rep.size, scannedUsages: calls.length };
+      return {
+        unused,
+        degraded,
+        ...(degradedReason !== undefined ? { degradedReason } : {}),
+        scannedKeys,
+        scannedUsages: calls.length,
+      };
     },
 
     missingKeys() {
