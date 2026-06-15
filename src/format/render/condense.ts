@@ -21,19 +21,24 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
     if (looksLikeSpan(v)) return renderSpanLine(v, verbosity);
     const out: Record<string, JsonValue> = {};
     for (const [key, child] of Object.entries(v)) out[key] = condenseSpans(child, verbosity);
-    return verbosity === 'terse' ? collapseKnownShape(out) : out;
+    // Collapse one-fact rows at terse AND normal (full returned above). At normal the condensed
+    // spans already carry their first-line text, so the same collapse yields a richer one-liner —
+    // a `normal` list answer is compact lines, not multi-line key=value blocks.
+    return collapseKnownShape(out);
   }
   return value;
 }
 
-/** In terse mode, well-known one-fact objects collapse to ONE line — the id already
- *  carries name + file:line:col, so `{id,name,kind,span}` as four keyed fields is
- *  pure repetition. Unknown shapes pass through untouched. */
+/** Well-known one-fact objects collapse to ONE line — the id already carries name +
+ *  file:line:col, so `{id,name,kind,span}` as keyed fields is pure repetition. Runs at terse
+ *  AND normal; at normal the condensed spans carry their first-line text, so the same collapse
+ *  yields a richer line (+ the decl header for a SymbolView). Unknown shapes pass through. */
 function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   const keys = Object.keys(v).sort().join(',');
-  // SymbolView: { id, name, kind, span(condensed), decl?(condensed), container? }. Terse is
-  // location-only, so the full `decl` span (§3.1) collapses away with the rest — the id
-  // already carries name + file:line:col. decl text surfaces at normal/full.
+  // SymbolView: { id, name, kind, span(condensed), decl?(condensed), container? }. The id already
+  // carries name + file:line:col, and `span` is the name-token (text === name) — both redundant,
+  // dropped. `decl` condenses to a bare `loc` at terse (→ no header) and `loc · <first line>` at
+  // normal — pull that header onto a continuation line (never the redundant loc again).
   if (
     keys === 'id,kind,name,span' ||
     keys === 'container,id,kind,name,span' ||
@@ -41,7 +46,10 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     keys === 'container,decl,id,kind,name,span'
   ) {
     const container = v['container'] !== undefined ? ` in ${String(v['container'])}` : '';
-    return `${String(v['id'])} · ${String(v['kind'])}${container}`;
+    const declStr = v['decl'] !== undefined ? String(v['decl']) : '';
+    const sep = declStr.indexOf(' · ');
+    const header = sep >= 0 ? `\n  ${declStr.slice(sep + 3)}` : '';
+    return `${String(v['id'])} · ${String(v['kind'])}${container}${header}`;
   }
   // UsageView: { span(condensed), role, confidence }
   if (keys === 'confidence,role,span') {

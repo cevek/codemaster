@@ -127,6 +127,33 @@ test('find_definition:full carries the elided flag → truncation is stated, not
   assert.match(out, /\[body truncated at span cap/, 'truncation stated, never a bare …');
 });
 
+test('find_definition at NORMAL: one-liner + decl header, not a multi-line key=value block', () => {
+  const out = renderResult(
+    ok({
+      definitions: [
+        {
+          id: 'ts:useAppForm@src/lib/form.tsx:307:17',
+          name: 'useAppForm',
+          kind: 'function',
+          span: span('src/lib/form.tsx', 307, 17, 'useAppForm'),
+          decl: span('src/lib/form.tsx', 307, 1, 'export function useAppForm<T>(o: O): Form {'),
+          container: '"./form"',
+        },
+      ],
+    }),
+    'normal',
+  );
+  assert.match(
+    out,
+    /ts:useAppForm@src\/lib\/form\.tsx:307:17 · function in "\.\/form"/,
+    'header line',
+  );
+  assert.match(out, /\n\s+export function useAppForm</, 'decl header on a continuation line');
+  assert.doesNotMatch(out, /\n\s*name=/, 'no redundant name= field (it is in the id)');
+  assert.doesNotMatch(out, /\n\s*span=/, 'no redundant name-token span= field');
+  assert.doesNotMatch(out, /\n\s*container=/, 'container folded into the header, not a field');
+});
+
 test('find_definition:full with empty definitions renders the dense "(0)" marker, not a blank', () => {
   const out = renderResult(ok({ definitions: [] }), 'full');
   assert.match(out, /definitions \(0\)/, 'explicit 0, never an empty render');
