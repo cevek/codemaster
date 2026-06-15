@@ -72,10 +72,11 @@ type I18nUnusedFilter = {
 
 export type MissingKeyView = {
   key: string;
-  locale: string;
   /** Proof span over the usage site (in the TS file). */
   span: Span;
-  confidence: Confidence;
+  /** Every readable locale that lacks this key — ONE fact per usage site, not a row per locale
+   *  (with 10 locales a partially-translated key would otherwise be 9 identical-but-locale rows). */
+  missingLocales: string[];
 };
 
 type I18nMissingView = {
@@ -91,6 +92,9 @@ export interface I18nPluginApi extends Plugin {
     prefix?: string | undefined;
     value?: string | undefined;
     valueMode?: 'substring' | 'exact' | undefined;
+    /** Restrict the emitted `defs` to one locale (defs are per key×locale — on a many-locale
+     *  repo a prefix lookup is N×locales rows). `missingPerKey` stays computed over ALL locales. */
+    locale?: string | undefined;
   }): I18nLookupView;
   unusedKeys(filter?: I18nUnusedFilter): I18nUnusedView;
   missingKeys(): I18nMissingView;
@@ -215,15 +219,26 @@ export function createI18nPlugin(
       const failed = failedLocaleIds();
       // Only provable against locales we could actually read.
       const checkable = locales.filter((l) => !failed.has(l));
+      // 1) Which KEYS match. For a value query the matching ENTRY's key qualifies — but the value
+      //    only matches in SOME locales, so we must not let that decide presence (else a key
+      //    present everywhere with a different value reads as "missing"). Match keys first, then
+      //    report each matched key's TRUE per-locale presence below.
+      const matchedKeys = new Set<string>();
+      for (const file of all.values())
+        for (const k of file.keys) if (matches(k.key, k.value)) matchedKeys.add(k.key);
+
+      // 2) defs (scoped by `locale`) + each matched key's presence across EVERY locale.
       const defs: KeyDef[] = [];
       const definedLocales = new Map<string, Set<string>>(); // key → locale ids present
       for (const [rel, file] of all) {
         for (const k of file.keys) {
-          if (!matches(k.key, k.value)) continue;
-          defs.push({ key: k.key, locale: file.id, file: rel, span: k.span, value: k.value });
+          if (!matchedKeys.has(k.key)) continue;
           const set = definedLocales.get(k.key) ?? new Set<string>();
           set.add(file.id);
           definedLocales.set(k.key, set);
+          if (filter.locale === undefined || file.id === filter.locale) {
+            defs.push({ key: k.key, locale: file.id, file: rel, span: k.span, value: k.value });
+          }
         }
       }
       const missingPerKey = [...definedLocales.entries()]
@@ -232,7 +247,6 @@ export function createI18nPlugin(
           missingLocales: checkable.filter((l) => !present.has(l)),
         }))
         .filter((m) => m.missingLocales.length > 0);
-      const matchedKeys = new Set(definedLocales.keys());
       const usages = ts()
         .literalCalls(functions)
         .filter((c) => !c.dynamic && c.arg !== undefined && matchedKeys.has(c.arg))
@@ -327,10 +341,11 @@ export function createI18nPlugin(
       for (const c of calls) {
         if (c.dynamic || c.arg === undefined) continue;
         const present = definedBy.get(c.arg) ?? new Set<string>();
-        for (const locale of checkable) {
-          if (present.has(locale)) continue;
-          missing.push({ key: c.arg, locale, span: c.span, confidence: 'certain' });
-        }
+        // ONE row per usage site, carrying the LIST of readable locales that lack the key —
+        // never a row per (usage × locale). Computed over `checkable` only (an unreadable locale
+        // is surfaced via parseFailures, never claimed certain-missing — §3.6).
+        const missingLocales = checkable.filter((l) => !present.has(l));
+        if (missingLocales.length > 0) missing.push({ key: c.arg, span: c.span, missingLocales });
       }
       const dynamicUsages = calls.filter((c) => c.dynamic).map((c) => ({ span: c.span }));
       return { missing, dynamicUsages, locales };

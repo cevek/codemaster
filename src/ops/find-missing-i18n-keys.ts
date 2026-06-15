@@ -17,17 +17,16 @@ const findMissingI18nKeysTable: TableSpec<JsonValue> = {
     { name: 'locale', type: 'text' },
     { name: 'usage_file', type: 'text' },
     { name: 'usage_line', type: 'int' },
-    { name: 'confidence', type: 'text' },
   ],
+  // The dense view folds the missing locales into one row per usage; the relational table stays
+  // FLAT (one row per usage × missing locale) so a per-locale anti-join still works.
   rows(data) {
     const missing = (data as { missing?: MissingKeyView[] }).missing ?? [];
-    return missing.map((m): readonly Cell[] => [
-      m.key,
-      m.locale,
-      m.span.file,
-      m.span.line,
-      m.confidence,
-    ]);
+    const out: (readonly Cell[])[] = [];
+    for (const m of missing) {
+      for (const locale of m.missingLocales) out.push([m.key, locale, m.span.file, m.span.line]);
+    }
+    return out;
   },
   notes(data) {
     const dyn = (data as { dynamicUsages?: unknown[] }).dynamicUsages ?? [];
@@ -40,13 +39,15 @@ const findMissingI18nKeysTable: TableSpec<JsonValue> = {
 
 export const findMissingI18nKeysOp = defineOp({
   name: 'find_missing_i18n_keys',
-  summary: 'Literal t() usages whose key is absent from ≥1 locale, reported per locale',
+  summary:
+    'Literal t() usages whose key is absent from ≥1 locale (one row per usage + the locale list)',
   mutating: false,
   requires: ['ts', 'i18n'],
   argsSchema: z.strictObject({}),
   argsHint: '{}',
   example: { args: {} },
   notes: [
+    'one row per usage site, carrying missingLocales[] (the readable locales that lack the key) — never a row per (usage × locale). The sql/table projection stays flat (one row per usage × locale).',
     'dynamic usages (template/computed keys) can not be checked against locales — listed separately as unresolvable, never guessed.',
     'usages are matched by call name as written — an `import { t as tr }` alias is missed (syntactic, not symbol-resolved).',
   ],

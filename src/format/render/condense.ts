@@ -100,6 +100,12 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const locs = Array.isArray(v['missingLocales']) ? v['missingLocales'].join(',') : '';
     return `${String(v['key'])} · missing in [${locs}]`;
   }
+  // find_missing usage site: { key, span(condensed), missingLocales[] } — one row per usage,
+  // the locale list folded in (never a row per missing locale).
+  if (keys === 'key,missingLocales,span') {
+    const locs = Array.isArray(v['missingLocales']) ? v['missingLocales'].join(',') : '';
+    return `${String(v['span'])} · ${String(v['key'])} · missing in [${locs}]`;
+  }
   // A bare single-span object (e.g. find_missing `dynamicUsages: {span}[]`): the `span=` key is
   // noise — render just the clickable location.
   if (keys === 'span') {

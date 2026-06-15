@@ -178,3 +178,26 @@ test('i18n_lookup defs / usages / missing-per-key each collapse to one line', ()
   assert.match(out, /common\.ok · missing in \[ru\]/, 'missing-per-key one-liner');
   assert.doesNotMatch(out, /\n\s*locale=/, 'no exploded locale= line');
 });
+
+test('find_missing folds the missing locales into ONE row; dynamicUsages are bare locations', () => {
+  const out = renderResult(
+    ok({
+      missing: [
+        {
+          key: 'common.ghost',
+          span: span('src/a.ts', 4, 24, "t('common.ghost')"),
+          missingLocales: ['de', 'en', 'ru'],
+        },
+      ],
+      locales: ['de', 'en', 'ru'],
+      dynamicUsages: [{ span: span('src/a.ts', 5, 22, 't(`x`)') }],
+    }),
+  );
+  assert.match(
+    out,
+    /src\/a\.ts:4:24 · common\.ghost · missing in \[de,en,ru\]/,
+    'one row, locales folded in (never a row per locale)',
+  );
+  assert.match(out, /src\/a\.ts:5:22/, 'dynamicUsages location present');
+  assert.doesNotMatch(out, /span=/, 'dynamicUsages render as a bare location, no span= prefix');
+});

@@ -39,6 +39,9 @@ const argsSchema = z
      *  default — "I see this UI string, which key is it?"). `valueMode:'exact'` for a whole-value match. */
     value: z.string().optional(),
     valueMode: z.enum(['substring', 'exact']).optional(),
+    /** Restrict emitted values to ONE locale (defs are per key×locale — a prefix lookup on a
+     *  many-locale repo is N×locales rows). Orthogonal to the selector; missingPerKey stays global. */
+    locale: z.string().optional(),
   })
   .refine((a) => [a.key, a.prefix, a.value].filter((x) => x !== undefined).length <= 1, {
     message: 'provide at most one selector: key, prefix, or value',
@@ -50,7 +53,8 @@ export const i18nLookupOp = defineOp({
   mutating: false,
   requires: ['ts', 'i18n'],
   argsSchema,
-  argsHint: '{ key?: string, prefix?: string, value?: string, valueMode?: "substring"|"exact" }',
+  argsHint:
+    '{ key?: string, prefix?: string, value?: string, valueMode?: "substring"|"exact", locale?: string }',
   example: { args: { key: 'profile.greeting' } },
   notes: [
     'values are opaque text (no ICU/plural semantics); keys missing in some locale are listed per key.',
