@@ -92,8 +92,7 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   // `file` (the condensed span carries it). The value is FLATTENED (newlines/tabs → one space):
   // a multi-line locale value would otherwise split into orphan lines with no clickable anchor.
   if (keys === 'file,key,locale,span,value') {
-    const value = String(v['value']).replace(/\s+/g, ' ');
-    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}=${value}`;
+    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}=${flat(v['value'])}`;
   }
   // i18n_lookup usage site: { key, span(condensed) }.
   if (keys === 'key,span') {
@@ -115,6 +114,16 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'span') {
     return String(v['span']);
   }
+  // TS diagnostic row (mutating-op typecheck `introduced`): { file, line, message }. `file:line`
+  // is clickable; the message is flattened to one line (TS joins multi-line messages with \n, which
+  // would otherwise split into unanchored lines). A 3-line block per diagnostic → one line.
+  if (keys === 'file,line,message') {
+    return `${String(v['file'])}:${String(v['line'])} · ${flat(v['message'])}`;
+  }
+  // Parse-failure row (scss/i18n `parseFailures`): { file, message }.
+  if (keys === 'file,message') {
+    return `${String(v['file'])} · ${flat(v['message'])}`;
+  }
   // MemberView (leaf — no nested `members`): { name, optional, type, inherited? }. A union type
   // carries spaces so it never inlines as k=v; render it as the familiar `name[?]: type` instead
   // of three keyed lines. A member WITH nested members keeps the structured form (falls through).
@@ -123,7 +132,44 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const inh = v['inherited'] === true ? ' (inherited)' : '';
     return `${String(v['name'])}${opt}: ${String(v['type'])}${inh}`;
   }
+  // TypeRef (schema; also nested in an EndpointCard's query/body/response): { text, span(condensed),
+  // confidence }. `text` is a type string (spaces) → never inlines. `span · type`.
+  if (keys === 'confidence,span,text') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    return `${String(v['span'])} · ${flat(v['text'])}${conf}`;
+  }
+  // find_usages symbols-mode unresolved row: { name, reason }.
+  if (keys === 'name,reason') {
+    return `${String(v['name'])} · ${flat(v['reason'])}`;
+  }
+  // EndpointCard (list_endpoints) — variadic (optional query/body/response/status/note), matched by
+  // presence. query/body/response are TypeRefs already collapsed to `loc · type`; show just the type.
+  if ('method' in v && 'path' in v && 'pathParams' in v) {
+    const typeText = (s: string): string => {
+      const i = s.indexOf(' · ');
+      return i >= 0 ? s.slice(i + 3) : s;
+    };
+    const ref = (key: string, label: string): string =>
+      v[key] !== undefined ? ` · ${label}=${typeText(String(v[key]))}` : '';
+    const status = v['status'] !== undefined ? ` →${String(v['status'])}` : '';
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
+    return `${String(v['method'])} ${String(v['path'])}${status}${ref('query', 'q')}${ref('body', 'body')}${ref('response', 'resp')}${conf}${note}`;
+  }
+  // LeftBehindEntry (extract_symbol cssCoExtract.leftBehind) — variadic { class, code, reason,
+  // detail?, span?(condensed) }, matched by presence. reason/detail carry spaces.
+  if ('class' in v && 'code' in v && 'reason' in v) {
+    const loc = v['span'] !== undefined ? `${String(v['span'])} · ` : '';
+    const detail = v['detail'] !== undefined ? ` — ${flat(v['detail'])}` : '';
+    return `${loc}${String(v['class'])} · ${String(v['code'])} · ${flat(v['reason'])}${detail}`;
+  }
   return v;
+}
+
+/** Flatten a free-text field (TS message, type string, locale value, reason) to one line — a
+ *  newline would otherwise split a collapsed one-liner into orphan, unanchored lines. */
+function flat(value: JsonValue | undefined): string {
+  return String(value).replace(/\s+/g, ' ');
 }
 
 function renderSpanLine(span: Record<string, JsonValue>, verbosity: Verbosity): string {
