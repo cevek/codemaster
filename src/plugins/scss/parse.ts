@@ -15,7 +15,12 @@ import postcssScss from 'postcss-scss';
 import type { Rule } from 'postcss';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
-import { selectorIsOwnedBy, composesLocalTargets, parseExtendTargets } from './extract-classify.ts';
+import {
+  selectorIsOwnedBy,
+  composesLocalTargets,
+  composesImportedTargets,
+  parseExtendTargets,
+} from './extract-classify.ts';
 
 export type ScssClass = {
   /** Class name without the leading dot. */
@@ -37,6 +42,10 @@ export type SheetReachability = {
   /** Classes reachable via CSS-modules `composes:` linkage from another rule, or via `@extend`
    *  — a TS-unreferenced one is still reached through the composer/extender → not provably dead. */
   linkedReachable: ReadonlySet<string>;
+  /** This sheet's CROSS-sheet `composes: x from './other'` links — `{ name, from }` per imported
+   *  class. `find_unused` resolves `from` (relative-only) to the provider sheet and marks the
+   *  named class reachable there, so a class reached only across sheets is never `certain` dead. */
+  importedComposes: readonly { name: string; from: string }[];
 };
 
 export type ScssParseOutcome =
@@ -124,14 +133,16 @@ export function parseScssClasses(rel: RepoRelPath, source: string): ScssParseOut
   for (const name of referenced) if (!owned.has(name)) entangledOnly.add(name);
 
   const linkedReachable = new Set<string>();
+  const importedComposes: { name: string; from: string }[] = [];
   root.walkDecls('composes', (decl) => {
     for (const name of composesLocalTargets(decl.value)) linkedReachable.add(name);
+    importedComposes.push(...composesImportedTargets(decl.value));
   });
   root.walkAtRules('extend', (at) => {
     for (const name of parseExtendTargets(at.params)) linkedReachable.add(name);
   });
 
-  return { ok: true, classes, reachability: { entangledOnly, linkedReachable } };
+  return { ok: true, classes, reachability: { entangledOnly, linkedReachable, importedComposes } };
 }
 
 /** True when any ANCESTOR rule's selector is a bare `:global` (the `:global { … }` block form,

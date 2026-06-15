@@ -261,10 +261,13 @@ gets its own subfolder; same "one operation per file" rule as `common/`.
   `stat` → `FileFingerprint`.
 
 > **Every tool that interprets the project runs the project's _own_ version** —
-> `typescript` (inside `plugins/ts`), `prettier` (here), and `tsconfig` are resolved from
-> the inspected repo's `node_modules`; codemaster's bundled copies are a fallback only,
-> and the response reports which is active. Answering with a different `tsc` than the
-> project compiles with would mean different diagnostics — a lie.
+> `typescript` (inside `plugins/ts`) and `tsconfig` are resolved from the inspected repo's
+> `node_modules`, with codemaster's bundled copy a fallback only, and the response reports
+> which is active. Answering with a different `tsc` than the project compiles with would mean
+> different diagnostics — a lie. `prettier` (here) is resolved from the project **with no
+> bundled fallback**: restyling a repo that never opted into prettier (no install, or no
+> config) with codemaster's copy would be the same kind of lie, so absent project prettier
+> the file is written unformatted.
 
 No domain knowledge here. Plugins use these; ops use these.
 
@@ -716,8 +719,9 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
 - **`postcss` + `postcss-scss`** — used by the `scss` plugin.
 - **`diff`** — unified diffs for mutating-op previews.
-- **`prettier`** — resolved from the target project (bundled fallback); post-edit formatting
-  for mutating ops, with the response reporting which copy is active (§5-L1).
+- **`prettier`** — resolved from the target project **only** (NO bundled fallback);
+  post-edit formatting for mutating ops. A repo that ships no prettier — or no prettier
+  config — is written unformatted rather than restyled against its intent (§5-L1).
 - **`better-sqlite3`** — the ephemeral in-memory SQL evaluator behind `batch + sql`
   (§11). Loaded **lazily** on the first sql-carrying call (cold start never pays for the
   native module) and hidden behind the `support/sql/` seam so a DuckDB impl can drop in.

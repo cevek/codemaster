@@ -5,9 +5,9 @@
 // flagged `dynamic`, never guessed (§3.3).
 
 import ts from 'typescript';
-import * as path from 'node:path';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
+import { resolveRelativeSpecifier } from '../../support/fs/resolve-relative.ts';
 import { spanFromRange } from './spans.ts';
 import { extendShadow } from './scope-shadow.ts';
 import type { TsProjectHost } from './ls-host.ts';
@@ -41,7 +41,7 @@ export function scanCssModuleUsages(host: TsProjectHost): CssModuleUsages {
       if (!/\.(scss|sass|css)$/.test(spec)) continue;
       const name = stmt.importClause?.name?.text;
       if (name === undefined) continue;
-      const resolved = resolveRelative(rel, spec);
+      const resolved = resolveRelativeSpecifier(rel, spec);
       if (resolved !== undefined) bindings.set(name, resolved);
     }
     if (bindings.size === 0) continue;
@@ -94,10 +94,4 @@ export function scanCssModuleUsages(host: TsProjectHost): CssModuleUsages {
     visit(sourceFile, new Set());
   }
   return { byModule };
-}
-
-function resolveRelative(fromRel: RepoRelPath, spec: string): RepoRelPath | undefined {
-  if (!spec.startsWith('.')) return undefined; // aliased scss imports: Phase 3 (module-resolve)
-  const dir = path.posix.dirname(fromRel);
-  return path.posix.normalize(path.posix.join(dir, spec)) as RepoRelPath;
 }

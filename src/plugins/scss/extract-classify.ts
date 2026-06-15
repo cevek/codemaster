@@ -189,6 +189,23 @@ export function composesLocalTargets(value: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/** Imported `composes:` targets — `composes: a b from './x.module.scss'` pulls classes `a` and
+ *  `b` from ANOTHER sheet. Returns each `{ name, from }`; the comma form (`a from './x', b from
+ *  './y'`) yields one entry per group. `from global` (no quotes) references a global class — no
+ *  provider sheet — so it is not matched here. Cross-sheet linkage `find_unused` must honour so a
+ *  provider class reached only via another sheet's `composes:` is never reported `certain` unused. */
+export function composesImportedTargets(value: string): { name: string; from: string }[] {
+  const out: { name: string; from: string }[] = [];
+  const re = /([\w\s-]+?)\s+from\s+['"]([^'"]+)['"]/g;
+  for (let m = re.exec(value); m !== null; m = re.exec(value)) {
+    const names = m[1];
+    const from = m[2];
+    if (names === undefined || from === undefined) continue;
+    for (const name of names.split(/\s+/).filter((s) => s.length > 0)) out.push({ name, from });
+  }
+  return out;
+}
+
 /** Class names targeted by one `@extend` — tolerant of `@extend .X !optional` and comma lists
  *  (`@extend .X, .Y`). Returns names WITHOUT the leading dot; a non-class target (e.g.
  *  `%placeholder`) is dropped. The single parser both `isExtendedBy` and find_unused share. */

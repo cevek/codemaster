@@ -1,9 +1,11 @@
-// Resolve the prettier to format with. The project's OWN prettier comes first — a
-// different version emits a different style and would fight the repo's lint setup (a kind
-// of lie about "we kept your formatting"); codemaster's bundled copy is the fallback only,
-// and which one is active is always reported (ARCHITECTURE.md §5-L1). The project copy is
-// loaded with `createRequire` rooted at the project (so its `node_modules` wins); the
-// bundled copy via a lazy `import('prettier')`, so a read-only session never pays for it.
+// Resolve the prettier to format with — the project's OWN copy, and ONLY that. A different
+// prettier emits a different style; formatting a repo with codemaster's bundled copy would
+// reformat files the project never asked to touch (a project that deliberately doesn't run
+// prettier would get every file restyled — a lie about "we kept your formatting"). So there
+// is no bundled fallback: if the inspected repo doesn't ship prettier, we report
+// `available: false` and the mutating ops write the (already type-checked) content
+// unformatted. The project copy is loaded with `createRequire` rooted at the project, so its
+// `node_modules` wins (ARCHITECTURE.md §5-L1).
 
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -24,7 +26,7 @@ export interface PrettierApi {
 type PrettierOptions = Record<string, unknown> & { filepath?: string };
 
 export type ResolvedPrettier =
-  | { available: true; source: 'project' | 'bundled'; version: string; api: PrettierApi }
+  | { available: true; version: string; api: PrettierApi }
   | { available: false; reason: string };
 
 /** Narrow an opaque module export to the prettier surface we rely on. */
@@ -43,32 +45,18 @@ function loadProjectPrettier(projectRoot: string): PrettierApi | undefined {
   try {
     const req = createRequire(path.join(projectRoot, 'package.json'));
     const mod: unknown = req('prettier');
-    // Unwrap a `.default` (ESM-interop) wrapper, same as the bundled path — else a project
-    // prettier exposed under `.default` silently falls through to the bundled copy and is
-    // mis-reported as `source: 'bundled'`.
+    // Unwrap a `.default` (ESM-interop) wrapper — else a project prettier exposed under
+    // `.default` would fail the surface check and read as not-available.
     return asPrettierApi(mod) ?? asPrettierApi((mod as { default?: unknown }).default);
   } catch {
     return undefined;
   }
 }
 
-async function loadBundledPrettier(): Promise<PrettierApi | undefined> {
-  try {
-    const mod: unknown = await import('prettier');
-    return asPrettierApi(mod) ?? asPrettierApi((mod as { default?: unknown }).default);
-  } catch {
-    return undefined;
-  }
-}
-
-/** Resolve prettier for `projectRoot`: the project's own copy if present, else codemaster's
- *  bundled fallback, else an honest `available: false`. Never throws. */
+/** Resolve prettier for `projectRoot`: the project's own copy if present, else an honest
+ *  `available: false` (NO bundled fallback — see the file header). Never throws. */
 export async function resolvePrettier(projectRoot: string): Promise<ResolvedPrettier> {
   const project = loadProjectPrettier(projectRoot);
-  if (project)
-    return { available: true, source: 'project', version: project.version, api: project };
-  const bundled = await loadBundledPrettier();
-  if (bundled)
-    return { available: true, source: 'bundled', version: bundled.version, api: bundled };
-  return { available: false, reason: 'prettier not resolvable from the project or the bundle' };
+  if (project) return { available: true, version: project.version, api: project };
+  return { available: false, reason: 'the inspected project does not ship prettier' };
 }

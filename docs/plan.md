@@ -170,6 +170,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       `s.x`/`s['x']`/`s[expr]` (computed → `dynamic`, never guessed)
 - [x] `ops/scss-classes.ts`, `ops/find-unused-scss-classes.ts` — dynamic access demotes
       a module's unused-claims to `partial` with a note
+- [x] cross-sheet `composes: x from './other'` linkage — `find_unused` resolves the relative
+      `from` (via the shared `support/fs/resolve-relative.ts`) and marks the provider class
+      reachable; an unresolvable OR resolved-but-unindexed specifier demotes the composed name
+      everywhere (conservative — never a false `certain` dead)
+- [ ] follow-up (deferred — SAFE direction, low-frequency): `scanCssModuleUsages` shadow-skip
+      (`plugins/ts/scope-shadow.ts`) only treats function params + catch vars as shadows of a
+      css-import name; a `const`/`let`/`var` rebind (`import s from './x.scss'; { const s = …;
+s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a false "used"
+      that can mask a genuinely-dead class). It is the SAFE direction (never a false
+      `certain`-unused) and rare. A correct fix needs **block-POSITION-aware** shadowing (a
+      `const s` shadows only from its declaration onward in its block — a naive subtree-wide skip
+      would over-skip a real `s.x` EARLIER in the same block, a worse false-"unused" lie), so it
+      is tracked-not-patched (documented in `scope-shadow.ts`). Do it **when this pattern is
+      observed biting in a real repo**, with the position-aware analysis + before/after-decl tests.
 
 ## Relational post-filter — SQL over op outputs
 
@@ -253,8 +267,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
     (`css: 'copy-safe'`, spec-css-coextract) all landed
 - [x] `support/text-edits` — span-based edits (`apply`/`conflict`/`quote`/`write`); atomic
       temp-then-rename apply; overlap detection (non-empty same-start pairs conflict)
-- [x] `support/prettier` — `resolve` (project copy → bundled fallback, reports which) +
-      `format` (honest `ok(null)` skip; broken config → `ToolFailure`, never throws)
+- [x] `support/prettier` — `resolve` (project copy ONLY, no bundled fallback — absent
+      project prettier → `available:false`, file written unformatted) + `format` (honest
+      `ok(null)` skip for no-parser AND no-config; broken config → `ToolFailure`, never throws)
 - [x] `ops/rename-symbol.ts` (D) · `ops/move-file.ts` (F) · `ops/extract-symbol.ts` (G,
       TS-domain core — LS "Move to a new file", re-targeted + import-rewritten; honest ts-ls taxonomy)
       · `ops/change-signature.ts` (E, remove/reorder positional params at decl + call sites) —

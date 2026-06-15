@@ -218,9 +218,10 @@ mutating-op contract via the thinnest op; E/F/G build on it; H is an orthogonal 
 
 - **Goal.** Format a file with the project's **own** prettier; honest skip when
   unavailable / unsupported extension; never kill a batch on one bad config.
-- **Build.** `resolve.ts` (resolve prettier + config from the project root, bundled
-  fallback, report which is active — §5-L1); `format.ts` (`format(absPath, content) →
-string | null`; `null` = skipped). Per-file try/catch (the `engine.ts:199-229` pattern).
+- **Build.** `resolve.ts` (resolve prettier from the project root **only** — NO bundled
+  fallback; `available:false` otherwise — §5-L1); `format.ts` (`format(absPath, content) →
+string | null`; `null` = skipped, incl. when the project ships no prettier config). Per-file
+  try/catch (the `engine.ts:199-229` pattern).
 - **Port from.** `prettier-loader.ts` (80) + `formatTouchedFiles` (`engine.ts:199-229`).
 - **Reuse.** `support/config-load` resolution patterns; §3.6 wrap.
 - **Oracle.** Unformatted snippet + fixture `.prettierrc` → expected; no prettier → `null` +

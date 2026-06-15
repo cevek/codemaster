@@ -9,6 +9,7 @@ import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/pl
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
+import { resolveRelativeSpecifier } from '../../support/fs/resolve-relative.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
@@ -74,7 +75,7 @@ type ParsedSheet = { classes: ScssClass[]; reachability: SheetReachability };
 
 const EMPTY_SHEET: ParsedSheet = {
   classes: [],
-  reachability: { entangledOnly: new Set(), linkedReachable: new Set() },
+  reachability: { entangledOnly: new Set(), linkedReachable: new Set(), importedComposes: [] },
 };
 
 export function createScssPlugin(root: string): ScssPluginApi {
@@ -172,6 +173,30 @@ export function createScssPlugin(root: string): ScssPluginApi {
       const ts = registry.get<TsPluginApi>('ts');
       const usages = ts.cssModuleUsages();
 
+      // Cross-sheet `composes: x from './other'` linkage (spec-scss-css-honesty follow-up):
+      // a class reached only because ANOTHER sheet composes it is not provably dead. Resolve
+      // each `from` relative to the consuming sheet (relative-only — matching codemaster's css
+      // resolution); an aliased/unresolvable `from` can't be pinned to a provider, so the
+      // composed name is demoted in EVERY sheet (conservative — never a false `certain` dead).
+      const crossSheetReachable = new Map<string, Set<string>>();
+      const unresolvedComposed = new Set<string>();
+      for (const [consumerRel, sheet] of all) {
+        for (const { name, from } of sheet.reachability.importedComposes) {
+          const providerRel = resolveRelativeSpecifier(consumerRel, from);
+          // Unresolvable (aliased/bare) OR resolved to a path we don't actually index (a
+          // relative spec that doesn't byte-match a walked sheet — e.g. an omitted extension,
+          // a `..`-escape, a `.`/`./`): we can't PIN the provider, so demote the name
+          // everywhere rather than let the provider class read `certain` dead (the §3 lie).
+          if (providerRel === undefined || !all.has(providerRel)) {
+            unresolvedComposed.add(name);
+            continue;
+          }
+          const bucket = crossSheetReachable.get(providerRel);
+          if (bucket === undefined) crossSheetReachable.set(providerRel, new Set([name]));
+          else bucket.add(name);
+        }
+      }
+
       const unused: UnusedClassView[] = [];
       const dynamicModules: string[] = [];
       let scannedClasses = 0;
@@ -181,7 +206,17 @@ export function createScssPlugin(root: string): ScssPluginApi {
         const hasDynamic = accesses.some((a) => a.confidence === 'dynamic');
         if (hasDynamic) dynamicModules.push(rel);
         const used = new Set(accesses.filter((a) => a.className !== '').map((a) => a.className));
-        const { entangledOnly, linkedReachable } = sheet.reachability;
+        const { entangledOnly } = sheet.reachability;
+        const crossReach = crossSheetReachable.get(rel);
+        // Union the sheet's own linkage with cross-sheet + unresolvable composed names.
+        const linkedReachable =
+          crossReach === undefined && unresolvedComposed.size === 0
+            ? sheet.reachability.linkedReachable
+            : new Set<string>([
+                ...sheet.reachability.linkedReachable,
+                ...(crossReach ?? []),
+                ...unresolvedComposed,
+              ]);
 
         // Dedup: the same class declared across N selectors (`.card .row`, `.row + .row`)
         // parses to N rows — collapse to ONE unused row, keeping its first span and OR-ing

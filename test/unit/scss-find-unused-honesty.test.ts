@@ -60,3 +60,63 @@ test('contextual-only + composes-reachable classes are partial; simple stays cer
     await p.dispose();
   }
 });
+
+// Cross-sheet `composes: x from './provider'` — the provider class is reached only through the
+// consumer sheet, never directly in TS. It must NOT be reported `certain` unused (deleting it
+// breaks the consumer's composition), while a genuinely dead provider class still reads certain.
+const CROSS_SHEET_FIXTURE = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/provider.module.scss':
+    '.shared { color: red; }\n' + // reached only via consumer's `composes … from` → partial
+    '.orphan { color: blue; }\n', // nobody composes or uses it → certain dead
+  'src/consumer.module.scss': '.box { composes: shared from "./provider.module.scss"; }\n',
+  'src/use.ts': "import s from './consumer.module.scss';\nexport const a = s.box;\n",
+};
+
+test('cross-sheet composes-from keeps the provider class partial; a truly orphan one stays certain', async () => {
+  const p = await project(CROSS_SHEET_FIXTURE);
+  try {
+    const r = await p.op('find_unused_scss_classes', {});
+    assert.ok('result' in r && r.result.ok);
+    const unused = (r.result.data as View).unused;
+    const row = (name: string): Unused | undefined => unused.find((u) => u.name === name);
+
+    assert.equal(
+      row('shared')?.confidence,
+      'partial',
+      '`shared` is reached cross-sheet via composes-from → partial, never certain dead',
+    );
+    assert.equal(row('orphan')?.confidence, 'certain', '`orphan` is genuinely dead → certain');
+    assert.equal(row('box'), undefined, '`box` is used in TS');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// Regression guard: a `composes … from` whose relative specifier RESOLVES but does not byte-match
+// an indexed sheet (here an OMITTED extension — `from "./provider"`) must NOT bypass the demote
+// and report the provider class `certain` dead. We can't pin the provider, so we demote the
+// composed name everywhere — conservative, never a false certain (the §3 lie).
+const EXTLESS_FIXTURE = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/provider.module.scss': '.shared { color: red; }\n',
+  'src/consumer.module.scss': '.box { composes: shared from "./provider"; }\n', // no .module.scss
+  'src/use.ts': "import s from './consumer.module.scss';\nexport const a = s.box;\n",
+};
+
+test('cross-sheet composes-from with an unresolvable/unindexed provider never reports certain dead', async () => {
+  const p = await project(EXTLESS_FIXTURE);
+  try {
+    const r = await p.op('find_unused_scss_classes', {});
+    assert.ok('result' in r && r.result.ok);
+    const unused = (r.result.data as View).unused;
+    const shared = unused.find((u) => u.name === 'shared');
+    assert.equal(
+      shared?.confidence,
+      'partial',
+      '`shared` provider reached by an extension-less composes-from → partial, never certain',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
