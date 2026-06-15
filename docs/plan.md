@@ -40,7 +40,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` todo.
       (refuses cycles at init — tested); dep-scoped registries enforce declared `deps`
       at runtime; composition root is `bin.ts` (`pluginsFor`/`opsFor` injection)
 - [ ] `daemon/` IPC server (newline-delimited JSON) + daemon singleton (bind-or-connect)
-      — deferred: today each MCP/CLI process hosts its own in-process orchestrator
+      — deferred: today each MCP/CLI process hosts its own in-process orchestrator, so every
+      MCP connection/worktree spawns its own warm LS (no §2 amortization) and orphaned stdio
+      servers pile up (observed: 26). Spec:
+      [docs/spec-daemon-singleton.md](spec-daemon-singleton.md) (proposed; Stage 1 orphan-reaping
+      → Stage 2 socket singleton + thin stdio bridge)
 - [x] **lifecycle** — lazy engine spin-up; idle-TTL eviction; **path-existence sweeper**
       (pre-flight + periodic `existsSync` of `repoRoot`); injectable clock throughout
 - [x] orchestrator governor — engine-count LRU budget (in-process shadow of the §9 RSS
@@ -277,6 +281,11 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
       patched-LS rescue (§4) + CSS co-extract (`ops/extract-css-coextract.ts`) landed
 - [x] `ops/codemod.ts` — ast-grep matcher; declarative pattern + rewrite; **never claims
       to target a symbol** (§7), gated by the spec §2.8 post-edit typecheck
+- [ ] codemod enhancement — accept a full ast-grep **rule** object (relational constraints:
+      `inside`/`has`/`follows`/`not`/…) alongside the string `pattern`; the engine already
+      supports it, only the narrow string slice is wrapped today. Additive, back-compatible;
+      the metavar guard must walk the whole rule tree. Spec:
+      [docs/spec-codemod-ast-grep-rule.md](spec-codemod-ast-grep-rule.md) (proposed)
 - [x] resync — mutating ops write through `support/text-edits` + `support/git`; the next op's
       read-time freshness check (the engine reindexes touched plugins) self-corrects (§7)
 - [x] tests (git-backed) — dry-run zero-write · `diff(dry)==diff(apply)` · post-apply
