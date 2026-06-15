@@ -60,7 +60,7 @@ type I18nUnusedView = {
 };
 
 /** Scoping for `unusedKeys` (the whole-locale answer caps fast on a real key set). `prefix`
- *  narrows by dotted key namespace (the natural i18n axis, e.g. 'errors.codes.'); pathInclude/
+ *  narrows by dotted key namespace (segment-aware, no trailing dot — e.g. 'errors.codes'); pathInclude/
  *  pathExclude are globs over the locale .json path. Scopes which keys are REPORTED — the
  *  `degraded` verdict still reflects the WHOLE usage scan (a dynamic t(`…`) anywhere demotes,
  *  regardless of scope), so scoping never upgrades a key to a false `certain` dead. */
@@ -84,6 +84,9 @@ type I18nMissingView = {
   /** Dynamic usages: unresolvable, listed separately, never guessed (§18). */
   dynamicUsages: { span: Span }[];
   locales: string[];
+  /** Set iff ≥1 locale failed to parse: a key absent there is invisible, so `missing` is
+   *  incomplete — never let an empty result read as "fully translated" (§3.6). */
+  degradedReason?: string;
 };
 
 export interface I18nPluginApi extends Plugin {
@@ -258,20 +261,25 @@ export function createI18nPlugin(
       const all = warm();
       // Scope which keys we REPORT. `degraded`/`used` below are computed over the WHOLE usage
       // scan regardless, so scoping never turns a globally-demoted key into a false certain dead.
-      const inScope = (key: string, file: RepoRelPath): boolean => {
-        // Segment-aware prefix, identical to i18n_lookup: `errors.codes` matches `errors.codes`
-        // and `errors.codes.*`, never an unrelated `errors.codesX` — one convention across both ops.
+      const inc = filter?.pathInclude ?? [];
+      const exc = filter?.pathExclude ?? [];
+      // A locale file passes the path globs if it matches pathInclude (when set) and not pathExclude.
+      const filePasses = (file: RepoRelPath): boolean =>
+        (inc.length === 0 || matchesAnyGlob(file, inc)) &&
+        !(exc.length > 0 && matchesAnyGlob(file, exc));
+      // A key is in scope if its namespace matches `prefix` (segment-aware, identical to i18n_lookup)
+      // AND at least ONE locale file defining it passes the path globs. Scoping over the FULL
+      // defining-file set (not a single "representative") is what keeps a key shared across locales
+      // in scope when any of its files is included — never order-dependent on which locale sorts first.
+      const inScope = (key: string, files: readonly RepoRelPath[]): boolean => {
         if (
           filter?.prefix !== undefined &&
           key !== filter.prefix &&
           !key.startsWith(`${filter.prefix}.`)
         )
           return false;
-        const inc = filter?.pathInclude;
-        const exc = filter?.pathExclude;
-        if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(file, inc)) return false;
-        if (exc !== undefined && exc.length > 0 && matchesAnyGlob(file, exc)) return false;
-        return true;
+        if (inc.length === 0 && exc.length === 0) return true;
+        return files.some(filePasses);
       };
       const calls = ts().literalCalls(functions);
       const dynamic = calls.some((c) => c.dynamic);
@@ -291,17 +299,22 @@ export function createI18nPlugin(
       const degradedReason =
         reasons.length > 0 ? `cannot prove dead — ${reasons.join(' and ')}` : undefined;
 
-      // One representative definition per key (first locale file, by sorted path).
+      // One representative definition per key (first locale file, by sorted path), PLUS the full
+      // set of files defining each key — path scoping (inScope) runs over the whole set, not the rep.
       const rep = new Map<string, { file: RepoRelPath; span: Span }>();
+      const keyFiles = new Map<string, RepoRelPath[]>();
       for (const rel of [...all.keys()].sort()) {
         for (const k of all.get(rel)?.keys ?? []) {
           if (!rep.has(k.key)) rep.set(k.key, { file: rel, span: k.span });
+          const arr = keyFiles.get(k.key);
+          if (arr === undefined) keyFiles.set(k.key, [rel]);
+          else arr.push(rel);
         }
       }
       const unused: UnusedKeyView[] = [];
       let scannedKeys = 0;
       for (const [key, where] of rep) {
-        if (!inScope(key, where.file)) continue;
+        if (!inScope(key, keyFiles.get(key) ?? [where.file])) continue;
         scannedKeys++;
         if (used.has(key)) continue;
         unused.push({
@@ -348,7 +361,18 @@ export function createI18nPlugin(
         if (missingLocales.length > 0) missing.push({ key: c.arg, span: c.span, missingLocales });
       }
       const dynamicUsages = calls.filter((c) => c.dynamic).map((c) => ({ span: c.span }));
-      return { missing, dynamicUsages, locales };
+      // A key absent from an UNREADABLE locale cannot be seen, so an empty (or short) `missing`
+      // must not read as "fully translated" — flag the incompleteness, mirroring unusedKeys (§3.6).
+      const degradedReason =
+        failed.size > 0
+          ? 'a locale file failed to parse — a key absent there is invisible; missing analysis is incomplete'
+          : undefined;
+      return {
+        missing,
+        dynamicUsages,
+        locales,
+        ...(degradedReason !== undefined ? { degradedReason } : {}),
+      };
     },
 
     parseFailures: () => failures,

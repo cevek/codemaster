@@ -37,7 +37,7 @@ const argsSchema = z
     prefix: z.string().optional(),
     /** Reverse lookup: find the key(s) whose locale VALUE matches (case-insensitive substring by
      *  default — "I see this UI string, which key is it?"). `valueMode:'exact'` for a whole-value match. */
-    value: z.string().optional(),
+    value: z.string().min(1).optional(),
     valueMode: z.enum(['substring', 'exact']).optional(),
     /** Restrict emitted values to ONE locale (defs are per key×locale — a prefix lookup on a
      *  many-locale repo is N×locales rows). Orthogonal to the selector; missingPerKey stays global. */

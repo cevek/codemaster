@@ -85,3 +85,30 @@ test('find_unused_i18n_keys: a dynamic t(`…`) demotes globally — scoping nev
     await p.dispose();
   }
 });
+
+test('find_unused_i18n_keys: path filter scopes over ALL defining locales, not just the rep', async () => {
+  // `shared` lives in BOTH locales; its rep is de.json (sorts first). pathInclude en.json must
+  // keep it in scope (en.json defines it) — the bug was scoping against the rep file only.
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts':
+      "import {defineConfig} from 'codemaster';\n" +
+      "export default defineConfig({ i18n: { locales: ['locales/*.json'] } });\n",
+    'locales/de.json': JSON.stringify({ shared: 'A' }),
+    'locales/en.json': JSON.stringify({ shared: 'A', only_en: 'B' }),
+    'src/use.ts': 'const t = (k: string) => k;\nexport const x = 1;\n', // nothing used
+  });
+  try {
+    const r = await p.op('find_unused_i18n_keys', { pathInclude: ['**/en.json'] });
+    assert.ok('result' in r && r.result.ok);
+    const view = r.result.data as View;
+    assert.deepEqual(
+      view.unused.map((u) => u.key).sort(),
+      ['only_en', 'shared'],
+      'a key shared across locales stays in scope when ANY defining file is included',
+    );
+    assert.equal(view.scanned.keys, 2);
+  } finally {
+    await p.dispose();
+  }
+});

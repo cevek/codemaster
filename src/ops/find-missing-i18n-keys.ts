@@ -1,8 +1,9 @@
 // `find_missing_i18n_keys` — literal `t('…')` usages whose key is absent from one or more
-// locales, reported per locale (a usage site × each missing locale). Dynamic usages can't
-// be checked against the locale set — they are listed separately as unresolvable, never
-// guessed (§18). The op IS the join (usage sites the ts plugin observed vs the key set the
-// i18n plugin owns).
+// locales: ONE row per usage site carrying `missingLocales[]` (the sql/table projection stays
+// flat, per usage × locale). Dynamic usages can't be checked against the locale set — listed
+// separately as unresolvable, never guessed (§18). A locale that failed to parse makes the
+// analysis incomplete (degradedReason), never a silent "fully translated". The op IS the join
+// (usage sites the ts plugin observed vs the key set the i18n plugin owns).
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
@@ -29,11 +30,15 @@ const findMissingI18nKeysTable: TableSpec<JsonValue> = {
     return out;
   },
   notes(data) {
+    const out: string[] = [];
+    const reason = (data as { degradedReason?: string }).degradedReason;
+    if (reason !== undefined) out.push(`missing analysis incomplete: ${reason}.`);
     const dyn = (data as { dynamicUsages?: unknown[] }).dynamicUsages ?? [];
-    if (dyn.length === 0) return [];
-    return [
-      `${dyn.length} dynamic t(\`…\`) usage(s) could not be checked against locales — listed separately, never guessed.`,
-    ];
+    if (dyn.length > 0)
+      out.push(
+        `${dyn.length} dynamic t(\`…\`) usage(s) could not be checked against locales — listed separately, never guessed.`,
+      );
+    return out;
   },
 };
 
@@ -60,6 +65,7 @@ export const findMissingI18nKeysOp = defineOp({
       return ok({
         missing: view.missing,
         locales: view.locales,
+        ...(view.degradedReason !== undefined ? { degradedReason: view.degradedReason } : {}),
         ...(view.dynamicUsages.length > 0 ? { dynamicUsages: view.dynamicUsages } : {}),
         ...(failures.length > 0 ? { parseFailures: failures } : {}),
       });

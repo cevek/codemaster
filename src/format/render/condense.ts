@@ -80,16 +80,12 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
     return `${String(v['span'])} · ${String(v['key'])}${conf}`;
   }
-  // MissingKeyView (i18n): { key, locale, span(condensed), confidence } — a usage site whose key
-  // is absent from `locale`. The span points at the t() call; key + locale name the gap.
-  if (keys === 'confidence,key,locale,span') {
-    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
-    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}${conf}`;
-  }
   // i18n_lookup KeyDef: { key, locale, file, span(condensed), value }. Drop the redundant
-  // `file` (the condensed span carries it); the value runs to end-of-line.
+  // `file` (the condensed span carries it). The value is FLATTENED (newlines/tabs → one space):
+  // a multi-line locale value would otherwise split into orphan lines with no clickable anchor.
   if (keys === 'file,key,locale,span,value') {
-    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}=${String(v['value'])}`;
+    const value = String(v['value']).replace(/\s+/g, ' ');
+    return `${String(v['span'])} · ${String(v['key'])} · ${String(v['locale'])}=${value}`;
   }
   // i18n_lookup usage site: { key, span(condensed) }.
   if (keys === 'key,span') {
