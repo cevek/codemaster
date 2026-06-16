@@ -1,11 +1,11 @@
 # Spec: `extract_symbol` — complete the import/export edits the LS leaves incomplete (KS-2, KS-3)
 
 Status: **proposed** (task brief for an implementing agent). Read ARCHITECTURE.md §3 (trust
-contract), §7 (edit model — esp. the §2.8 typecheck gate), §16 (honesty harness);
-`docs/spec-refactor-port.md`, `docs/spec-css-coextract.md`; and CONTRIBUTING.md before starting.
-Refines the inbox `[bug]` items KS-2 + KS-3 (2026-06-14), surfaced and **quarantined** by the
-kitchensink-integration agent. **Sequence after `spec-kitchensink-integration.md`** — the repros live
-(quarantined) in `test/e2e/kitchensink-extract.test.ts`.
+contract), §4 (the patched-LS extract rescue), §7 (edit model — esp. the §2.8 typecheck gate),
+§16 (honesty harness); and CONTRIBUTING.md before starting. Refines the KS-2 + KS-3 extract
+limitations surfaced and **quarantined** by the kitchensink-integration work — the repros live
+(quarantined) in `test/e2e/kitchensink-extract.test.ts`, which PIN the honest refusal this task
+would turn into a clean extract.
 
 ## 1. Problem
 
@@ -92,5 +92,6 @@ duplicated rewriter · docs at present state.
   value as a type or vice-versa; no dangling importer after KS-3.
 - **copy-paste-reviewer** — KS-3 reuses `move_file`'s importer rewrite (not a second resolver/rewriter);
   the type-only decision uses the checker, not a regex.
-- **doc-sync-reviewer** — `findings-kitchensink.md` KS-2/KS-3 marked resolved; the inbox items closed;
-  `spec-refactor-port` / `spec-css-coextract` "known limitation" notes (if any) updated to present state.
+- **doc-sync-reviewer** — the KS-2/KS-3 quarantine in `test/e2e/kitchensink-extract.test.ts` is lifted
+  (the clean-extract MUST replaces the pinned honest-refusal); ARCHITECTURE §4/§7 "known limitation"
+  notes (if any) updated to present state.

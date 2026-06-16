@@ -153,6 +153,12 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **extract baseline: span-aware remap** — a pre-existing error relocated INTO an extracted block
       can read as `introduced` (path+line shift defeats the path-only baseline remap, §1b). Disclosed
       via a hedge note today; real fix is a span-aware baseline remap. `bug`·`med`·`cx:L`
+- [ ] **`extract_symbol`: complete the import/export edits the LS leaves (KS-2/KS-3)** —
+      [spec-extract-completion.md](spec-extract-completion.md). Extracting a closure that captures a
+      type-only binding under `verbatimModuleSyntax` (the LS imports it as a value → §2.8 gate refuses)
+      and the sole-export-`Widget` case currently honestly REFUSE — pinned/quarantined in
+      `test/e2e/kitchensink-extract.test.ts`. Complete the edits so the extract succeeds cleanly.
+      `feat`·`med`·`cx:L`
 - [ ] **move_symbol: re-export barrels not repointed** — the LS "Move to file" rewrites DIRECT
       importers but leaves `export { X } from './source'` barrels (and default-export importers)
       dangling → the §2.8 gate honestly REFUSES the whole move. Close by supplementing the LS edits

@@ -527,8 +527,7 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > **apply is refused** when non-empty, exactly like the typecheck gate. The #1 design risk is
 > **over-refusal** (a false capture on a legitimate refactor is worse than the rare silent bug), so
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
-> Shared helper: `plugins/ts/refactor/capture/`. (Spec: `docs/spec-refactor-capture-safety.md`;
-> residual gaps tracked in `docs/backlog.md`.)
+> Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in `docs/backlog.md`.)
 
 ---
 
