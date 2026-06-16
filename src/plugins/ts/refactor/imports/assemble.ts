@@ -69,10 +69,16 @@ export function assemblePlan(
   }
 
   // Synthetic new files: their content IS the after; show as a pure add and overlay them so
-  // an importer of the new symbol resolves during the dry-run typecheck.
+  // an importer of the new symbol resolves during the dry-run typecheck. Add the new file to
+  // checkPaths too: its OWN content must be diagnosed (an error INTERNAL to the extracted block —
+  // e.g. one surfacing only under a disjoint DEST program's compilerOptions — would otherwise be
+  // overlaid but never checked, a §2.8 completeness gap the cross-program gate must not leave open).
   for (const nf of commit.newFiles) {
     diff.push({ from: nf.path, to: nf.path, before: '', after: nf.content });
-    if (TS_RE.test(nf.path)) overlayFiles.push({ path: nf.path, content: nf.content });
+    if (TS_RE.test(nf.path)) {
+      overlayFiles.push({ path: nf.path, content: nf.content });
+      checkPaths.add(String(nf.path));
+    }
   }
 
   // Widen the typecheck scope to EVERY TS file in the LS program, not just the git tree. The

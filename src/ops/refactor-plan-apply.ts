@@ -19,6 +19,7 @@ import {
   captureRefusal,
   diffstat,
   formatOne,
+  gateCoverageNotes,
   resolvePrettier,
   dirtyAmong,
 } from './mutation-support.ts';
@@ -93,24 +94,29 @@ export async function applyRefactorPlan(
             )
             .join(''),
         };
-  const baseNotes = {
-    ...(notes.length > 0 ? { notes } : {}),
-    ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
-  };
-
   // §2.8 gate — typecheck the post-edit content; tombstone removed paths, scope to the whole
   // program so a missed rewrite surfaces as a dangling import rather than a silent clean.
   const overlayFiles = plan.overlayFiles.map((o) => ({
     path: o.path,
     content: contentOf(o.path, o.content),
   }));
+  // Fan the gate across EVERY program the move/extract touches (Task G for WRITES): a `test/**`
+  // importer under a sibling tsconfig is verified too, so a dangling import the primary program
+  // can't see is caught. `anchor` (touched + moved-away paths) picks the affected programs; the
+  // same whole-tree `checkPaths` fans to each (each program diagnoses the files it contains).
+  const gateScope = { anchor: [...touched, ...plan.removed], check: plan.checkPaths };
   let baselineDiag: TsDiagnostic[];
   let diag: TsDiagnostic[];
+  let gateProgms: string[];
+  let gateDegraded: string[];
   try {
-    // Baseline (pre-edit disk) over the same scope, then the overlay check — the gate refuses on
-    // errors THIS refactor introduces, not on the repo's pre-existing ones (§2.8 / §3.6).
-    baselineDiag = ts.diagnostics(plan.checkPaths);
-    diag = ts.typecheckOverlay(overlayFiles, { removed: plan.removed, check: plan.checkPaths });
+    // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set — the
+    // gate refuses on errors THIS refactor introduces, not on the repo's pre-existing ones.
+    const g = ts.gateAcross(overlayFiles, { ...gateScope, removed: plan.removed });
+    baselineDiag = g.baseline;
+    diag = g.overlay;
+    gateProgms = g.programs; // pin post-apply to this set (a move shifts program membership)
+    gateDegraded = g.degraded;
   } catch (thrown) {
     return failFromThrown('ts-ls', thrown);
   }
@@ -137,6 +143,14 @@ export async function applyRefactorPlan(
   };
   const gate = buildTypecheckField(baselineDiag, diag, remapBaselineFile);
   const typecheck = gate.field;
+
+  // Built AFTER the gate so the cross-program coverage (programs checked / broken siblings skipped)
+  // rides on every envelope — a 1-program check never reads as repo-wide (§3.6 / §6).
+  notes.push(...gateCoverageNotes(gateProgms, gateDegraded));
+  const baseNotes = {
+    ...(notes.length > 0 ? { notes } : {}),
+    ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
+  };
 
   if (ctx.flags.apply !== true) {
     // The diff/diffstat tail is ALWAYS the last key: it can be tens of KB and the render self-caps
@@ -286,11 +300,11 @@ export async function applyRefactorPlan(
   let postGate: { clean: boolean; field: JsonValue };
   try {
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    // Diff against the SAME pre-edit baseline — a pre-existing repo error must not roll back a
-    // sound refactor.
+    // Diff post-apply disk diagnostics (across the same affected programs) against the SAME pre-edit
+    // baseline — a pre-existing repo error must not roll back a sound refactor.
     postGate = buildTypecheckField(
       baselineDiag,
-      ts.diagnostics(plan.checkPaths),
+      ts.diagnosticsAcross(gateScope, gateProgms),
       remapBaselineFile,
     );
   } catch (thrown) {

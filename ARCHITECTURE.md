@@ -321,7 +321,20 @@ probing.
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
-  (The full monorepo project-reference _redirect_ graph stays roadmap; this is the
+  **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
+  every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`
+  / `extract_symbol` repoint sibling-only importers via a disk read, and the §2.8 typecheck gate
+  runs the overlay check on **every affected program** + the disk baseline over the same set —
+  so a cross-program dangle is caught, never a silent partial edit. A program is **affected** when
+  it contains an edited file _or its glob would own one_ (existence-independent membership) — so the
+  program owning a move/extract DEST joins the gate and a moved file erroneous under that dest
+  tsconfig's _own_ compilerOptions (a divergent `lib`/`strict`) is refused, not only a dangling
+  import; each program is overlaid with only the files it owns (baseline/overlay stay symmetric), and
+  a SIBLING program whose LS throws degrades to a note (the PRIMARY's throw is never swallowed — it
+  fails honestly). (Inside a `transaction` the
+  write-site fan-out is gated off — a step's `PlanningOverlay` lives on the primary, so a sibling
+  would read stale disk; the fanned gate still refuses a resulting dangle — backlog.) (The full
+  monorepo project-reference _redirect_ graph stays roadmap; this is the
   discover-and-load-as-independent-programs step the usage/dead-code honesty needs.)
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
@@ -1073,7 +1086,8 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   `ts` plugin runs one `Program` per package `tsconfig`, each keeping its own
   `compilerOptions` (never a flat single-options Program). Built today: the repo's tsconfigs
   (root + sibling `tsconfig.*.json` + `references`) load as **independent** programs that
-  usages / dead-code fan out across (§5-L2 / Task G). Roadmap: wiring them with
+  usages / dead-code **and the mutating ops** (rename / change_signature / move / extract +
+  the §2.8 typecheck gate) fan out across (§5-L2 / Task G). Roadmap: wiring them with
   project-reference redirects (what `tsserver` does) so cross-package references resolve
   in-memory as one graph. (§9)
 - **Watcher is best-effort and must degrade, not crash.** chokidar 4 uses per-directory

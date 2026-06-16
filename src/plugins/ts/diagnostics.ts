@@ -19,24 +19,32 @@ export function collectDiagnostics(
   host: TsProjectHost,
   absPaths: readonly string[],
 ): TsDiagnostic[] {
+  return collectFromService(host.service, (abs) => host.relOf(abs), absPaths);
+}
+
+/** Diagnostics from a SPECIFIC program's LanguageService (not necessarily the primary) — the
+ *  per-program unit the cross-program write-gate fan-out (§2.8) collects from each affected
+ *  program. `relOf` maps absolute → repo-relative for the host's display paths. */
+export function collectFromService(
+  service: ts.LanguageService,
+  relOf: (abs: string) => RepoRelPath,
+  absPaths: readonly string[],
+): TsDiagnostic[] {
   const out: TsDiagnostic[] = [];
-  const program = host.service.getProgram();
+  const program = service.getProgram();
   for (const abs of absPaths) {
     // getSemantic/SyntacticDiagnostics THROW on a path not in the program (a moved-away old
     // path, a stray check path). Skip it honestly — an absent file has no diagnostics, and a
     // dangling import to it surfaces on the IMPORTER (which IS in the program) instead.
     if (program?.getSourceFile(abs) === undefined) continue;
-    const diags = [
-      ...host.service.getSyntacticDiagnostics(abs),
-      ...host.service.getSemanticDiagnostics(abs),
-    ];
+    const diags = [...service.getSyntacticDiagnostics(abs), ...service.getSemanticDiagnostics(abs)];
     for (const d of diags) {
       const line =
         d.file !== undefined && d.start !== undefined
           ? d.file.getLineAndCharacterOfPosition(d.start).line + 1
           : 0;
       out.push({
-        file: host.relOf(d.file?.fileName ?? abs),
+        file: relOf(d.file?.fileName ?? abs),
         line,
         message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
       });

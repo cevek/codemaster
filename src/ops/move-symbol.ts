@@ -42,6 +42,8 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
     'a name already declared at top level in dest is REFUSED with a collision message (never clobbered/shadowed); a target nested inside another declaration is REFUSED (only a TOP-LEVEL symbol moves); a JSX body needs a .tsx dest (a non-.tsx dest is REFUSED).',
     'DIRECT importers are repointed; a re-export barrel (`export { X } from`) of the moved symbol is NOT repointed by the LS, so it would dangle — the §2.8 gate then REFUSES the whole move (honest, never a half-move). Repoint such a barrel by hand or move the barrel’s own export.',
     'capture-safe: each importer specifier the move added/changed to reach dest is re-resolved over the post-edit tree — if one lands on a DIFFERENT same-named, type-compatible export the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.',
+    'cross-program: an importer in a `test/**` file under a sibling tsconfig is repointed too, and the typecheck gate runs on every affected program (including the program that owns the dest file, so a merge erroneous under a sibling tsconfig is refused).',
+    'cross-program LIMITS: (a) the capture-safety check (the type-compatible silent re-bind on a rewritten import) runs on the PRIMARY program ONLY. (b) inside a `transaction` the cross-program write-site fan-out is OFF: a step rewrites primary-program sites only, though the cumulative §2.8 gate still fans across every program and refuses a cross-program dangle.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

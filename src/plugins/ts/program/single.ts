@@ -16,6 +16,7 @@ import ts from 'typescript';
 import type { RepoRelPath } from '../../../core/brands.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
+import { buildMembership } from './membership.ts';
 
 /** One queryable TS program (an LS over a single tsconfig) plus the bookkeeping the host needs
  *  to keep it fresh. Public methods only; the LS host internals stay private. */
@@ -35,6 +36,11 @@ export interface SingleProgram {
   /** Is `absPosix` a source file in the BUILT program right now (drives the cross-program
    *  fan-out: only run findReferences on programs that actually contain the decl file)? */
   containsFile(absPosix: string): boolean;
+  /** WOULD this program's tsconfig glob include `absPosix` — independent of whether the file
+   *  exists yet? Unlike `containsFile`/`isTracked` (both existence-gated), this answers the glob
+   *  question for a not-yet-created move/extract DEST, so the program that owns the dest joins the
+   *  cross-program write gate and typechecks the moved file under ITS compilerOptions (membership.ts). */
+  mayContain(absPosix: string): boolean;
   /** Apply a changed set; returns `true` when the change was structural for THIS program (a
    *  tracked file added/removed → the file list was re-globbed). */
   reindex(changed: readonly RepoRelPath[]): boolean;
@@ -67,9 +73,12 @@ export function createSingleProgram(
   let version = 1;
   const overlay = new Overlay();
 
+  const configDir = configPath !== undefined ? path.dirname(configPath) : root;
   let parsed: ts.ParsedCommandLine;
+  let membership: (absPosix: string) => boolean;
   const loadFileList = (): void => {
     parsed = parseConfig(root, configPath); // (re-)glob: picks up added/removed files
+    membership = buildMembership(parsed, configDir, root); // glob predicate, rebuilt on re-glob
     const next = new Map<string, { version: number }>();
     for (const abs of parsed.fileNames.map(toPosix).filter((f) => !f.includes('/node_modules/'))) {
       next.set(abs, files.get(abs) ?? { version: 1 });
@@ -152,6 +161,7 @@ export function createSingleProgram(
     fileNames: () => [...files.keys()],
     isTracked: (absPosix) => files.has(absPosix),
     containsFile: (absPosix) => service.getProgram()?.getSourceFile(absPosix) !== undefined,
+    mayContain: (absPosix) => membership(absPosix),
     reindex(changed) {
       let structural = false;
       for (const rel of changed) {

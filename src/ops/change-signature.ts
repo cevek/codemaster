@@ -37,6 +37,8 @@ export const changeSignatureOp = defineOp<ChangeArgs, JsonValue>({
   notes: [
     'positional params only; pass removeParam (0-based index) OR reorder (a full permutation of param indices). Renaming a param is rename_symbol, not this.',
     'CONSERVATIVE: refuses the whole op (rather than risk a silent mis-bind the typecheck cannot catch) if any use is a non-call value/JSX/new, a spread-arg call, or a reorder over a call that omits trailing args.',
+    'cross-program: call sites are found across ALL loaded programs — a `test/**` call under a sibling tsconfig is rewritten (or refuses if it cannot be), and the typecheck gate runs on every affected program.',
+    'cross-program LIMIT: inside a `transaction` the cross-program call-site fan-out is OFF — a step rewrites primary-program calls only (the cumulative §2.8 gate still fans across every program and refuses a resulting cross-program dangle). change_signature has no type-compatible-capture check; it refuses conservatively on any use it cannot faithfully rewrite.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

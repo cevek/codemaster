@@ -15,6 +15,43 @@ import type { VFSTree } from '../tree/tree.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
 import type { RefactorPlan } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
+import { findReferencesAcross } from '../../cross-program.ts';
+
+/** A call-site reference resolved against the program that surfaced it — so a `test/**` call
+ *  under a sibling tsconfig carries its own SourceFile (the primary program lacks it). */
+interface SigRef {
+  fileName: string;
+  start: number;
+  sourceFile: ts.SourceFile;
+}
+
+/** Every reference to the callable at `sourceAbs:offset`. Cross-program (Task G for WRITES) so a
+ *  `test/**` call site is rewritten too; primary-only on the transaction path (`crossProgram`
+ *  false), where a sibling reading stale disk under a planning overlay would be unsound. */
+function gatherSigRefs(
+  host: TsProjectHost,
+  sourceAbs: string,
+  offset: number,
+  crossProgram: boolean,
+): SigRef[] {
+  if (crossProgram) {
+    return (findReferencesAcross(host, sourceAbs, offset)?.refs ?? []).map((r) => ({
+      fileName: r.fileName,
+      start: r.start,
+      sourceFile: r.sourceFile,
+    }));
+  }
+  const program = host.service.getProgram();
+  const out: SigRef[] = [];
+  for (const sym of host.service.findReferences(sourceAbs, offset) ?? []) {
+    for (const ref of sym.references) {
+      const sf = program?.getSourceFile(ref.fileName);
+      if (sf !== undefined)
+        out.push({ fileName: ref.fileName, start: ref.textSpan.start, sourceFile: sf });
+    }
+  }
+  return out;
+}
 
 export interface SignatureChange {
   removeParam?: number;
@@ -146,10 +183,16 @@ export function planChangeSignature(
   sourceAbs: string,
   offset: number,
   change: SignatureChange,
+  /** Fan the call-site search across every program (default) so a `test/**` call is rewritten
+   *  too; `false` on the transaction path (planning-overlay stale-sibling hazard, ls-host TRAP). */
+  crossProgram = true,
 ): RefactorPlan | string {
   const program = host.service.getProgram();
   const sf = program?.getSourceFile(sourceAbs);
   if (sf === undefined) return 'source file not in the TS project';
+  // SourceFile per touched file (decl + each ref) — a cross-program ref's text lives only in its
+  // own program, so the apply step reads `before` from here, not a primary-only `getSourceFile`.
+  const sfByFile = new Map<string, ts.SourceFile>([[sourceAbs, sf]]);
   const decl = callableAt(sf, offset);
   if (decl === undefined) return 'no function/method declaration at the target position';
   // Declaration-shape guards that apply to BOTH ops (the removeParam counterpart of the
@@ -211,61 +254,59 @@ export function planChangeSignature(
   // removeParam can drop a side-effecting argument expression that compiles clean (gate-blind) —
   // we don't refuse (the removal IS the request), but we surface a proof-carrying warning per site.
   const sideEffectNotes: string[] = [];
-  const refs = host.service.findReferences(sourceAbs, offset) ?? [];
-  for (const sym of refs) {
-    for (const ref of sym.references) {
-      if (ref.fileName === sourceAbs && ref.textSpan.start === offset) continue; // the decl name
-      const refSf = program?.getSourceFile(ref.fileName);
-      if (refSf === undefined) continue;
-      const node = tokenAt(refSf, ref.textSpan.start);
-      const at = `${host.relOf(ref.fileName)}`;
-      const parent = node.parent;
-      if (
-        parent !== undefined &&
-        (ts.isImportSpecifier(parent) ||
-          ts.isExportSpecifier(parent) ||
-          ts.isImportClause(parent) ||
-          ts.isNamespaceImport(parent))
-      ) {
-        continue; // a re-export / import binding — the signature change doesn't touch it
-      }
-      const call = callOf(node);
-      if (call === undefined) {
-        blockers.push(
-          `${at}: a non-call use of the symbol (passed as a value / new / JSX) — cannot rewrite`,
-        );
-        continue;
-      }
-      if (tree.findByCurrentPath(host.relOf(ref.fileName)) === null) {
-        blockers.push(`${at}: a call in a file outside the tracked tree — cannot verify`);
-        continue;
-      }
-      if (call.arguments.some((a) => ts.isSpreadElement(a))) {
-        blockers.push(`${at}: a spread argument — positions are unknown`);
-        continue;
-      }
-      if (isReorder && call.arguments.length !== paramCount) {
-        // Fewer args (omitted trailing optionals) OR more (a rest parameter) → the permutation
-        // isn't representable as a flat arg-list reorder; the extra/missing slots would
-        // silently mis-bind or drop. Refuse rather than corrupt (the typecheck is type-blind).
-        blockers.push(
-          `${at}: argument count (${call.arguments.length}) ≠ parameter count (${paramCount}) — reorder cannot be represented`,
-        );
-        continue;
-      }
-      if (change.removeParam !== undefined) {
-        const dropped = call.arguments[change.removeParam];
-        if (dropped !== undefined && mayHaveSideEffect(dropped)) {
-          const { line } = refSf.getLineAndCharacterOfPosition(dropped.getStart(refSf));
-          const text = dropped.getText(refSf);
-          const shown = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-          sideEffectNotes.push(
-            `${at}:${line + 1}: removed argument \`${shown}\` may have a side effect — dropped`,
-          );
-        }
-      }
-      push(ref.fileName, listEdit(refSf, call.arguments, order));
+  const refs = gatherSigRefs(host, sourceAbs, offset, crossProgram);
+  for (const ref of refs) {
+    if (ref.fileName === sourceAbs && ref.start === offset) continue; // the decl name
+    const refSf = ref.sourceFile;
+    sfByFile.set(ref.fileName, refSf);
+    const node = tokenAt(refSf, ref.start);
+    const at = `${host.relOf(ref.fileName)}`;
+    const parent = node.parent;
+    if (
+      parent !== undefined &&
+      (ts.isImportSpecifier(parent) ||
+        ts.isExportSpecifier(parent) ||
+        ts.isImportClause(parent) ||
+        ts.isNamespaceImport(parent))
+    ) {
+      continue; // a re-export / import binding — the signature change doesn't touch it
     }
+    const call = callOf(node);
+    if (call === undefined) {
+      blockers.push(
+        `${at}: a non-call use of the symbol (passed as a value / new / JSX) — cannot rewrite`,
+      );
+      continue;
+    }
+    if (tree.findByCurrentPath(host.relOf(ref.fileName)) === null) {
+      blockers.push(`${at}: a call in a file outside the tracked tree — cannot verify`);
+      continue;
+    }
+    if (call.arguments.some((a) => ts.isSpreadElement(a))) {
+      blockers.push(`${at}: a spread argument — positions are unknown`);
+      continue;
+    }
+    if (isReorder && call.arguments.length !== paramCount) {
+      // Fewer args (omitted trailing optionals) OR more (a rest parameter) → the permutation
+      // isn't representable as a flat arg-list reorder; the extra/missing slots would
+      // silently mis-bind or drop. Refuse rather than corrupt (the typecheck is type-blind).
+      blockers.push(
+        `${at}: argument count (${call.arguments.length}) ≠ parameter count (${paramCount}) — reorder cannot be represented`,
+      );
+      continue;
+    }
+    if (change.removeParam !== undefined) {
+      const dropped = call.arguments[change.removeParam];
+      if (dropped !== undefined && mayHaveSideEffect(dropped)) {
+        const { line } = refSf.getLineAndCharacterOfPosition(dropped.getStart(refSf));
+        const text = dropped.getText(refSf);
+        const shown = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+        sideEffectNotes.push(
+          `${at}:${line + 1}: removed argument \`${shown}\` may have a side effect — dropped`,
+        );
+      }
+    }
+    push(ref.fileName, listEdit(refSf, call.arguments, order));
   }
   if (blockers.length > 0) {
     return `change_signature cannot safely rewrite every use — refusing: ${blockers.join('; ')}`;
@@ -275,7 +316,7 @@ export function planChangeSignature(
   for (const [fileName, edits] of editsByFile) {
     const node = tree.findByCurrentPath(host.relOf(fileName));
     if (node === null) continue;
-    const before = node.contentOverride() ?? program?.getSourceFile(fileName)?.text;
+    const before = node.contentOverride() ?? sfByFile.get(fileName)?.text;
     if (before === undefined) continue;
     node.setContent(applyEdits(before, edits));
   }

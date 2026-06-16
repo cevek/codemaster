@@ -32,6 +32,7 @@ import {
   captureRefusal,
   diffstat,
   formatOne,
+  gateCoverageNotes,
   resolvePrettier,
   dirtyAmong,
 } from './mutation-support.ts';
@@ -139,13 +140,6 @@ export async function applyMutation(
   } catch (thrown) {
     buildNotes.push(`could not compute the completeness signal (${messageOfThrown(thrown)})`);
   }
-  const notes = [
-    ...(options.warnings ?? []),
-    ...(built?.notes ?? []),
-    ...buildNotes,
-    ...formatNotes,
-  ];
-  const baseNotes = notes.length > 0 ? { notes } : {};
   const appliedFields = built?.fields ?? {};
   const touched = changes.map((c) => c.path);
   const captures = options.captures ?? [];
@@ -172,23 +166,46 @@ export async function applyMutation(
   // codemod has no such guarantee — it can break an un-matched importer — so it (and only it)
   // widens to the whole program. Pre-existing repo errors don't block either scope: the gate
   // diffs against a pre-edit baseline and refuses only on what THIS edit introduced (below).
-  const checkScope = options.crossFileScope === true ? ts.programTsFiles() : touched;
+  // crossFileScope (codemod): the changeset is incomplete AND can break a SIBLING-only importer, so
+  // the scope must span EVERY program's files — a primary-only list would leave a `test/**` importer
+  // the codemod broke outside the gate's reach → a cross-program false-clean (the fan-out still runs,
+  // but each affected program only diagnoses files present in this scope).
+  const checkScope = options.crossFileScope === true ? ts.allProgramTsFiles() : touched;
+  // Fan the gate across EVERY program the edit touches (Task G for WRITES): a `test/**` site under
+  // a sibling tsconfig is verified too, so a cross-program dangle is caught — not just primary
+  // errors (`anchor: touched` selects the affected programs; each sibling checks its whole set).
+  const gateScope = { anchor: touched, check: checkScope };
+  const overlayFiles = changes.map((c) => ({ path: c.path, content: c.after }));
   let baselineDiag: TsDiagnostic[];
   let overlayDiag: TsDiagnostic[];
+  let gateProgms: string[];
+  let gateDegraded: string[];
   try {
-    // Baseline FIRST (pre-edit disk), then the overlay check — so a pre-existing repo error is
-    // told apart from one THIS edit introduced. The gate refuses on the latter only; a repo's
-    // unrelated errors must never make a sound rename/move inapplicable (§2.8 / §3.6).
-    baselineDiag = ts.diagnostics(checkScope);
-    overlayDiag = ts.typecheckOverlay(
-      changes.map((c) => ({ path: c.path, content: c.after })),
-      { check: checkScope },
-    );
+    // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set —
+    // so a pre-existing repo error is told apart from one THIS edit introduced. The gate refuses on
+    // the latter only; a repo's unrelated errors never make a sound rename/move inapplicable.
+    const g = ts.gateAcross(overlayFiles, gateScope);
+    baselineDiag = g.baseline;
+    overlayDiag = g.overlay;
+    gateProgms = g.programs; // pin the post-apply check to this same program set (symmetry)
+    gateDegraded = g.degraded;
   } catch (thrown) {
     return failFromThrown('ts-ls', thrown);
   }
   const gate = buildTypecheckField(baselineDiag, overlayDiag);
   const typecheck = gate.field;
+
+  // Assembled AFTER the gate so the cross-program coverage (how many programs verified the edit,
+  // which broken sibling was skipped) rides on EVERY envelope — a 1-program check never reads as
+  // repo-wide (§3.6 / §6).
+  const notes = [
+    ...(options.warnings ?? []),
+    ...(built?.notes ?? []),
+    ...buildNotes,
+    ...formatNotes,
+    ...gateCoverageNotes(gateProgms, gateDegraded),
+  ];
+  const baseNotes = notes.length > 0 ? { notes } : {};
 
   // Envelope key order matters: the diff/diffstat tail can be tens of KB and the render self-caps
   // at a char budget (§12), so anything emitted AFTER it (the typecheck + captures verdict + touched
@@ -276,9 +293,9 @@ export async function applyMutation(
   let postGate: { clean: boolean; field: JsonValue };
   try {
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    // Diff post-apply disk diagnostics against the SAME pre-edit baseline — a pre-existing repo
-    // error must not trigger a (byte-exact, but pointless) rollback of a sound edit.
-    postGate = buildTypecheckField(baselineDiag, ts.diagnostics(checkScope));
+    // Diff post-apply disk diagnostics (across the same affected programs) against the SAME pre-edit
+    // baseline — a pre-existing repo error must not trigger a (byte-exact, but pointless) rollback.
+    postGate = buildTypecheckField(baselineDiag, ts.diagnosticsAcross(gateScope, gateProgms));
   } catch (thrown) {
     const reverted = await revertAll(root, changes, ts);
     return appliedWithRollback(

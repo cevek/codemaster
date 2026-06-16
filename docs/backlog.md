@@ -102,24 +102,61 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ### multi-program (Task G residuals)
 
-- [ ] **Mutating ops are still SINGLE-program — a cross-program rename/move/change-sig is a silent
-      partial edit.** `computeRename` (`findRenameLocations`), `change_signature`, and the
-      move/extract import rewrites resolve sites via the PRIMARY LS only, and the §2.8 typecheck gate
-      runs on the primary only. So renaming a `src/` symbol a `test/**` file (under
-      `tsconfig.test.json`) references rewrites the src sites but NOT the test reference → the test
-      program dangles and the primary-only gate doesn't catch it. Same class as the usages blindness
-      Task G fixed, but for WRITES. Fix: fan out site computation across programs (dedup) and gate
-      over every affected program. `bug`·`high`·`cx:L`
+- [ ] **Cross-program capture detection is PRIMARY-only (all symbol-anchored ops)** — capture
+      detection (rename's `detectRenameCapture`; move/extract/move_symbol's import re-resolution) runs
+      over the PRIMARY program only, so a type-compatible silent re-bind the edit would cause in a
+      SIBLING program (a `test/**` site whose `newName` shadows an in-scope binding there, or a
+      rewritten import that lands on a different same-named sibling export) is NOT flagged. The
+      cross-program §2.8 gate still catches a resulting DANGLE/type error, but is blind to a same-typed
+      re-bind (the exact class the capture guard exists for — the same residual the codemod/transaction
+      capture gaps carry). Surfaced in every such op's notes ("cross-program LIMITS"). Fix: fan capture
+      detection across programs too. `bug`·`low`·`cx:M`
+- [ ] **Cross-program WRITE sites stay PRIMARY-only inside a `transaction`** — the rename /
+      change_signature site fan-out is gated OFF when a step runs under a `PlanningOverlay` (a
+      sibling reading stale disk would be unsound, ls-host TRAP), so a transaction step that
+      renames/change-sigs a symbol a `test/**` sibling references rewrites only the primary sites.
+      The fanned §2.8 gate then REFUSES the whole transaction on the resulting dangle (honest, never
+      a silent partial), but the step can't yet COMPLETE cross-program. Fix: make the planning
+      overlay sibling-aware (seed each sibling's overlay from the cumulative tree). `bug`·`low`·`cx:M`
+- [ ] **Write-gate check scope misses a gitignored-but-sibling-compiled file** — the §2.8 fan-out
+      gate's `check` scope is the git tree ∪ the PRIMARY program's `fileNames()`. A file that is
+      gitignored (absent from the tree listing) AND compiled only by a SIBLING tsconfig (absent from
+      primary `fileNames`) is in no program's check scope, so if it imports a moved/extracted module
+      its post-edit dangle reads clean (a §2.8 completeness gap in the unsafe direction). Rare
+      (gitignored + sibling-only + importer). Fix: union every built program's `fileNames()` into
+      the gate's check scope. `bug`·`low`·`cx:S`
+- [ ] **`mayContain` glob-ownership is a normalized approximation** — the write gate decides which
+      program owns a not-yet-created move/extract DEST via `buildMembership` (picomatch over the
+      tsconfig include/exclude, with tsconfig's bare-dir → `dir/**/*` shorthand re-expanded by hand).
+      Matching itself defers to picomatch (faithful for `*`/`?`/`**`/literal-file globs), but tsconfig's
+      IMPLICIT excludes (node_modules / outDir / declarationDir) are not modelled — so a dest under,
+      e.g., a config's `outDir` could be deemed owned → a false REFUSAL (the SAFE direction for a write
+      gate; never a false success / missed dangle). Fix if it bites: model the implicit excludes, or
+      drive membership off TS's own matcher rather than re-normalizing. `bug`·`low`·`cx:M`
+- [ ] **Write-gate `introduced` list can double-count under OVERLAPPING globs** — a genuinely-new
+      move/extract DEST owned by TWO overlapping programs, carrying an error, is diagnosed once per
+      program in the overlay while the baseline has zero → the same `file:line:message` appears twice
+      in `introduced` (`introducedDiagnostics` multiset-diffs but does not dedup the `after` set). The
+      verdict (`clean:false`) and refusal are CORRECT; only the displayed count is inflated. Bites only
+      overlapping-glob + erroring new dest. Fix: dedup-on-display. `bug`·`low`·`cx:S`
+- [ ] **`absOf` is `path.join` (OS-sep), not posix — Windows-latent path-form skew in the gate** —
+      `owns`/`affected`/`entriesFor` compare `ctx.absOf(rel)` against `containsFile`/`mayContain`.
+      `mayContain` re-runs `toPosix` defensively, but `containsFile` passes the path straight to
+      `getSourceFile`. On darwin/linux `path.join` keeps `/` so they agree; on Windows the `\` spelling
+      could make the two ownership predicates disagree → under-include (a missed dangle). Pre-existing
+      (`absOf` predates this work); not a bug on the current platform. Fix: route `absOf` through
+      `toPosix`. `bug`·`low`·`cx:S`
 - [ ] **Sibling-tsconfig discovery is adjacent-dir + `references` only** — a nested package
       `tsconfig.json` neither beside the primary nor reachable via `references` isn't loaded, so a
       cross-package-used export could still read `certain`-dead (the full monorepo project-reference
       redirect graph the spec scoped OUT). `demote()` has no "used in an undiscovered program" net.
       `bug`·`med`·`cx:M`
-- [ ] **Sibling-program robustness — a malformed sibling tsconfig sinks the whole op** — the
-      per-program `getNavigateToItems`/`resolveModuleArg`/`findReferences` aren't individually
-      guarded, so a throwing sibling bubbles to the op-level catch and takes the PRIMARY answer with
-      it. Degrade per-sibling (skip + surface the bad program). Not a false-report; low frequency.
-      `bug`·`low`·`cx:S`
+- [ ] **Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op** —
+      the per-program READ fan-outs (`getNavigateToItems`/`resolveModuleArg`/`findReferences`) aren't
+      individually guarded, so a throwing sibling bubbles to the op-level catch and takes the PRIMARY
+      answer with it. Degrade per-sibling (skip + surface the bad program), as the §2.8 WRITE gate
+      now does (`gateAcross`/`diagnosticsAcross` degrade a throwing SIBLING to a note, never the
+      primary). Not a false-report; low frequency. `bug`·`low`·`cx:S`
 - [ ] **`importers_of` residuals (safe direction)** — (a) a bare relative module arg
       (`importers_of {module:'./x'}`) has no canonical anchor → falls back to raw-string match,
       over-matching every `./x` (false-LIVE, never false-dead); (b) the target resolves once under

@@ -99,3 +99,78 @@ export function findReferencesAcross(
 
   return anyGroups ? { definition, refs } : undefined;
 }
+
+/** Deduped rename-location set across programs, plus the SourceFile (text source) per touched
+ *  file — a `test/**` location's text lives only in the test program, so the caller reads its
+ *  `before` from here, not from a primary-only `getSourceFile` (which would drop the edit). */
+export interface CrossRenameLocations {
+  locations: ts.RenameLocation[];
+  /** fileName → a SourceFile holding that file's CURRENT text (any producing program — the text
+   *  is identical where programs overlap), for building the per-file `before`. */
+  sourceFiles: Map<string, ts.SourceFile>;
+}
+
+const RENAME_OPTS = { providePrefixAndSuffixTextForRename: true } as const;
+
+/** Union of `findRenameLocations(abs, offset)` over every loaded program containing `abs`,
+ *  deduped by file+offset (primary preferred). The WRITE analogue of `findReferencesAcross`: a
+ *  `src/**` symbol referenced from a `test/**` file under a sibling tsconfig yields its test
+ *  rename site too, so the rename rewrites BOTH — not just the primary-program sites. `undefined`
+ *  when no containing program can rename at the position (matches the single-program contract). */
+export function findRenameLocationsAcross(
+  host: TsProjectHost,
+  abs: string,
+  offset: number,
+): CrossRenameLocations | undefined {
+  const programs = host.programsContaining(abs);
+  const fanout = programs.length > 0 ? programs : host.programs().slice(0, 1);
+  return mergeRenameLocations(
+    fanout.map((p) => ({
+      locs: p.service.findRenameLocations(abs, offset, false, false, RENAME_OPTS),
+      program: p.getProgram(),
+    })),
+  );
+}
+
+/** The single-(primary-)program rename set in the same shape — for the transaction path, where a
+ *  cross-program fan-out over siblings reading STALE disk (the primary carries a planning overlay)
+ *  would be unsound (ls-host TRAP). Cross-program transaction renames stay a documented gap. */
+export function findRenameLocationsPrimary(
+  host: TsProjectHost,
+  abs: string,
+  offset: number,
+): CrossRenameLocations | undefined {
+  return mergeRenameLocations([
+    {
+      locs: host.service.findRenameLocations(abs, offset, false, false, RENAME_OPTS),
+      program: host.service.getProgram(),
+    },
+  ]);
+}
+
+function mergeRenameLocations(
+  perProgram: readonly {
+    locs: readonly ts.RenameLocation[] | undefined;
+    program: ts.Program | undefined;
+  }[],
+): CrossRenameLocations | undefined {
+  let any = false;
+  const locations: ts.RenameLocation[] = [];
+  const sourceFiles = new Map<string, ts.SourceFile>();
+  const seen = new Set<string>(); // `fileName|start` — a site two programs both surface counts once
+  for (const { locs, program } of perProgram) {
+    if (locs === undefined) continue;
+    any = true;
+    for (const loc of locs) {
+      const key = `${loc.fileName}|${loc.textSpan.start}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      locations.push(loc);
+      if (!sourceFiles.has(loc.fileName)) {
+        const sf = program?.getSourceFile(loc.fileName);
+        if (sf !== undefined) sourceFiles.set(loc.fileName, sf);
+      }
+    }
+  }
+  return any ? { locations, sourceFiles } : undefined;
+}

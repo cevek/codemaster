@@ -10,6 +10,7 @@ import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
+import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { emitQuoted } from '../../../../support/text-edits/quote.ts';
 import type { RewrittenImport } from '../capture/imports.ts';
 import { resolveSpecifierToNode } from './resolve.ts';
@@ -30,6 +31,13 @@ const posixDirname = (p: string): string => {
   return i < 0 ? '' : p.slice(0, i);
 };
 
+/** A file's on-disk text, or `undefined` if unreadable — the cross-program read source for a
+ *  sibling-only importer the primary program doesn't carry. */
+function diskFallback(abs: string): string | undefined {
+  const read = readTextFile(abs);
+  return read.ok ? read.data : undefined;
+}
+
 export function rewriteImports(
   host: TsProjectHost,
   tree: VFSTree,
@@ -49,9 +57,19 @@ export function rewriteImports(
     const initialAbs = host.absOf(node.initialPath());
     // Prefer an existing content override (an extract already edited this file via the LS) —
     // so we rewrite the post-edit text, not the stale program text. For a plain move no
-    // override exists yet, so this reads the program exactly as before.
-    const before = node.contentOverride() ?? program?.getSourceFile(initialAbs)?.text;
-    if (before === undefined) continue; // not in the program — nothing to parse
+    // override exists yet, so this reads the program. CROSS-PROGRAM (Task G for WRITES): a
+    // `test/**` importer under a sibling tsconfig is NOT in the PRIMARY program, so a primary-only
+    // read would skip it → its import to a moved module dangles silently. Fall back to a DISK read.
+    // Soundness under a transaction: a prior step's edit to such a file rides the PRIMARY planning
+    // overlay, which force-adds the file to the primary LS — so `getProgram().getSourceFile` returns
+    // the overlaid content and the disk fallback is reached ONLY for a file no prior step touched,
+    // where pre-transaction disk IS the correct `before`. (Disk-read also avoids querying a sibling
+    // LS under that overlay — the stale-sibling hazard.)
+    const before =
+      node.contentOverride() ??
+      program?.getSourceFile(initialAbs)?.text ??
+      diskFallback(initialAbs);
+    if (before === undefined) continue; // unreadable — nothing to parse
     const sf = ts.createSourceFile(
       initialAbs,
       before,

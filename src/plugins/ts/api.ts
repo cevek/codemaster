@@ -29,6 +29,7 @@ import type { CodemodEdit } from './refactor/capture/codemod.ts';
 import type { Capture } from './refactor/capture/types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan, PlanningOverlay } from './refactor/plan.ts';
+import type { GateScope } from './program-gate.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
  *  diagnostic `check` scope (defaults to the overlaid files). */
@@ -103,6 +104,25 @@ export interface TsPluginApi extends Plugin {
     files: readonly { path: RepoRelPath; content: string }[],
     opts?: OverlayCheck,
   ): TsDiagnostic[];
+  /** The §2.8 write gate fanned across EVERY program the edit touches (Task G for WRITES) — the
+   *  overlay typecheck on each affected program PLUS the disk baseline over the same set, so a
+   *  cross-program dangle (a `test/**` reference left un-rewritten), OR a moved file erroneous under
+   *  a disjoint dest program's compilerOptions, is caught — not just primary-program errors.
+   *  `scope.anchor` picks the affected programs (a program OWNS a file when it contains it OR its
+   *  glob would — so a not-yet-created move/extract dest pulls in the program whose glob owns it);
+   *  `scope.check` is the diagnostic scope, passed identically to each (every program diagnoses only
+   *  the files it contains). Returns both diagnostic sets sampled symmetrically (→
+   *  `buildTypecheckField`), the `programs` actually checked, and any `degraded` sibling labels whose
+   *  LS threw (skipped with a reason; the primary's throw is never swallowed — it fails honestly). */
+  gateAcross(
+    files: readonly { path: RepoRelPath; content: string }[],
+    scope: GateScope,
+  ): { baseline: TsDiagnostic[]; overlay: TsDiagnostic[]; programs: string[]; degraded: string[] };
+  /** Disk diagnostics across every affected program — the post-apply half of `gateAcross`
+   *  (call `reindex` first so each program's LS sees the freshly written files). `restrictTo` pins
+   *  the program set to the pre-apply baseline's (`gateAcross().programs`), so a move that shifts
+   *  program membership can't mis-count a newly-sampled program's pre-existing errors as introduced. */
+  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
   /** Plan a file/folder move: tree move + sibling carry + import rewrite → the plain-data
    *  plan the op executes, plus the dry-run typecheck inputs. A message on a bad source/dest. */
   planMove(
@@ -141,6 +161,12 @@ export interface TsPluginApi extends Plugin {
    *  `typecheckOverlay`/`diagnostics`, so a rewrite that breaks an un-edited importer is
    *  caught, never silently shipped (§2.8 completeness; the plan ops use `checkPaths`). */
   programTsFiles(): readonly RepoRelPath[];
+  /** Like `programTsFiles` but spanning EVERY loaded program (primary + siblings), deduped — the
+   *  whole-program scope for a content-edit op whose changeset is NOT complete AND can break a
+   *  SIBLING-only file (a `codemod` matching a shared `src/**` symbol can break a `test/**` importer
+   *  the primary program never compiles). Passing the primary-only `programTsFiles` there would leave
+   *  the sibling's broken importer out of the gate's check scope → a cross-program false-clean. */
+  allProgramTsFiles(): readonly RepoRelPath[];
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }

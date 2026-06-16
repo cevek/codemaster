@@ -105,6 +105,28 @@ export function buildTypecheckField(
   };
 }
 
+/** The §2.8 cross-program gate's coverage, as envelope notes: how many programs the verdict rests
+ *  on (so a 1-program check is never mistaken for a repo-wide one), and any SIBLING program whose LS
+ *  threw and was skipped — a dangle only that program would catch is honestly reported as not gated
+ *  (§3.6). Surfaced on every envelope (dry-run / refused / applied). */
+export function gateCoverageNotes(
+  programs: readonly string[],
+  degraded: readonly string[],
+): string[] {
+  const out: string[] = [];
+  // Only when the gate ACTUALLY fanned across >1 program — in a single-tsconfig repo (the common
+  // case) "checked 1 program" is pure noise (§12 token-thrift). A degraded sibling is always shown.
+  if (programs.length > 1) {
+    out.push(`§2.8 gate checked ${programs.length} programs: ${programs.join(', ')}`);
+  }
+  if (degraded.length > 0) {
+    out.push(
+      `§2.8 gate could NOT check ${degraded.length} sibling program(s) — SKIPPED (a dangle only they would catch is not gated): ${degraded.join('; ')}`,
+    );
+  }
+  return out;
+}
+
 /** Format one file's content with the project prettier in-memory — so a dry-run preview is
  *  byte-identical to what apply writes (§16.4). A prettier failure keeps the unformatted
  *  (already type-checkable) content and is reported, never fatal. */

@@ -150,10 +150,22 @@ export class TxnCompose {
       }
       if (TS_RE.test(String(s.current))) overlayFiles.push({ path: s.current, content: s.after });
     }
-    const removedSet = new Set(removed.map(String));
     const checkSet = new Set<string>();
-    for (const p of programTsFiles) if (!removedSet.has(String(p))) checkSet.add(String(p));
+    // Include EVERY primary TS file — moved-away ORIGINS too. The pre-edit baseline must sample an
+    // origin where a PRE-EXISTING error lives, so the §1b path-remap (origin→current) can cancel it
+    // against the overlay's relocated copy; dropping origins counts that error as introduced and
+    // falsely rolls back a sound multi-move chain. The overlay pass tombstones the origin (gate
+    // `removed`), and post-apply it is gone from disk — so it is sampled ONLY where it should be (the
+    // baseline), symmetric. (The single-move path already adds origins via the program file set.)
+    for (const p of programTsFiles) checkSet.add(String(p));
     for (const s of states) if (TS_RE.test(String(s.current))) checkSet.add(String(s.current));
+    // Whole git tree (post-move current paths), so a SIBLING-only file (a `test/**` importer/
+    // reference under tsconfig.test.json) is in the gate scope. `programTsFiles` is the PRIMARY
+    // program only — a transaction rename step plans primary-only sites (cross-program fan-out is
+    // off under a planning overlay, ls-host TRAP), so without this a cross-program dangle it leaves
+    // would be sampled by NO program and read clean. With it, the fanned gate catches the dangle
+    // and refuses the whole transaction (honest, never a silent partial — backlog residual).
+    for (const p of this.listing()) if (TS_RE.test(String(p))) checkSet.add(String(p));
     const allNotes = [...this.notes, ...extraNotes];
     return {
       moves,

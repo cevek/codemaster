@@ -18,6 +18,8 @@ import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import { discoverSiblingConfigs, type DiscoveredConfig } from './program/discover.ts';
+import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
+import type { TsDiagnostic } from './diagnostics.ts';
 
 /** One queryable program exposed to the cross-program fan-out — the primary or a sibling. */
 interface TsProgram {
@@ -48,13 +50,17 @@ export interface TsProjectHost {
   /** §4 rescue LS (patched fork) over the PRIMARY program — for extract refactors the stock LS
    *  asserts on. `undefined` when the fork can't load / its major mismatches. */
   rescueService(): ts.LanguageService | undefined;
-  // ── overlay (dry-run shadow) — PRIMARY program only ──────────────────────────────────────────
-  // Mutating ops (rename/move/extract/codemod/typecheck gates) overlay + query only the primary,
-  // so confining the overlay there is correct AND keeps it cheap. TRAP for a future op: do NOT
-  // compose a cross-program READ (`programsContaining`/`programs()`-backed find_usages /
-  // referenceSpans / unusedExports / importersOf) INSIDE an active overlay scope — siblings keep
-  // reading disk, so the result would mix overlaid-primary with stale-disk sibling refs. Today no
-  // overlay-bearing op fans out, so this stays a guard rail, not a live bug.
+  // ── planning overlay (dry-run shadow) — PRIMARY program only ─────────────────────────────────
+  // This overlay (a transaction's PlanningOverlay, the dry-run substrate) lives on the primary
+  // program ONLY, so confining it here is correct AND cheap. TRAP, NOW PARTLY LIVE: do NOT compose
+  // a cross-program query (`programsContaining`/`programs()`-backed find_usages / referenceSpans /
+  // unusedExports / importersOf / the rename + change_signature WRITE-site fan-out) while THIS
+  // overlay is active — siblings keep reading disk, so the result would mix overlaid-primary with
+  // stale-disk sibling state. The cross-program WRITE-site computation honours this via a
+  // `crossProgram` flag (off whenever a planning overlay is passed); the move/extract import
+  // rewrite stays safe by reading DISK (not a sibling LS), since prior-step edits ride the VFS
+  // tree's contentOverride. `gateAcross` below is ORTHOGONAL: it manages its OWN transient,
+  // per-program overlays (set→collect→clear), never this primary planning overlay.
   setOverlay(entries: readonly OverlayEntry[], removed?: readonly RepoRelPath[]): void;
   clearOverlay(): void;
   withMergedOverlay<T>(
@@ -65,6 +71,16 @@ export interface TsProjectHost {
   /** ALL loaded programs (primary first); siblings are discovered + built lazily on first call —
    *  this is the cross-program warm point (§9 lazy). */
   programs(): readonly TsProgram[];
+  /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
+   *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
+   *  sibling-program dangle is caught. Builds the sibling programs (a write must verify them). */
+  gateAcross(
+    files: readonly { path: RepoRelPath; content: string }[],
+    scope: GateScope,
+  ): { baseline: TsDiagnostic[]; overlay: TsDiagnostic[]; programs: string[]; degraded: string[] };
+  /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
+   *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
+  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
   /** Programs whose built program currently contains `absPosix` — the fan-out set for a decl: run
    *  findReferences only where the declaration file actually lives. */
   programsContaining(absPosix: string): readonly TsProgram[];
@@ -111,17 +127,22 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
 
   const rootTag = fnv1a64Hex(toPosix(root)).slice(0, 8);
 
+  const absOf = (rel: RepoRelPath): string => path.join(root, rel);
+  const relOf = (abs: string): RepoRelPath => {
+    const posix = toPosix(abs);
+    const prefix = `${toPosix(root)}/`;
+    return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
+  };
+  // The fan-out gate context — `built()` materializes the siblings (a write must verify them).
+  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf });
+
   return {
     service: primary.service,
     configPath,
     rootTag,
     fileNames: () => primary.fileNames(),
-    absOf: (rel) => path.join(root, rel),
-    relOf: (abs) => {
-      const posix = toPosix(abs);
-      const prefix = `${toPosix(root)}/`;
-      return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
-    },
+    absOf,
+    relOf,
     isTracked: (rel) => primary.isTracked(toPosix(path.join(root, rel))),
     reindex(changed) {
       // Propagate to every BUILT program (each decides structural-ness against its OWN glob — a
@@ -151,6 +172,8 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       });
     },
     programs: () => built(),
+    gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
+    diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
     programsContaining(absPosix) {
       return built().filter((p) => p.containsFile(absPosix));
     },

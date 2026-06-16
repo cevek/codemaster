@@ -236,3 +236,60 @@ test('codemod: a pattern that matches nothing writes nothing and stays clean', a
     await p.dispose();
   }
 });
+
+test('codemod: a shared-symbol rewrite that breaks a SIBLING-only importer is caught (cross-program gate scope)', async () => {
+  // crossFileScope (codemod) must span EVERY program's files, not just the primary's. Here the
+  // codemod adds a required 2nd param to `greet` in shared `src/api.ts`; the only broken caller —
+  // `greet('hi')` with one arg — lives in `test/api.test.ts`, compiled ONLY by the sibling
+  // tsconfig. A primary-only check scope would leave that file out of reach → a cross-program
+  // FALSE-CLEAN. The gate must refuse (typecheck.clean === false), naming the sibling file.
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true,"module":"preserve"},"include":["src"]}',
+    'tsconfig.test.json':
+      '{"compilerOptions":{"strict":true,"module":"preserve"},"include":["src","test"]}',
+    'src/api.ts': 'export const greet = (name: string): string => name;\n',
+    'src/use.ts': "import { greet } from './api';\nexport const ref = greet;\n", // referenced, never called
+    'test/api.test.ts': "import { greet } from '../src/api';\nexport const t = greet('hi');\n",
+  });
+  try {
+    const args = {
+      pattern: 'export const greet = (name: string): string => name',
+      rewrite: 'export const greet = (name: string, loud: boolean): string => name',
+    };
+    const dry = (await codemod(p, args)) as Envelope & {
+      typecheck: { introduced?: { file: string }[] };
+    };
+    assert.equal(
+      dry.typecheck.clean,
+      false,
+      `the sibling-only arity break must be caught: ${JSON.stringify(dry.typecheck)}`,
+    );
+    assert.ok(
+      (dry.typecheck.introduced ?? []).some((d) => d.file === 'test/api.test.ts'),
+      `the introduced error names the sibling-only file: ${JSON.stringify(dry.typecheck.introduced)}`,
+    );
+    assert.equal(p.git('status', '--porcelain'), ''); // dry-run wrote nothing
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('ORACLE: greet with a required 2nd param + a 1-arg call errors only under the sibling tsconfig', async () => {
+  // Independent ground truth for the cross-program codemod test: the post-rewrite shape errors
+  // under tsconfig.test.json (which compiles test/), proving the gate's refusal is grounded.
+  const o = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true,"module":"preserve"},"include":["src"]}',
+    'tsconfig.test.json':
+      '{"compilerOptions":{"strict":true,"module":"preserve"},"include":["src","test"]}',
+    'src/api.ts': 'export const greet = (name: string, loud: boolean): string => name;\n',
+    'test/api.test.ts': "import { greet } from '../src/api';\nexport const t = greet('hi');\n",
+  });
+  try {
+    assert.ok(
+      coldTscErrors(o.root, 'tsconfig.test.json').some((d) => /Expected 2 arguments/.test(d)),
+      'the sibling program (test config) flags the 1-arg call',
+    );
+  } finally {
+    await o.dispose();
+  }
+});

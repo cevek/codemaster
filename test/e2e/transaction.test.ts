@@ -270,6 +270,40 @@ test('transaction: re-occupying a path a prior step vacated by a move is REFUSED
   }
 });
 
+test('transaction: a step-≥2 rename of a CROSS-PROGRAM symbol is gated — the sibling dangle refuses', async () => {
+  // A non-first rename step runs under a planning overlay → its site computation is PRIMARY-only
+  // (a sibling reading stale disk would be unsound, ls-host TRAP), so it rewrites the src sites but
+  // NOT a `test/**` reference under tsconfig.test.json. The composed gate's check scope spans the
+  // WHOLE tree and fans across programs, so the resulting dangling test import is caught and the
+  // whole transaction is refused (honest — never a silent partial cross-program edit).
+  const COMPILER = '{"strict":true,"module":"esnext","moduleResolution":"bundler"}';
+  const tst = "import { target } from '../src/seam';\nexport const t = target + 1;\n";
+  const p = await project({
+    'tsconfig.json': `{"compilerOptions":${COMPILER},"include":["src"]}`,
+    'tsconfig.test.json': `{"compilerOptions":${COMPILER},"include":["src","test"]}`,
+    'src/seam.ts': 'export const target = 1;\nexport const useTarget = (): number => target;\n',
+    'src/other.ts': 'export const other = 2;\n',
+    'test/seam.test.ts': tst,
+  });
+  try {
+    const r = await txn(
+      p,
+      [
+        { name: 'move_file', args: { source: 'src/other.ts', dest: 'src/moved/other.ts' } },
+        { name: 'rename_symbol', args: { name: 'target', newName: 'renamed' } },
+      ],
+      true,
+    );
+    assert.ok(r.ok, `expected a gated envelope, not a hard fail: ${JSON.stringify(r)}`);
+    assert.equal(r.env.applied, false, 'the cross-program dangle must refuse the transaction');
+    assert.equal(r.env.typecheck.clean, false, 'the gate caught the dangling test import');
+    assert.equal(p.git('status', '--porcelain'), ''); // byte-exact — nothing written
+    assert.equal(read(p, 'test/seam.test.ts'), tst);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('transaction: refuse branches write nothing (unknown step · invalid args · no-op chain)', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,

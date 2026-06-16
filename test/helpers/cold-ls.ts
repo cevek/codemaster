@@ -41,8 +41,8 @@ function cachingHost(options: ts.CompilerOptions): ts.CompilerHost {
   return host;
 }
 
-function coldProgram(root: string): ColdView {
-  const configPath = path.join(root, 'tsconfig.json');
+function coldProgram(root: string, configRel = 'tsconfig.json'): ColdView {
+  const configPath = path.join(root, configRel);
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
   assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
@@ -255,8 +255,8 @@ export function coldAssignableLiterals(
  *  on-disk tree produces — never the warm LS that performed the edit. A missed/wrong import
  *  rewrite surfaces here as a real "no exported member" error, so a clean list IS the
  *  semantic proof the refactor stayed sound. Shared by the `test/e2e/` mutating-op suites. */
-export function coldDiagnostics(root: string): string[] {
-  const { program } = coldProgram(root);
+export function coldDiagnostics(root: string, configRel = 'tsconfig.json'): string[] {
+  const { program } = coldProgram(root, configRel);
   return ts
     .getPreEmitDiagnostics(program)
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));

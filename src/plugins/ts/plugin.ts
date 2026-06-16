@@ -172,7 +172,16 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return runWithOverlay(overlay, () => {
         const resolved = resolve(target);
         if (!resolved.ok) return resolved.message;
-        const outcome = computeRename(warm(), resolved.abs, resolved.offset, newName);
+        // Fan the site computation across programs ONLY off the transaction path: an `overlay`
+        // means the primary carries a planning overlay, so a sibling reading stale disk is unsound
+        // (ls-host TRAP). The cross-program §2.8 gate still backstops a transaction dangle.
+        const outcome = computeRename(
+          warm(),
+          resolved.abs,
+          resolved.offset,
+          newName,
+          overlay === undefined,
+        );
         if (typeof outcome === 'string') return outcome;
         return {
           ...outcome,
@@ -246,7 +255,17 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return runWithOverlay(overlay, () => {
         const resolved = resolve(target);
         if (!resolved.ok) return resolved.message;
-        const plan = planChangeSignature(h, t.tree, options, resolved.abs, resolved.offset, change);
+        // Fan call-site search across programs only off the transaction path (overlay present →
+        // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
+        const plan = planChangeSignature(
+          h,
+          t.tree,
+          options,
+          resolved.abs,
+          resolved.offset,
+          change,
+          overlay === undefined,
+        );
         if (typeof plan !== 'string' && resolved.rebind !== undefined)
           plan.rebind = resolved.rebind;
         return plan;
@@ -259,6 +278,14 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
         h,
         paths.map((p) => h.absOf(p)),
       );
+    },
+
+    gateAcross(files, scope) {
+      return warm().gateAcross(files, scope);
+    },
+
+    diagnosticsAcross(scope, restrictTo) {
+      return warm().diagnosticsAcross(scope, restrictTo);
     },
 
     programTsFiles() {
@@ -274,6 +301,28 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
         // path is never absolute, so this filters exactly the out-of-root files.
         if (path.isAbsolute(String(rel))) continue;
         out.push(rel);
+      }
+      return out;
+    },
+
+    allProgramTsFiles() {
+      // Union every loaded program's source files (primary + siblings), deduped — so a codemod's
+      // whole-program gate scope spans a SIBLING-only importer (a `test/**` file the primary never
+      // compiles) and a cross-program break is caught, not silently shipped. Builds the siblings,
+      // but a crossFileScope edit already fans the gate across them, so the cost is already paid.
+      const h = warm();
+      const seen = new Set<string>();
+      const out: RepoRelPath[] = [];
+      for (const program of h.programs()) {
+        const p = program.getProgram();
+        if (p === undefined) continue;
+        for (const sf of p.getSourceFiles()) {
+          if (sf.fileName.includes('/node_modules/')) continue;
+          const rel = h.relOf(sf.fileName);
+          if (path.isAbsolute(String(rel)) || seen.has(String(rel))) continue;
+          seen.add(String(rel));
+          out.push(rel);
+        }
       }
       return out;
     },

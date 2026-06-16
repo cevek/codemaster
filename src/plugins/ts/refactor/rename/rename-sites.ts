@@ -16,6 +16,7 @@ import { spanFromRange } from '../../spans.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
 import type { Capture } from '../capture/types.ts';
 import { detectRenameCapture } from '../capture/rename.ts';
+import { findRenameLocationsAcross, findRenameLocationsPrimary } from '../../cross-program.ts';
 
 interface RenameChange {
   path: RepoRelPath;
@@ -48,18 +49,25 @@ export function computeRename(
   abs: string,
   offset: number,
   newName: string,
+  /** Fan the rename-site computation across EVERY loaded program (default) so a `test/**` site
+   *  under a sibling tsconfig is rewritten too — not just the primary program's sites. Set
+   *  `false` on the transaction path (the primary carries a planning overlay, so a sibling
+   *  reading stale disk would be unsound — ls-host TRAP); that stays a documented cross-program
+   *  transaction gap, and the §2.8 gate (which DOES fan out) still refuses a resulting dangle. */
+  crossProgram = true,
 ): RenameOutcome | string {
-  // `providePrefixAndSuffixTextForRename: true` is load-bearing: without it the LS returns a
-  // shorthand-property site (`{ foo }`) with no prefix/suffix, so renaming `foo`→`bar` would
-  // rewrite it to `{ bar }` — silently renaming the KEY and changing the object's shape (the
-  // typecheck can't catch a same-shaped object). With it, the site carries `bar: ` so it
-  // expands to `{ bar: foo }`.
-  const locations = host.service.findRenameLocations(abs, offset, false, false, {
-    providePrefixAndSuffixTextForRename: true,
-  });
-  if (locations === undefined || locations.length === 0) {
+  // `providePrefixAndSuffixTextForRename: true` is load-bearing (set inside the fan-out): without
+  // it the LS returns a shorthand-property site (`{ foo }`) with no prefix/suffix, so renaming
+  // `foo`→`bar` would rewrite it to `{ bar }` — silently renaming the KEY and changing the
+  // object's shape (the typecheck can't catch a same-shaped object). With it, the site carries
+  // `bar: ` so it expands to `{ bar: foo }`.
+  const resolved = crossProgram
+    ? findRenameLocationsAcross(host, abs, offset)
+    : findRenameLocationsPrimary(host, abs, offset);
+  if (resolved === undefined || resolved.locations.length === 0) {
     return 'cannot rename at this position (the LS found no rename locations)';
   }
+  const { locations, sourceFiles } = resolved;
 
   const byFile = new Map<string, TextEdit[]>();
   for (const loc of locations) {
@@ -74,9 +82,9 @@ export function computeRename(
   const changes: RenameChange[] = [];
   const dropped: RepoRelPath[] = [];
   for (const [fileName, edits] of byFile) {
-    const sourceFile = host.service.getProgram()?.getSourceFile(fileName);
+    const sourceFile = sourceFiles.get(fileName);
     if (sourceFile === undefined) {
-      dropped.push(host.relOf(fileName)); // a rename location we cannot edit — surfaced, not swallowed
+      dropped.push(host.relOf(fileName)); // a rename location no program can load — surfaced, not swallowed
       continue;
     }
     const before = sourceFile.text;
@@ -90,7 +98,25 @@ export function computeRename(
   // It is type-compatible, so the §2.8 gate stays clean; and it is NOT a duplicate-identifier, so
   // the LS doesn't flag it. Verify against the post-edit program (refs, not types). Surfaced on the
   // outcome — the op shows the diff + refuses apply — not failed here (so the agent sees the edit).
-  const captures = detectRenameCapture(host, abs, offset, newName, locations, changes);
+  // PRIMARY-only (the LS reference oracle sees the primary program): pass only primary-resident
+  // sites/changes so a `test/**` site is neither a false forward-capture nor overlaid onto the
+  // primary. A cross-program type-compatible re-bind is therefore NOT caught here — a documented
+  // gap (the §2.8 fan-out gate catches a resulting dangle, just not a same-typed silent re-bind).
+  const primaryProgram = host.service.getProgram();
+  const primaryLocations = locations.filter(
+    (l) => primaryProgram?.getSourceFile(l.fileName) !== undefined,
+  );
+  const primaryChanges = changes.filter(
+    (c) => primaryProgram?.getSourceFile(host.absOf(c.path)) !== undefined,
+  );
+  const captures = detectRenameCapture(
+    host,
+    abs,
+    offset,
+    newName,
+    primaryLocations,
+    primaryChanges,
+  );
 
   return { changes, dropped, oldName: identifierAround(host, abs, offset), captures };
 }
