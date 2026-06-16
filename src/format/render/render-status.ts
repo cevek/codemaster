@@ -16,6 +16,8 @@ export interface PluginStatusView {
   version: string;
   fingerprint: string;
   pendingFiles: number;
+  /** Optional plugin self-describe line (e.g. the `ts` plugin's loaded tsconfigs). */
+  detail?: string;
 }
 
 export interface OpStatusView {
@@ -119,7 +121,7 @@ function renderFull(view: StatusView, header: string[]): string[] {
   const lines = [...header, ...renderWorkspaceLines(view)];
   const ws = view.workspace;
   if (ws !== undefined) {
-    lines.push(renderPlugins(ws.plugins));
+    lines.push(...renderPlugins(ws.plugins));
     lines.push(...renderOps(ws.ops));
     // The shared mechanics — status IS the documentation, so the concepts that belong to
     // no single op are rendered here, once (spec-status-as-the-doc §2).
@@ -142,7 +144,7 @@ function renderBrief(view: StatusView, header: string[]): string[] {
   const lines = [...header, ...renderWorkspaceLines(view)];
   const ws = view.workspace;
   if (ws !== undefined) {
-    lines.push(renderPlugins(ws.plugins));
+    lines.push(...renderPlugins(ws.plugins));
     if (ws.ops.length === 0) {
       lines.push('ops: none (no plugins active; op catalogue grows with each plugin)');
     } else {
@@ -175,14 +177,19 @@ function renderWatcher(watcher: WorkspaceStatusView['watcher']): string {
   return `DEGRADED(${watcher.degraded})`;
 }
 
-function renderPlugins(plugins: readonly PluginStatusView[]): string {
+function renderPlugins(plugins: readonly PluginStatusView[]): string[] {
   if (plugins.length === 0) {
-    return 'plugins: none active (Phase 0 foundation — the ts plugin lands in Phase 1)';
+    return ['plugins: none active (Phase 0 foundation — the ts plugin lands in Phase 1)'];
   }
   const rendered = plugins.map(
     (p) => `${p.id}@${p.version}${p.pendingFiles > 0 ? ` pending=${p.pendingFiles}` : ''}`,
   );
-  return `plugins: ${rendered.join(' · ')}`;
+  const lines = [`plugins: ${rendered.join(' · ')}`];
+  // Per-plugin self-describe sub-lines (e.g. the ts plugin's loaded tsconfigs — Task G).
+  for (const p of plugins) {
+    if (p.detail !== undefined) lines.push(`  ${p.id}: ${p.detail}`);
+  }
+  return lines;
 }
 
 function renderOps(ops: readonly OpStatusView[]): string[] {

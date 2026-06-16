@@ -75,6 +75,15 @@ function argValue(args: string[], flag: string): string | undefined {
   return value;
 }
 
+/** A valueless boolean flag (`--apply`, `--summaryOnly`): present → true, and spliced out so it
+ *  never collides with the positional JSON-args lookup. */
+function hasFlag(args: string[], flag: string): boolean {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return false;
+  args.splice(idx, 1);
+  return true;
+}
+
 async function main(): Promise<number> {
   // §3.6: a stray rejection must never take the front door down.
   process.on('uncaughtException', (err) => process.stderr.write(`codemaster: ${err.message}\n`));
@@ -102,11 +111,17 @@ async function main(): Promise<number> {
     case 'op': {
       const name = args.shift();
       if (name === undefined) {
-        process.stderr.write('usage: codemaster op <name> [json-args] [--root <dir>]\n');
+        process.stderr.write(
+          'usage: codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n',
+        );
         return 2;
       }
       const verbosity = argValue(args, '--verbosity');
       const v = verbosity === 'normal' || verbosity === 'full' ? verbosity : 'terse';
+      // Mutating-op flags (§7): without these a CLI `op` could only ever dry-run, so a mutating op
+      // can't be dogfooded from the CLI. Parsed (and spliced) BEFORE the positional JSON-args find.
+      const apply = hasFlag(args, '--apply');
+      const summaryOnly = hasFlag(args, '--summaryOnly');
       let opArgs: unknown = {};
       const rawArgs = args.find((a) => !a.startsWith('--'));
       if (rawArgs !== undefined) {
@@ -119,7 +134,7 @@ async function main(): Promise<number> {
       }
       const orchestrator = buildOrchestrator();
       const outcome = await orchestrator.request(process.cwd(), root, [
-        { name, args: opArgs as never },
+        { name, args: opArgs as never, apply, summaryOnly },
       ]);
       if (!outcome.ok) {
         process.stderr.write(`${outcome.message}\n`);
@@ -136,7 +151,7 @@ async function main(): Promise<number> {
     case undefined:
     default:
       process.stderr.write(
-        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>]\n`,
+        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
       );
       return command === undefined || command === 'help' ? 0 : 2;
   }

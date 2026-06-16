@@ -45,8 +45,8 @@ export type CssCoExtractReport = {
   targetStylesheet: string;
   moved: string[];
   leftBehind: LeftBehindEntry[];
-  /** A caveat at the point of action (set when classes moved): co-extract can't see ALIASED
-   *  importers of this sheet, so the agent should confirm none of them use the moved classes. */
+  /** A disclosure when nothing could be moved for this import (a relative sheet we couldn't
+   *  track, or the extracted block using the import non-trivially) — never silently skipped. */
   note?: string;
 };
 
@@ -123,11 +123,7 @@ export function applyCssCoExtract(ctx: OpContext, plan: RefactorPlan): CssCoExtr
     foldSourceSheetEdit(plan, sheetRel, before.data, extracted.sheets.sourceSheet);
     for (const m of group) {
       const report = reports[m.reportIdx];
-      if (report !== undefined) {
-        report.targetStylesheet = newSheetRel;
-        report.note =
-          'verify no ALIASED importer of this sheet uses the moved classes — aliased css imports are not resolved';
-      }
+      if (report !== undefined) report.targetStylesheet = newSheetRel;
       rewrites.push({
         localName: m.localName,
         newSpec: `./${path.posix.basename(newSheetRel)}`,
@@ -288,12 +284,13 @@ function demoteToLeftBehind(
 /** Classes that must STAY because the post-extract source — OR another importer of the same
  *  sheet — still uses them. A wildcard (non-trivial use, or a dynamic access anywhere) collapses
  *  to "every referenced class stays". This narrows the shared-sheet silent-dangle hazard the
- *  source-only scope would miss (type-blind, the gate can't catch it) to the importers
- *  codemaster can resolve. KNOWN GAP (honest): `cssModuleUsages` resolves only RELATIVE css
- *  imports (css-modules.ts `resolveRelative`), so a third file importing this same sheet via an
- *  ALIASED specifier (`@/styles/…`) is invisible here — a class only it uses could be moved.
- *  This mirrors codemaster's repo-wide relative-only css resolution (the deferred module-resolve
- *  work, §2.8 / plugins/ts/module-resolve); surfaced as a caveat on the op + spec §2.8. */
+ *  source-only scope would miss (type-blind, the gate can't catch it) to the importers codemaster
+ *  can resolve. `cssModuleUsages` now resolves BOTH relative AND tsconfig-`paths` aliased css
+ *  imports (css-modules.ts `aliasMappedRel`, the same alias model `importers_of` uses), so a third
+ *  file reaching this sheet via `@/styles/…` keeps the classes it uses. Residual (honest, rare): a
+ *  NON-tsconfig alias (a bundler-only alias absent from `paths`) is still invisible — the same
+ *  resolution boundary codemaster applies repo-wide (§2.8); the §2.8 typecheck can't vouch for css
+ *  either way, so the move stays the taxonomy's proof. */
 function stillUsedClasses(
   ts: TsPluginApi,
   cand: CssExtractCandidate,

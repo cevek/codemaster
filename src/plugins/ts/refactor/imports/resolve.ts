@@ -12,8 +12,7 @@ import * as path from 'node:path';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { FsNode } from '../tree/node.ts';
-import type { RepoRelPath } from '../../../../core/brands.ts';
-import type { AliasPrefix } from './emit.ts';
+import { aliasMappedRel, type AliasPrefix } from '../../alias-paths.ts';
 
 const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'] as const;
 
@@ -26,10 +25,10 @@ function moduleCandidates(baseAbs: string): string[] {
 }
 
 /** Absolute base for a specifier the TS resolver declined (a CSS-module import, or any
- *  unmapped specifier). Relative → resolved against the importer's dir. Alias → re-mapped via
- *  the same WILDCARD-AWARE `paths` prefixes `emit` uses: a `*` key is a prefix match, a bare
- *  key is an EXACT match — conflating them would over-match `@scss/x` under a bare `@s` key (a
- *  silent misidentification). A bare package (`react`) maps to neither → null: never ours to move. */
+ *  unmapped specifier). Relative → resolved against the importer's dir. Alias → re-mapped through
+ *  the shared `aliasMappedRel` (longest-matching KEY, wildcard-aware, root-escape-guarded) — one
+ *  alias model so resolve here and `css-modules` can't disagree on what `@/x` names. A bare package
+ *  (`react`) maps to neither → null: never ours to move. */
 function declinedSpecifierBase(
   host: TsProjectHost,
   aliasPrefixes: readonly AliasPrefix[],
@@ -37,16 +36,8 @@ function declinedSpecifierBase(
   spec: string,
 ): string | null {
   if (spec.startsWith('.')) return path.resolve(path.dirname(importerInitialAbs), spec);
-  for (const { wildcard, aliasPrefix, relPrefix } of aliasPrefixes) {
-    if (wildcard) {
-      if (spec.startsWith(aliasPrefix)) {
-        return host.absOf((relPrefix + spec.slice(aliasPrefix.length)) as RepoRelPath);
-      }
-    } else if (spec === aliasPrefix) {
-      return host.absOf(relPrefix as RepoRelPath);
-    }
-  }
-  return null;
+  const rel = aliasMappedRel(aliasPrefixes, spec);
+  return rel === null ? null : host.absOf(rel);
 }
 
 export function resolveSpecifierToNode(

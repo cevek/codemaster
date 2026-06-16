@@ -33,6 +33,7 @@ import {
   type LiteralCallsResult,
 } from './call-scan-shared.ts';
 import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
+import { programFileGroups } from './program/project-files.ts';
 
 /** A call's callee shape we can match: an identifier `t`, or a member access `base.leaf`. */
 type IdentBinding = { fn: string; provenance: LiteralCallProvenance };
@@ -47,17 +48,10 @@ type FileBindings = {
 
 export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): LiteralCallsResult {
   const out: LiteralCall[] = [];
-  const program = host.service.getProgram();
-  if (program === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
-  const options = program.getCompilerOptions();
-
   const moduleArg = spec.module;
-  const targetAbs =
-    moduleArg === undefined ? undefined : resolveModuleArg(host, moduleArg, options);
-  // No real module → nothing can bind. Report it so the consumer demotes (a §3.6 lie otherwise:
-  // "every key unused" when the truth is "we resolved no binding").
-  if (targetAbs === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
+  if (moduleArg === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
 
+  // Spec-invariant lookups (independent of program / options).
   const { simpleLeaves, dotted } = splitNames(spec.functions);
   const dottedBases = new Set(dotted.map((d) => d.base));
   const dottedByBase = new Map<string, Map<string, string>>();
@@ -71,41 +65,61 @@ export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): Litera
   const simpleLeafMap = new Map<string, string>();
   for (const leaf of simpleLeaves) simpleLeafMap.set(leaf, leaf);
 
-  const ctx: SpecCtx = {
-    targetAbs,
-    options,
-    simpleLeaves,
-    dottedBases,
-    dottedByBase,
-    simpleLeafMap,
-  };
-  const specCache = new Map<string, string | undefined>();
+  // Across ALL loaded programs (spec Task G): a `t('a.b')` whose `t` is imported from the module in
+  // a `test/**` file is a real key usage. The module ARG is resolved ONCE to a canonical target
+  // FILE — the arg may be a `paths` alias only ONE tsconfig declares, so resolve it under whichever
+  // program resolves it (primary preferred). We must NOT skip a sibling group just because that
+  // program can't resolve the arg: a `test/**` file imports the same target via a RELATIVE path
+  // that resolves there, and `collectBindings` matches it per-file against the shared target. (The
+  // earlier per-group gate dropped exactly that file → a live key read `certain` dead.) Each file
+  // is scanned once (primary preferred). `moduleResolved` = could ANY program resolve the arg.
+  const groups = programFileGroups(host);
+  let targetAbs: string | undefined;
+  for (const { program } of groups) {
+    targetAbs = resolveModuleArg(host, moduleArg, program.getCompilerOptions());
+    if (targetAbs !== undefined) break;
+  }
+  // No program resolves the module → nothing can bind. Report it so the consumer demotes (a §3.6
+  // lie otherwise: "every key unused" when the truth is "we resolved no binding").
+  if (targetAbs === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.fileName.includes('/node_modules/')) continue;
-    if (sourceFile.isDeclarationFile) continue;
-    const rel = host.relOf(sourceFile.fileName);
+  for (const { program, files } of groups) {
+    const options = program.getCompilerOptions();
+    const ctx: SpecCtx = {
+      targetAbs,
+      options,
+      simpleLeaves,
+      dottedBases,
+      dottedByBase,
+      simpleLeafMap,
+    };
+    const specCache = new Map<string, string | undefined>();
 
-    const bindings = collectBindings(sourceFile, spec, ctx, specCache);
-    if (bindings.idents.size === 0 && bindings.bases.size === 0) continue; // no binding here
+    for (const sourceFile of files) {
+      if (sourceFile.isDeclarationFile) continue;
+      const rel = host.relOf(sourceFile.fileName);
 
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const matched = matchCall(node.expression, bindings);
-        if (matched !== undefined) {
-          const arg0 = node.arguments[0];
-          if (arg0 !== undefined) {
-            out.push({
-              fn: matched.fn,
-              ...literalArgFields(sourceFile, rel, arg0),
-              provenance: matched.provenance,
-            });
+      const bindings = collectBindings(sourceFile, spec, ctx, specCache);
+      if (bindings.idents.size === 0 && bindings.bases.size === 0) continue; // no binding here
+
+      const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node)) {
+          const matched = matchCall(node.expression, bindings);
+          if (matched !== undefined) {
+            const arg0 = node.arguments[0];
+            if (arg0 !== undefined) {
+              out.push({
+                fn: matched.fn,
+                ...literalArgFields(sourceFile, rel, arg0),
+                provenance: matched.provenance,
+              });
+            }
           }
         }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+    }
   }
   return { calls: out, mode: 'identity', moduleResolved: true };
 }

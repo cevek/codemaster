@@ -13,7 +13,9 @@ import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.
 import { emitQuoted } from '../../../../support/text-edits/quote.ts';
 import type { RewrittenImport } from '../capture/imports.ts';
 import { resolveSpecifierToNode } from './resolve.ts';
-import { deriveAliasPrefixes, emitSpecifier } from './emit.ts';
+import { deriveAliasPrefixes } from '../../alias-paths.ts';
+import { emitSpecifier } from './emit.ts';
+import { moduleSpecifierOf } from '../ast/specifier.ts';
 
 export interface ImportRewrite {
   /** Files whose import text changed, keyed by current path. */
@@ -21,38 +23,6 @@ export interface ImportRewrite {
   /** Per-specifier capture-detection metadata (§ capture-safety): each rewritten import with the
    *  target it was pointed at, so the move/extract gate can confirm it still resolves there. */
   rewrites: RewrittenImport[];
-}
-
-function moduleSpecifierOf(node: ts.Node): ts.StringLiteral | undefined {
-  if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-    return node.moduleSpecifier;
-  }
-  if (
-    ts.isExportDeclaration(node) &&
-    node.moduleSpecifier !== undefined &&
-    ts.isStringLiteral(node.moduleSpecifier)
-  ) {
-    return node.moduleSpecifier;
-  }
-  // `import('./x')` (dynamic) and `require('./x')` (CJS / `import x = require()`).
-  if (
-    ts.isCallExpression(node) &&
-    (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-      (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
-    node.arguments.length > 0
-  ) {
-    const arg = node.arguments[0];
-    if (arg !== undefined && ts.isStringLiteral(arg)) return arg;
-  }
-  // `type T = typeof import('./x')` / `import('./x').Foo` in type position.
-  if (
-    ts.isImportTypeNode(node) &&
-    ts.isLiteralTypeNode(node.argument) &&
-    ts.isStringLiteral(node.argument.literal)
-  ) {
-    return node.argument.literal;
-  }
-  return undefined;
 }
 
 const posixDirname = (p: string): string => {

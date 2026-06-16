@@ -29,6 +29,7 @@
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
 import { scanByIdentity } from './call-identity-scan.ts';
+import { programFileGroups } from './program/project-files.ts';
 import {
   literalArgFields,
   splitNames,
@@ -49,38 +50,42 @@ export function scanLiteralCalls(host: TsProjectHost, spec: CallMatchSpec): Lite
 
 function scanByName(host: TsProjectHost, fnNames: readonly string[]): LiteralCall[] {
   const out: LiteralCall[] = [];
-  const program = host.service.getProgram();
-  if (program === undefined || fnNames.length === 0) return out;
+  if (fnNames.length === 0) return out;
   const { simpleLeaves, dotted } = splitNames(fnNames);
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.fileName.includes('/node_modules/')) continue;
-    if (sourceFile.isDeclarationFile) continue;
-    const rel = host.relOf(sourceFile.fileName);
-    // Resolve named-import aliases SYNTACTICALLY, once per file (bounded by #imports) — NOT per
-    // call site via the checker (which made this whole-program structural scan a per-call SEMANTIC
-    // walk: a checker warm + O(call-sites) symbol resolutions; §5/§19 regression). A direct
-    // `import { t as tr }` is visible in the AST; a multi-hop re-export-chain alias is the
-    // documented residual — rare, under-reports, never fabricates.
-    const importAlias = collectImportAliases(sourceFile);
+  // Across ALL loaded programs (spec Task G): a `t('a.b')` call in a `test/**` file under a sibling
+  // tsconfig is a real key usage; scanning only the primary would mark `a.b` unused (the false-dead
+  // `find_unused_i18n_keys` must never emit). Each file is scanned once (the scan is purely
+  // syntactic — no compilerOptions — so the dedup is all the cross-program join needs here).
+  for (const { files } of programFileGroups(host)) {
+    for (const sourceFile of files) {
+      if (sourceFile.isDeclarationFile) continue;
+      const rel = host.relOf(sourceFile.fileName);
+      // Resolve named-import aliases SYNTACTICALLY, once per file (bounded by #imports) — NOT per
+      // call site via the checker (which made this whole-program structural scan a per-call SEMANTIC
+      // walk: a checker warm + O(call-sites) symbol resolutions; §5/§19 regression). A direct
+      // `import { t as tr }` is visible in the AST; a multi-hop re-export-chain alias is the
+      // documented residual — rare, under-reports, never fabricates.
+      const importAlias = collectImportAliases(sourceFile);
 
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node)) {
-        const matched = matchByName(node.expression, importAlias, simpleLeaves, dotted);
-        if (matched !== undefined) {
-          const arg0 = node.arguments[0];
-          if (arg0 !== undefined) {
-            out.push({
-              fn: matched.fn,
-              ...literalArgFields(sourceFile, rel, arg0),
-              provenance: matched.provenance,
-            });
+      const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node)) {
+          const matched = matchByName(node.expression, importAlias, simpleLeaves, dotted);
+          if (matched !== undefined) {
+            const arg0 = node.arguments[0];
+            if (arg0 !== undefined) {
+              out.push({
+                fn: matched.fn,
+                ...literalArgFields(sourceFile, rel, arg0),
+                provenance: matched.provenance,
+              });
+            }
           }
         }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+    }
   }
   return out;
 }

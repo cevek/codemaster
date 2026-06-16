@@ -1,54 +1,14 @@
 // Emit a new module specifier from an importer's CURRENT directory to a target node's
 // CURRENT path, preserving the original alias-vs-relative form and extension policy. This is
 // the EMIT side — the inverse of resolution, which `ts.resolveModuleName` can't give us — so
-// the alias map is derived here from `compilerOptions.paths`/`baseUrl`. That is emit-only and
-// not a second forward resolver. An alias we can't re-form falls back to a relative specifier
-// (a noisier diff, never wrong). Key insight (§2.2): an alias specifier is independent of the
-// importer's location — it changes only when the TARGET moves.
+// it consumes the shared alias map (`alias-paths.ts`, derived from `compilerOptions.paths`/
+// `baseUrl`). That is emit-only and not a second forward resolver. An alias we can't re-form
+// falls back to a relative specifier (a noisier diff, never wrong). Key insight (§2.2): an
+// alias specifier is independent of the importer's location — it changes only when the TARGET moves.
 
 import * as path from 'node:path';
-import type ts from 'typescript';
-import type { TsProjectHost } from '../../ls-host.ts';
 import type { FsNode } from '../tree/node.ts';
-import type { RepoRelPath } from '../../../../core/brands.ts';
-
-export interface AliasPrefix {
-  /** A `*`-suffixed tsconfig `paths` key is a PREFIX match; a bare key is an EXACT
-   *  full-specifier match (tsconfig semantics). Conflating them lets a bare `"@s"` key
-   *  over-match an unrelated `@scss/x` specifier — a silent misidentification. */
-  wildcard: boolean;
-  /** Wildcard: the prefix matched by `startsWith` (e.g. `@/`). Exact: the full key (`@s`). */
-  aliasPrefix: string;
-  /** Wildcard: the repo-rel dir it maps to, trailing `/` (e.g. `src/`). Exact: the exact
-   *  repo-rel target, no trailing `/` (e.g. `src/s`). */
-  relPrefix: string;
-}
-
-/** Derive `{ aliasPrefix, relPrefix }` pairs from tsconfig `paths` (relative to `baseUrl`),
- *  as repo-relative directories so emit works in the tree's coordinate system. */
-export function deriveAliasPrefixes(
-  host: TsProjectHost,
-  options: ts.CompilerOptions,
-): AliasPrefix[] {
-  const base = options.baseUrl ?? host.absOf('' as RepoRelPath);
-  const out: AliasPrefix[] = [];
-  for (const [key, values] of Object.entries(options.paths ?? {})) {
-    const value = values?.[0];
-    if (value === undefined) continue;
-    const wildcard = key.endsWith('*');
-    const aliasPrefix = wildcard ? key.slice(0, -1) : key;
-    const valueBase = value.endsWith('*') ? value.slice(0, -1) : value;
-    let relPrefix = String(host.relOf(path.resolve(base, valueBase)));
-    // Wildcard maps a DIR → matched/emitted by prefix (trailing `/`). A bare key is an EXACT
-    // mapping → keep its target verbatim (no `/`), matched by equality, never by prefix.
-    if (wildcard && relPrefix.length > 0 && !relPrefix.endsWith('/')) relPrefix += '/';
-    out.push({ wildcard, aliasPrefix, relPrefix });
-  }
-  // Most-specific alias first: with nested aliases (`@/`→`src/`, `@ui/`→`src/components/ui/`),
-  // a target under the deeper one must emit the deeper alias, not the shallower prefix match.
-  out.sort((a, b) => b.relPrefix.length - a.relPrefix.length);
-  return out;
-}
+import type { AliasPrefix } from '../../alias-paths.ts';
 
 function posixRelative(fromDir: string, toPath: string): string {
   const rel = path.posix.relative(fromDir === '' ? '.' : fromDir, toPath);

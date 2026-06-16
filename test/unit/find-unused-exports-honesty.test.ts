@@ -268,27 +268,36 @@ test('find_unused_exports: pathInclude scopes the report without inventing a fal
   }
 });
 
-test('find_unused_exports: a SIBLING tsconfig caps `certain` → `partial` (a test-only-used export is never claimed dead)', async () => {
-  // The warm LS loads only tsconfig.json; an export used solely by a separate tsconfig.test.json
-  // program would read as unreferenced here. Claiming `certain` dead then invites deleting live
-  // code — so any sibling tsconfig demotes otherwise-`certain` verdicts to `partial` (post-review).
+test('find_unused_exports: a SIBLING tsconfig program is SEEN — a test-only-used export is not dead, a genuinely-dead one is `certain` (Task G: cross-program, no blanket demotion)', async () => {
+  // The primary LS loads tsconfig.json (src only); the test program (tsconfig.test.json) adds
+  // test/**. An export used ONLY from the test program reads as unreferenced in the primary — the
+  // old stopgap blanket-demoted EVERY certain verdict to partial whenever any sibling existed.
+  // Task G replaces that with the real fix: usage discovery FANS OUT across both programs, so the
+  // test usage is seen (not reported) and a genuinely-dead export is `certain` AGAIN.
   const p = await project({
     'tsconfig.json':
-      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"}}',
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["src"]}',
     'tsconfig.test.json':
-      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["test"]}',
-    'src/lib.ts': 'export const onlyTestUses = 7;\n',
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["src","test"]}',
+    'src/lib.ts': 'export const onlyTestUses = 7;\nexport const trulyDead = 8;\n',
+    'test/lib.test.ts': "import { onlyTestUses } from '../src/lib';\nconsole.log(onlyTestUses);\n",
   });
   try {
     const r = await p.op('find_unused_exports', {});
     assert.ok('result' in r && r.result.ok, 'op succeeds');
-    const row = (r.result.data as View).unused.find((u) => u.name === 'onlyTestUses');
+    const data = r.result.data as View;
+    // Used only from the test program → SEEN as used, never reported (the false-dead this fixes).
     assert.equal(
-      row?.confidence,
-      'partial',
-      'a sibling tsconfig means we cannot claim certain dead',
+      data.unused.find((u) => u.name === 'onlyTestUses'),
+      undefined,
+      'a test-program usage keeps the export alive across programs',
     );
-    assert.match(row?.note ?? '', /sibling tsconfig/, 'the sibling-program reason is stated');
+    // Genuinely dead in BOTH programs → `certain` again (no blanket sibling demotion).
+    assert.equal(
+      data.unused.find((u) => u.name === 'trulyDead')?.confidence,
+      'certain',
+      'a genuinely-dead export reads certain even with a sibling tsconfig present',
+    );
   } finally {
     await p.dispose();
   }

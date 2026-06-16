@@ -26,12 +26,16 @@ export function buildWorkspaceStatus(i: WorkspaceStatusInput): WorkspaceStatusVi
     configSource: i.configSource,
     freshnessMode: i.freshnessMode,
     watcher: i.watcher,
-    plugins: i.plugins.map((p) => ({
-      id: p.id,
-      version: p.version,
-      fingerprint: p.freshness(),
-      pendingFiles: p.pending().length,
-    })),
+    plugins: i.plugins.map((p) => {
+      const detail = p.statusDetail?.();
+      return {
+        id: p.id,
+        version: p.version,
+        fingerprint: p.freshness(),
+        pendingFiles: p.pending().length,
+        ...(detail !== undefined ? { detail } : {}),
+      };
+    }),
     ops: i.ops
       .filter((op) => op.requires.every((id) => i.registry.has(id)))
       .map((op) => ({

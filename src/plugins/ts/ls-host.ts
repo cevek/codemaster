@@ -1,249 +1,177 @@
-// The long-lived LanguageService over a versioned disk-backed host (§5-L2). Lazy
-// warm: building the host parses tsconfig + file list; types compute only when a
-// semantic query runs. `reindex` bumps script versions for changed files and rescans
-// the file list (adds/removes), so the LS reuses everything untouched.
+// The long-lived LS host (§5-L2) — now MULTI-program (spec Task G). A repo's usages and dead-code
+// must be honest across ALL its tsconfigs: a symbol used only from a `test/**` file under
+// `tsconfig.test.json` (or a build script, or Vite's app/node split) is NOT dead. So the host
+// composes the PRIMARY program (the root tsconfig — the mutation/typecheck target, unchanged for
+// every existing consumer via `service`/`configPath`/overlay) with the repo's SIBLING programs,
+// discovered once and warmed LAZILY (the cross-program read fan-out builds them on first use;
+// memory/cost stay bounded — the heavy thing is the LS, §9). Each program keeps its OWN
+// compilerOptions (§9/§19: a flat single-options Program would be a lie).
 //
-// Phase-1 simplification, stated honestly: codemaster's own bundled `typescript`
-// drives the service (the project's own TS via project-resolution is roadmap §19 —
-// `status` reports which is active through `version`), and a monorepo runs the root
-// tsconfig only (project references land with §9's per-package Programs).
+// The single-program engine lives in `./program/single.ts`; discovery in `./program/discover.ts`.
+// This file is the composition + the cross-program query surface.
 
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
-import { Overlay, type OverlayEntry } from './vfs/overlay.ts';
+import type { OverlayEntry } from './vfs/overlay.ts';
+import { createSingleProgram, type SingleProgram } from './program/single.ts';
+import { discoverSiblingConfigs, type DiscoveredConfig } from './program/discover.ts';
+
+/** One queryable program exposed to the cross-program fan-out — the primary or a sibling. */
+interface TsProgram {
+  readonly service: ts.LanguageService;
+  /** Provenance label (`tsconfig.json` / `tsconfig.test.json`) for status + cross-program origin. */
+  readonly label: string;
+  getProgram(): ts.Program | undefined;
+  /** Is `absPosix` a source file in this built program right now? */
+  containsFile(absPosix: string): boolean;
+}
 
 export interface TsProjectHost {
+  /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
   readonly service: ts.LanguageService;
   readonly configPath: string | undefined;
   /** A short stable fingerprint of THIS workspace root — stamped into every minted SymbolId so a
-   *  handle minted here can be told apart from one minted in a sibling repo. A SymbolId carrying a
-   *  different `rootTag` than the resolving host is `gone` (re-search in the new root), never
-   *  name-rebound onto a same-named symbol in a DIFFERENT repo (§6 "SymbolIds do not cross roots";
-   *  spec-stresstest §4b). */
+   *  handle minted here can be told apart from one minted in a sibling repo (§6 / §4b). */
   readonly rootTag: string;
-  /** Repo-relative posix path → absolute path, for every tracked file. */
+  /** Primary-program tracked files (absolute posix). */
   fileNames(): readonly string[];
   absOf(rel: RepoRelPath): string;
   relOf(abs: string): RepoRelPath;
   isTracked(rel: RepoRelPath): boolean;
   reindex(changed: readonly RepoRelPath[]): void;
-  /** Monotonic project version — bumps whenever anything changes. */
+  /** Monotonic aggregate version — bumps whenever ANY program reindexes or the overlay changes,
+   *  so a test-only file edit (tracked only by a sibling) still drifts the freshness fingerprint. */
   projectVersion(): number;
-  /** Best-effort fallback LanguageService from the patched TS fork (§4 rescue) — for the
-   *  extract refactors the stock LS asserts on (e.g. an extracted block using a css-module
-   *  member). Built lazily over the SAME host state and cached. `undefined` when the fork
-   *  can't load or its major doesn't match the bundled TS (version coupling → degrade
-   *  honestly, never a wrong edit). */
+  /** §4 rescue LS (patched fork) over the PRIMARY program — for extract refactors the stock LS
+   *  asserts on. `undefined` when the fork can't load / its major mismatches. */
   rescueService(): ts.LanguageService | undefined;
-  /** Overlay post-edit content (and tombstone moved-away `removed` paths) so the LS
-   *  typechecks unsaved source (§2.7). Inert when empty — reads resolve exactly as from
-   *  disk. Always paired with a `clear`. */
+  // ── overlay (dry-run shadow) — PRIMARY program only ──────────────────────────────────────────
+  // Mutating ops (rename/move/extract/codemod/typecheck gates) overlay + query only the primary,
+  // so confining the overlay there is correct AND keeps it cheap. TRAP for a future op: do NOT
+  // compose a cross-program READ (`programsContaining`/`programs()`-backed find_usages /
+  // referenceSpans / unusedExports / importersOf) INSIDE an active overlay scope — siblings keep
+  // reading disk, so the result would mix overlaid-primary with stale-disk sibling refs. Today no
+  // overlay-bearing op fans out, so this stays a guard rail, not a live bug.
   setOverlay(entries: readonly OverlayEntry[], removed?: readonly RepoRelPath[]): void;
   clearOverlay(): void;
-  /** Run `fn` with `entries`/`removed` overlaid ON TOP of any currently-active overlay, then
-   *  RESTORE the prior overlay (not clear). The nest-safe form a capture detector uses while a
-   *  transaction's prior-step overlay is already active (spec-transactional-mutation §2.4) — a flat
-   *  `setOverlay`/`clearOverlay` would wipe the enclosing state and resolve against the wrong world.
-   *  `entries.abs` are absolute (posix or OS) paths; `removed` are repo-relative. */
   withMergedOverlay<T>(
     entries: readonly OverlayEntry[],
     removed: readonly RepoRelPath[],
     fn: () => T,
   ): T;
+  /** ALL loaded programs (primary first); siblings are discovered + built lazily on first call —
+   *  this is the cross-program warm point (§9 lazy). */
+  programs(): readonly TsProgram[];
+  /** Programs whose built program currently contains `absPosix` — the fan-out set for a decl: run
+   *  findReferences only where the declaration file actually lives. */
+  programsContaining(absPosix: string): readonly TsProgram[];
+  /** The first program (primary preferred) whose built program contains `absPosix`, with its
+   *  source file — the cross-program resolution lookup (a test-declared symbol resolves too). */
+  sourceFileAcross(absPosix: string): { sf: ts.SourceFile; program: TsProgram } | undefined;
+  /** Labels of every program codemaster will load for this repo (primary first), via cheap
+   *  discovery WITHOUT building the sibling LS objects — for status self-describe. */
+  programLabels(): readonly string[];
   dispose(): void;
 }
 
 export function createTsProjectHost(root: string, tsconfigOverride?: string): TsProjectHost {
-  let files = new Map<string, { version: number }>(); // abs path (posix) → version
-  let projectVersion = 1;
-  const overlay = new Overlay();
-
+  // One DocumentRegistry shared across every stock-TS program: files common to two configs
+  // (src/** in both the app and the test config) parse once. The §4 rescue fork keeps its own
+  // registry inside each SingleProgram — the two TS namespaces must never cross-feed.
+  const registry = ts.createDocumentRegistry();
   const configPath = resolveConfigPath(root, tsconfigOverride);
-  // Parse the tsconfig ONCE and cache it. The LS calls `getCompilationSettings` on every
-  // synchronize / module-resolution pass; re-parsing there reruns `parseJsonConfigFileContent`'s
-  // recursive whole-tree directory scan each time → O(LS-calls × tree-scan) = an unbounded HANG
-  // on a large repo (tiny test fixtures made each re-parse instant, so it never surfaced). We
-  // re-parse only on a structural reindex (`loadFileList`), where a re-glob IS the intent.
-  let parsed: ts.ParsedCommandLine;
-  const loadFileList = (): void => {
-    parsed = parseConfig(root, configPath); // (re-)glob the project: picks up added/removed files
-    const next = new Map<string, { version: number }>();
-    for (const abs of parsed.fileNames.map(toPosix).filter((f) => !f.includes('/node_modules/'))) {
-      next.set(abs, files.get(abs) ?? { version: 1 });
+  const primary = createSingleProgram(root, configPath, primaryLabel(root, configPath), registry);
+
+  // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
+  // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
+  // lazy step deferred to the first cross-program read.
+  let discovered: DiscoveredConfig[] | undefined;
+  const discover = (): DiscoveredConfig[] =>
+    (discovered ??= discoverSiblingConfigs(root, configPath));
+
+  let siblings: SingleProgram[] | undefined;
+  const built = (): readonly SingleProgram[] => {
+    if (siblings === undefined) {
+      siblings = discover().map((c) => createSingleProgram(root, c.path, c.label, registry));
     }
-    files = next;
-    projectVersion++;
+    return [primary, ...siblings];
   };
-  loadFileList();
+  /** Already-built programs — what reindex/dispose touch WITHOUT forcing sibling discovery (a
+   *  reindex before any cross-program query must stay primary-only-cheap; unbuilt siblings read
+   *  fresh from disk when first warmed). */
+  const builtSoFar = (): readonly SingleProgram[] =>
+    siblings === undefined ? [primary] : [primary, ...siblings];
 
-  // The host is parameterised on a typescript namespace `tsm` so the §4 rescue can stand up a
-  // SECOND LS from the patched fork over the SAME file/overlay state — using the fork's
-  // ScriptSnapshot / sys / lib path, never the stock module's, so the two never cross-feed.
-  const makeServicesHost = (tsm: typeof ts): ts.LanguageServiceHost => ({
-    // Overlay files join the script set so a synthetic (overlay-only) file is visible to
-    // the LS even when not on disk; tombstoned (moved-away) paths drop out so a stale
-    // import dangles. For an in-place rename the overlay ⊆ tracked files, removed is empty.
-    getScriptFileNames: () =>
-      [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
-    getScriptVersion: (fileName) => {
-      const posix = toPosix(fileName);
-      const over = overlay.get(posix);
-      // A distinct, monotonic token while overlaid → the LS re-reads; reverts to the disk
-      // version on clear (also distinct from the last overlay token, forcing a re-read).
-      if (over !== undefined) return `o${over.version}`;
-      return String(files.get(posix)?.version ?? 1);
-    },
-    getScriptSnapshot: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      if (over !== undefined) return tsm.ScriptSnapshot.fromString(over.content);
-      try {
-        return tsm.ScriptSnapshot.fromString(readFileSync(fileName, 'utf8'));
-      } catch {
-        return undefined;
-      }
-    },
-    getCurrentDirectory: () => root,
-    getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path (above)
-    getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
-    fileExists: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return false; // tombstoned: the moved-away source is gone
-      return overlay.has(posix) || tsm.sys.fileExists(fileName);
-    },
-    readFile: (fileName, encoding) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      return over !== undefined ? over.content : tsm.sys.readFile(fileName, encoding);
-    },
-    readDirectory: tsm.sys.readDirectory,
-    directoryExists: (dir) => overlay.hasDirectory(toPosix(dir)) || tsm.sys.directoryExists(dir),
-    getDirectories: tsm.sys.getDirectories,
-    getProjectVersion: () => String(projectVersion),
-    // Canonicalize symlinks — what `tsc`/`createProgram`'s default compiler host does
-    // (`realpath: sys.realpath`) and what a LanguageServiceHost silently drops if omitted. Without
-    // it, a pnpm repo (whose `node_modules/<pkg>` are symlinks into `.pnpm/`) loads the SAME package
-    // under two paths — the symlink for a direct dep, the realpath for a transitive one — so its
-    // types stop unifying: `Opts` ≠ `Opts`, callbacks lose their parameter types (implicit any),
-    // valid object literals are rejected. That manufactured ~600 phantom errors on a byte-clean
-    // pnpm repo whose own `tsc`/`tsgo` reports zero (spec-stresstest §1a) — poisoning every
-    // mutation gate's baseline. Guarded: a synthetic overlay/removed path that isn't on disk
-    // realpaths to itself (sys.realpath throws on a missing file). Resolving a real source file is
-    // identity (no symlink), so the only effect is collapsing symlinked node_modules to one home.
-    realpath: (fileName) => {
-      try {
-        return tsm.sys.realpath ? tsm.sys.realpath(fileName) : fileName;
-      } catch {
-        return fileName;
-      }
-    },
-  });
+  // Host-level monotonic version — the freshness fingerprint + literalCalls memo key. Bumped on
+  // every mutating host call so any program's drift (incl. a sibling-only test file) is observed.
+  let hostVersion = 1;
 
-  const service = ts.createLanguageService(makeServicesHost(ts), ts.createDocumentRegistry());
-
-  // Rescue LS — `undefined` = not yet attempted, `null` = attempted & unavailable, else the
-  // built service. Lazy + cached: only stood up the first time an extract asserts.
-  let rescue: ts.LanguageService | null | undefined;
-  const rescueService = (): ts.LanguageService | undefined => {
-    if (rescue !== undefined) return rescue ?? undefined;
-    const fix = loadRescueTs();
-    if (fix === undefined) {
-      rescue = null;
-      return undefined;
-    }
-    rescue = fix.createLanguageService(makeServicesHost(fix), fix.createDocumentRegistry());
-    return rescue;
-  };
-
-  // Derived from the canonical root the orchestrator passes in (its repoId), so it is stable for a
-  // root and distinct across sibling repos / worktrees — the cross-root discriminator for §4b.
-  // 8 hex chars (32 bits) — ample to tell a session's handful of warm roots apart, and keeps the
-  // suffix it adds to every rendered SymbolId small.
   const rootTag = fnv1a64Hex(toPosix(root)).slice(0, 8);
 
   return {
-    service,
+    service: primary.service,
     configPath,
     rootTag,
-    fileNames: () => [...files.keys()],
+    fileNames: () => primary.fileNames(),
     absOf: (rel) => path.join(root, rel),
     relOf: (abs) => {
       const posix = toPosix(abs);
       const prefix = `${toPosix(root)}/`;
       return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
     },
-    isTracked: (rel) => files.has(toPosix(path.join(root, rel))),
+    isTracked: (rel) => primary.isTracked(toPosix(path.join(root, rel))),
     reindex(changed) {
-      let structural = false;
-      for (const rel of changed) {
-        const abs = toPosix(path.join(root, rel));
-        const entry = files.get(abs);
-        if (entry !== undefined) entry.version++;
-        else if (isTsLike(abs)) structural = true; // a new/renamed source file
-      }
-      projectVersion++;
-      if (structural) loadFileList();
+      // Propagate to every BUILT program (each decides structural-ness against its OWN glob — a
+      // new test file is structural for the test program, not the primary). Unbuilt siblings are
+      // untouched; they read the current tree when first warmed.
+      for (const program of builtSoFar()) program.reindex(changed);
+      hostVersion++;
     },
-    projectVersion: () => projectVersion,
-    rescueService,
-    setOverlay(entries, removed = []) {
-      overlay.set(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
-        removed.map((r) => toPosix(path.join(root, r))),
-      );
-      projectVersion++;
+    projectVersion: () => hostVersion,
+    rescueService: () => primary.rescueService(),
+    setOverlay(entries, removed) {
+      primary.setOverlay(entries, removed);
+      hostVersion++;
     },
     clearOverlay() {
-      overlay.clear();
-      projectVersion++;
+      primary.clearOverlay();
+      hostVersion++;
     },
     withMergedOverlay(entries, removed, fn) {
-      const snap = overlay.snapshot();
-      overlay.merge(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
-        removed.map((r) => toPosix(path.join(root, r))),
-      );
-      projectVersion++;
-      try {
-        return fn();
-      } finally {
-        // Restore the enclosing overlay exactly (set re-stamps a fresh version → LS re-reads).
-        overlay.set(snap.entries, snap.removed);
-        projectVersion++;
-      }
+      hostVersion++;
+      return primary.withMergedOverlay(entries, removed, () => {
+        try {
+          return fn();
+        } finally {
+          hostVersion++;
+        }
+      });
     },
+    programs: () => built(),
+    programsContaining(absPosix) {
+      return built().filter((p) => p.containsFile(absPosix));
+    },
+    sourceFileAcross(absPosix) {
+      // Primary FIRST, and short-circuit before `built()` forces sibling construction — a
+      // primary-resident target (find_definition / expand_type / rename) must not eagerly glob
+      // every sibling tsconfig (§5-L2 "siblings warm lazily on the first cross-program read").
+      const primarySf = primary.getProgram()?.getSourceFile(absPosix);
+      if (primarySf !== undefined) return { sf: primarySf, program: primary };
+      for (const program of built()) {
+        if (program === primary) continue;
+        const sf = program.getProgram()?.getSourceFile(absPosix);
+        if (sf !== undefined) return { sf, program };
+      }
+      return undefined;
+    },
+    programLabels: () => [primary.label, ...discover().map((c) => c.label)],
     dispose() {
-      service.dispose();
-      if (rescue !== null && rescue !== undefined) rescue.dispose();
+      for (const program of builtSoFar()) program.dispose();
     },
   };
-}
-
-/** Load the patched TS fork (§4 rescue) from codemaster's OWN node_modules. Returns the
- *  namespace only when it loads AND its major version matches the bundled TS — a major
- *  mismatch means the fork's refactor edits may not align with the project's own TS, so we
- *  decline (the rescue is best-effort; an unavailable rescue is an honest failure, never a
- *  wrong edit). Any load error degrades to `undefined`. */
-function loadRescueTs(): typeof ts | undefined {
-  try {
-    const fix = createRequire(import.meta.url)(
-      '@cevek/typescript-extract-refactor-fix',
-    ) as typeof ts;
-    if (typeof fix.createLanguageService !== 'function' || typeof fix.version !== 'string') {
-      return undefined;
-    }
-    if (fix.version.split('.')[0] !== ts.version.split('.')[0]) return undefined;
-    return fix;
-  } catch {
-    return undefined;
-  }
 }
 
 function resolveConfigPath(root: string, override?: string): string | undefined {
@@ -251,26 +179,8 @@ function resolveConfigPath(root: string, override?: string): string | undefined 
   return ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json');
 }
 
-function parseConfig(root: string, configPath: string | undefined): ts.ParsedCommandLine {
-  if (configPath === undefined) {
-    return {
-      options: { allowJs: true, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
-      fileNames: ts.sys
-        .readDirectory(root, ['.ts', '.tsx', '.js', '.jsx'], ['node_modules', 'dist', 'build'], [])
-        .map(toPosix),
-      errors: [],
-    };
-  }
-  const text = ts.readConfigFile(configPath, ts.sys.readFile);
-  return ts.parseJsonConfigFileContent(
-    text.config ?? {},
-    ts.sys,
-    path.dirname(configPath),
-    undefined,
-    configPath,
-  );
-}
-
-function isTsLike(p: string): boolean {
-  return /\.(ts|tsx|js|jsx|mts|cts)$/.test(p);
+function primaryLabel(root: string, configPath: string | undefined): string {
+  if (configPath === undefined) return '(no tsconfig)';
+  const rel = path.relative(root, configPath);
+  return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(configPath) : toPosix(rel);
 }

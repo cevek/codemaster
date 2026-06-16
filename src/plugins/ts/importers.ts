@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
 import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
+import { programFileGroups } from './program/project-files.ts';
 
 export type ImporterRow = {
   /** Importing file + line of the import statement. */
@@ -23,25 +24,32 @@ export type ImportersView = {
 };
 
 export function findImporters(host: TsProjectHost, moduleArg: string): ImportersView {
-  const program = host.service.getProgram();
-  if (program === undefined) return { module: moduleArg, importers: [], total: 0 };
-  const options = program.getCompilerOptions();
+  const primary = host.service.getProgram();
+  if (primary === undefined) return { module: moduleArg, importers: [], total: 0 };
 
-  const targetAbs = resolveModuleArg(host, moduleArg, options);
+  // The target module is named once, resolved under the primary's options (the canonical config).
+  const targetAbs = resolveModuleArg(host, moduleArg, primary.getCompilerOptions());
   const importers: ImporterRow[] = [];
-  const cache = new Map<string, string | undefined>();
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.fileName.includes('/node_modules/')) continue;
-    for (const stmt of sourceFile.statements) {
-      const spec = moduleSpecifierOf(stmt);
-      if (spec === undefined) continue;
-      if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache)) continue;
-      const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
-      importers.push({
-        at: `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`,
-        imports: importedNames(stmt),
-      });
+  // Fan out across every loaded program (spec Task G): a `test/**` file under a sibling tsconfig
+  // that imports the module is a real importer the primary never sees. Each file's specifier is
+  // resolved under ITS OWN program's options — so an import via a `paths`/`baseUrl` alias defined
+  // only in the sibling tsconfig still resolves (else a real importer is silently dropped, a §3.4
+  // completeness lie). Files shared by several programs are visited once (primary preferred).
+  for (const { program, files } of programFileGroups(host)) {
+    const options = program.getCompilerOptions();
+    const cache = new Map<string, string | undefined>(); // per-program: options differ
+    for (const sourceFile of files) {
+      for (const stmt of sourceFile.statements) {
+        const spec = moduleSpecifierOf(stmt);
+        if (spec === undefined) continue;
+        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache)) continue;
+        const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
+        importers.push({
+          at: `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`,
+          imports: importedNames(stmt),
+        });
+      }
     }
   }
   return {
@@ -73,10 +81,16 @@ function matches(
   options: ts.CompilerOptions,
   cache: Map<string, string | undefined>,
 ): boolean {
-  if (spec === moduleArg) return true; // exact specifier match (works for .scss etc.)
-  if (targetAbs === undefined) return false;
-  const resolved = resolveSpecifier(spec, containingFile, options, cache);
-  return resolved !== undefined && samePath(resolved, targetAbs);
+  // When the target RESOLVES to a file, identity is decided by resolution alone — a raw-string
+  // `spec === moduleArg` shortcut would mis-match two different modules that share a relative
+  // specifier (`./x` in dirA vs dirB both "match" `importers_of './x'` — a false-live). The
+  // exact-string match is the fallback ONLY for an unresolvable target (a `.scss` path, a package
+  // specifier the TS resolver doesn't map to a file), where the literal string is all we have.
+  if (targetAbs !== undefined) {
+    const resolved = resolveSpecifier(spec, containingFile, options, cache);
+    return resolved !== undefined && samePath(resolved, targetAbs);
+  }
+  return spec === moduleArg;
 }
 
 function importedNames(stmt: ts.Statement): string {

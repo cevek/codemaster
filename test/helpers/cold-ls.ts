@@ -99,8 +99,11 @@ export function coldMembers(root: string, fileRel: string, typeName: string): Co
  *  primary completeness gate stays `coldDiagnostics() == []` (a missed rewrite fails to
  *  compile) + a hand-curated touched-set. For `find_usages` this oracle would be CIRCULAR
  *  (identical LS algorithm, §16) — use a hand-curated set there, not this. */
-function coldLanguageService(root: string): { service: ts.LanguageService; fileNames: string[] } {
-  const configPath = path.join(root, 'tsconfig.json');
+function coldLanguageService(
+  root: string,
+  configRel = 'tsconfig.json',
+): { service: ts.LanguageService; fileNames: string[] } {
+  const configPath = path.join(root, configRel);
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
   assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
@@ -135,9 +138,18 @@ const sharedRegistry = ts.createDocumentRegistry();
  *
  *  CALLER CONTRACT: pass a `fileRel` whose FIRST occurrence of `symbolName` is the declaration
  *  (e.g. the decl file after a rename) — the lookup anchors there, so a leading comment/import
- *  mentioning the name first would mis-anchor. The current callers pass decl files. */
-export function coldFindReferences(root: string, fileRel: string, symbolName: string): string[] {
-  const { service } = coldLanguageService(root);
+ *  mentioning the name first would mis-anchor. The current callers pass decl files.
+ *
+ *  `configRel` selects WHICH tsconfig's program the cold oracle builds — default `tsconfig.json`;
+ *  pass `tsconfig.test.json` to get the independent ground truth for cross-program usages (Task G),
+ *  i.e. a program that includes the test files where the only usage lives. */
+export function coldFindReferences(
+  root: string,
+  fileRel: string,
+  symbolName: string,
+  configRel = 'tsconfig.json',
+): string[] {
+  const { service } = coldLanguageService(root, configRel);
   const abs = path.join(root, fileRel);
   const source = readFileSync(abs, 'utf8');
   const at = new RegExp(`\\b${symbolName}\\b`).exec(source);

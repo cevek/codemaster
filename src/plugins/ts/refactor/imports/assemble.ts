@@ -10,7 +10,7 @@ import type { RepoRelPath } from '../../../../core/brands.ts';
 import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { computeCommitPlan } from '../tree/commit-plan.ts';
 import type { RefactorPlan } from '../plan.ts';
-import { detectImportCaptures } from '../capture/imports.ts';
+import { detectImportCaptures, detectReverseImportCaptures } from '../capture/imports.ts';
 import { rewriteImports } from './rewrite.ts';
 
 const TS_RE = /\.(tsx?|mts|cts)$/;
@@ -89,6 +89,17 @@ export function assemblePlan(
   // whole-repo scan.
   const captures = detectImportCaptures(options, rewrites, overlayFiles, removed, (rel) =>
     host.absOf(rel),
+  );
+
+  // Reverse capture (§ capture-safety): a pre-existing, non-rewritten import the move now SHADOWS
+  // (its unchanged specifier re-binds onto a file the move introduces). New arrivals = the move's
+  // destinations + the synthetic new files — the only paths that can newly intercept a resolution.
+  const newArrivals = [
+    ...commit.moves.map((m) => m.to),
+    ...commit.newFiles.map((f) => f.path),
+  ] as RepoRelPath[];
+  captures.push(
+    ...detectReverseImportCaptures(host, options, rewrites, overlayFiles, removed, newArrivals),
   );
 
   return {

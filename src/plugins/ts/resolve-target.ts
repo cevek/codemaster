@@ -33,7 +33,9 @@ export function resolveTarget(h: TsProjectHost, target: TsTargetInput): Resolved
   if (target.symbol !== undefined) return resolveSymbolId(h, target.symbol);
   if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
     const abs = h.absOf(target.file as RepoRelPath);
-    const sourceFile = h.service.getProgram()?.getSourceFile(abs);
+    // Across ALL loaded programs (spec Task G): a `test/**` file lives only in a sibling program,
+    // so a primary-only lookup would falsely reject a position in it.
+    const sourceFile = h.sourceFileAcross(abs)?.sf;
     if (sourceFile === undefined) {
       return { ok: false, message: `file not in the TS project: ${target.file}` };
     }
@@ -72,7 +74,9 @@ function resolveByName(h: TsProjectHost, name: string): ResolvedTarget {
     };
   }
   const abs = h.absOf(sole.span.file);
-  const sourceFile = h.service.getProgram()?.getSourceFile(abs);
+  // sourceFileAcross, not the primary: searchSymbols now spans programs, so a matched symbol may
+  // live in a sibling-only file (a test helper) the primary program does not contain.
+  const sourceFile = h.sourceFileAcross(abs)?.sf;
   const offset =
     sourceFile === undefined ? undefined : offsetOfLoc(sourceFile, sole.span.line, sole.span.col);
   if (offset === undefined) return { ok: false, message: `cannot locate '${name}'` };
@@ -106,7 +110,7 @@ function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
     };
   }
   const abs = h.absOf(rel as RepoRelPath);
-  const sourceFile = h.service.getProgram()?.getSourceFile(abs);
+  const sourceFile = h.sourceFileAcross(abs)?.sf;
   const line = Number(lineStr);
   const col = Number(colStr);
 
@@ -140,7 +144,7 @@ function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
     };
   }
   const candAbs = h.absOf(candidate.span.file);
-  const candFile = h.service.getProgram()?.getSourceFile(candAbs);
+  const candFile = h.sourceFileAcross(candAbs)?.sf; // candidate may be sibling-declared (cross-program search)
   const candOffset =
     candFile === undefined
       ? undefined

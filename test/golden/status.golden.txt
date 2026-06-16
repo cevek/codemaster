@@ -19,6 +19,7 @@ ops (20):
     · filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.
     · symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.
     · deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.
+    · reference sites span ALL the repo's loaded TS programs — a usage in a `test/**` file under a sibling tsconfig (tsconfig.test.json), a build script, or Vite's app/node split is found and counted, not just main-program refs (deduped where programs overlap).
     columns: symbol,file,line,col,role,encloser,encloser_id,encloser_kind,encloser_file,is_exported,count,confidence,provenance
     e.g. op {"name":"find_usages","args":{"symbols":["DialogContent","SheetContent"],"role":"jsx","groupBy":"enclosing","filter":{"pathExclude":["**/ui/**","**/*.test.*"]}}}
   expand_type { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40) } — Resolved type + docs of a symbol, with structural members / constituents (deep, from the live checker)
@@ -39,6 +40,7 @@ ops (20):
     e.g. op {"name":"source","args":{"targets":[{"name":"createEngine"},{"symbol":"ts:Button@src/Button.tsx:1:14"}]}}
   importers_of { module: string } — a repo-relative path or an import specifier ('@/…') — Files that import or re-export from a module (tsconfig-paths aware)
     · module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.
+    · spans ALL the repo's loaded TS programs — an importer in a `test/**` file under a sibling tsconfig (tsconfig.test.json) is found, not just main-program importers.
     columns: module,file,line,imports,confidence
     e.g. op {"name":"importers_of","args":{"module":"@/components/ui/dialog"}}
   find_unused_exports { pathInclude?: string[], pathExclude?: string[], limit?: number } — TS exports with no importer/usage anywhere (semantic, via the LS); barrel/export*/dynamic import() demotes to partial
@@ -46,7 +48,7 @@ ops (20):
     · an export reached only via a barrel re-export (`export { X } from`), an `export *`, or a dynamic `import()` demotes to partial — flagged "could not prove dead", never reported as definitely unused.
     · an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.
     · an export used only WITHIN its own module (never imported) is NOT reported — it has a usage; this finds dead exports, not redundant `export` keywords.
-    · usage is observed only across the files in the ACTIVE TS program (the main tsconfig). A symbol used solely by an out-of-program file — tests under a separate tsconfig.test.json, a build script — is not seen, so it can read `certain` here; this matches find_usages (same program).
+    · usage is observed across ALL the repo's loaded TS programs — the main tsconfig AND its siblings (`tsconfig.test.json`, Vite's app/node split, build configs discovered via `tsconfig.*.json` + `references`). An export used only from a `test/**` file is SEEN as used (not falsely reported); a genuinely-dead export reads `certain` again. Matches find_usages, which also fans out across programs.
     · bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.
     columns: name,kind,file,line,col,confidence,symbol,note
     e.g. op {"name":"find_unused_exports","args":{"pathInclude":["src/features/**"]}}
@@ -87,7 +89,7 @@ ops (20):
     · dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.
     · when the LS refuses (e.g. several cross-referencing declarations in one file) the failure is reported with its ts-ls category — never a half-written file. A shape the stock LS asserts on is retried through the §4 patched-LS rescue (surfaced as a note).
     · css: 'copy-safe' co-extracts the CSS-module classes the extracted block uses into a sibling sheet — ONLY the provably-safe ones move; the rest stay (rewritten to an sLegacy import) and every class is reported under cssCoExtract with a code. scss is type-blind, so a move is the taxonomy's proof, never the typecheck's.
-    · co-extract safety covers the source remainder + RELATIVELY-importing files of the same sheet; a third file importing that sheet via an ALIASED specifier (@/…) is not yet resolved, so verify aliased importers of a shared sheet yourself (matches codemaster’s relative-only css resolution).
+    · co-extract safety covers the source remainder + every importer of the same sheet codemaster can resolve — RELATIVE and tsconfig-`paths` ALIASED (@/…); a class an aliased sibling still uses is kept, not moved. Only a NON-tsconfig (bundler-only) alias stays invisible — verify those yourself.
     · capture-safe: each rewritten import (the source relinked to the new file, and consumers) is re-resolved over the post-edit tree — if one lands on a DIFFERENT same-named, type-compatible export the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.
     e.g. op {"name":"extract_symbol","args":{"name":"Helper","dest":"src/lib/helper.ts"}}
   change_signature [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, removeParam?: number | reorder?: number[], dirtyOk?: boolean } — Remove or reorder a function’s parameters at the declaration and every call site

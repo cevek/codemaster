@@ -15,8 +15,6 @@ import { findConstructionSites } from './construction-sites.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
-import { scanLiteralCalls } from './literal-calls.ts';
-import type { CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
 import { findImporters } from './importers.ts';
 import { findUnusedExports } from './unused-exports.ts';
 import { computeRename } from './refactor/rename/rename-sites.ts';
@@ -26,12 +24,11 @@ import { planExtractTo } from './refactor/extract/move-to-file.ts';
 import { planMoveSymbolTo } from './refactor/extract/move-to-existing.ts';
 import { rewriteExtractedCss } from './refactor/extract/css-usage.ts';
 import { planChangeSignature } from './refactor/change-signature/plan.ts';
-import { loadTreeFromGit, buildTree } from './refactor/tree/build.ts';
-import type { VFSTree } from './refactor/tree/tree.ts';
+import { loadTreeFromGit } from './refactor/tree/build.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import { resolveTarget, type ResolvedTarget, type TsTargetInput } from './resolve-target.ts';
-import type { PlanningOverlay } from './refactor/plan.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
+import { createLiteralCallsMemo, createPlanningHelpers } from './plugin-helpers.ts';
 import type { TsPluginApi } from './api.ts';
 
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
@@ -75,48 +72,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
   const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target);
 
-  // F-a memo: a batch running several i18n ops calls `literalCalls` with the SAME spec each time;
-  // the scan is a whole-program AST walk, so re-running it per op is pure waste. Single-slot cache
-  // keyed on `projectVersion()` (what `freshness()` reports) + the serialized spec — any reindex /
-  // overlay bumps the version and invalidates it, so the memo can never serve a stale scan (§3.1).
-  // Cleared on dispose (below): a fresh host restarts projectVersion at the same value, so a
-  // surviving slot could otherwise collide and serve a pre-dispose scan over a new tree.
-  let literalMemo: { key: string; result: LiteralCallsResult } | undefined;
-  const memoizedLiteralCalls = (spec: CallMatchSpec): LiteralCallsResult => {
-    const h = warm();
-    const key = `${h.projectVersion()}|${spec.functions.join(',')}|${spec.module ?? ''}|${spec.hook ?? ''}`;
-    if (literalMemo?.key === key) return literalMemo.result;
-    const result = scanLiteralCalls(h, spec);
-    literalMemo = { key, result };
-    return result;
-  };
-
-  // ── transaction planning overlay (spec-transactional-mutation) ──────────────────────────
-  // A plan op run as a transaction step plans against the cumulative prior-step state, never
-  // disk. `runWithOverlay` shadows the LS with that state for the SYNCHRONOUS plan body and
-  // ALWAYS clears it (try/finally) — the overlay must never leak into the transaction's final
-  // disk-baseline gate (§2.4). `planTree` builds the move-tree from the overlay's listing (prior
-  // moves/new files baked in) or, with no overlay, from git (the standalone path).
-  const runWithOverlay = <T>(overlay: PlanningOverlay | undefined, fn: () => T): T => {
-    if (overlay === undefined) return fn();
-    const h = warm();
-    h.setOverlay(
-      overlay.files.map((f) => ({ abs: h.absOf(f.path), content: f.content })),
-      overlay.removed,
-    );
-    try {
-      return fn();
-    } finally {
-      h.clearOverlay();
-    }
-  };
-  const planTree = async (
-    overlay: PlanningOverlay | undefined,
-  ): Promise<{ tree: VFSTree } | { error: string }> => {
-    if (overlay !== undefined) return { tree: buildTree(overlay.listing) };
-    const t = await loadTreeFromGit(root);
-    return isOk(t) ? { tree: t.data } : { error: t.failure.message };
-  };
+  // Per-instance bookkeeping (the `literalCalls` memo + transaction planning-overlay helpers) lives
+  // in plugin-helpers.ts to keep this file under the line cap. The memo MUST be cleared on dispose.
+  const literalMemo = createLiteralCallsMemo(warm);
+  const { runWithOverlay, planTree } = createPlanningHelpers(warm, root);
 
   return {
     id: 'ts',
@@ -132,7 +91,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     dispose() {
       host?.dispose();
       host = undefined;
-      literalMemo = undefined; // back to cold — never let a slot survive into a re-warm (§3.1)
+      literalMemo.clear(); // back to cold — never let a slot survive into a re-warm (§3.1)
       return Promise.resolve();
     },
     freshness(): FreshnessFingerprint {
@@ -149,6 +108,14 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
     pending() {
       return pendingBeforeWarm;
+    },
+    statusDetail() {
+      // Only once warm — status must not trigger a lazy warm (it would change the cold/warm
+      // freshness it reports). Lists the tsconfigs whose programs back cross-program usages /
+      // dead-code (Task G); shown only when there is a sibling beyond the primary.
+      if (host === undefined) return undefined;
+      const labels = host.programLabels();
+      return labels.length > 1 ? `programs: ${labels.join(', ')}` : undefined;
     },
 
     searchSymbol: (query, limit, filter) => searchSymbols(warm(), query, limit, filter),
@@ -195,7 +162,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     rewriteExtractedCss: (fileName, content, rewrites) =>
       rewriteExtractedCss(fileName, content, rewrites),
 
-    literalCalls: (spec) => memoizedLiteralCalls(spec),
+    literalCalls: (spec) => literalMemo.call(spec),
 
     importersOf: (module) => findImporters(warm(), module),
 

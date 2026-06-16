@@ -415,7 +415,6 @@ codemaster/
   docs/
     about-ru.md              — этот файл (long-form RU)
     backlog.md               — бэклог открытых пунктов, теги type·imp·cx (§17 ARCH)
-    plan.md                  — per-phase чеклист (сворачивается в backlog.md по мере закрытия in-flight тасок)
     wishlist.md              — отложенные идеи
   examples/codemaster.config.example.ts
   src/

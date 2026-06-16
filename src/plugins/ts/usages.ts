@@ -12,6 +12,7 @@ import { mintSymbolId, moduleName } from './symbol-id.ts';
 import { classifyRole, findEncloser, type UsageRole } from './usage-roles.ts';
 import type { SymbolView, GroupRow, UsageView, UsageOptions, UsagesView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
 
 /** One in-scope reference site, collected in pass 1 before role filtering / collapse so
  *  the role distribution (§2.3) and the per-file collapse decision (§2.2) can both see
@@ -30,10 +31,13 @@ export function findUsages(
   offset: number,
   options: UsageOptions,
 ): UsagesView | undefined {
-  const groups = host.service.findReferences(abs, offset);
-  if (groups === undefined) return undefined;
+  // Fan out across every loaded program containing the decl (spec Task G): a `test/**` usage
+  // under a sibling tsconfig counts, deduped against the src refs the primary already sees.
+  const cross = findReferencesAcross(host, abs, offset);
+  if (cross === undefined) return undefined;
 
-  let definition: SymbolView | undefined;
+  const definition: SymbolView | undefined =
+    cross.definition !== undefined ? buildDefinition(host, cross.definition) : undefined;
   const refs: Ref[] = [];
   const breakdown = new Map<UsageRole, number>();
   let excluded = 0;
@@ -42,34 +46,26 @@ export function findUsages(
   // Pass 1: classify every in-scope ref. Path filter applies here; the role filter does
   // NOT yet (it is the question, not an exclusion) — so the role breakdown and the
   // collapse decision both see the full, role-unfiltered picture.
-  for (const group of groups) {
-    if (definition === undefined && !group.definition.fileName.includes('/node_modules/')) {
-      definition = buildDefinition(host, group.definition) ?? definition;
+  for (const ref of cross.refs) {
+    const { sourceFile, rel } = ref;
+    const role = classifyRole(sourceFile, ref.start, {
+      isDefinition: ref.isDefinition,
+      isWrite: ref.isWriteAccess,
+    });
+    // `</X>` is the second token of an element already counted at `<X`.
+    if (role === 'jsx-closing') continue;
+    const pathPass =
+      !(options.pathExclude !== undefined && matchesAnyGlob(rel, options.pathExclude)) &&
+      !(options.pathInclude !== undefined && !matchesAnyGlob(rel, options.pathInclude));
+    // Breakdown reflects the role-unfiltered answer WITH the same path filters.
+    if (pathPass) breakdown.set(role, (breakdown.get(role) ?? 0) + 1);
+    const roleMatch = !roleActive || role === options.role;
+    if (!roleMatch) continue; // outside the question — counted in breakdown, nothing else
+    if (!pathPass) {
+      excluded++; // a question-matching ref dropped by YOUR path filter (§3.4)
+      continue;
     }
-    for (const ref of group.references) {
-      if (ref.fileName.includes('/node_modules/')) continue;
-      const sourceFile = host.service.getProgram()?.getSourceFile(ref.fileName);
-      if (sourceFile === undefined) continue;
-      const rel = host.relOf(ref.fileName);
-      const role = classifyRole(sourceFile, ref.textSpan.start, {
-        isDefinition: ref.isDefinition === true,
-        isWrite: ref.isWriteAccess === true,
-      });
-      // `</X>` is the second token of an element already counted at `<X`.
-      if (role === 'jsx-closing') continue;
-      const pathPass =
-        !(options.pathExclude !== undefined && matchesAnyGlob(rel, options.pathExclude)) &&
-        !(options.pathInclude !== undefined && !matchesAnyGlob(rel, options.pathInclude));
-      // Breakdown reflects the role-unfiltered answer WITH the same path filters.
-      if (pathPass) breakdown.set(role, (breakdown.get(role) ?? 0) + 1);
-      const roleMatch = !roleActive || role === options.role;
-      if (!roleMatch) continue; // outside the question — counted in breakdown, nothing else
-      if (!pathPass) {
-        excluded++; // a question-matching ref dropped by YOUR path filter (§3.4)
-        continue;
-      }
-      refs.push({ rel, sourceFile, start: ref.textSpan.start, length: ref.textSpan.length, role });
-    }
+    refs.push({ rel, sourceFile, start: ref.start, length: ref.length, role });
   }
 
   // Conditional import collapse (§2.2): an import is bookkeeping for the usages that
@@ -120,33 +116,20 @@ export function referenceSpans(
   abs: string,
   offset: number,
 ): Span[] | undefined {
-  const groups = host.service.findReferences(abs, offset);
-  if (groups === undefined) return undefined;
-  const spans: Span[] = [];
-  for (const group of groups) {
-    for (const ref of group.references) {
-      if (ref.fileName.includes('/node_modules/')) continue;
-      const sourceFile = host.service.getProgram()?.getSourceFile(ref.fileName);
-      if (sourceFile === undefined) continue;
-      spans.push(
-        spanFromRange(
-          sourceFile,
-          host.relOf(ref.fileName),
-          ref.textSpan.start,
-          ref.textSpan.start + ref.textSpan.length,
-        ),
-      );
-    }
-  }
-  return spans;
+  const cross = findReferencesAcross(host, abs, offset);
+  if (cross === undefined) return undefined;
+  return cross.refs.map((ref) =>
+    spanFromRange(ref.sourceFile, ref.rel, ref.start, ref.start + ref.length),
+  );
 }
 
 /** True when the symbol declared at `pos` has a call/construct signature — catches an
  *  arrow/fn-expr-bound `const` (whose LS `kind` is `const`) that `impact`'s kind check would
- *  otherwise treat as non-callable, falsely declaring a value-only-read closure complete. */
-function isCallableAt(host: TsProjectHost, defFile: ts.SourceFile, pos: number): boolean {
-  const checker = host.service.getProgram()?.getTypeChecker();
-  if (checker === undefined) return false;
+ *  otherwise treat as non-callable, falsely declaring a value-only-read closure complete.
+ *  Uses the checker of the program the definition was found in (a test-declared symbol's checker
+ *  is the sibling program's, not the primary's). */
+function isCallableAt(program: ts.Program, defFile: ts.SourceFile, pos: number): boolean {
+  const checker = program.getTypeChecker();
   let node: ts.Node | undefined;
   const visit = (n: ts.Node): void => {
     if (pos >= n.getStart(defFile) && pos < n.getEnd()) {
@@ -166,10 +149,9 @@ function isCallableAt(host: TsProjectHost, defFile: ts.SourceFile, pos: number):
 
 function buildDefinition(
   host: TsProjectHost,
-  def: ts.ReferencedSymbolDefinitionInfo,
-): SymbolView | undefined {
-  const defFile = host.service.getProgram()?.getSourceFile(def.fileName);
-  if (defFile === undefined) return undefined;
+  d: NonNullable<CrossReferences['definition']>,
+): SymbolView {
+  const { info: def, sourceFile: defFile, program } = d;
   const rel = host.relOf(def.fileName);
   const span = spanFromRange(
     defFile,
@@ -185,7 +167,7 @@ function buildDefinition(
     name,
     kind: def.kind,
     span,
-    callable: isCallableAt(host, defFile, def.textSpan.start),
+    callable: isCallableAt(program, defFile, def.textSpan.start),
   };
 }
 

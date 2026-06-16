@@ -180,8 +180,9 @@ within it — there is only one parser.
 **Bounded exception — the LS-relocation rescue's second TS (§14).** The LS-driven symbol
 relocations — `extract_symbol` ("Move to a new file") and `move_symbol` ("Move to file" into an
 existing dest) — build their edits from a patched TypeScript fork
-(`@cevek/typescript-extract-refactor-fix`) _only_ when the project's own LS throws the
-`Expected symbol to be a module` assertion (e.g. the moved block uses a css-module member). This
+(`@cevek/typescript-extract-refactor-fix`) _only_ when the project's own LS throws one of the two
+recognized internal assertions — `Expected symbol to be a module` (e.g. the moved block uses a
+css-module member) or `Changes overlap` (overlapping edits, e.g. mutually-recursive symbols). This
 does not break "one parser per domain": the fork
 is an **edit producer, not a fact oracle** — its edits are verified by the **project's own** LS
 post-typecheck (the §2.8 gate runs on `host.service`, never the fork), it is gated to the project's
@@ -310,6 +311,18 @@ probing.
   `paths`/`baseUrl`), and all TS-domain knowledge: symbols, imports, JSX usages, refs,
   types. LS warms **lazily** on the first semantic query — structural queries don't
   trigger warm. The heavyweight plugin: gigabytes for large projects (§9).
+  **Multi-program (§9/§19).** The host loads the **primary** program (the root tsconfig —
+  the mutation/typecheck target) plus the repo's **sibling** programs (`tsconfig.*.json` +
+  `references`: the near-universal `tsconfig.test.json`, Vite's app/node split, build
+  configs), each keeping its **own** `compilerOptions` (a flat single-options Program would
+  be a lie). Siblings are discovered once and warmed **lazily** on the first cross-program
+  read; the stock-TS programs share one `DocumentRegistry` so files common to two configs
+  parse once. `find_usages` / `referenceSpans` / `importers_of` fan out across every program
+  containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
+  first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
+  used only from a `test/**` file is honestly counted as used, not falsely reported dead.
+  (The full monorepo project-reference _redirect_ graph stays roadmap; this is the
+  discover-and-load-as-independent-programs step the usage/dead-code honesty needs.)
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
@@ -597,11 +610,14 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   evicts the LRU workspace when the total crosses a machine budget, protecting the user's
   box. (Meaningful in `process` mode.)
 - **Monorepo = one engine, not one-per-package** — a single workspace process whose `ts`
-  plugin runs one `Program` per package `tsconfig` wired by **project-reference
-  redirects** (what `tsserver` does), so each package keeps its own `compilerOptions` and
-  cross-package references resolve in-memory — a flat single-options Program would be a
-  lie (§19). Its heap is inherently large — tamed by a per-process `--max-old-space-size`,
-  the memory governor, OS-reclaim-on-kill.
+  plugin runs one `Program` per package `tsconfig`, each keeping its own `compilerOptions`
+  — a flat single-options Program would be a lie (§19). **Built today (§5-L2 / Task G):**
+  the host loads the repo's tsconfigs (root + sibling `tsconfig.*.json` + `references`) as
+  **independent** programs, and usages / dead-code fan out across them. **Roadmap:** wiring
+  them with **project-reference redirects** (what `tsserver` does) so cross-package
+  references resolve in-memory as one graph — not yet built; the independent-programs step is
+  what the usage/dead-code honesty needs. Its heap is inherently large — tamed by a
+  per-process `--max-old-space-size`, the memory governor, OS-reclaim-on-kill.
 
 ---
 
@@ -777,8 +793,9 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@cevek/typescript-extract-refactor-fix`** — a patched TypeScript fork, loaded **lazily**
   (via `createRequire`, gated to the project's TS major) **only** as the LS-relocation rescue
   (§4) for `extract_symbol` / `move_symbol`: it produces "Move to a new file" / "Move to file"
-  edits for shapes the stock LS asserts on (e.g. a moved block using a css-module member, which
-  co-extract — spec-css-coextract — needs).
+  edits for shapes the stock LS asserts on (the `Expected symbol to be a module` and `Changes
+overlap` assertions — e.g. a moved block using a css-module member, which co-extract —
+  spec-css-coextract — needs, or mutually-recursive symbols whose edits overlap).
   It is an **edit producer, not a fact oracle** — every rescued edit is verified by the
   project's own LS typecheck (the §2.8 gate), so it never originates a reported fact, and an
   unavailable/incompatible fork degrades to an honest `ts-ls` failure. The bounded exception to
@@ -870,7 +887,6 @@ codemaster/
     golden/                  # output snapshots
   docs/
     backlog.md               # open-items backlog — tagged type·imp·cx (§17)
-    plan.md                  # per-phase build checklist (folding into backlog.md as in-flight tasks land)
     about-ru.md              # long-form human guide (RU) — the "why" + big picture
     wishlist.md              # parked ideas, not yet scoped
 ```
@@ -1051,8 +1067,12 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
     dirty (hash-on-tie) — else a same-tick edit is silently missed on coarse FS (HFS+, FAT,
     some network mounts). (§3.5, §8)
 - **Monorepo LS = project references, not a flat Program.** One engine/process, but the
-  `ts` plugin runs one `Program` per package `tsconfig` wired by project-reference
-  redirects (what `tsserver` does), so each package keeps its own `compilerOptions`. (§9)
+  `ts` plugin runs one `Program` per package `tsconfig`, each keeping its own
+  `compilerOptions` (never a flat single-options Program). Built today: the repo's tsconfigs
+  (root + sibling `tsconfig.*.json` + `references`) load as **independent** programs that
+  usages / dead-code fan out across (§5-L2 / Task G). Roadmap: wiring them with
+  project-reference redirects (what `tsserver` does) so cross-package references resolve
+  in-memory as one graph. (§9)
 - **Watcher is best-effort and must degrade, not crash.** chokidar 4 uses per-directory
   `fs.watch` on Linux → `ENOSPC` past `fs.inotify.max_user_watches` on large trees. Catch the
   watcher `error`, fall back to read-time-only freshness (still correct, §3.5), surface it in

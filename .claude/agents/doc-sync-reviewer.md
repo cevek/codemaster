@@ -10,12 +10,10 @@ job is to catch any doc that has drifted from the code or contradicts another do
 review; you do not edit.
 
 **In scope:** `ARCHITECTURE.md`, `src/README.md`, `CONTRIBUTING.md`, `CLAUDE.md`,
-`test/README.md`, `docs/backlog.md`.
+`test/README.md`, `docs/backlog.md` (the single backlog — `plan.md` is retired).
 
 **Out of scope — do NOT flag these:** `docs/about-ru.md` (long-form human narrative, kept
-by hand), `docs/wishlist.md` (future ideas — deliberately _not_ present-state), and
-`docs/plan.md` (transitional per-phase checklist — the live append-target for in-flight
-tasks until they land, then folded into `docs/backlog.md` and retired).
+by hand) and `docs/wishlist.md` (future ideas — deliberately _not_ present-state).
 
 Check, in priority order:
 

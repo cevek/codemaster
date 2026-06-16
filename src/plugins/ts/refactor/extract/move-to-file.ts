@@ -19,7 +19,7 @@ import { messageOfThrown } from '../../../../common/result/construct.ts';
 import type { RefactorPlan, CssExtractAnalysis } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { analyzeCssExtractUsage } from './css-usage.ts';
-import { isExtractAssertion, isLsDebugFailure, EXTRACT_ASSERTION_NOTE } from './taxonomy.ts';
+import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
   applyTsChanges,
@@ -61,29 +61,13 @@ export function planExtractTo(
       {},
     ) ?? undefined;
 
-  let edits: ts.RefactorEditInfo | undefined;
-  let rescued = false;
-  try {
-    edits = requestEdits(host.service);
-  } catch (thrown) {
-    const msg = messageOfThrown(thrown);
-    if (!isExtractAssertion(msg)) {
-      if (isLsDebugFailure(msg))
-        return `ts-ls-internal: the LS hit an internal assertion — extract manually (${msg})`;
-      return `extract failed: ${msg}`;
-    }
-    // §4 rescue: the stock LS asserted on a shape it can't move (e.g. the extracted block
-    // uses a css-module member). Retry through the patched fork; if unavailable or it also
-    // fails, surface the honest ts-ls-internal failure — never a guessed edit.
-    const fallback = host.rescueService();
-    if (fallback === undefined) return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (${msg})`;
-    try {
-      edits = requestEdits(fallback);
-      rescued = true;
-    } catch (rethrown) {
-      return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (rescue also failed: ${messageOfThrown(rethrown)})`;
-    }
-  }
+  // Request the LS edits, routing the two known rescuable assertions (`Expected symbol to be a
+  // module`, `Changes overlap`) through the §4 patched-LS rescue; a recognized assertion the
+  // rescue can't resolve fails with a SANITIZED message (never the raw internal string), an
+  // unrecognized failure surfaces honestly. Runs before any tree write → never a half-write.
+  const outcome = requestEditsWithRescue(host, requestEdits, 'extract');
+  if ('error' in outcome) return outcome.error;
+  const { edits, rescued } = outcome;
   if (edits === undefined || edits.edits.length === 0) {
     return 'ts-ls-no-edits: the LS produced no edits for this extract — extract manually';
   }

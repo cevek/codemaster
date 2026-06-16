@@ -32,32 +32,46 @@ export function searchSymbols(
   limit: number,
   filter?: SearchFilter,
 ): SearchView {
-  // excludeDtsFiles: with it off, the LS spends the whole result budget on lib.d.ts /
-  // node_modules declarations (createElement, …) and a small limit comes back EMPTY
-  // after our node_modules filter — an honest-looking lie. Project-local .d.ts symbols
-  // are out of search scope for now (schema.d.ts gets its own plugin in Phase 3).
-  const items = host.service.getNavigateToItems(query, limit * 4, undefined, true);
+  // Across ALL loaded programs (spec Task G): a symbol DECLARED only in a sibling-program file (a
+  // `test/**` helper under `tsconfig.test.json`) is invisible to the primary navto — so a name-
+  // addressed `find_usages`/`find_definition` would falsely report "no symbol named". Union navto
+  // over every program and dedup by declaration site (a symbol in a shared src file appears in
+  // several programs). excludeDtsFiles: with it off, the LS spends the whole budget on lib.d.ts /
+  // node_modules declarations and a small limit comes back EMPTY after our filter (an honest-
+  // looking lie); project-local .d.ts symbols are out of search scope for now (Phase 3 schema).
   const views: SymbolView[] = [];
+  const seen = new Set<string>(); // `fileName|textSpan.start` — one declaration counted once
   let total = 0;
-  for (const item of items) {
-    if (item.fileName.includes('/node_modules/')) continue;
-    if (filter?.kind !== undefined && item.kind !== filter.kind) continue;
-    if (filter?.exportedOnly === true && !item.kindModifiers.split(',').includes('export')) {
-      continue;
+  for (const p of host.programs()) {
+    const program = p.getProgram();
+    if (program === undefined) continue;
+    for (const item of p.service.getNavigateToItems(query, limit * 4, undefined, true)) {
+      if (item.fileName.includes('/node_modules/')) continue;
+      const key = `${item.fileName}|${item.textSpan.start}`;
+      if (seen.has(key)) continue;
+      if (filter?.kind !== undefined && item.kind !== filter.kind) continue;
+      if (filter?.exportedOnly === true && !item.kindModifiers.split(',').includes('export')) {
+        continue;
+      }
+      const rel = host.relOf(item.fileName);
+      if (filter?.pathExclude !== undefined && matchesAnyGlob(rel, filter.pathExclude)) continue;
+      if (filter?.pathInclude !== undefined && !matchesAnyGlob(rel, filter.pathInclude)) continue;
+      seen.add(key);
+      total++;
+      if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
+      const view = navigateToView(host, program, item);
+      if (view !== undefined) views.push(view);
     }
-    const rel = host.relOf(item.fileName);
-    if (filter?.pathExclude !== undefined && matchesAnyGlob(rel, filter.pathExclude)) continue;
-    if (filter?.pathInclude !== undefined && !matchesAnyGlob(rel, filter.pathInclude)) continue;
-    total++;
-    if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
-    const view = navigateToView(host, item);
-    if (view !== undefined) views.push(view);
   }
   return { matches: views, total };
 }
 
-function navigateToView(host: TsProjectHost, item: ts.NavigateToItem): SymbolView | undefined {
-  const sourceFile = host.service.getProgram()?.getSourceFile(item.fileName);
+function navigateToView(
+  host: TsProjectHost,
+  program: ts.Program,
+  item: ts.NavigateToItem,
+): SymbolView | undefined {
+  const sourceFile = program.getSourceFile(item.fileName);
   if (sourceFile === undefined) return undefined;
   const rel = host.relOf(item.fileName);
   // navto's textSpan covers the whole declaration (`export function …`); anchor the

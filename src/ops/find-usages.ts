@@ -120,6 +120,7 @@ export const findUsagesOp = defineOp({
     'filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.',
     'symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.',
     "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
+    "reference sites span ALL the repo's loaded TS programs — a usage in a `test/**` file under a sibling tsconfig (tsconfig.test.json), a build script, or Vite's app/node split is found and counted, not just main-program refs (deduped where programs overlap).",
   ],
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {

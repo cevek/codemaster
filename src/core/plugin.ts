@@ -61,6 +61,12 @@ export interface Plugin {
    *  read, or skipped because the cost would blow the latency budget). Surfaces
    *  through `FreshnessNote.staleFiles`. Return empty when fully current. */
   pending(): readonly RepoRelPath[];
+
+  /** OPTIONAL: a short, single-line annotation rendered beside this plugin in `status` — a place
+   *  for a plugin to self-describe domain-specific state an agent should see (e.g. the `ts` plugin
+   *  lists the tsconfigs whose programs it spans for cross-program usages, §11 / Task G). Cheap and
+   *  side-effect-free; `undefined` when there is nothing extra to report. */
+  statusDetail?(): string | undefined;
 }
 
 /** The plugin registry — composition root for one engine. Built at engine spin-up,

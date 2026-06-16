@@ -3,10 +3,8 @@
 Present-state backlog of what's **not yet built** — expanded from [ARCHITECTURE.md §17](../ARCHITECTURE.md).
 Shipped work is not narrated here (git holds history); this file lists only open items.
 
-> Supersedes the per-phase checklist in [plan.md](plan.md), which stays the live append-target for
-> in-flight tasks (G/J/encloser-identity) until they land. Once they merge, fold any residual
-> findings they appended to `plan.md` into this file and retire `plan.md`. Editing `plan.md` now
-> would collide with those agents' in-progress appends — leave it untouched.
+> This is the single backlog. The old per-phase `plan.md` checklist has been retired (its open
+> items + the residuals the wave-3 tasks appended are folded in below).
 
 **Tags** (every item): `type` · `importance` · `complexity`
 
@@ -22,14 +20,8 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ---
 
-## In flight (active — tracked in their own briefs, not duplicated below)
+## In flight (active — tracked in their own brief, not duplicated below)
 
-- [ ] **G — multi-program usages** — [spec-multi-program-usages.md](spec-multi-program-usages.md).
-      `find_usages`/dead-code ops see sibling tsconfigs (`tsconfig.test.json`, build programs);
-      removes the blunt `find_unused_exports` sibling-tsconfig demotion. `feat`·`high`·`cx:L`
-- [ ] **J — extract/move robustness** — [spec-extract-move-robustness.md](spec-extract-move-robustness.md).
-      `Changes overlap` rescue + sanitized fail; aliased (`@/…`) css co-extract importers; reverse
-      import-capture + emptied-dir tombstoning; CLI `--apply`/`--summaryOnly`. `bug`·`high`·`cx:L`
 - [ ] **Encloser identity & rollup fidelity** —
       [spec-encloser-identity-fidelity.md](spec-encloser-identity-fidelity.md). Chainable class-member
       encloser id, HOC-wrapped `function` kind, namespace-nested encloser, surface the reference
@@ -94,8 +86,10 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       `ToolFailure{timeout}` on a pathological whole-repo call. The hard guarantee is §19 engine
       isolation + kill-on-deadline (process mode — above). Meanwhile: scope with pathInclude.
       `perf`·`med`·`cx:L`
-- [ ] **`plugins/ts/module-resolve`** — aliased (`paths`/`baseUrl`) scss-import resolution; today
-      only relative scss specifiers resolve in `css-modules.ts`. `feat`·`med`·`cx:M`
+- [ ] **`module-resolve`: bundler-only aliases + a dedicated module** — relative AND tsconfig-`paths`
+      aliased `.scss` importers now resolve (via the shared `alias-paths.ts`, Task J), but a
+      bundler-only alias absent from tsconfig `paths` stays invisible (the same resolution boundary
+      codemaster applies repo-wide), and there's still no dedicated `module-resolve` module. `feat`·`low`·`cx:M`
 - [ ] **`ts` public API gaps** — `assignability`, `imports(file)`, deep `expandType`. `feat`·`low`·`cx:M`
 - [ ] **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`
 - [ ] **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into
@@ -108,6 +102,37 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 ---
 
 ## Known gaps & residuals (parked — honest, never silent)
+
+### multi-program (Task G residuals)
+
+- [ ] **Mutating ops are still SINGLE-program — a cross-program rename/move/change-sig is a silent
+      partial edit.** `computeRename` (`findRenameLocations`), `change_signature`, and the
+      move/extract import rewrites resolve sites via the PRIMARY LS only, and the §2.8 typecheck gate
+      runs on the primary only. So renaming a `src/` symbol a `test/**` file (under
+      `tsconfig.test.json`) references rewrites the src sites but NOT the test reference → the test
+      program dangles and the primary-only gate doesn't catch it. Same class as the usages blindness
+      Task G fixed, but for WRITES. Fix: fan out site computation across programs (dedup) and gate
+      over every affected program. `bug`·`high`·`cx:L`
+- [ ] **Sibling-tsconfig discovery is adjacent-dir + `references` only** — a nested package
+      `tsconfig.json` neither beside the primary nor reachable via `references` isn't loaded, so a
+      cross-package-used export could still read `certain`-dead (the full monorepo project-reference
+      redirect graph the spec scoped OUT). `demote()` has no "used in an undiscovered program" net.
+      `bug`·`med`·`cx:M`
+- [ ] **Sibling-program robustness — a malformed sibling tsconfig sinks the whole op** — the
+      per-program `getNavigateToItems`/`resolveModuleArg`/`findReferences` aren't individually
+      guarded, so a throwing sibling bubbles to the op-level catch and takes the PRIMARY answer with
+      it. Degrade per-sibling (skip + surface the bad program). Not a false-report; low frequency.
+      `bug`·`low`·`cx:S`
+- [ ] **`importers_of` residuals (safe direction)** — (a) a bare relative module arg
+      (`importers_of {module:'./x'}`) has no canonical anchor → falls back to raw-string match,
+      over-matching every `./x` (false-LIVE, never false-dead); (b) the target resolves once under
+      PRIMARY options, so a target named via a SIBLING-only alias drops real sibling importers
+      (under-report). Both honest-incomplete. Fix: anchor relative args / per-program target.
+      `bug`·`low`·`cx:M`
+- [ ] **`find_usages` cross-program merge has no PER-OFFSET oracle** — the differential test pins the
+      file SET against a cold `tsconfig.test.json` program, but not within-file ref counts/offsets or
+      overload/merged-symbol dedup. Add a per-offset cross-program assertion + an overloaded-symbol
+      dedup fixture. `dx`·`low`·`cx:M`
 
 ### ts / refactor
 
@@ -157,6 +182,19 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       `refactor-plan-apply.ts` (move/extract) encode the same §2.10 gate/envelope/post-typecheck
       near-verbatim. Both verified correct + covered; extract a shared scaffold when the next §2.10
       change forces editing both. `dx`·`low`·`cx:M`
+- [ ] **`Changes overlap` rescue has no live e2e repro** — the assertion routing/sanitization
+      (Task J) is covered by a deterministic unit test, but with the bundled TS + the extract-fork the
+      mutual-recursion shapes tried no longer throw `Changes overlap`, so there's no end-to-end throw
+      pinning it. Add an e2e repro if a shape that still asserts surfaces. `dx`·`low`·`cx:S`
+- [ ] **Reverse import-capture does a full-AST walk over the program** — O(nodes), bounded (module
+      resolution memoized per (dir, spec), second pre-move resolution gated to specifiers landing on a
+      new arrival), same cost class as the §2.8 typecheck; but no per-op wall-clock deadline (shared
+      §19 gap). Optional bound: pre-filter files with no module specifier before the child-walk.
+      `perf`·`low`·`cx:M`
+- [ ] **`find_usages` arg is `symbol`, not the natural `target`** (feedback) — a SymbolId-taking read
+      op rejects `{target:'ts:…'}` with a (self-correcting) `bad_args`; other surfaces speak of the
+      `target` symbol. Accept `target` as an alias for `symbol` on the SymbolId-taking read ops. The
+      error already teaches the right shape, so low. `dx`·`low`·`cx:S`
 
 ### transaction (Task E follow-ups)
 

@@ -18,11 +18,10 @@ import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
-import { messageOfThrown } from '../../../../common/result/construct.ts';
 import type { RefactorPlan } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
-import { isExtractAssertion, isLsDebugFailure, EXTRACT_ASSERTION_NOTE } from './taxonomy.ts';
+import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
   applyTsChanges,
@@ -154,29 +153,13 @@ export function planMoveSymbolTo(
       { targetFile: destAbs },
     ) ?? undefined;
 
-  let edits: ts.RefactorEditInfo | undefined;
-  let rescued = false;
-  try {
-    edits = requestEdits(host.service);
-  } catch (thrown) {
-    const msg = messageOfThrown(thrown);
-    if (!isExtractAssertion(msg)) {
-      if (isLsDebugFailure(msg))
-        return `ts-ls-internal: the LS hit an internal assertion — move manually (${msg})`;
-      return `move failed: ${msg}`;
-    }
-    // §4 rescue: the stock LS asserted on a shape it can't move (e.g. the moved block uses a
-    // css-module member). Retry through the patched fork; the project's own §2.8 typecheck still
-    // gates the result. Unavailable/also-fails → honest ts-ls-internal, never a guessed edit.
-    const fallback = host.rescueService();
-    if (fallback === undefined) return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (${msg})`;
-    try {
-      edits = requestEdits(fallback);
-      rescued = true;
-    } catch (rethrown) {
-      return `ts-ls-internal: ${EXTRACT_ASSERTION_NOTE} (rescue also failed: ${messageOfThrown(rethrown)})`;
-    }
-  }
+  // Request the LS edits, routing the two known rescuable assertions (`Expected symbol to be a
+  // module`, `Changes overlap`) through the §4 patched-LS rescue; a recognized assertion the
+  // rescue can't resolve fails with a SANITIZED message, an unrecognized failure surfaces
+  // honestly. Runs before any tree write → never a half-write.
+  const outcome = requestEditsWithRescue(host, requestEdits, 'move');
+  if ('error' in outcome) return outcome.error;
+  const { edits, rescued } = outcome;
   // notApplicableReason rides on the RefactorEditInfo for a refusal the LS can explain.
   if (edits?.notApplicableReason !== undefined) {
     return `move-symbol-not-applicable: ${edits.notApplicableReason}`;
