@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+git `main` ветка СТРОГО ВСЕГДА ДОЛЖНА БЫТЬ ПРЯМОЙ!
+
+Обязательно используй текущий `codemaster mcp` во время поиска проблем и фиксов - НАМ НУЖЕН ДОГФУДИНГ! все шероховатости(как пользователь) сразу кидай в его feedback.
+
+Если по пути будешь находить всякие баги, архитектурные изъяны и тд но которые вне текущего скоупа работы - то обязательно докинь их в docs/backlog.md(обязательно укажи там все необходимые теги) - самое главное ЧТОБЫ НАЙДЕННЫЕ ПРОБЛЕМЫ НЕ ПРОПАЛИ!
+
 **codemaster** — a stateful, always-on **codebase inspector** for TS/React repos, built for
 AI agents. It indexes a project, keeps a live TypeScript Language Service warm, and answers
 structural / semantic / refactor queries densely and **proof-carryingly** — so agents stop
