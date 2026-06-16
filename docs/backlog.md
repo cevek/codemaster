@@ -328,3 +328,15 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 - [ ] **Member-level `find_usages`** — trace readers of a specific object-type FIELD (e.g.
       `GroupRow.site`); today `find_usages` on a type finds the TYPE, not a named `.field` member
       (role:read/write is syntactic). Checker-backed. `feat`·`med`·`cx:L`
+- [ ] **`find_usages` per-program provenance (`groupBy:'program'` / `program` column)** (feedback,
+      cross-program dogfooding) — `find_usages` fans across programs and merges, but a ref row doesn't
+      expose WHICH loaded program (primary vs `tsconfig.test.json`) surfaced it, so an agent can't
+      answer "is this ref ONLY in the test program?" without dropping to a cold LS. Add a `program`
+      column (or `groupBy:'program'`) — makes cross-program write/gate reasoning (and verifying the
+      cross-program-writes fix) self-serve. `feat`·`low`·`cx:M`
+- [ ] **`find_usages {name, mergeDeclarations:true}` for same-named decl triples** (feedback) — in this
+      codebase nearly every plugin API method exists as a `TsPluginApi` interface decl + a `TsProjectHost`
+      decl + the impl, so `find_usages {name}` almost always FAILs with 3 declarations (honest, but a
+      3-call disambiguation tax). An opt-in `mergeDeclarations:true` that unions usages across all
+      same-named declarations (or a hint pointing at the impl site) returns one answer. Workaround today:
+      pass `file:line:col` of the impl. `dx`·`low`·`cx:M`
