@@ -18,6 +18,7 @@ import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
+import { dynamicDemotion, isKeyDemoted } from './demotion.ts';
 import type {
   I18nLookupFilter,
   I18nLookupView,
@@ -249,25 +250,35 @@ export function createI18nPlugin(
         return files.some(filePasses);
       };
       const { calls, unresolved } = scanCalls();
-      const dynamic = calls.some((c) => c.dynamic);
       const used = new Set(
         calls.filter((c) => !c.dynamic && c.arg !== undefined).map((c) => c.arg),
       );
 
-      // ANY parse failure means a key could live only in the unreadable file (undercount)
-      // or a "dead" key could actually be reached there — so EVERY unused-claim is demoted,
-      // the same global rule as a dynamic call (§3.3/§3.6). An unresolved i18n module is the same
-      // class: no binding matched, so every key looks dead — never assert that.
+      // Prefix-scoped demotion (backlog I-a): a dynamic `t(`errors.codes.${x}`)` can only ever
+      // resolve to a key under `errors.codes.` — so it demotes THAT namespace, leaving unrelated
+      // keys provably certain. A headless dynamic call (`t(k)`, `t(`${x}`)`) has no such proof and
+      // degrades the whole scan. A parse failure / unresolved module is global the same way: a key
+      // could live only in the unreadable file, or no usage matched at all (§3.3/§3.6).
+      const demote = dynamicDemotion(calls.filter((c) => c.dynamic).map((c) => c.span));
       const hasFailures = failures.size > 0;
-      const degraded = dynamic || hasFailures || unresolved;
-      const reasons: string[] = [];
-      if (dynamic) reasons.push('a dynamic t(`…`) call exists');
-      if (hasFailures) reasons.push('a locale file failed to parse');
+      const globalDemote = demote.global || hasFailures || unresolved;
+      const demotedPrefixes = globalDemote ? [] : demote.prefixes;
+      const degraded = globalDemote || demotedPrefixes.length > 0;
+
+      // ONE reason string — never stamped per row (identical for every demoted key).
+      const globalReasons: string[] = [];
+      if (demote.global) globalReasons.push('a dynamic t() call with no static prefix exists');
+      if (hasFailures) globalReasons.push('a locale file failed to parse');
       if (unresolved)
-        reasons.push('the configured i18n module did not resolve — no usage could be matched');
-      // ONE global reason — never stamped per row (it is identical for every key when degraded).
+        globalReasons.push(
+          'the configured i18n module did not resolve — no usage could be matched',
+        );
       const degradedReason =
-        reasons.length > 0 ? `cannot prove dead — ${reasons.join(' and ')}` : undefined;
+        globalReasons.length > 0
+          ? `cannot prove any key dead — ${globalReasons.join(' and ')}`
+          : demotedPrefixes.length > 0
+            ? `a dynamic t(\`…\`) demotes namespace(s) ${demotedPrefixes.join(', ')} — unrelated keys stay certain`
+            : undefined;
 
       // One representative definition per key (first locale file, by sorted path), PLUS the full
       // set of files defining each key — path scoping (inScope) runs over the whole set, not the rep.
@@ -291,12 +302,14 @@ export function createI18nPlugin(
           key,
           file: where.file,
           span: where.span,
-          confidence: degraded ? 'partial' : 'certain',
+          confidence: isKeyDemoted(key, globalDemote, demotedPrefixes) ? 'partial' : 'certain',
         });
       }
       return {
         unused,
         degraded,
+        globalDemote,
+        demotedPrefixes,
         ...(degradedReason !== undefined ? { degradedReason } : {}),
         scannedKeys,
         scannedUsages: calls.length,

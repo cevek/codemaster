@@ -155,16 +155,19 @@ test('identity: provenance is correct per usage row (written | alias | namespace
   }
 });
 
-test('identity: a dynamic key still demotes every unused-claim to partial (§18)', async () => {
-  // Add a dynamic call of the REAL identity-bound `t`; it must be detected as dynamic.
+test('identity: a dynamic key with a scoped head leaves unrelated keys certain (§18, backlog I-a)', async () => {
+  // Add a dynamic call of the REAL identity-bound `t`; it must be detected as dynamic, but its
+  // static head `x.` can only resolve under `x.*` — so the unrelated dead keys (dead, ghost)
+  // stay PROVABLY dead instead of being buried in partial.
   const p = await identityProject(`export const dyn = t(\`x.\${a}\`);\n`);
   try {
     const res = await p.op('find_unused_i18n_keys', {});
     const data = (res as { result: { data: Record<string, unknown> } }).result.data;
     assert.equal(data['degraded'], true, 'a dynamic identity-bound t(`…`) is detected');
+    assert.equal(data['globalDemote'], false, 'a scoped head (x.) does not degrade the whole scan');
     assert.match(String(data['degradedReason']), /dynamic/i);
     for (const u of (data['unused'] as Unused[]) ?? [])
-      assert.equal(u.confidence, 'partial', 'dynamic demotes to partial');
+      assert.equal(u.confidence, 'certain', 'unrelated dead keys stay certain under a scoped head');
   } finally {
     await p.dispose();
   }
@@ -183,11 +186,16 @@ test('identity: a module that does NOT resolve demotes to partial (never a silen
     'src/app.ts': `import { t } from '@/lib/i18n';\nexport const a = t('live');\n`,
   });
   try {
-    const res = await p.op('find_unused_i18n_keys', {});
+    // Global demotion (nothing matched) → the default render collapses the all-partial set to a
+    // summary; partials:'list' surfaces the rows so the per-key partial confidence is verifiable.
+    const res = await p.op('find_unused_i18n_keys', { partials: 'list' });
     const data = (res as { result: { data: Record<string, unknown> } }).result.data;
     assert.equal(data['degraded'], true, 'an unresolved i18n module demotes the verdict');
+    assert.equal(data['globalDemote'], true, 'an unresolved module is global, not scoped');
     assert.match(String(data['degradedReason']), /did not resolve/i);
-    for (const u of (data['unused'] as Unused[]) ?? [])
+    const rows = (data['unused'] as Unused[]) ?? [];
+    assert.ok(rows.length > 0, 'the keys are listed (as partial) under partials:list');
+    for (const u of rows)
       assert.equal(u.confidence, 'partial', 'no certain-dead when nothing could be matched');
   } finally {
     await p.dispose();

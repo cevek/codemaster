@@ -81,10 +81,13 @@ test('alias + namespace + aliased-base usages are NOT reported unused', async ()
       'common.save (alias), ns.key (namespace), aliasns.key (aliased base), plain.key (bare) all recognised as used',
     );
 
-    // The dynamic `tr(`x.${a}`)` still demotes EVERY claim to partial — the alias work resolves
-    // the FUNCTION, never the key (§18 honesty preserved).
+    // The dynamic `tr(`x.${a}`)` is detected (degraded), but its static head `x.` demotes only the
+    // `x.*` namespace — and no key lives there. So `unused.dead` stays PROVABLY dead, not buried
+    // in partial (backlog I-a, prefix-scoped). The alias work resolves the FUNCTION, never the key.
     assert.equal(data['degraded'], true, 'a dynamic aliased call is still detected as dynamic');
-    for (const u of unused) assert.equal(u.confidence, 'partial', 'dynamic demotes to partial');
+    assert.equal(data['globalDemote'], false, 'a scoped head (x.) does not degrade the whole scan');
+    for (const u of unused)
+      assert.equal(u.confidence, 'certain', 'unrelated dead key stays certain');
     assert.match(String(data['degradedReason']), /dynamic/i);
   } finally {
     await p.dispose();

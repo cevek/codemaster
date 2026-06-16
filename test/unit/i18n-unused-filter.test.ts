@@ -9,7 +9,13 @@ import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
 
 type Unused = { key: string; confidence: string };
-type View = { unused: Unused[]; degraded: boolean; scanned: { keys: number; usages: number } };
+type View = {
+  unused: Unused[];
+  degraded: boolean;
+  globalDemote: boolean;
+  partial?: { count: number; demoted?: 'global' | string[] };
+  scanned: { keys: number; usages: number };
+};
 
 const TSCONFIG = '{"compilerOptions":{"strict":true}}';
 const CONFIG =
@@ -62,25 +68,36 @@ test('find_unused_i18n_keys: prefix + path scoping, with honest scanned.keys', a
   }
 });
 
-test('find_unused_i18n_keys: a dynamic t(`…`) demotes globally — scoping never upgrades to certain', async () => {
+test('find_unused_i18n_keys: a dynamic t(`common.${x}`) demotes ONLY common.* — errors.* stay certain', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,
     'codemaster.config.ts': CONFIG,
     'locales/en.json': LOCALE,
-    // a dynamic (template-literal) call anywhere → every unused-claim is partial (§3.3).
+    // a dynamic template with a static head `common.` can only resolve under common.* → it
+    // demotes THAT namespace, never the unrelated errors.* (backlog I-a, prefix-scoped).
     'src/use.ts':
       "const t = (k: string) => k;\nconst d = 'x';\nexport const y = t(`common.${d}`);\n",
   });
   try {
-    const r = await p.op('find_unused_i18n_keys', { prefix: 'errors' });
-    assert.ok('result' in r && r.result.ok);
-    const view = r.result.data as View;
-    assert.equal(view.degraded, true, 'dynamic call → degraded (global, not scoped away)');
-    assert.ok(view.unused.length > 0, 'scoped to errors.*, still reports those keys');
+    // The win: errors.* is unrelated to the dynamic head → its dead keys stay PROVABLE.
+    const e = await p.op('find_unused_i18n_keys', { prefix: 'errors' });
+    assert.ok('result' in e && e.result.ok);
+    const ev = e.result.data as View;
+    assert.equal(ev.degraded, true, 'the scan IS degraded (common.* unprovable)…');
+    assert.equal(ev.globalDemote, false, '…but NOT globally — only a namespace was demoted');
+    assert.deepEqual(ev.unused.map((u) => u.key).sort(), ['errors.a', 'errors.b']);
     assert.ok(
-      view.unused.every((u) => u.confidence === 'partial'),
-      'scoping must NOT turn a globally-demoted key into a false certain dead',
+      ev.unused.every((u) => u.confidence === 'certain'),
+      'errors.* are provably dead despite a dynamic common.* key',
     );
+
+    // The preserved honesty half: the demoted namespace itself is partial, never reported dead.
+    const c = await p.op('find_unused_i18n_keys', { prefix: 'common' });
+    assert.ok('result' in c && c.result.ok);
+    const cv = c.result.data as View;
+    assert.equal(cv.unused.length, 0, 'no common.* key is listed as certain-dead');
+    assert.equal(cv.partial?.count, 2, 'both common.* keys collapse to the partial summary');
+    assert.deepEqual(cv.partial?.demoted, ['common.'], 'the demoted namespace is named');
   } finally {
     await p.dispose();
   }

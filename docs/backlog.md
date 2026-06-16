@@ -249,13 +249,6 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ### i18n
 
-- [ ] **I-a — one dynamic template key buries `find_unused_i18n_keys` in 1000+ all-`partial` rows**
-      (then output caps). On amiro: 1025 keys, all partial, genuinely-dead tail invisible — a single
-      dynamic `t(...)` with a template literal demotes the WHOLE scan. Honesty is right (dynamic →
-      partial) but unactionable. Fixes: (1) on degrade default to a SUMMARY (count + `degradedReason` + "narrow with prefix"); (2) a flag to show only `certain`-dead; (3) **prefix-scoped dynamic
-      demotion** — a dynamic key with static prefix `errors.codes.` demotes only the `errors.codes.*`
-      namespace, leaving unrelated namespaces `certain`. (3) is the win (needs the literal scan to
-      surface a dynamic template's static prefix). `dx`·`high`·`cx:M`
 - [ ] **I-b — within-file shadowing of a bound name can FABRICATE** — the identity scan is syntactic-
       by-local-name with no scope resolution, so a local shadowing a bound `t` (e.g. a param `t`) is
       matched → `find_missing` can emit a fabricated row, `find_unused` can mis-mark. Cheap closer:
@@ -266,6 +259,20 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **I-d — `splitNames` silently no-ops a malformed name** — a leading-dot `.t` or multi-segment
       `a.b.c` never matches. Under-reports silently (never lies). Reject at the config schema with a
       pointed message. `dx`·`low`·`cx:S`
+- [ ] **I-e — dynamic-prefix re-derives template parsing from raw source (§4 boundary)** —
+      `staticDynamicPrefix` (`src/plugins/i18n/dynamic-prefix.ts`) extracts a dynamic `t(\`a.b.${x}\`)`
+      static head by backtick-counting + `indexOf('${')`over`span.text`— a second, text-based slice
+of TS template parsing living outside`plugins/ts`(the §4 "one parser per domain" line). It errs
+SAFE (an unfaithful head — escapes, inner backtick, raw CR/LF — bails to global demote, never a
+false`certain`), but must conservatively drop legit prefixes the cooked value would keep. Proper
+fix: have `plugins/ts` `literalArgFields`emit`staticPrefix`from`arg0.head.text`(the cooked
+value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying field. `dx`·`med`·`cx:M`
+- [ ] **I-f — a no-substitution template `t(\`a.b\`)` is treated as dynamic** — a
+      `ts.isNoSubstitutionTemplateLiteral` arg is classified `dynamic:true`, so a statically-
+      determinate backtick key is NOT counted as a use (may read unused) AND demotes the whole `a.b*`
+      namespace to `partial`. Not a lie (stays `partial`), but in a backtick-habitual repo it collapses
+      the actionable dead tail. Fix: treat a no-substitution template as a static literal (read `.text`
+      as the key). `bug`·`med`·`cx:M`
 
 ### impact / usages
 

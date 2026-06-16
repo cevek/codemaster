@@ -52,10 +52,19 @@ export type UnusedKeyView = {
 };
 
 export type I18nUnusedView = {
+  /** Every unused key, each carrying its OWN confidence — a key under a demoted namespace is
+   *  `partial`, an unrelated key stays `certain` (prefix-scoped demotion, backlog I-a). */
   unused: UnusedKeyView[];
-  /** True when EVERY unused-claim was demoted to partial — a dynamic call, a locale parse
-   *  failure, or an unresolved i18n module makes "definitely dead" unprovable for all keys. */
+  /** True when SOME demotion is in effect — a global reason (headless dynamic call, parse
+   *  failure, unresolved module) OR a prefix-scoped one. Not "every key demoted": see
+   *  `globalDemote` for that. */
   degraded: boolean;
+  /** True when EVERY key is demoted (no namespace stays `certain`): a dynamic call with no
+   *  static prefix, a locale parse failure, or an unresolved i18n module. */
+  globalDemote: boolean;
+  /** Static namespace heads that scoped the demotion (e.g. `errors.codes.`) — keys under these
+   *  are `partial`, the rest `certain`. Empty when `globalDemote` (the whole scan is partial). */
+  demotedPrefixes: readonly string[];
   /** The single global reason for the demotion (set iff degraded). Stated ONCE here, never
    *  stamped per row — every row would carry the identical string (a 1-per-key repeat). */
   degradedReason?: string;
