@@ -885,3 +885,40 @@ diff(apply)` is structural and a single-step transaction == the direct op. `refa
       `targetKind` to `'value'`. Still scanned and correctly demoted to `partial` via
       `isGenericTarget`, so no honesty issue — just a cosmetic mislabel on a degenerate input.
       Low priority.
+
+## Wave-2 dogfooding backlog (parked, not lost)
+
+> Surfaced while building/dogfooding C/E/H/I/K/L. The one important BUG (K-a class-member
+> non-chainable encloser id) was promoted to **docs/spec-encloser-identity-fidelity.md** — a fat
+> task bundling K-a with the parked H encloser follow-ups (HOC-wrapped `const` kind, namespace-nested
+> binding, representative reference-site surfacing). The rest are parked here because none is yet
+> fat enough to justify its own task.
+
+- [ ] **scss `parseFailures` message leaks an ABSOLUTE path** (friction). Every scss parse-failure
+      path (`scss_classes`, `find_unused_scss_classes`, `css_cascade`) reports `{file:<rel>,
+    message:<postcss CssSyntaxError>}` where the message embeds the absolute path (postcss
+      resolves `from` to an absolute `Input.file`). Leaks the machine path into agent output and
+      breaks path-scrub/golden stability across machines. Mechanical: strip the leading `${root}/`
+      (or substitute the rel path) when recording the failure message — one shared scss helper.
+- [ ] **`find_unused_i18n_keys` collapses to 1000+ all-`partial` rows when ONE dynamic key exists**
+      (friction; UX, honesty is correct). A single ``t(`errors.codes.${x}`)`` demotes the WHOLE
+      scan to `partial` and the output cap then hides the genuinely-dead tail. Future task: (1) on
+      degradation default to a SUMMARY (count + degradedReason + "narrow with prefix/pathExclude")
+      instead of dumping every partial row; (2) a flag to show only `certain`-dead; (3) **prefix-scoped
+      dynamic demotion** — a dynamic `errors.codes.${x}` demotes only the `errors.codes.*` prefix to
+      `partial`, leaving unrelated namespaces `certain`. Biggest win is (3).
+- [ ] **Can't live-dogfood a newly-added OP through the connected MCP without a reconnect**
+      (friction; dev-loop). Read ops hot-pick-up freshly-edited code via the read-time freshness
+      backstop, but a freshly-registered builtin op isn't dispatchable until the MCP session
+      reconnects (the warm daemon loaded its op catalogue at spawn). New-op validation falls back to
+      the e2e harness. Wish: hot-reload the op registry, or a `codemaster op …` CLI against the same
+      warm engine. Relates to spec-daemon-singleton / a dev-CLI.
+- [ ] **An outward-call / `depends_on` view — the dual of `find_usages`/`impact`** (wish). "What does
+      this function/file CALL or import outward" has no op; building a subsystem top-down means reading
+      whole files. A bounded, proof-carrying `calls`/`depends_on` op (callees + outward module deps,
+      depth-capped like `impact`) would close the loop. Candidate fat task `spec-calls-op`.
+- [ ] **Member-level `find_usages` — trace readers of a specific object-type FIELD** (wish). `find_usages`
+      on a type finds usages of the TYPE, not of a named `.field` member (role:read/write is syntactic,
+      no member resolution). Auditing "is this struct field handled at every consumer" falls back to a
+      noisy grep. A checker-backed member-access trace would close it. Noted OUT of the encloser-identity
+      task; its own scope.
