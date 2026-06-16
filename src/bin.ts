@@ -34,7 +34,12 @@ function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin
     createTsPlugin(root, config.ts?.tsconfig),
     createScssPlugin(root),
     ...(config.i18n !== undefined
-      ? [createI18nPlugin(root, config.i18n.locales, config.i18n.functions)]
+      ? [
+          createI18nPlugin(root, config.i18n.locales, config.i18n.functions, {
+            module: config.i18n.module,
+            hook: config.i18n.hook,
+          }),
+        ]
       : []),
     // Only the `openapi-typescript` shape is parsed; `generator: 'custom'` (orval etc.) is a
     // stated follow-up, so don't load a parser that can't read it — keep `list_endpoints` out

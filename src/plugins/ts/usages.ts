@@ -211,6 +211,9 @@ function rollupGroups(
       count: number;
       roles: Set<string>;
       exported: boolean;
+      /** Span of the FIRST reference rolled up here — a representative site inside the
+       *  encloser (impact points its value-flow boundary at it). */
+      site: Span;
     }
   >();
   let excluded = 0;
@@ -232,6 +235,7 @@ function rollupGroups(
         count: 1,
         roles: new Set([r.role]),
         exported: row.exported,
+        site: spanFromRange(r.sourceFile, r.rel, r.start, r.start + r.length),
       });
     } else {
       existing.count++;
@@ -253,6 +257,7 @@ function rollupGroups(
       exported: g.exported,
       // LS structural references are certain; flat usages carry the same value.
       confidence: 'certain' as Confidence,
+      site: g.site,
     }));
   return { groups, groupTotal: rollup.size, excluded };
 }

@@ -14,6 +14,14 @@ export default defineConfig({
   i18n: {
     locales: ['src/locales/en.json'],
     functions: ['t', 'i18n.t'],
+    // Name the i18n module to match usages by SYMBOL IDENTITY instead of by name: a t('…')
+    // counts only when its callee resolves to a function FROM this module (so a same-named t
+    // elsewhere no longer fabricates a usage, and a renamed destructure / namespace alias of the
+    // real one is caught). Omit to keep the by-name behaviour.
+    module: '@/lib/i18n',
+    // The hook that returns the function — matches `const { t } = useTranslation()` (and a
+    // renamed `{ t: x }`) by identity. Requires `module`.
+    hook: 'useTranslation',
     templateLiterals: true,
   },
 

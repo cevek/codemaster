@@ -5,8 +5,8 @@
 // the compiler sees them.
 
 import ts from 'typescript';
-import * as path from 'node:path';
 import type { TsProjectHost } from './ls-host.ts';
+import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
 
 export type ImporterRow = {
   /** Importing file + line of the import statement. */
@@ -27,7 +27,7 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
   if (program === undefined) return { module: moduleArg, importers: [], total: 0 };
   const options = program.getCompilerOptions();
 
-  const targetAbs = resolveTarget(host, moduleArg, options);
+  const targetAbs = resolveModuleArg(host, moduleArg, options);
   const importers: ImporterRow[] = [];
   const cache = new Map<string, string | undefined>();
 
@@ -75,31 +75,8 @@ function matches(
 ): boolean {
   if (spec === moduleArg) return true; // exact specifier match (works for .scss etc.)
   if (targetAbs === undefined) return false;
-  const key = `${path.dirname(containingFile)}|${spec}`;
-  let resolved = cache.get(key);
-  if (!cache.has(key)) {
-    resolved = ts.resolveModuleName(spec, containingFile, options, ts.sys).resolvedModule
-      ?.resolvedFileName;
-    cache.set(key, resolved);
-  }
+  const resolved = resolveSpecifier(spec, containingFile, options, cache);
   return resolved !== undefined && samePath(resolved, targetAbs);
-}
-
-function resolveTarget(
-  host: TsProjectHost,
-  moduleArg: string,
-  options: ts.CompilerOptions,
-): string | undefined {
-  // A repo-relative path that is part of the project wins outright.
-  const asAbs = host.absOf(moduleArg as never);
-  if (ts.sys.fileExists(asAbs)) return asAbs;
-  // Otherwise resolve the specifier as if imported from a file at the repo root.
-  const probe = path.join(path.dirname(asAbs), '__codemaster_probe__.ts');
-  return ts.resolveModuleName(moduleArg, probe, options, ts.sys).resolvedModule?.resolvedFileName;
-}
-
-function samePath(a: string, b: string): boolean {
-  return path.normalize(a) === path.normalize(b);
 }
 
 function importedNames(stmt: ts.Statement): string {

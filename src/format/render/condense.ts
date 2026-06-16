@@ -163,7 +163,63 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const detail = v['detail'] !== undefined ? ` — ${flat(v['detail'])}` : '';
     return `${loc}${String(v['class'])} · ${String(v['code'])} · ${flat(v['reason'])}${detail}`;
   }
+  // css_cascade CascadeRuleView (a contributing rule) — `[spec] span · selector [flags] · {decls}`.
+  if ('selector' in v && 'specificity' in v && 'declarations' in v) {
+    const flags: string[] = [];
+    if (v['crossModule'] === true) flags.push('cross-module');
+    if (v['global'] === true) flags.push(':global');
+    if (v['interpolated'] === true) flags.push('interpolated');
+    for (const c of asArray(v['conditions'])) flags.push(String(c));
+    for (const a of asArray(v['atContext'])) flags.push(String(a));
+    const extra = asArray(v['requiresExtraClasses']);
+    const extraStr = extra.length > 0 ? ` +.${extra.join('.')}` : '';
+    const flagStr = flags.length > 0 ? ` · ${flags.join(',')}` : '';
+    return `[${String(v['specificity'])}] ${String(v['span'])} · ${String(v['selector'])}${extraStr}${flagStr} · {${declList(v['declarations'])}}`;
+  }
+  // css_cascade CascadeProperty (the per-property verdict) — `prop: <winner>` + indented losers.
+  if ('prop' in v && 'winner' in v) {
+    const losers = asArray(v['losers']);
+    const tail = losers.length > 0 ? `\n    loses: ${losers.map(String).join(' | ')}` : '';
+    return `${String(v['prop'])}: ${String(v['winner'])}${tail}`;
+  }
+  // css_cascade CascadeWinner (winning declaration) — has `confidence`; checked before the
+  // bare ref below so the verdict line carries the confidence + reason.
+  if ('value' in v && 'confidence' in v && 'selector' in v) {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
+    const amb = asArray(v['ambiguousWith']);
+    const ambStr = amb.length > 0 ? ` · ambiguous-with: ${amb.map(String).join(' | ')}` : '';
+    return `${declRefLine(v)}${conf}${note}${ambStr}`;
+  }
+  // css_cascade CascadeDeclRef (a loser / co-winner) — `[spec] span · selector = value`.
+  if ('value' in v && 'specificity' in v && 'selector' in v) {
+    return declRefLine(v);
+  }
   return v;
+}
+
+function asArray(value: JsonValue | undefined): readonly JsonValue[] {
+  return value !== undefined && isJsonArray(value) ? value : [];
+}
+
+/** `[spec] span · selector = value [!important]` — the shared line for a cascade decl ref. */
+function declRefLine(v: Record<string, JsonValue>): string {
+  const imp = v['important'] === true ? ' !important' : '';
+  return `[${String(v['specificity'])}] ${String(v['span'])} · ${String(v['selector'])} = ${flat(v['value'])}${imp}`;
+}
+
+/** `prop:value [!important]; …` for a rule's declaration list (objects already condensed). */
+function declList(value: JsonValue | undefined): string {
+  return asArray(value)
+    .map((d) => {
+      if (typeof d === 'object' && d !== null && !Array.isArray(d)) {
+        const o = d as Record<string, JsonValue>;
+        const imp = o['important'] === true ? ' !important' : '';
+        return `${String(o['prop'])}:${flat(o['value'])}${imp}`;
+      }
+      return String(d);
+    })
+    .join('; ');
 }
 
 /** Flatten a free-text field (TS message, type string, locale value, reason) to one line — a

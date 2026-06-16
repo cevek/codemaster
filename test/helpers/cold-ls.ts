@@ -168,6 +168,53 @@ export function coldDeclarationAt(
   };
 }
 
+/** Independent drift oracle for `construction_sites` (§16): every object literal a
+ *  fresh-from-cold `ts.Program` deems assignable to the named type — `{file, line}` sorted for
+ *  set comparison. Built with the SAME primitive the op uses (`isTypeAssignableTo` over the
+ *  literal's fresh type), so this is the cold-vs-warm DRIFT check (incremental-update bugs), the
+ *  SECONDARY net; the PRIMARY correctness oracle is the hand-curated which-sites assertions in
+ *  the test (§16 "never golden/circular-only"). */
+export function coldAssignableLiterals(
+  root: string,
+  typeFileRel: string,
+  typeName: string,
+): { file: string; line: number }[] {
+  const { program, checker } = coldProgram(root);
+  const typeFile = program.getSourceFile(path.join(root, typeFileRel));
+  assert.ok(typeFile !== undefined, `oracle could not load ${typeFileRel}`);
+  let nameNode: ts.Identifier | undefined;
+  typeFile.forEachChild((node) => {
+    if (
+      (ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node) ||
+        ts.isClassDeclaration(node)) &&
+      node.name?.text === typeName
+    ) {
+      nameNode = node.name;
+    }
+  });
+  assert.ok(nameNode !== undefined, `oracle could not find type ${typeName}`);
+  const targetSym = checker.getSymbolAtLocation(nameNode);
+  assert.ok(targetSym !== undefined);
+  const targetType = checker.getDeclaredTypeOfSymbol(targetSym);
+  const out: { file: string; line: number }[] = [];
+  for (const sf of program.getSourceFiles()) {
+    if (sf.fileName.includes('/node_modules/') || sf.isDeclarationFile) continue;
+    const rel = path.relative(root, sf.fileName).split(path.sep).join('/');
+    if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    const visit = (n: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(n)) {
+        if (checker.isTypeAssignableTo(checker.getTypeAtLocation(n), targetType)) {
+          out.push({ file: rel, line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1 });
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
 /** Independent edit-safety oracle (§16.4): the pre-emit diagnostics a cold compile of the
  *  on-disk tree produces — never the warm LS that performed the edit. A missed/wrong import
  *  rewrite surfaces here as a real "no exported member" error, so a clean list IS the

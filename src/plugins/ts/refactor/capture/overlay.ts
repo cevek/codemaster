@@ -15,20 +15,18 @@ export interface OverlayEntry {
   content: string;
 }
 
-/** Run `fn` with `entries` overlaid (and `removed` paths tombstoned), ALWAYS clearing the
- *  overlay afterward — bounded, self-contained, never a stale window. */
+/** Run `fn` with `entries` overlaid (and `removed` paths tombstoned), ALWAYS reverting the overlay
+ *  afterward — bounded, self-contained, never a stale window. NEST-SAFE: it stacks ON TOP of any
+ *  enclosing overlay and restores it, so a capture detector run inside a transaction step's
+ *  prior-step overlay sees BOTH (the renamed file's new content + the prior steps' edits), never a
+ *  flat wipe that would resolve against pre-transaction disk (spec-transactional-mutation §2.4). */
 export function withOverlay<T>(
   host: TsProjectHost,
   entries: readonly OverlayEntry[],
   removed: readonly RepoRelPath[],
   fn: () => T,
 ): T {
-  host.setOverlay(entries, removed);
-  try {
-    return fn();
-  } finally {
-    host.clearOverlay();
-  }
+  return host.withMergedOverlay(entries, removed, fn);
 }
 
 /** Build a `Capture` from a 0-based offset in `fileName`, resolved to 1-based line:col via the

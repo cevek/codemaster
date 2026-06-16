@@ -24,8 +24,11 @@ const findUnusedI18nKeysTable: TableSpec<JsonValue> = {
   },
   notes(data) {
     if ((data as { degraded?: boolean }).degraded !== true) return [];
+    // Echo the REAL reason from the envelope (dynamic call / parse failure / unresolved module),
+    // never a hardcoded cause that could contradict it.
+    const reason = (data as { degradedReason?: string }).degradedReason;
     return [
-      'every unused-claim demoted to partial: a dynamic t(`…`) call or a locale parse failure makes "definitely dead" unprovable for any key.',
+      `every unused-claim demoted to partial — ${reason ?? 'definitely dead is unprovable'}.`,
     ];
   },
 };
@@ -44,8 +47,8 @@ export const findUnusedI18nKeysOp = defineOp({
   example: { args: { prefix: 'errors.codes' } },
   notes: [
     'any dynamic call of a configured function demotes EVERY unused-claim to partial — flagged "could not prove dead", never reported as definitely unused.',
-    'usages are import-resolved via the TS checker: a named-import alias (`import { t as tr }; tr(…)`) counts as t, and an aliased-base member access (`import { i18n as i }; i.t(…)`) counts as a configured dotted name like i18n.t — so an aliased call no longer over-reports a used key as unused. Matching stays confined to user-named bindings — a bare t never matches an arbitrary `obj.t()`, nor a destructure rename of a non-i18n value.',
-    'BOUNDARY: a key used ONLY through a binding the resolver does not follow — a renamed destructure of the hook (`const { t: x } = useTranslation()`), element access (`i18n["t"]`), or `t` passed as a value — is not counted, so it may be reported unused. The certain/partial verdict reflects the RESOLVED usage scan only (a by-name limit; the module-anchored close is docs/plan.md F-b).',
+    'when i18n.module is configured, usages match by SYMBOL IDENTITY: a key counts as used iff a call whose callee resolves to a function FROM that module (import / alias / namespace, or a `const { t } = useTranslation()` hook destructure incl. a renamed `{ t: x }`) references it. This closes the by-name residuals: a same-named t from another module no longer keeps a key alive, and a renamed-destructure / namespace-alias usage is no longer mis-reported as unused. Without i18n.module the by-name model is used (alias-aware).',
+    'BOUNDARY (identity mode): a key reached ONLY through a COMPUTED-index call (`i18n[expr]()`), a t passed as a value, or a multi-hop re-export chain is not counted, so it MAY be reported unused (under-report, never a fabricated usage). Within-file shadowing of a bound name is the syntactic bound (no scope check). If the configured i18n.module does not resolve at all, every claim demotes to partial (no usage could be matched — never a silent all-dead).',
     'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED (the whole-locale answer caps fast — narrow it); scanned.keys reflects the scope. The degraded verdict still reflects the whole usage scan, so scoping never invents a certain-dead key.',
   ],
   table: findUnusedI18nKeysTable,

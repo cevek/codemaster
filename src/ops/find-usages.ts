@@ -14,6 +14,7 @@ import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
+import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
 import { findUsagesTable } from './find-usages-table.ts';
@@ -84,7 +85,7 @@ const argsSchema = z
       .strictObject({
         pathExclude: z.array(z.string()).optional(),
         pathInclude: z.array(z.string()).optional(),
-        /** Encloser kind, grouped mode: function | method | class | module. */
+        /** Encloser kind, grouped mode: function | method | class | const | variable | module. */
         kind: z.string().optional(),
         /** Grouped mode: only exported enclosers. */
         exportedOnly: z.boolean().optional(),
@@ -170,7 +171,7 @@ export const findUsagesOp = defineOp({
           targets.push({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
-            ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
+            ...(view.groups !== undefined ? { enclosers: view.groups.map(omitGroupSite) } : {}),
             ...(view.usages !== undefined ? { usages: view.usages } : {}),
             total: view.total,
             ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
@@ -219,7 +220,7 @@ export const findUsagesOp = defineOp({
       const notes = usageNotes(view, args.role, verbosity);
       const data: Record<string, JsonValue> = {
         ...(view.definition !== undefined ? { definition: view.definition } : {}),
-        ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
+        ...(view.groups !== undefined ? { enclosers: view.groups.map(omitGroupSite) } : {}),
         ...(view.usages !== undefined ? { usages: view.usages } : {}),
         total: view.total,
         ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),

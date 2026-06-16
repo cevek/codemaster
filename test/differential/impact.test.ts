@@ -70,16 +70,19 @@ test('known transitive closure: dependents land at their hand-curated depths', a
   }
 });
 
-test('dynamic-dispatch hop surfaces as a dynamic boundary; the invisible consumer is NOT claimed', async () => {
+test('a value-flow escape is flagged at the PRECISE read site; closure stays PARTIAL', async () => {
+  const REG_LINE = 'const reg: Record<string, () => string> = { go: handler };';
   const p = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
     'src/handler.ts': "export const handler = (): string => 'hi';\n",
-    // `handler` stored as a VALUE in a registry, then dispatched via a computed key — the
-    // dispatcher `dispatch` is invisible to find_usages(handler) (the LS cannot link a
-    // computed-member call back to the stored value).
+    // `handler` stored as a VALUE in a registry binding `reg`, then dispatched via a
+    // computed key. `reg` is a top-level binding now (the encloser-fidelity fix), so the
+    // closure reaches it AND its own dependent `dispatch` (which references `reg`
+    // STATICALLY) — but the value-read of `handler` inside `reg` is still flagged a
+    // dynamic boundary: handler could be dispatched to consumers find_usages cannot see.
     'src/registry.ts':
       "import { handler } from './handler';\n" +
-      'const reg: Record<string, () => string> = { go: handler };\n' +
+      `${REG_LINE}\n` +
       'export const dispatch = (k: string): string => reg[k]!();\n',
     // A plain direct caller — the certain, statically-resolved dependent.
     'src/direct.ts':
@@ -89,25 +92,68 @@ test('dynamic-dispatch hop surfaces as a dynamic boundary; the invisible consume
     const d = dataOf(await p.op('impact', { name: 'handler', depth: 3 }));
     const names = depsByName(d).map((x) => x.name);
 
-    // The direct caller is a certain dependent.
+    // The direct caller + the registry binding are certain dependents; `dispatch` is now
+    // reached through `reg`'s STATIC reference (the encloser fix made `reg` re-resolvable).
     assert.ok(names.includes('direct'), 'the direct call site is a dependent');
-    // The registry module-level value-read is a dependent too (it IS a reference).
-    // But the DISPATCHER is never claimed — find_usages cannot prove handler flows there.
+    assert.ok(names.includes('reg'), 'the value-binding that stores handler is a dependent');
     assert.ok(
-      !names.includes('dispatch'),
-      'the dynamic dispatcher is NOT falsely claimed as a dependent (never bridged)',
+      names.includes('dispatch'),
+      'a dependent of the now-re-resolvable binding is reachable (no module dead-end)',
     );
 
-    // The escape is flagged, the closure is honestly incomplete.
+    // The escape is flagged AND the closure is honestly PARTIAL despite reaching further.
     assert.equal(d.summary.complete, false, 'a value-flow escape makes the closure PARTIAL');
     assert.ok((d.dynamicBoundaries ?? []).length >= 1, 'the escape site is flagged');
     assert.ok(
       (d.dynamicBoundaries ?? []).some((b) => b.includes('handler') && b.includes('value')),
       'the boundary names the symbol read as a value',
     );
+    // Precise escape-site span: the boundary points at the exact `handler` value-read
+    // TOKEN (registry.ts:2:<col-of-handler>), not at `reg`'s name token (col 7).
+    const handlerCol = REG_LINE.indexOf('handler') + 1; // 1-based column on line 2
+    assert.ok(
+      (d.dynamicBoundaries ?? []).some((b) => b.includes(`src/registry.ts:2:${handlerCol}`)),
+      'the boundary points at the precise value-read token, not the encloser name',
+    );
     assert.ok(
       (d.notes ?? []).some((n) => /PARTIAL/.test(n)),
       'a partial-closure note is surfaced before the bulk',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a consumer reached ONLY through dynamic dispatch is never bridged (closure honest-incomplete)', async () => {
+  // `handler` is registered by value into a bus and invoked by a computed key. `useIt`
+  // depends on the runtime dispatch but holds NO static reference to `handler` (nor to any
+  // binding that transitively reaches it without crossing the dynamic `reg[k]()` hop). The
+  // honest contract: `useIt` is NEVER claimed as a dependent, and the closure reports
+  // itself incomplete rather than silently stopping.
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/bus.ts':
+      'export const reg: Record<string, () => string> = {};\n' +
+      'export const register = (k: string, fn: () => string): void => {\n  reg[k] = fn;\n};\n' +
+      'export const invoke = (k: string): string => reg[k]!();\n',
+    'src/handler.ts':
+      "import { register } from './bus';\n" +
+      "export const handler = (): string => 'hi';\n" +
+      "register('go', handler);\n",
+    'src/consumer.ts':
+      "import { invoke } from './bus';\n" + "export const useIt = (): string => invoke('go');\n",
+  });
+  try {
+    const d = dataOf(await p.op('impact', { name: 'handler', depth: 4 }));
+    const names = depsByName(d).map((x) => x.name);
+    assert.ok(
+      !names.includes('useIt'),
+      'the dynamically-dispatched consumer is NOT falsely claimed (never bridged)',
+    );
+    assert.equal(d.summary.complete, false, 'the closure honestly reports itself incomplete');
+    assert.ok(
+      (d.notes ?? []).some((n) => n.includes('!!')),
+      'the incompleteness is flagged !! (unexpandable / dynamic), never silent',
     );
   } finally {
     await p.dispose();
@@ -187,11 +233,11 @@ test('filters are a VIEW over the COMPLETE closure — never prune the transitiv
   }
 });
 
-test('a transitive chain through a top-level value binding dead-ends HONESTLY (not silently complete)', async () => {
-  // `export const b = a()` rolls the `a` ref up to b.ts module scope; that module node
-  // cannot be re-expanded by SymbolId, so `c` (which depends on b) is unreachable here. The
-  // honest contract: flag the un-expandable dead-end and report the closure incomplete —
-  // never `complete: true` over a dropped branch.
+test('impact expands THROUGH a top-level value binding to its own dependents (no dead-end)', async () => {
+  // `export const b = a()` now rolls the `a` reference up to the binding `b` (a
+  // re-resolvable `b@src/b.ts:…` SymbolId), not to the un-re-queryable module node. So the
+  // chain a → b → c no longer dead-ends: impact follows b's own dependent `c` (which reads
+  // b), and the closure is COMPLETE — the former honest dead-end is genuinely closed.
   const p = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
     'src/a.ts': 'export const a = (): number => 1;\n',
@@ -200,11 +246,26 @@ test('a transitive chain through a top-level value binding dead-ends HONESTLY (n
   });
   try {
     const d = dataOf(await p.op('impact', { name: 'a', depth: 3 }));
-    assert.equal(d.summary.complete, false, 'a value-binding dead-end must NOT read as complete');
-    assert.ok(
-      (d.notes ?? []).some((n) => /could not be re-expanded/.test(n) && n.includes('!!')),
-      'the un-expandable module rollup is flagged !!',
+    const deps = depsByName(d);
+    assert.deepEqual(
+      deps.map((x) => `${x.name}@${x.depth}`).sort(),
+      ['b@1', 'c@2'],
+      'expands through the binding b (depth 1) to its own dependent c (depth 2)',
     );
+    assert.equal(d.summary.complete, true, 'the re-resolvable binding closes the former dead-end');
+    assert.ok(
+      (d.notes ?? []).every((n) => !/could not be re-expanded/.test(n)),
+      'no un-expandable module rollup remains',
+    );
+    // The binding b carries a re-resolvable SymbolId (the whole point) that chains.
+    const bRow = (d.dependents?.['1'] ?? []).find((r) => r.name === 'b');
+    if (bRow === undefined) throw new Error('b dependent missing');
+    assert.ok(
+      bRow.id.startsWith('ts:') && bRow.id.includes('b@src/b.ts'),
+      'b rolled up to a re-resolvable binding id, not the module node',
+    );
+    const chained = await p.op('find_usages', { symbol: bRow.id });
+    assert.ok('result' in chained && chained.result.ok, 'b’s id resolves on its own');
   } finally {
     await p.dispose();
   }

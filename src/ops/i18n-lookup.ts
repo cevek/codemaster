@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
-import type { I18nPluginApi, KeyDef } from '../plugins/i18n/plugin.ts';
+import type { I18nPluginApi, KeyDef, KeyUsage } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
@@ -23,11 +23,26 @@ const i18nLookupTable: TableSpec<JsonValue> = {
     return defs.map((d): readonly Cell[] => [d.key, d.locale, d.file, d.span.line, d.value]);
   },
   notes(data) {
+    const out: string[] = [];
+    // Honesty first (§3.6): when the usage scan could not run, say so BEFORE listing usages, so an
+    // empty list never reads as "used nowhere".
+    const incomplete = (data as { usagesIncomplete?: string }).usagesIncomplete;
+    if (incomplete !== undefined) out.push(`usage sites incomplete: ${incomplete}.`);
+    // Provenance breakdown — makes the symbol-identity resolution self-auditable (F-c): the
+    // reader sees how each usage was matched without opening every call site.
+    const usages = (data as { usages?: KeyUsage[] }).usages ?? [];
+    if (usages.length > 0) {
+      const byProv = new Map<string, number>();
+      for (const u of usages) byProv.set(u.provenance, (byProv.get(u.provenance) ?? 0) + 1);
+      const parts = [...byProv].map(([p, n]) => `${p}:${n}`).join(', ');
+      out.push(`${usages.length} usage site(s) — resolved by ${parts}.`);
+    }
     const missing =
       (data as { missingPerKey?: { key: string; missingLocales: string[] }[] }).missingPerKey ?? [];
-    return missing.map(
-      (m) => `key '${m.key}' missing in locale(s): ${m.missingLocales.join(', ')}`,
-    );
+    for (const m of missing) {
+      out.push(`key '${m.key}' missing in locale(s): ${m.missingLocales.join(', ')}`);
+    }
+    return out;
   },
 };
 
@@ -59,7 +74,8 @@ export const i18nLookupOp = defineOp({
   notes: [
     'values are opaque text (no ICU/plural semantics); keys missing in some locale are listed per key.',
     'reverse lookup: value (case-insensitive substring; valueMode:"exact" for a whole-value match) finds the dotted key(s) for a string you see in the UI — returns the same defs (full key + locale + span + value). At most one selector (key | prefix | value).',
-    'usage sites are import-resolved via the TS checker: a named-import alias (`import { t as tr }; tr(…)`) counts as t, and an aliased-base member access (`import { i18n as i }; i.t(…)`) counts as a configured dotted name like i18n.t. Matching stays confined to user-named bindings — a bare t never matches an arbitrary `obj.t()`, nor a destructure rename of a non-i18n value (no fabrication). It resolves the FUNCTION, not the key — a dynamic key stays unresolvable.',
+    'each usage row carries provenance — how its callee resolved (written | alias | destructure | namespace) — so the resolution is self-auditable.',
+    'when i18n.module is configured, usages match by SYMBOL IDENTITY: a call counts iff its callee binding resolves to a function FROM that module (through import / alias / namespace, or a `const { t } = useTranslation()` hook destructure incl. a renamed `{ t: x }`). A same-named t from another module does NOT match. Without i18n.module, the by-name model is used (alias-aware: `import { t as tr }; tr(…)` and aliased-base `i.t(…)`). It resolves the FUNCTION, not the key — a dynamic key stays unresolvable. Honest edges: a COMPUTED-index call `i18n[expr]()`, t passed as a value, and multi-hop re-export chains under-report (never fabricate); within-file shadowing of a bound name is the syntactic bound (no scope check).',
   ],
   table: i18nLookupTable,
   async run(ctx, args) {
@@ -68,6 +84,8 @@ export const i18nLookupOp = defineOp({
       const view = i18n.lookup(args);
       const failures = [...i18n.parseFailures()].map(([file, message]) => ({ file, message }));
       return ok({
+        // Verdict-before-bulk (§12): the incompleteness flag leads, so a cap can never bury it.
+        ...(view.usagesIncomplete !== undefined ? { usagesIncomplete: view.usagesIncomplete } : {}),
         defs: view.defs,
         usages: view.usages,
         locales: view.locales,

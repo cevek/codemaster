@@ -56,6 +56,18 @@ export type GroupRow = {
   roles: string;
   exported: boolean;
   confidence: Confidence;
+  /** A representative reference SITE inside this encloser — the span of the first
+   *  reference rolled up here (`line`/`col` above are the encloser's NAME token, not
+   *  where the reference is). `impact` uses it to point a `dynamic` value-flow boundary
+   *  at the exact value-read token rather than the encloser. Populated by the rollup.
+   *
+   *  INTERNAL plumbing — MUST be stripped (via `group-row.ts`'s `omitGroupSite`) before a
+   *  `GroupRow` is emitted to the agent. Two reasons it never reaches output: (1) dense
+   *  output (§12) — a per-row span across a whole closure is noise; (2) the terse renderer
+   *  matches a `GroupRow` by its EXACT sorted key set (`format/render/condense.ts`), so a
+   *  leaked `site` key silently drops the row to verbose rendering. Any new `GroupRow`
+   *  emit path must strip it. */
+  site?: Span;
 };
 
 export type UsageOptions = {
@@ -66,7 +78,8 @@ export type UsageOptions = {
   groupBy?: 'enclosing' | undefined;
   pathInclude?: readonly string[] | undefined;
   pathExclude?: readonly string[] | undefined;
-  /** Grouped mode: keep only enclosers of this kind ('function'|'method'|'class'|'module'). */
+  /** Grouped mode: keep only enclosers of this kind
+   *  ('function'|'method'|'class'|'const'|'variable'|'module'). */
   enclosingKind?: string | undefined;
   /** Grouped mode: keep only exported enclosers. */
   exportedOnly?: boolean | undefined;

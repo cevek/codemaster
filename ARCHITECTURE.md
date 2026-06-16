@@ -101,8 +101,10 @@ This is the section that the rest of the design serves.
    adapter contributions come from their owning plugin's current scan. **A cached answer
    may exist inside a plugin only if it is rigorously invalidated against current file
    state**; serving an answer the plugin's own oracle would now contradict is the exact
-   lie this contract forbids. (A future opt-in plugin-internal semantic memo with sound
-   invalidation is a deferred wishlist item; not Phase 0.)
+   lie this contract forbids. (The `ts` plugin's `literalCalls` memo is such a cache — a
+   _syntactic_ AST scan keyed on `projectVersion()`, which every reindex/overlay bumps, so it
+   is invalidated against current state by construction. A future opt-in plugin-internal
+   _semantic_ memo with sound invalidation is a deferred wishlist item; not Phase 0.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
@@ -175,10 +177,12 @@ semantic ones (types, references, signatures, assignability). The `ts` plugin us
 both depths through one LS, so a "syntactic vs semantic" disagreement can never happen
 within it — there is only one parser.
 
-**Bounded exception — the extract rescue's second TS (§14).** `extract_symbol` builds its
-"Move to a new file" edits from a patched TypeScript fork (`@cevek/typescript-extract-refactor-fix`)
-_only_ when the project's own LS throws the `Expected symbol to be a module` assertion (e.g. the
-extracted block uses a css-module member). This does not break "one parser per domain": the fork
+**Bounded exception — the LS-relocation rescue's second TS (§14).** The LS-driven symbol
+relocations — `extract_symbol` ("Move to a new file") and `move_symbol` ("Move to file" into an
+existing dest) — build their edits from a patched TypeScript fork
+(`@cevek/typescript-extract-refactor-fix`) _only_ when the project's own LS throws the
+`Expected symbol to be a module` assertion (e.g. the moved block uses a css-module member). This
+does not break "one parser per domain": the fork
 is an **edit producer, not a fact oracle** — its edits are verified by the **project's own** LS
 post-typecheck (the §2.8 gate runs on `host.service`, never the fork), it is gated to the project's
 TS major (a mismatch declines the rescue), and the provenance is surfaced (`rescued` → an envelope
@@ -377,6 +381,7 @@ A small number of ops ship by default:
 | `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`   |
 | `move_file`                | `ts` plugin + `support/text-edits`                        |
 | `extract_symbol`           | `ts` plugin + `support/text-edits`                        |
+| `move_symbol`              | `ts` plugin (LS "Move to file") + `support/text-edits`    |
 | `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms    |
 | `codemod`                  | ast-grep matcher + `support/text-edits`                   |
 | `find_unused_scss_classes` | `ts` + `scss`                                             |
@@ -481,7 +486,7 @@ Mutating ops carry additional flags beyond `apply`, e.g. `dirtyOk: false`, `forc
 
 Two **distinct** edit families — conflating them is a code-rewriting lie:
 
-- **Symbol-anchored** (`rename_symbol`, `move_file`, `extract_symbol`,
+- **Symbol-anchored** (`rename_symbol`, `move_file`, `extract_symbol`, `move_symbol`,
   `change_signature`): the `ts` plugin resolves the symbol through its LS, then computes
   the semantic reference sites; the op rewrites only those. Never fired from a
   textual/shape match.
@@ -770,9 +775,10 @@ See [`src/core/debug.ts`](src/core/debug.ts).
   config load, MCP `op` args, IPC messages. Internal typed data is trusted — only the
   edges are guarded.
 - **`@cevek/typescript-extract-refactor-fix`** — a patched TypeScript fork, loaded **lazily**
-  (via `createRequire`, gated to the project's TS major) **only** as the `extract_symbol`
-  rescue (§4): it produces "Move to a new file" edits for shapes the stock LS asserts on (e.g.
-  an extracted block using a css-module member, which co-extract — spec-css-coextract — needs).
+  (via `createRequire`, gated to the project's TS major) **only** as the LS-relocation rescue
+  (§4) for `extract_symbol` / `move_symbol`: it produces "Move to a new file" / "Move to file"
+  edits for shapes the stock LS asserts on (e.g. a moved block using a css-module member, which
+  co-extract — spec-css-coextract — needs).
   It is an **edit producer, not a fact oracle** — every rescued edit is verified by the
   project's own LS typecheck (the §2.8 gate), so it never originates a reported fact, and an
   unavailable/incompatible fork degrades to an honest `ts-ls` failure. The bounded exception to
@@ -846,7 +852,7 @@ codemaster/
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       find-definition.ts  find-usages.ts  expand-type.ts  assignability.ts
       list.ts  trace.ts
-      rename-symbol.ts  move-file.ts  codemod.ts
+      rename-symbol.ts  move-file.ts  move-symbol.ts  codemod.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       component-card.ts  impact.ts  affected.ts  …
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
@@ -977,7 +983,8 @@ phase — there is no graph.
   `search_symbol`. Per-plugin freshness (file fingerprints); per-plugin invariants
   (§16): `find_usages` vs cold LS, proof-span validity. The plugin-DAG bottom is in.
 - **Phase 2 — mutating ops on `ts` plugin.** `rename_symbol`, `move_file`,
-  `extract_symbol`, `change_signature` (symbol-anchored via LS); `codemod` (shape-based
+  `extract_symbol`, `move_symbol` (into an existing file, via the LS "Move to file"),
+  `change_signature` (symbol-anchored via LS); `codemod` (shape-based
   via ast-grep). Dry-run by default, explicit `apply` flag (§7); git-aware (dirty gate,
   rollback); resync (§7) — the next op's read-time freshness check picks up our own
   writes, no special coupling.

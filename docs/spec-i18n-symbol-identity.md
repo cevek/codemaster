@@ -5,9 +5,11 @@
 > the i18n ops (`i18n_lookup`, `find_unused_i18n_keys`, `find_missing_i18n_keys`).
 
 ## Why
+
 Task F made i18n usage matching alias-aware but it is still **by NAME, module-blind** (plan.md F-b).
 Config names only the FUNCTION (`t` / `i18n.t`), never its module, so the scan can't prove a `t()`
 call targets THE i18n module. Two accepted-but-real residuals:
+
 - **FALSE POSITIVE** — a `t` from a non-i18n module (`import { t } from './telemetry'; t('k')`, and
   its aliased form) matches by resolved name → a fabricated `find_missing` row / usage.
 - **FALSE NEGATIVE** — a key reached only through a binding we don't follow (renamed destructure
@@ -20,12 +22,13 @@ to ONE declaration, then match call sites by SYMBOL IDENTITY (like `find_usages`
 name. That kills the false positive AND the false negatives (incl. the namespace gap) in one model.
 
 ## Scope — IN
+
 1. Config: a way to name the i18n module/hook (e.g. `i18n.module: '@/lib/i18n'` / `hook:
-   'useTranslation'`) alongside the existing `functions`. Resolve it to the canonical declaration(s).
+'useTranslation'`) alongside the existing `functions`. Resolve it to the canonical declaration(s).
 2. Rewrite the usage scan to match by symbol identity: a call site is an i18n usage iff its callee
    resolves (through imports/aliases/destructure/namespace) to that declaration. A same-named `t`
    from another module no longer matches; a renamed destructure/namespace alias of the REAL hook now
-   does. Keep the honest dynamic-key handling (`t(\`x.${y}\`)` → `dynamic`/`partial`, never guessed).
+   does. Keep the honest dynamic-key handling (`t(\`x.${y}\`)`→`dynamic`/`partial`, never guessed).
    Keep a graceful fallback to the current by-name behaviour when config doesn't name a module (so
    existing setups don't regress).
 3. **F-c provenance** (feedback wish 11:17): each `i18n_lookup` usage row carries how it was matched
@@ -35,10 +38,12 @@ name. That kills the false positive AND the false negatives (incl. the namespace
    config, invalidated on reindex — so a `batch` running several i18n ops doesn't re-scan per op.
 
 ## Scope — OUT
+
 - ICU/plural semantics. · non-i18n ops. · multi-program visibility (Task G — though symbol-identity
   resolution composes with it).
 
 ## Definition of done
+
 - `fix-and-check` green; full suite 0 fail. Oracle-backed (the i18n differential tests are the
   template): a non-i18n module's `t('k')` is NOT counted (false-positive closed); a renamed
   destructure / renamed-namespace usage of the real hook IS counted (false-negative closed); a
@@ -49,10 +54,12 @@ name. That kills the false positive AND the false negatives (incl. the namespace
   Layering (i18n plugin owns it; ops compose). Files ≤300. Dogfood live (amiro has i18n active).
 
 ## Files (likely)
+
 `src/plugins/i18n/` · `src/plugins/ts/literal-calls.ts` (symbol-identity resolution + memo) ·
 `src/ops/i18n-lookup.ts` / `find-unused-i18n-keys.ts` / `find-missing-i18n-keys.ts` (provenance +
 notes) · `src/config/config.ts` (the i18n module/hook config) · tests.
 
 ## Parallel-run note
+
 Isolated to the i18n plugin + its ops + config (shares only `builtins.ts`/status notes — mechanical).
 Own worktree off `main`. Covers: feedback wish 11:17 (provenance); plan.md F-a, F-b, F-c.

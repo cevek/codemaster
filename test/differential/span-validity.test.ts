@@ -68,8 +68,12 @@ const SWEEP: Record<string, JsonValue> = {
   find_definition: { name: 'Button' },
   find_usages: { name: 'Button' },
   expand_type: { name: 'Props' },
+  // The target descriptor carries the type's name-token span — validated here; assignable
+  // SITE spans (factory/array/var/call) are exhaustively span-checked in construction-sites.test.ts.
+  construction_sites: { name: 'Props' },
   source: { targets: [{ name: 'Button' }] },
   scss_classes: { file: 'src/styles.module.scss' },
+  css_cascade: { file: 'src/styles.module.scss', class: 'used' },
   // `App` is exported but never imported → a certain-unused row with a name-token span.
   find_unused_exports: {},
   find_unused_scss_classes: {},
@@ -88,9 +92,12 @@ const EXCLUSIONS: Record<string, string> = {
   feedback: 'writes the global inbox; carries no source Spans',
   rename_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_file: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
+  move_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   extract_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   change_signature: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   codemod: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
+  transaction:
+    'mutating — composes the refactor ops; edit-safety is oracle-tested in transaction.test.ts (spec-transactional-mutation)',
 };
 
 test('coverage: every builtin op is swept or excluded-with-reason (no phantom list)', () => {

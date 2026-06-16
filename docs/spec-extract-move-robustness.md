@@ -3,10 +3,13 @@
 > Self-contained, FAT task. Build on `main`. First: read `CLAUDE.md`, `ARCHITECTURE.md` §4 (the §4
 > patched-LS rescue) + §7, call `status`, READ `src/plugins/ts/refactor/extract/move-to-file.ts` +
 > `taxonomy.ts` (the rescue/assertion recognizers), `src/plugins/ts/refactor/extract/css-usage.ts`
-> + `src/ops/extract-css-coextract.ts`, and `src/plugins/ts/refactor/capture/imports.ts`.
+>
+> - `src/ops/extract-css-coextract.ts`, and `src/plugins/ts/refactor/capture/imports.ts`.
 
 ## Why
+
 Three honesty/robustness holes in `extract_symbol`/`move_file`, all surfaced live:
+
 1. **Mutually-recursive symbols leak a raw LS assertion** (feedback bug 10:12). `extract_symbol`
    on two mutually-recursive top-level functions FAILs with the raw stock-LS internal string
    `Debug Failure. False expression: Changes overlap … {"pos":0,"end":244} …`. Two problems: (a) the
@@ -26,9 +29,10 @@ Three honesty/robustness holes in `extract_symbol`/`move_file`, all surfaced liv
    tombstoning — so the capture guarantee (Task A) is complete for moves.
 
 ## Scope — IN
+
 1. Extend `taxonomy.ts` to recognize the `Changes overlap` assertion → route through the §4 rescue;
    if the rescue also can't, FAIL with a SANITIZED message (no raw `Debug Failure`/`pos/end` string)
-   + the honest "extract manually" guidance. Never a half-write (preserve).
+   - the honest "extract manually" guidance. Never a half-write (preserve).
 2. Resolve `@/`-aliased (tsconfig-paths) importers of a co-extracted sheet in `extract-css-coextract`
    — reuse the `importers_of` resolution. An aliased importer of a class being moved → either keep
    the class (don't move what an aliased file still uses) or rewrite that importer; report it under
@@ -39,10 +43,12 @@ Three honesty/robustness holes in `extract_symbol`/`move_file`, all surfaced liv
    dogfooded via CLI). A few lines in `src/bin.ts`.
 
 ## Scope — OUT
+
 - New extract capabilities beyond robustness. · codemod capture residuals (introduced-identifier /
   out-of-span — documented won't-fix/minor).
 
 ## Definition of done
+
 - `fix-and-check` green; full suite 0 fail. Oracle-backed (the extract/co-extract e2e suites are the
   template): mutual-recursion extract → clean sanitized FAIL (no raw debug string), nothing written;
   co-extract with an `@/`-aliased importer → no silent style break (the aliased use is handled +
@@ -52,10 +58,12 @@ Three honesty/robustness holes in `extract_symbol`/`move_file`, all surfaced liv
   files ≤300. Dogfood live.
 
 ## Files (likely)
+
 `src/plugins/ts/refactor/extract/{move-to-file,taxonomy,css-usage}.ts` · `src/ops/extract-css-coextract.ts`
 · `src/plugins/ts/refactor/capture/imports.ts` · `src/bin.ts` (CLI flags) · tests.
 
 ## Parallel-run note
+
 Touches the refactor/extract + capture/imports area — overlaps Wave-2 Task C (`move_symbol`) and the
 capture core. Sequence after C, or expect a refactor/ merge. Own worktree off `main`. Covers:
 feedback bugs 10:12 + wish 10:00 + friction 11:35; plan.md import-capture residuals.

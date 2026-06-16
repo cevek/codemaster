@@ -11,100 +11,38 @@
 import * as path from 'node:path';
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { Confidence, Span } from '../../core/span.ts';
+import type { Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
-import type { TsPluginApi } from '../ts/plugin.ts';
+import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
+import type {
+  I18nLookupFilter,
+  I18nLookupView,
+  I18nMissingView,
+  I18nUnusedFilter,
+  I18nUnusedView,
+  KeyDef,
+  MissingKeyView,
+  UnusedKeyView,
+} from './views.ts';
 
-/** One key as defined in one locale file. */
-export type KeyDef = {
-  key: string;
-  locale: string;
-  file: RepoRelPath;
-  span: Span;
-  value: string;
-};
-
-type I18nLookupView = {
-  /** Per-locale definitions of the matched keys. */
-  defs: KeyDef[];
-  /** Literal `t('…')` usage sites of the matched keys. */
-  usages: { key: string; span: Span }[];
-  /** All known locale ids (so "missing in X" is meaningful). */
-  locales: string[];
-  /** Matched keys missing from one or more locales. */
-  missingPerKey: { key: string; missingLocales: string[] }[];
-  matched: number;
-};
-
-export type UnusedKeyView = {
-  key: string;
-  file: RepoRelPath;
-  span: Span;
-  confidence: Confidence;
-};
-
-type I18nUnusedView = {
-  unused: UnusedKeyView[];
-  /** True when EVERY unused-claim was demoted to partial — a dynamic call or a locale
-   *  parse failure makes "definitely dead" unprovable for all keys. */
-  degraded: boolean;
-  /** The single global reason for the demotion (set iff degraded). Stated ONCE here, never
-   *  stamped per row — every row would carry the identical string (a 1-per-key repeat). */
-  degradedReason?: string;
-  scannedKeys: number;
-  scannedUsages: number;
-};
-
-/** Scoping for `unusedKeys` (the whole-locale answer caps fast on a real key set). `prefix`
- *  narrows by dotted key namespace (segment-aware, no trailing dot — e.g. 'errors.codes'); pathInclude/
- *  pathExclude are globs over the locale .json path. Scopes which keys are REPORTED — the
- *  `degraded` verdict still reflects the WHOLE usage scan (a dynamic t(`…`) anywhere demotes,
- *  regardless of scope), so scoping never upgrades a key to a false `certain` dead. */
-type I18nUnusedFilter = {
-  prefix?: string;
-  pathInclude?: readonly string[];
-  pathExclude?: readonly string[];
-};
-
-export type MissingKeyView = {
-  key: string;
-  /** Proof span over the usage site (in the TS file). */
-  span: Span;
-  /** Every readable locale that lacks this key — ONE fact per usage site, not a row per locale
-   *  (with 10 locales a partially-translated key would otherwise be 9 identical-but-locale rows). */
-  missingLocales: string[];
-};
-
-type I18nMissingView = {
-  missing: MissingKeyView[];
-  /** Dynamic usages: unresolvable, listed separately, never guessed (§18). */
-  dynamicUsages: { span: Span }[];
-  locales: string[];
-  /** Set iff ≥1 locale failed to parse: a key absent there is invisible, so `missing` is
-   *  incomplete — never let an empty result read as "fully translated" (§3.6). */
-  degradedReason?: string;
-};
+export type { KeyDef, KeyUsage, UnusedKeyView, MissingKeyView } from './views.ts';
 
 export interface I18nPluginApi extends Plugin {
-  lookup(filter: {
-    key?: string | undefined;
-    prefix?: string | undefined;
-    value?: string | undefined;
-    valueMode?: 'substring' | 'exact' | undefined;
-    /** Restrict the emitted `defs` to one locale (defs are per key×locale — on a many-locale
-     *  repo a prefix lookup is N×locales rows). `missingPerKey` stays computed over ALL locales. */
-    locale?: string | undefined;
-  }): I18nLookupView;
+  lookup(filter: I18nLookupFilter): I18nLookupView;
   unusedKeys(filter?: I18nUnusedFilter): I18nUnusedView;
   missingKeys(): I18nMissingView;
   parseFailures(): ReadonlyMap<RepoRelPath, string>;
 }
 
 type LocaleFile = { id: string; keys: LocaleKey[] };
+
+/** Symbol-identity anchoring (spec-i18n-symbol-identity): `module` switches usage matching from
+ *  by-name to "callee resolves to a function from this module"; `hook` adds the destructure path. */
+export type I18nMatchConfig = { module?: string | undefined; hook?: string | undefined };
 
 // Primitives, not the config object — the composition root (`pluginsFor`) extracts these
 // from `config.i18n`, keeping `config/` out of the plugin layer (the `ts`/`scss`
@@ -113,6 +51,7 @@ export function createI18nPlugin(
   root: string,
   localeGlobs: readonly string[],
   functions: readonly string[] = ['t'],
+  match: I18nMatchConfig = {},
 ): I18nPluginApi {
   let registry: PluginRegistry | undefined;
   let state: Map<RepoRelPath, LocaleFile> | undefined;
@@ -159,6 +98,22 @@ export function createI18nPlugin(
   const ts = (): TsPluginApi => {
     if (registry === undefined) throw new Error('i18n plugin not initialized');
     return registry.get<TsPluginApi>('ts');
+  };
+
+  // The usage scan (memoized in the ts plugin). `unresolved` is the honesty signal: an identity
+  // module that resolved to NO file matched nothing → every key looks unused, so the
+  // unused/missing verdicts must demote (§3.6). By-name mode never hits this.
+  const scanCalls = (): {
+    calls: ReturnType<TsPluginApi['literalCalls']>['calls'];
+    unresolved: boolean;
+  } => {
+    const spec: CallMatchSpec = {
+      functions,
+      ...(match.module !== undefined ? { module: match.module } : {}),
+      ...(match.hook !== undefined ? { hook: match.hook } : {}),
+    };
+    const scan = ts().literalCalls(spec);
+    return { calls: scan.calls, unresolved: scan.mode === 'identity' && !scan.moduleResolved };
   };
 
   const localeIds = (all: Map<RepoRelPath, LocaleFile>): string[] =>
@@ -250,11 +205,23 @@ export function createI18nPlugin(
           missingLocales: checkable.filter((l) => !present.has(l)),
         }))
         .filter((m) => m.missingLocales.length > 0);
-      const usages = ts()
-        .literalCalls(functions)
+      const scan = scanCalls();
+      const usages = scan.calls
         .filter((c) => !c.dynamic && c.arg !== undefined && matchedKeys.has(c.arg))
-        .map((c) => ({ key: c.arg as string, span: c.span }));
-      return { defs, usages, locales, missingPerKey, matched: matchedKeys.size };
+        .map((c) => ({ key: c.arg as string, span: c.span, provenance: c.provenance }));
+      return {
+        defs,
+        usages,
+        locales,
+        missingPerKey,
+        matched: matchedKeys.size,
+        ...(scan.unresolved
+          ? {
+              usagesIncomplete:
+                'the configured i18n module did not resolve — no usage could be matched, so usage sites are NOT authoritative',
+            }
+          : {}),
+      };
     },
 
     unusedKeys(filter) {
@@ -281,7 +248,7 @@ export function createI18nPlugin(
         if (inc.length === 0 && exc.length === 0) return true;
         return files.some(filePasses);
       };
-      const calls = ts().literalCalls(functions);
+      const { calls, unresolved } = scanCalls();
       const dynamic = calls.some((c) => c.dynamic);
       const used = new Set(
         calls.filter((c) => !c.dynamic && c.arg !== undefined).map((c) => c.arg),
@@ -289,12 +256,15 @@ export function createI18nPlugin(
 
       // ANY parse failure means a key could live only in the unreadable file (undercount)
       // or a "dead" key could actually be reached there — so EVERY unused-claim is demoted,
-      // the same global rule as a dynamic call (§3.3/§3.6).
+      // the same global rule as a dynamic call (§3.3/§3.6). An unresolved i18n module is the same
+      // class: no binding matched, so every key looks dead — never assert that.
       const hasFailures = failures.size > 0;
-      const degraded = dynamic || hasFailures;
+      const degraded = dynamic || hasFailures || unresolved;
       const reasons: string[] = [];
       if (dynamic) reasons.push('a dynamic t(`…`) call exists');
       if (hasFailures) reasons.push('a locale file failed to parse');
+      if (unresolved)
+        reasons.push('the configured i18n module did not resolve — no usage could be matched');
       // ONE global reason — never stamped per row (it is identical for every key when degraded).
       const degradedReason =
         reasons.length > 0 ? `cannot prove dead — ${reasons.join(' and ')}` : undefined;
@@ -349,7 +319,7 @@ export function createI18nPlugin(
           definedBy.set(k.key, set);
         }
       }
-      const calls = ts().literalCalls(functions);
+      const { calls, unresolved } = scanCalls();
       const missing: MissingKeyView[] = [];
       for (const c of calls) {
         if (c.dynamic || c.arg === undefined) continue;
@@ -363,10 +333,18 @@ export function createI18nPlugin(
       const dynamicUsages = calls.filter((c) => c.dynamic).map((c) => ({ span: c.span }));
       // A key absent from an UNREADABLE locale cannot be seen, so an empty (or short) `missing`
       // must not read as "fully translated" — flag the incompleteness, mirroring unusedKeys (§3.6).
-      const degradedReason =
-        failed.size > 0
-          ? 'a locale file failed to parse — a key absent there is invisible; missing analysis is incomplete'
-          : undefined;
+      // An unresolved i18n module is the same incompleteness: no usage matched, so `missing` is
+      // empty for a reason that is NOT "all translated" — say so.
+      const reasons: string[] = [];
+      if (failed.size > 0)
+        reasons.push(
+          'a locale file failed to parse — a key absent there is invisible; missing analysis is incomplete',
+        );
+      if (unresolved)
+        reasons.push(
+          'the configured i18n module did not resolve — no usage could be matched, so missing analysis ran over nothing',
+        );
+      const degradedReason = reasons.length > 0 ? reasons.join('; ') : undefined;
       return {
         missing,
         dynamicUsages,

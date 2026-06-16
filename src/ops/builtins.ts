@@ -8,8 +8,10 @@ import { searchSymbolOp } from './search-symbol.ts';
 import { findDefinitionOp } from './find-definition.ts';
 import { findUsagesOp } from './find-usages.ts';
 import { expandTypeOp } from './expand-type.ts';
+import { constructionSitesOp } from './construction-sites.ts';
 import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
+import { cssCascadeOp } from './css-cascade.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedExportsOp } from './find-unused-exports.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
@@ -19,9 +21,11 @@ import { findMissingI18nKeysOp } from './find-missing-i18n-keys.ts';
 import { listEndpointsOp } from './list-endpoints.ts';
 import { renameSymbolOp } from './rename-symbol.ts';
 import { moveFileOp } from './move-file.ts';
+import { moveSymbolOp } from './move-symbol.ts';
 import { extractSymbolOp } from './extract-symbol.ts';
 import { changeSignatureOp } from './change-signature.ts';
 import { codemodOp } from './codemod.ts';
+import { transactionOp } from './transaction.ts';
 import { impactOp } from './impact.ts';
 import { feedbackOp } from './feedback.ts';
 
@@ -31,10 +35,12 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     findDefinitionOp,
     findUsagesOp,
     expandTypeOp,
+    constructionSitesOp,
     sourceOp,
     importersOfOp,
     findUnusedExportsOp,
     scssClassesOp,
+    cssCascadeOp,
     findUnusedScssClassesOp,
     i18nLookupOp,
     findUnusedI18nKeysOp,
@@ -42,9 +48,11 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     listEndpointsOp,
     renameSymbolOp,
     moveFileOp,
+    moveSymbolOp,
     extractSymbolOp,
     changeSignatureOp,
     codemodOp,
+    transactionOp,
     impactOp,
     feedbackOp,
   ];

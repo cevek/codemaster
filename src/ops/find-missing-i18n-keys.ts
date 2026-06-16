@@ -54,7 +54,7 @@ export const findMissingI18nKeysOp = defineOp({
   notes: [
     'one row per usage site, carrying missingLocales[] (the readable locales that lack the key) — never a row per (usage × locale). The sql/table projection stays flat (one row per usage × locale).',
     'dynamic usages (template/computed keys) can not be checked against locales — listed separately as unresolvable, never guessed.',
-    'usages are import-resolved via the TS checker: a named-import alias (`import { t as tr }; tr(…)`) counts as t, and an aliased-base member access (`import { i18n as i }; i.t(…)`) counts as a configured dotted name like i18n.t. Matching stays confined to user-named bindings — a bare t never matches an arbitrary `obj.t()`, nor a destructure rename of a non-i18n value (no fabrication). It resolves the FUNCTION, not the key — a dynamic key stays unresolvable.',
+    'when i18n.module is configured, usages match by SYMBOL IDENTITY: a usage counts iff its callee resolves to a function FROM that module (import / alias / namespace, or a `const { t } = useTranslation()` hook destructure incl. a renamed `{ t: x }`) — a same-named t from another module no longer fabricates a missing row. Without i18n.module the by-name model is used (alias-aware). It resolves the FUNCTION, not the key — a dynamic key stays unresolvable. If the configured i18n.module does not resolve, the missing analysis is flagged incomplete (no usage matched), never a silent "fully translated".',
   ],
   table: findMissingI18nKeysTable,
   async run(ctx, _args) {

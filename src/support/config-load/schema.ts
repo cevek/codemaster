@@ -14,11 +14,19 @@ const tsSection = z.strictObject({
   tsconfig: z.string().optional(),
 });
 
-const i18nSection = z.strictObject({
-  locales: z.array(z.string()).min(1, 'i18n.locales needs at least one locale JSON path'),
-  functions: z.array(z.string()).optional(),
-  templateLiterals: z.boolean().optional(),
-});
+const i18nSection = z
+  .strictObject({
+    locales: z.array(z.string()).min(1, 'i18n.locales needs at least one locale JSON path'),
+    functions: z.array(z.string()).optional(),
+    module: z.string().min(1).optional(),
+    hook: z.string().min(1).optional(),
+    templateLiterals: z.boolean().optional(),
+  })
+  // The hook is anchored to the module (a bare same-named hook is NOT matched — that would
+  // reopen the same-named-function false positive the module-identity model closes).
+  .refine((c) => c.hook === undefined || c.module !== undefined, {
+    message: 'i18n.hook requires i18n.module (the hook is resolved relative to that module)',
+  });
 
 const scssSection = z.strictObject({
   modules: z.array(z.string()).optional(),

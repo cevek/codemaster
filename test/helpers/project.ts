@@ -158,7 +158,12 @@ export async function project(
       faultTs(createTsPlugin(repoRoot, config.ts?.tsconfig), options?.faultTsMethod),
       createScssPlugin(repoRoot),
       ...(config.i18n !== undefined
-        ? [createI18nPlugin(repoRoot, config.i18n.locales, config.i18n.functions)]
+        ? [
+            createI18nPlugin(repoRoot, config.i18n.locales, config.i18n.functions, {
+              module: config.i18n.module,
+              hook: config.i18n.hook,
+            }),
+          ]
         : []),
       ...(config.schema !== undefined
         ? [createSchemaPlugin(repoRoot, [config.schema.entrypoint])]

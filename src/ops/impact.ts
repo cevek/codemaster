@@ -19,6 +19,7 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { matchesAnyGlob } from '../common/glob/match.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
+import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape } from './ts-target.ts';
 import {
@@ -49,7 +50,8 @@ const argsSchema = z
      *  guard: total LS work is `nodes × find_usages`. */
     nodes: z.number().int().min(1).max(MAX_NODES).optional(),
     /** Keep only dependents whose enclosing declaration is this kind
-     *  (function | method | class | module). A VIEW — never prunes the traversal. */
+     *  (function | method | class | const | variable | module). A VIEW — never prunes the
+     *  traversal. */
     kind: z.string().optional(),
     /** Keep only exported dependents (a view). */
     exportedOnly: z.boolean().optional(),
@@ -167,14 +169,23 @@ function shape(
   const excluded = args.summary === true ? 0 : total - displayed.length;
 
   const notes = impactNotes(closure, maxDepth, maxNodes, excluded, displayed.length, total);
-  const boundaries = closure.dynamicBoundaries.map(
-    (b) =>
-      `${b.encloser.file}:${b.encloser.line}:${b.encloser.col} · ${b.encloser.name} reads ${b.readsAsValue} as a value (roles=${b.encloser.roles})`,
-  );
+  const boundaries = closure.dynamicBoundaries.map((b) => {
+    // Point at the exact value-read TOKEN (`encloser.site`, captured during rollup) rather
+    // than the encloser's name — a tighter proof of where dispatch could escape. Falls back
+    // to the encloser span when no site was captured (always present for a real ref).
+    const at = b.encloser.site ?? {
+      file: b.encloser.file,
+      line: b.encloser.line,
+      col: b.encloser.col,
+    };
+    return `${at.file}:${at.line}:${at.col} · ${b.encloser.name} reads ${b.readsAsValue} as a value (roles=${b.encloser.roles})`;
+  });
 
   const dependents: Record<string, GroupRow[]> = {};
   if (args.summary !== true) {
-    for (const n of displayed) (dependents[String(n.depth)] ??= []).push(n.row);
+    // Strip the internal `site` span (it only fed the precise boundary above) — a per-row
+    // span across the whole closure would bloat the listing for no agent-facing gain.
+    for (const n of displayed) (dependents[String(n.depth)] ??= []).push(omitGroupSite(n.row));
     // Sort each depth bucket by fan-in (count desc) — proximity across depths, fan-in within.
     for (const rows of Object.values(dependents)) rows.sort((a, b) => b.count - a.count);
   }

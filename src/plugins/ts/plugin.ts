@@ -4,153 +4,60 @@
 // internals (ls-host, queries) stay behind this module.
 
 import * as path from 'node:path';
-import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
+import type { PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
 import { findDefinitions } from './definitions.ts';
 import { findUsages, referenceSpans } from './usages.ts';
 import { expandTypeAt } from './type-expand.ts';
-import type { Span } from '../../core/span.ts';
-import type {
-  ExpandOptions,
-  SymbolView,
-  TypeView,
-  UnresolvedTarget,
-  UsageOptions,
-  UsagesView,
-} from './query-types.ts';
-import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
-import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
-import { scanLiteralCalls, type LiteralCall } from './literal-calls.ts';
-import { findImporters, type ImportersView } from './importers.ts';
-import {
-  findUnusedExports,
-  type TsUnusedExportsFilter,
-  type UnusedExportsView,
-} from './unused-exports.ts';
-import { computeRename, type RenameOutcome } from './refactor/rename/rename-sites.ts';
-import { collectDiagnostics, type TsDiagnostic } from './diagnostics.ts';
+import { findConstructionSites } from './construction-sites.ts';
+import type { UnresolvedTarget } from './query-types.ts';
+import { searchSymbols } from './search.ts';
+import { scanCssModuleUsages } from './css-modules.ts';
+import { scanLiteralCalls } from './literal-calls.ts';
+import type { CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
+import { findImporters } from './importers.ts';
+import { findUnusedExports } from './unused-exports.ts';
+import { computeRename } from './refactor/rename/rename-sites.ts';
+import { collectDiagnostics } from './diagnostics.ts';
 import { planMove } from './refactor/imports/plan-move.ts';
 import { planExtractTo } from './refactor/extract/move-to-file.ts';
-import { rewriteExtractedCss, type ImportRewrite } from './refactor/extract/css-usage.ts';
-import { planChangeSignature, type SignatureChange } from './refactor/change-signature/plan.ts';
-import { loadTreeFromGit } from './refactor/tree/build.ts';
+import { planMoveSymbolTo } from './refactor/extract/move-to-existing.ts';
+import { rewriteExtractedCss } from './refactor/extract/css-usage.ts';
+import { planChangeSignature } from './refactor/change-signature/plan.ts';
+import { loadTreeFromGit, buildTree } from './refactor/tree/build.ts';
+import type { VFSTree } from './refactor/tree/tree.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import { resolveTarget, type ResolvedTarget, type TsTargetInput } from './resolve-target.ts';
-import type { RefactorPlan } from './refactor/plan.ts';
-import type { Capture } from './refactor/capture/types.ts';
-import { detectCodemodCaptures, type CodemodEdit } from './refactor/capture/codemod.ts';
+import type { PlanningOverlay } from './refactor/plan.ts';
+import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
+import type { TsPluginApi } from './api.ts';
 
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
-export type { RefactorPlan, CssExtractCandidate, CssExtractAnalysis } from './refactor/plan.ts';
+export type {
+  RefactorPlan,
+  CssExtractCandidate,
+  CssExtractAnalysis,
+  PlanningOverlay,
+} from './refactor/plan.ts';
 export type { ImportRewrite } from './refactor/extract/css-usage.ts';
 // Capture-safety types (§ capture-safety). Envelope formatting lives in the ops layer.
 export type { Capture } from './refactor/capture/types.ts';
 export type { CodemodEdit, CodemodRegion } from './refactor/capture/codemod.ts';
 export type { UnusedExportView } from './unused-exports.ts';
+// Cross-tier call-scan shapes the i18n plugin consumes — through this surface, never the scan
+// files (§5-L2 / src/README rule 5).
+export type { CallMatchSpec, LiteralCallProvenance } from './call-scan-shared.ts';
+export type { ConstructionSite, ConstructionTarget } from './construction-sites.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 
-/** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
- *  diagnostic `check` scope (defaults to the overlaid files). */
-interface OverlayCheck {
-  removed?: readonly RepoRelPath[];
-  check?: readonly RepoRelPath[];
-}
-
 export type { ResolvedTarget, TsTargetInput };
-
-export interface TsPluginApi extends Plugin {
-  searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
-  findDefinition(
-    target: TsTargetInput,
-  ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;
-  findUsages(
-    target: TsTargetInput,
-    options: UsageOptions,
-  ): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
-  expandType(
-    target: TsTargetInput,
-    options?: ExpandOptions,
-  ): { view: TypeView; rebind?: HandleRebind } | UnresolvedTarget | string;
-  /** Every semantic reference-site span for a target (all files/roles, unfiltered) — the
-   *  dedup set for the textual overlay (§ text-overlay). */
-  referenceSpans(target: TsTargetInput): { spans: Span[]; rebind?: HandleRebind } | string;
-  /** Cross-tier API for the scss plugin (§5-L2). */
-  cssModuleUsages(): CssModuleUsages;
-  /** Scope-aware rewrite of the extracted file's css imports for co-extract (§2.5): repoint
-   *  each import at its new sheet, inject a `<name>Legacy` import, and repoint left-behind
-   *  `s.X` refs to it. Pure — operates on the given content string. */
-  rewriteExtractedCss(
-    fileName: string,
-    content: string,
-    rewrites: readonly ImportRewrite[],
-  ): string;
-  /** Cross-tier API (§5-L2): calls to the named functions — `t('a.b')`, `i18n.t('x')`. The
-   *  i18n plugin consumes it; non-literal args are flagged `dynamic`. Matching is IMPORT-
-   *  resolved via the checker — a simple name matches a named-import alias (`import { t as tr }`),
-   *  a dotted name matches an aliased-base member access (`import { i18n as i }; i.t`). Confined
-   *  to user-named bindings (no bare-`t`-matches-`obj.t()`, no destructure-rename) so a match is
-   *  strong enough to assert a usage (§3). `fn` is the matched configured name, not the written
-   *  callee. */
-  literalCalls(fnNames: readonly string[]): LiteralCall[];
-  /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
-  importersOf(module: string): ImportersView;
-  /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A
-   *  barrel-/`export *`-/dynamic-`import()`-reached export demotes to `partial` ("could not
-   *  prove dead"), never `certain` unused. Bounded: the candidate set is scoped + hard-capped. */
-  unusedExports(filter?: TsUnusedExportsFilter): UnusedExportsView;
-  /** Symbol-anchored rename (§7): every semantic reference site as a per-file before/after
-   *  pair, or a message when the position cannot be renamed. A rebound stale handle (§6)
-   *  surfaces on `rebind`. The new name's legality is the post-edit typecheck's call. */
-  renameSites(
-    target: TsTargetInput,
-    newName: string,
-  ): (RenameOutcome & { rebind?: HandleRebind }) | string;
-  /** Typecheck post-edit `content` for each file via the overlay (§2.7/§2.8) — set, diagnose,
-   *  ALWAYS clear (self-contained: the overlay never leaks into a later read as a fact).
-   *  `opts.removed` tombstones moved-away paths; `opts.check` widens the diagnostic scope
-   *  beyond the overlaid files (to catch a dangling import in an un-rewritten importer). */
-  typecheckOverlay(
-    files: readonly { path: RepoRelPath; content: string }[],
-    opts?: OverlayCheck,
-  ): TsDiagnostic[];
-  /** Plan a file/folder move: tree move + sibling carry + import rewrite → the plain-data
-   *  plan the op executes, plus the dry-run typecheck inputs. A message on a bad source/dest. */
-  planMove(source: RepoRelPath, dest: RepoRelPath): Promise<RefactorPlan | string>;
-  /** Plan extracting the top-level symbol at `target` to a new file `dest` via the LS
-   *  "Move to a new file" refactor. A message on a bad target; a structured failure (with
-   *  the `ts-ls-failures` category) when the LS refuses — never a throw. */
-  planExtract(
-    target: TsTargetInput,
-    dest: RepoRelPath,
-    opts?: { css?: boolean },
-  ): Promise<RefactorPlan | string>;
-  /** Plan a parameter remove/reorder on the function at `target`, applied to the declaration
-   *  and every call site (§7). A message on a bad target / invalid change. */
-  planChangeSignature(
-    target: TsTargetInput,
-    change: SignatureChange,
-  ): Promise<RefactorPlan | string>;
-  /** Capture-safety for `codemod` (§): a metavar-preserved reference inside a rewritten span that
-   *  silently re-resolves to a DIFFERENT declaration (type-compatible → invisible to §2.8). Keeps
-   *  the LS access in the plugin (ops never reach the LS directly — §5-L3). */
-  detectCodemodCaptures(edits: readonly CodemodEdit[]): Capture[];
-  /** Diagnostics over the current disk-backed state for `paths` — the post-apply check
-   *  (call `reindex` first so the LS sees the freshly written files). */
-  diagnostics(paths: readonly RepoRelPath[]): TsDiagnostic[];
-  /** Every project TS file currently in the program (under root, excl node_modules) — the
-   *  whole-program diagnostic scope a content-edit op (rename/codemod) passes to
-   *  `typecheckOverlay`/`diagnostics`, so a rewrite that breaks an un-edited importer is
-   *  caught, never silently shipped (§2.8 completeness; the plan ops use `checkPaths`). */
-  programTsFiles(): readonly RepoRelPath[];
-  /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
-  readonly tsVersion: string;
-}
+export type { TsPluginApi };
 
 export function createTsPlugin(root: string, tsconfigOverride?: string): TsPluginApi {
   let host: TsProjectHost | undefined;
@@ -168,6 +75,49 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
   const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target);
 
+  // F-a memo: a batch running several i18n ops calls `literalCalls` with the SAME spec each time;
+  // the scan is a whole-program AST walk, so re-running it per op is pure waste. Single-slot cache
+  // keyed on `projectVersion()` (what `freshness()` reports) + the serialized spec — any reindex /
+  // overlay bumps the version and invalidates it, so the memo can never serve a stale scan (§3.1).
+  // Cleared on dispose (below): a fresh host restarts projectVersion at the same value, so a
+  // surviving slot could otherwise collide and serve a pre-dispose scan over a new tree.
+  let literalMemo: { key: string; result: LiteralCallsResult } | undefined;
+  const memoizedLiteralCalls = (spec: CallMatchSpec): LiteralCallsResult => {
+    const h = warm();
+    const key = `${h.projectVersion()}|${spec.functions.join(',')}|${spec.module ?? ''}|${spec.hook ?? ''}`;
+    if (literalMemo?.key === key) return literalMemo.result;
+    const result = scanLiteralCalls(h, spec);
+    literalMemo = { key, result };
+    return result;
+  };
+
+  // ── transaction planning overlay (spec-transactional-mutation) ──────────────────────────
+  // A plan op run as a transaction step plans against the cumulative prior-step state, never
+  // disk. `runWithOverlay` shadows the LS with that state for the SYNCHRONOUS plan body and
+  // ALWAYS clears it (try/finally) — the overlay must never leak into the transaction's final
+  // disk-baseline gate (§2.4). `planTree` builds the move-tree from the overlay's listing (prior
+  // moves/new files baked in) or, with no overlay, from git (the standalone path).
+  const runWithOverlay = <T>(overlay: PlanningOverlay | undefined, fn: () => T): T => {
+    if (overlay === undefined) return fn();
+    const h = warm();
+    h.setOverlay(
+      overlay.files.map((f) => ({ abs: h.absOf(f.path), content: f.content })),
+      overlay.removed,
+    );
+    try {
+      return fn();
+    } finally {
+      h.clearOverlay();
+    }
+  };
+  const planTree = async (
+    overlay: PlanningOverlay | undefined,
+  ): Promise<{ tree: VFSTree } | { error: string }> => {
+    if (overlay !== undefined) return { tree: buildTree(overlay.listing) };
+    const t = await loadTreeFromGit(root);
+    return isOk(t) ? { tree: t.data } : { error: t.failure.message };
+  };
+
   return {
     id: 'ts',
     version: '0.1.0',
@@ -182,6 +132,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     dispose() {
       host?.dispose();
       host = undefined;
+      literalMemo = undefined; // back to cold — never let a slot survive into a re-warm (§3.1)
       return Promise.resolve();
     },
     freshness(): FreshnessFingerprint {
@@ -232,22 +183,35 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return { spans, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
+    constructionSites(target, options) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return missOf(resolved);
+      const view = findConstructionSites(warm(), resolved.abs, resolved.offset, options);
+      if (typeof view === 'string') return view;
+      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
     cssModuleUsages: () => scanCssModuleUsages(warm()),
     rewriteExtractedCss: (fileName, content, rewrites) =>
       rewriteExtractedCss(fileName, content, rewrites),
 
-    literalCalls: (fnNames) => scanLiteralCalls(warm(), fnNames),
+    literalCalls: (spec) => memoizedLiteralCalls(spec),
 
     importersOf: (module) => findImporters(warm(), module),
 
     unusedExports: (filter) => findUnusedExports(warm(), filter),
 
-    renameSites(target, newName) {
-      const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
-      const outcome = computeRename(warm(), resolved.abs, resolved.offset, newName);
-      if (typeof outcome === 'string') return outcome;
-      return { ...outcome, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    renameSites(target, newName, overlay) {
+      return runWithOverlay(overlay, () => {
+        const resolved = resolve(target);
+        if (!resolved.ok) return resolved.message;
+        const outcome = computeRename(warm(), resolved.abs, resolved.offset, newName);
+        if (typeof outcome === 'string') return outcome;
+        return {
+          ...outcome,
+          ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
+        };
+      });
     },
 
     detectCodemodCaptures(edits) {
@@ -271,44 +235,55 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       }
     },
 
-    async planMove(source, dest) {
+    async planMove(source, dest, overlay) {
       const h = warm();
-      const tree = await loadTreeFromGit(root);
-      if (!isOk(tree)) return tree.failure.message;
+      const t = await planTree(overlay);
+      if ('error' in t) return t.error;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      return planMove(h, tree.data, options, source, dest);
+      return runWithOverlay(overlay, () => planMove(h, t.tree, options, source, dest));
     },
 
-    async planExtract(target, dest, opts) {
+    async planExtract(target, dest, opts, overlay) {
       const h = warm();
-      const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
-      const tree = await loadTreeFromGit(root);
-      if (!isOk(tree)) return tree.failure.message;
+      const t = await planTree(overlay);
+      if ('error' in t) return t.error;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
       const css = opts?.css ?? false;
-      const plan = planExtractTo(h, tree.data, options, resolved.abs, resolved.offset, dest, css);
-      if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
-      return plan;
+      return runWithOverlay(overlay, () => {
+        const resolved = resolve(target);
+        if (!resolved.ok) return resolved.message;
+        const plan = planExtractTo(h, t.tree, options, resolved.abs, resolved.offset, dest, css);
+        if (typeof plan !== 'string' && resolved.rebind !== undefined)
+          plan.rebind = resolved.rebind;
+        return plan;
+      });
     },
 
-    async planChangeSignature(target, change) {
+    async planMoveSymbol(target, dest) {
       const h = warm();
       const resolved = resolve(target);
       if (!resolved.ok) return resolved.message;
       const tree = await loadTreeFromGit(root);
       if (!isOk(tree)) return tree.failure.message;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      const plan = planChangeSignature(
-        h,
-        tree.data,
-        options,
-        resolved.abs,
-        resolved.offset,
-        change,
-      );
+      const plan = planMoveSymbolTo(h, tree.data, options, resolved.abs, resolved.offset, dest);
       if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
       return plan;
+    },
+
+    async planChangeSignature(target, change, overlay) {
+      const h = warm();
+      const t = await planTree(overlay);
+      if ('error' in t) return t.error;
+      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+      return runWithOverlay(overlay, () => {
+        const resolved = resolve(target);
+        if (!resolved.ok) return resolved.message;
+        const plan = planChangeSignature(h, t.tree, options, resolved.abs, resolved.offset, change);
+        if (typeof plan !== 'string' && resolved.rebind !== undefined)
+          plan.rebind = resolved.rebind;
+        return plan;
+      });
     },
 
     diagnostics(paths) {

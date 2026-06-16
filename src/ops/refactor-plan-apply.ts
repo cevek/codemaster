@@ -50,7 +50,9 @@ export async function applyRefactorPlan(
   const notes: string[] = [];
   if (plan.notes !== undefined) notes.push(...plan.notes);
   if (plan.rescued === true) {
-    notes.push('extract edits produced via the patched-LS rescue (§4) — verified by the gate');
+    // Shared by extract_symbol AND move_symbol (both LS-driven relocations use the §4 rescue) —
+    // phrase the provenance neutrally so a rescued MOVE never mislabels itself an "extract" (§3).
+    notes.push('LS-refactor edits produced via the patched-LS rescue (§4) — verified by the gate');
   }
   const formatInto = async (rel: RepoRelPath, content: string): Promise<void> => {
     const f = await formatOne(prettier, root, rel, content);
@@ -168,14 +170,15 @@ export async function applyRefactorPlan(
     );
   }
   if (!gate.clean) {
-    // Honesty (§3): `extract_symbol` does NOT re-key its baseline (the §1b carve-out — extract
-    // shifts a moved error's path AND line, beyond a path-remap), so an `introduced` count on an
-    // extract MAY be a pre-existing error that merely relocated INTO the extracted block, not one
-    // the edit caused. Don't assert "introduces new errors" as fact for extract — hedge it.
-    const reason =
-      opts.refusalLabel === 'extract'
-        ? "this extract introduces new typecheck errors — OR relocates a pre-existing one into the extracted block, which extract can't yet distinguish (§1b); apply refused (§2.8)"
-        : `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`;
+    // Honesty (§3): `extract_symbol` / `move_symbol` do NOT re-key their baseline (the §1b
+    // carve-out — both relocate a SUBSET of a file, shifting a moved error's path AND line, beyond
+    // a path-remap), so an `introduced` count MAY be a pre-existing error that merely relocated
+    // INTO the moved block, not one the edit caused. Don't assert "introduces new errors" as fact
+    // for these — hedge it. (move_file re-keys its baseline and gets the flat message.)
+    const subsetMove = opts.refusalLabel === 'extract' || opts.refusalLabel === 'move-symbol';
+    const reason = subsetMove
+      ? `this ${opts.refusalLabel} introduces new typecheck errors — OR relocates a pre-existing one into the moved block, which it can't yet distinguish (§1b); apply refused (§2.8)`
+      : `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`;
     return ok<JsonValue>(
       {
         mode: 'dry-run',

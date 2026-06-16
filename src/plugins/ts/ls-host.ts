@@ -45,6 +45,16 @@ export interface TsProjectHost {
    *  disk. Always paired with a `clear`. */
   setOverlay(entries: readonly OverlayEntry[], removed?: readonly RepoRelPath[]): void;
   clearOverlay(): void;
+  /** Run `fn` with `entries`/`removed` overlaid ON TOP of any currently-active overlay, then
+   *  RESTORE the prior overlay (not clear). The nest-safe form a capture detector uses while a
+   *  transaction's prior-step overlay is already active (spec-transactional-mutation §2.4) — a flat
+   *  `setOverlay`/`clearOverlay` would wipe the enclosing state and resolve against the wrong world.
+   *  `entries.abs` are absolute (posix or OS) paths; `removed` are repo-relative. */
+  withMergedOverlay<T>(
+    entries: readonly OverlayEntry[],
+    removed: readonly RepoRelPath[],
+    fn: () => T,
+  ): T;
   dispose(): void;
 }
 
@@ -193,6 +203,21 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     clearOverlay() {
       overlay.clear();
       projectVersion++;
+    },
+    withMergedOverlay(entries, removed, fn) {
+      const snap = overlay.snapshot();
+      overlay.merge(
+        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        removed.map((r) => toPosix(path.join(root, r))),
+      );
+      projectVersion++;
+      try {
+        return fn();
+      } finally {
+        // Restore the enclosing overlay exactly (set re-stamps a fresh version → LS re-reads).
+        overlay.set(snap.entries, snap.removed);
+        projectVersion++;
+      }
     },
     dispose() {
       service.dispose();

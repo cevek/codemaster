@@ -150,6 +150,132 @@ test('same-named symbols in different scopes: find_usages excludes the unrelated
   }
 });
 
+type Encloser = { id: string; name: string; kind: string; roles: string; exported: boolean };
+function enclosersOf(r: OpResult): Encloser[] {
+  assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+  return (r.result.data as { enclosers?: Encloser[] }).enclosers ?? [];
+}
+
+test('interface/type-literal member signatures are role `type`, not a spurious value `read`', async () => {
+  // find_usages on a value symbol whose references include an interface member SIGNATURE
+  // (a class member structurally matching an interface) must classify that signature as a
+  // TYPE-level declaration — `type` — never `read`/`write`. Misreading it as `read` made
+  // `impact` see a phantom dynamic-dispatch escape on an ordinary symbol (feedback bug 11:44).
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/h.ts':
+      'export interface Handler { process(): void }\n' + // MethodSignature on line 1
+      'export class Impl implements Handler { process(): void {} }\n', // class method on line 2
+    'src/shape.ts':
+      'export interface Shape { size: number }\n' + // PropertySignature on line 1
+      'export class Box implements Shape { size = 1 }\n', // class property on line 2
+    'src/acc.ts':
+      'export interface HasName {\n' +
+      '  get label(): string;\n' + // GetAccessor SIGNATURE on line 2
+      '  set label(v: string);\n' + // SetAccessor SIGNATURE on line 3
+      '}\n' +
+      'export class Tag implements HasName {\n' +
+      '  get label(): string {\n    return "";\n  }\n' + // class getter on line 6
+      '  set label(v: string) {}\n' + // class setter on line 9
+      '}\n',
+  });
+  try {
+    // Target the CLASS method `process` (h.ts:2:40); its references include the interface
+    // MethodSignature on line 1.
+    const m = usagesOf(
+      await p.op('find_usages', { file: 'src/h.ts', line: 2, col: 40, collapseImports: false }),
+    );
+    assert.ok(has(m, 'src/h.ts', 1, 'type'), 'the interface MethodSignature is role `type`');
+    assert.ok(has(m, 'src/h.ts', 2, 'decl'), 'the class method itself is the decl');
+    assert.ok(
+      !m.some((x) => x.role === 'read' || x.role === 'write'),
+      'no occurrence is a spurious value read/write',
+    );
+
+    // Same for a PropertySignature (Box.size at shape.ts:2:37).
+    const prop = usagesOf(
+      await p.op('find_usages', { file: 'src/shape.ts', line: 2, col: 37, collapseImports: false }),
+    );
+    assert.ok(
+      has(prop, 'src/shape.ts', 1, 'type'),
+      'the interface PropertySignature is role `type`',
+    );
+    assert.ok(
+      !prop.some((x) => x.role === 'read' || x.role === 'write'),
+      'no occurrence is a spurious value read/write',
+    );
+
+    // Accessor SIGNATURES (`get`/`set`) in an interface are GetAccessor/SetAccessor nodes,
+    // not Method/PropertySignature — they must ALSO be role `type`, never `read`/`write`.
+    // Target the class getter (acc.ts:6) and setter (acc.ts:9); both link to the signatures.
+    const getter = usagesOf(
+      await p.op('find_usages', { file: 'src/acc.ts', line: 6, col: 7, collapseImports: false }),
+    );
+    assert.ok(
+      has(getter, 'src/acc.ts', 2, 'type'),
+      'the interface get-accessor signature is `type`',
+    );
+    assert.ok(
+      !getter.some((x) => x.role === 'read' || x.role === 'write'),
+      'getter: no spurious value read/write',
+    );
+    const setter = usagesOf(
+      await p.op('find_usages', { file: 'src/acc.ts', line: 9, col: 7, collapseImports: false }),
+    );
+    assert.ok(
+      has(setter, 'src/acc.ts', 3, 'type'),
+      'the interface set-accessor signature is `type`',
+    );
+    assert.ok(
+      !setter.some((x) => x.role === 'read' || x.role === 'write'),
+      'setter: no spurious value read/write',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a reference in a top-level value binding rolls up to that binding, not the module node', async () => {
+  // `export const b = a()` / `export const cfg = { f: a }` reference `a` from a top-level
+  // NON-function binding. Each rolls up to its own binding encloser (kind `const`) carrying
+  // a re-resolvable `name@file:line:col` SymbolId — NOT the synthetic `(top-level b.ts)`
+  // module node that dead-ends any transitive tool (feedback bug 11:45).
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/a.ts': 'export const a = (): number => 1;\n',
+    'src/b.ts':
+      "import { a } from './a';\n" + 'export const b = a();\n' + 'export const cfg = { f: a };\n',
+  });
+  try {
+    const enclosers = enclosersOf(await p.op('find_usages', { name: 'a', groupBy: 'enclosing' }));
+    const byName = new Map(enclosers.map((e) => [e.name, e]));
+
+    const b = byName.get('b');
+    if (b === undefined) throw new Error('binding b is not an encloser');
+    assert.equal(b.kind, 'const', 'b is a `const` encloser, not `module`');
+    assert.ok(b.id.includes('b@src/b.ts:2:'), 're-resolvable binding id at b’s position');
+
+    const cfg = byName.get('cfg');
+    if (cfg === undefined) throw new Error('binding cfg is not an encloser');
+    assert.equal(cfg.kind, 'const');
+    assert.ok(cfg.id.includes('cfg@src/b.ts:3:'), 're-resolvable binding id at cfg’s position');
+
+    // The b.ts value refs are accounted for by the bindings themselves — not folded into a
+    // `(top-level b.ts)` module rollup (which would carry a `call`/`read` role and dead-end).
+    const bModule = enclosers.find((e) => e.name === '(top-level b.ts)');
+    assert.ok(
+      bModule === undefined || (!bModule.roles.includes('call') && !bModule.roles.includes('read')),
+      'no value-ref rolled into the b.ts module node',
+    );
+
+    // The re-resolvable id chains straight back into another op (the dead-end is closed).
+    const chained = await p.op('find_usages', { symbol: b.id });
+    assert.ok('result' in chained && chained.result.ok, 'the binding id resolves on its own');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('every semantic usage carries certain confidence (no dynamic hop in static refs)', async () => {
   const p = await project(FILES);
   try {

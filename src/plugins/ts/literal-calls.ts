@@ -1,90 +1,80 @@
-// Cross-tier observation (§5-L2): a GENERIC scan for calls to a configured set of function
-// names — `t('a.b')`, `i18n.t('x')` — with NO i18n knowledge inside the ts plugin. The i18n
-// plugin (`deps: ['ts']`) consumes this; the cross-tier fact lives with the plugin that
-// *observes* it. A string-literal first argument is read verbatim; a template literal /
-// computed / non-literal argument is flagged `dynamic`, never guessed (§3.3/§18).
+// Cross-tier observation (§5-L2): a GENERIC scan for calls to a configured set of functions —
+// `t('a.b')`, `i18n.t('x')`, a hook's destructured `const { t } = useTranslation()` — with NO
+// i18n knowledge inside the ts plugin. The i18n plugin (`deps: ['ts']`) consumes this; the
+// cross-tier fact lives with the plugin that *observes* it. A string-literal first argument is
+// read verbatim; a template literal / computed / non-literal argument is flagged `dynamic`,
+// never guessed (§3.3/§18).
 //
-// IMPORT-RESOLVED matching (Task F, spec-i18n-alias-aware): a call's callee is matched against
-// the configured names through its IMPORT, not only as written. A simple name `t` matches an
-// identifier callee written `t` OR resolved through a named-import alias (`import { t as tr };
-// tr('k')`). A dotted name `i18n.t` matches a member access whose base is `i18n` as written OR
-// through an aliased import (`import { i18n as i }; i.t('k')`). The checker lives inside the ts
-// plugin (the layering rule — only ts touches the LS); the i18n plugin owns the POLICY (which
-// names, dynamic→partial, verdicts).
+// TWO matching models, chosen by config (the i18n plugin owns the POLICY; this owns the AST):
 //
-// HONESTY BOUNDARY (§3): matching is confined to USER-NAMED bindings (the written name, a
-// named-import alias, or a configured dotted base) — a bare `t` config does NOT match member
-// access (`tel.t('x')` on an unrelated namespace import) and a destructure rename
-// (`const { t: x } = makeLogger()`) is not resolved, so neither fabricates a usage. A plain
-// `const { t } = useTranslation(); t('k')` still matches by the written name `t`.
-//   RESIDUAL (accepted, not locked out): config names the FUNCTION, never its MODULE, so a
-//   named-import alias of a `t` exported by a NON-i18n module — `import { t as tr } from
-//   './telemetry'; tr('k')` — still matches by resolved name (the same by-name limit as the
-//   pre-existing `import { t } from './telemetry'; t('k')`, one hop further and rarer). Closing
-//   it needs module-anchored symbol identity — out of this task's scope, parked in plan.md F-b.
-//   Conversely a key reached ONLY through a binding we don't follow (renamed destructure of the
-//   hook, element access, `t` passed as a value) is missed — find_unused may over-report it.
+//  • BY-NAME (default — no `module`): a call's callee is matched against the configured names
+//    through its IMPORT, syntactically. A simple name `t` matches an identifier callee written
+//    `t` OR a named-import alias (`import { t as tr }; tr('k')`); a dotted name `i18n.t` matches
+//    a member access whose base is `i18n` as written OR aliased. Confined to USER-NAMED bindings
+//    (no bare-`t`-matches-`obj.t()`, no destructure rename) so a match is strong enough to ASSERT
+//    a usage (§3). RESIDUAL: config names the FUNCTION, never its MODULE — a same-named `t` from a
+//    NON-i18n module still matches by resolved name. Closing it is the by-IDENTITY model.
+//
+//  • BY-IDENTITY (`module` set — ./call-identity-scan.ts): a call matches iff its callee binding
+//    resolves to a function from THE configured module — through import / alias / namespace, or a
+//    `const { t } = useTranslation()` hook destructure (incl. renamed `{ t: x }`). The module is
+//    resolved ONCE (tsconfig-paths aware) and bindings are collected SYNTACTICALLY per file
+//    (bounded by #imports + #destructures), NOT a per-call-site checker walk — that would
+//    reintroduce the O(call-sites) semantic sweep §19 forbids. Kills the same-named-`t`
+//    false positive AND the renamed-destructure / namespace-alias false negatives.
+//
+// Every match carries `provenance` (F-c): HOW the callee resolved — `written` | `alias` |
+// `destructure` | `namespace` — so the resolution is self-auditable (§3 legible honesty).
 
 import ts from 'typescript';
-import type { Span } from '../../core/span.ts';
-import { spanFromRange } from './spans.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import { scanByIdentity } from './call-identity-scan.ts';
+import {
+  literalArgFields,
+  splitNames,
+  type CallMatchSpec,
+  type DottedName,
+  type LiteralCall,
+  type LiteralCallProvenance,
+  type LiteralCallsResult,
+} from './call-scan-shared.ts';
 
-export type LiteralCall = {
-  /** The configured name this call was matched to (`t`, `i18n.t`) — canonical, NOT the
-   *  written callee (an aliased `tr` resolves to its configured `t`). */
-  fn: string;
-  /** The first argument's value when it is a plain string literal. Absent when dynamic. */
-  arg?: string;
-  /** Proof span over the first argument (the key site). */
-  span: Span;
-  /** True when the first argument is not a plain string literal (template/computed/var). */
-  dynamic: boolean;
-};
+export function scanLiteralCalls(host: TsProjectHost, spec: CallMatchSpec): LiteralCallsResult {
+  // By-IDENTITY iff a module anchors the functions; otherwise the by-name model (no regression
+  // for existing setups). A `hook` without a `module` falls back to by-name (the schema refuses
+  // that config, but a programmatic caller might pass it — stay honest, never anchor a bare hook).
+  if (spec.module !== undefined) return scanByIdentity(host, spec);
+  return { calls: scanByName(host, spec.functions), mode: 'by-name', moduleResolved: true };
+}
 
-/** A configured dotted name (`i18n.t`) split into its base + leaf for member-access matching. */
-type DottedName = { base: string; leaf: string };
-
-export function scanLiteralCalls(host: TsProjectHost, fnNames: readonly string[]): LiteralCall[] {
+function scanByName(host: TsProjectHost, fnNames: readonly string[]): LiteralCall[] {
   const out: LiteralCall[] = [];
   const program = host.service.getProgram();
-  if (program === undefined) return out;
-  if (fnNames.length === 0) return out;
-
-  // Simple names (`t`) match an identifier callee; dotted names (`i18n.t`) match a member access.
-  const simpleLeaves = new Set<string>();
-  const dotted: DottedName[] = [];
-  for (const name of fnNames) {
-    const dot = name.lastIndexOf('.');
-    if (dot <= 0) simpleLeaves.add(name);
-    else dotted.push({ base: name.slice(0, dot), leaf: name.slice(dot + 1) });
-  }
+  if (program === undefined || fnNames.length === 0) return out;
+  const { simpleLeaves, dotted } = splitNames(fnNames);
 
   for (const sourceFile of program.getSourceFiles()) {
     if (sourceFile.fileName.includes('/node_modules/')) continue;
     if (sourceFile.isDeclarationFile) continue;
     const rel = host.relOf(sourceFile.fileName);
     // Resolve named-import aliases SYNTACTICALLY, once per file (bounded by #imports) — NOT per
-    // call site via the checker, which made this whole-program structural scan a per-call SEMANTIC
-    // walk (forced a checker warm + O(call-sites) symbol resolutions; §5/§19 regression). A direct
-    // `import { t as tr }` is visible in the AST; that covers the alias cases (a multi-hop
-    // re-export-chain alias is the documented residual — rare, under-reports, never fabricates).
+    // call site via the checker (which made this whole-program structural scan a per-call SEMANTIC
+    // walk: a checker warm + O(call-sites) symbol resolutions; §5/§19 regression). A direct
+    // `import { t as tr }` is visible in the AST; a multi-hop re-export-chain alias is the
+    // documented residual — rare, under-reports, never fabricates.
     const importAlias = collectImportAliases(sourceFile);
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
-        const matched = matchCallee(node.expression, importAlias, simpleLeaves, dotted);
+        const matched = matchByName(node.expression, importAlias, simpleLeaves, dotted);
         if (matched !== undefined) {
           const arg0 = node.arguments[0];
           if (arg0 !== undefined) {
-            const span = spanFromRange(sourceFile, rel, arg0.getStart(sourceFile), arg0.getEnd());
-            // A plain string literal is a static key; a no-substitution template, a
-            // template with substitutions, an identifier, etc. are all `dynamic` (§18).
-            if (ts.isStringLiteral(arg0)) {
-              out.push({ fn: matched, arg: arg0.text, span, dynamic: false });
-            } else {
-              out.push({ fn: matched, span, dynamic: true });
-            }
+            out.push({
+              fn: matched.fn,
+              ...literalArgFields(sourceFile, rel, arg0),
+              provenance: matched.provenance,
+            });
           }
         }
       }
@@ -95,24 +85,25 @@ export function scanLiteralCalls(host: TsProjectHost, fnNames: readonly string[]
   return out;
 }
 
-/** The configured name a call's callee resolves to, or undefined. An identifier callee matches
- *  a SIMPLE name (as written, or through a named-import alias). A member-access callee matches
- *  a DOTTED name only (its base as written, or through an aliased import) — never a simple name,
- *  so an unrelated `obj.t()` / `namespace.t()` is not mistaken for the i18n `t` (§3 honesty). */
-function matchCallee(
+/** The configured name a call's callee resolves to (by name), with its provenance, or undefined.
+ *  An identifier callee matches a SIMPLE name (written / named-import alias). A member-access
+ *  callee matches a DOTTED name only (its base written / aliased) — never a simple name, so an
+ *  unrelated `obj.t()` / `namespace.t()` is not mistaken for the i18n `t` (§3 honesty). */
+function matchByName(
   expr: ts.Expression,
   importAlias: ReadonlyMap<string, string>,
   simpleLeaves: ReadonlySet<string>,
   dotted: readonly DottedName[],
-): string | undefined {
+): { fn: string; provenance: LiteralCallProvenance } | undefined {
   if (ts.isIdentifier(expr)) {
-    // The name as written is configured. A strict SUPERSET of the old by-written-name behaviour —
-    // `import { translate as t }; t()` (local name `t`) still matches.
-    if (simpleLeaves.has(expr.text)) return expr.text;
+    // The name as written is configured — a strict SUPERSET of the old by-written-name behaviour.
+    if (simpleLeaves.has(expr.text)) return { fn: expr.text, provenance: 'written' };
     if (simpleLeaves.size === 0) return undefined; // dotted-only config — no identifier can match
     // Named-import alias: `import { t as tr }; tr('k')` — the imported name behind `tr` is `t`.
     const imported = importAlias.get(expr.text);
-    if (imported !== undefined && simpleLeaves.has(imported)) return imported;
+    if (imported !== undefined && simpleLeaves.has(imported)) {
+      return { fn: imported, provenance: 'alias' };
+    }
     return undefined;
   }
   if (ts.isPropertyAccessExpression(expr)) {
@@ -127,7 +118,8 @@ function matchCallee(
       ? importAlias.get(expr.expression.text)
       : undefined;
     for (const d of leafMatches) {
-      if (d.base === writtenBase || d.base === canonBase) return `${d.base}.${d.leaf}`;
+      if (d.base === writtenBase) return { fn: `${d.base}.${d.leaf}`, provenance: 'namespace' };
+      if (d.base === canonBase) return { fn: `${d.base}.${d.leaf}`, provenance: 'namespace' };
     }
     return undefined;
   }

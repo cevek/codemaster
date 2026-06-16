@@ -5,9 +5,11 @@
 > `src/plugins/ts/usages.ts` (rollup), `src/ops/impact.ts` + `impact-closure.ts`.
 
 ## Why
+
 `find_usages` is the foundation `impact` (and any closure tool) builds on. Two role/rollup
 mis-classifications surfaced while building `impact`, and they propagate into wrong/limited impact
 output:
+
 1. **Interface/type member signatures are tagged `read`** (feedback bug 11:44). A `MethodSignature`/
    `PropertySignature` occurrence inside an `interface`/type literal is a TYPE-level declaration, not
    a value read — `classifyRole` has no case for it and falls through to read/write. This produces a
@@ -25,6 +27,7 @@ Fixing both makes `find_usages` more accurate AND lets `impact` close the dead-e
 to flag.
 
 ## Scope — IN
+
 1. `classifyRole`: occurrences inside an interface/type-literal member signature → `decl` (or a
    `type` role) — NOT `read`/`write`. (Keep the honest read/write split for real value bindings.)
 2. `findEncloser`: treat ANY top-level named `VariableDeclaration` as an encloser (kind
@@ -33,15 +36,17 @@ to flag.
 3. `impact` follow-through (now that the rollup yields re-resolvable binding ids):
    - **module-rollup leaves** become expandable — a value-binding dependent's own dependents are
      reachable (plan.md §5 impact residual "module-rollup leaves").
-   - **precise escape-site span** — a `dynamic` boundary is currently flagged at the *encloser's*
+   - **precise escape-site span** — a `dynamic` boundary is currently flagged at the _encloser's_
      span; point it at the actual value-read site (plan.md impact residual).
 4. Re-validate the §2-impact callable-const dynamic-boundary fix still holds (the `callable` flag).
 
 ## Scope — OUT
+
 - Multi-program/test-tsconfig visibility (Task G). · `impact` "type-error blast radius" (simulate the
   change — a larger, separate enhancement; leave noted). · `batch+sql` TableSpec for impact.
 
 ## Definition of done
+
 - `fix-and-check` green; full suite 0 fail. Oracle-backed: a fixture pinning (a) an interface method
   signature → role `decl`/`type` not `read`; (b) `export const b = a()` rolls up to encloser `b`
   (re-resolvable id), not the module; (c) `impact` expands through `b` to `b`'s own dependents
@@ -52,10 +57,12 @@ to flag.
   (this changes role/encloser output — update goldens only for intended shifts).
 
 ## Files (likely)
+
 `src/plugins/ts/usage-roles.ts` · `src/plugins/ts/usages.ts` · `src/ops/impact.ts` +
 `impact-closure.ts` · tests under `test/differential/`.
 
 ## Parallel-run note
+
 Overlaps Task G in the usages query area (real merge if concurrent). Own worktree off `main`.
 Covers: feedback bugs 11:44 + 11:45; plan.md impact residuals "module-rollup leaves" + "precise
 escape-site span".

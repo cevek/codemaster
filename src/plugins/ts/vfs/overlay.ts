@@ -14,6 +14,15 @@ export interface OverlayEntry {
   content: string;
 }
 
+/** A point-in-time copy of the overlay's state — enough to RESTORE it exactly (via `set`). Lets a
+ *  NESTED overlay (a capture detector run while a transaction's prior-step overlay is already
+ *  active — spec-transactional-mutation) stack on top, then revert to the enclosing state, rather
+ *  than the flat `set`/`clear` wiping the prior steps' content (a silent wrong-world read). */
+export interface OverlaySnapshot {
+  entries: OverlayEntry[];
+  removed: string[];
+}
+
 export class Overlay {
   private readonly files = new Map<string, { content: string; version: number }>();
   /** Paths TOMBSTONED for this overlay: a moved file's OLD location, hidden from the LS so
@@ -65,6 +74,24 @@ export class Overlay {
     this.removed.clear();
     for (const e of entries) this.files.set(e.abs, { content: e.content, version: this.counter });
     for (const r of removed) this.removed.add(r);
+  }
+
+  /** ADD `entries`/`removed` on TOP of the current overlay (same-path entries override; tombstones
+   *  union) without clearing — for a nested overlay that must keep the enclosing state visible.
+   *  Bumps the version so the LS re-reads. */
+  merge(entries: readonly OverlayEntry[], removed: readonly string[] = []): void {
+    this.counter++;
+    for (const e of entries) this.files.set(e.abs, { content: e.content, version: this.counter });
+    for (const r of removed) this.removed.add(r);
+  }
+
+  /** Capture the current state so `set(snap.entries, snap.removed)` restores it exactly (with a
+   *  fresh version, so the LS re-reads) — the revert half of a nested overlay. */
+  snapshot(): OverlaySnapshot {
+    return {
+      entries: [...this.files].map(([abs, v]) => ({ abs, content: v.content })),
+      removed: [...this.removed],
+    };
   }
 
   /** Drop all overlaid content/tombstones; bumps the version so files revert to disk. */

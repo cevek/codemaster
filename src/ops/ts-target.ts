@@ -35,3 +35,10 @@ export const tsTargetSchema = z
 
 export const TS_TARGET_HINT =
   "{ symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number }";
+
+/** Project the shared target fields off a validated args object into the `TsTargetInput` the
+ *  plugin's resolver consumes — the one place the symbol/file/line/col/name mapping lives, so a
+ *  symbol-anchored op and the `transaction` step that wraps it never drift (no parallel literal). */
+export function targetOf(a: TargetFields): TargetFields {
+  return { symbol: a.symbol, file: a.file, line: a.line, col: a.col, name: a.name };
+}

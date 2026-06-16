@@ -298,6 +298,100 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
       defer. Extract a shared scaffold (commit + rollback injected; the move-specific collision-check / `removed` tombstones / `git mv` stay
       in the plan path) **when the next change to the §2.10 contract forces editing both.**
 
+## Task C — `move_symbol` (move one symbol into an EXISTING file)
+
+> Spec: [docs/spec-move-symbol.md](spec-move-symbol.md). Relocate a top-level symbol from its
+> file into an EXISTING `dest`, merging its imports into dest's and rewriting every importer.
+
+- [x] **`ops/move-symbol.ts`** — new mutating op `move_symbol { symbol?|name?|file+line+col,
+dest (existing file), dirtyOk? }`. Reuses `applyRefactorPlan` (the same §2.8 dry-run/apply/
+      typecheck/rollback + dirty-gate + capture machinery as move/extract); registered in
+      `ops/builtins.ts`; self-describes in `status` (golden updated, 17 ops).
+- [x] **Planner via the native LS "Move to file" refactor** (`refactor.move.file` +
+      `interactiveRefactorArguments.targetFile`) — `plugins/ts/refactor/extract/move-to-existing.ts`.
+      **Deliberate deviation** from the spec's "reuse extract planning + hand-append" sketch: the LS
+      itself owns the hard part (merge the moved symbol's imports into dest's existing imports,
+      existing-locals, rewrite every importer incl. aliased/re-export, add the source back-import).
+      A hand-rolled merge over `rewriteImports`/`computeCommitPlan` would be a large, bug-prone
+      mutation of shared move/extract code; the project's own §2.8 post-typecheck gate + byte-exact
+      rollback make leaning on the LS equivalently safe (a bad edit is refused, never shipped). The
+      LS is an **edit producer, not a fact oracle** (ARCHITECTURE §4) — its edits are gated by the
+      project's own LS, gated to the project TS major via the same §4 rescue path on assertion.
+- [x] **Shared statement helpers** (`extract/statements.ts`) — range + nested-target guard +
+      `applyTsChanges` extracted from `move-to-file.ts` so extract and move_symbol can never drift on
+      "what is the symbol the agent pointed at" (no copy-paste; both call `targetsNestedDeclaration`).
+- [x] **Honest refusals** — dest not in project (→ use `extract_symbol`), `source===dest`, nested
+      target (§4a), dest top-level name-collision (pre-check + §2.8 backstop), JSX body into a `.ts`
+      dest. None half-write (refused before/at the gate).
+- [x] **Capture-safety** (`capture/move-symbol.ts`) — the importer rewrites are LS-driven (not
+      `rewriteImports`), so capture metadata is RECONSTRUCTED: each before→after-NEW importer
+      specifier bringing in the moved name is re-resolved over the post-edit tree through the shared
+      `detectImportCaptures`; a same-named, type-compatible export at a different path is flagged and
+      apply refused. Conservative — only move-INTRODUCED specifiers are policed (a pre-existing
+      same-name import is left alone), so no over-refusal.
+- [x] **Oracle edit-safety tests** (`test/e2e/move-symbol.test.ts`) — A→existing B with an ALIASED
+      importer repointed, cold `ts.Program` clean, `diff(dry)==diff(apply)`; §2.8 gate refuses an
+      introduced error byte-identical; name-collision / nested / dest-not-in-project / same-file /
+      `.js`-dest / re-export-barrel all REFUSED with nothing written; source-no-longer-uses (no
+      back-import), type-alias + type-only importer. Plus a synthetic capture unit test
+      (`test/unit/move-symbol-captures.test.ts`): a divergent specifier is flagged, a clean move
+      flags nothing (no over-refusal), pre-existing same-named imports are left alone.
+
+### Residual gaps (honest — follow-ups, NOT silent)
+
+- [ ] **specifier style is LS-chosen, not alias-preserving.** Unlike `extract_symbol` (whose final
+      consumer specifier is codemaster-emitted via `emitSpecifier`, alias-aware), `move_symbol`'s
+      importer specifiers are emitted by the LS, which prefers a relative form (`@/source` →
+      `./dest`) over re-forming the project's path alias. Functionally correct (cold compile proves
+      resolution) — purely a cosmetic/diff-noise difference. Closing it means post-processing the
+      LS's emitted specifiers through `emitSpecifier`, or a follow-up that teaches the LS preferences.
+- [ ] **capture reconstruction is name-anchored.** A move with an unnamed / multi-binding top-level
+      statement yields no single moved name, so the name-anchored capture reconstruction is skipped
+      (the §2.8 typecheck remains the backstop). Today's op moves one named top-level symbol, so this
+      is not reachable via the current target resolver, but noted for when multi-binding moves land.
+- [ ] **no positive capture fixture yet.** The reconstruction + over-refusal guard are exercised by
+      the happy path (captures empty → applies). A POSITIVE capture repro (the LS emits a specifier
+      that resolves to a different same-named export) is hard to construct deterministically with the
+      LS's correct resolver; add one if a real-world case surfaces. The forward-only / empty-dir
+      limitations of `detectImportCaptures` (shared with move/extract) apply here too.
+- [ ] **capture `line:col` is computed over UNFORMATTED LS output, not the prettier-formatted diff**
+      (shared with move/extract's `capture/imports.ts`, acute for move_symbol's freshly-synthesized
+      dest import-merge). `capture/move-symbol.ts` reads the specifier position from `d.after` (raw
+      LS edit), but the diff the agent sees is prettier-formatted in the op layer — so on a real
+      capture whose import sits where prettier reflows, the proof `file:line:col` can point at a line
+      the formatted diff doesn't have. The detail string still names the specifier; only the
+      coordinate drifts. Apply is refused either way (correct verdict). Clean fix: locate the
+      specifier in the FORMATTED content (needs the format pass visible to capture detection — a
+      cross-cutting refactor of where formatting sits vs the plugin-layer planner).
+- [ ] **renamed default-import under-detection** (capture). A locally-renamed default import of a
+      moved `export default` is not reconstructed (matches on local name ≠ moved name). Currently
+      UNREACHABLE — the LS doesn't rewrite default-export importers, so the gate refuses the dangling
+      move first. Documented in `capture/move-symbol.ts`'s `declImportsName` header.
+- [ ] **CROSS-CUTTING (pre-existing, NOT move_symbol-specific) — stale `before` on a RE-DIRTIED
+      tracked file in non-watcher mode.** Surfaced by a move_symbol bug-review but it affects EVERY
+      refactor op through `assemblePlan` + `applyRefactorPlan` (move_file / extract_symbol /
+      move_symbol). `assemble.ts`'s `diskText` reads the plan's `before` (the dry-run diff base AND
+      the rollback-restore content) from the warm program text, not a fresh disk read. The read-time
+      freshness guard only reindexes on a CHANGED git fingerprint (`HEAD` + `git status --porcelain`),
+      and porcelain is content-insensitive for an already-dirty tracked file: a file edited twice
+      with no commit between shows ` M path` BOTH times (identical fingerprint → no reindex). So if
+      the daemon is warm, the watcher is OFF/degraded (the design says the read-time guard alone must
+      hold — `freshness.ts:1`), and a tracked file is edited a SECOND time on disk, the warm program
+      still holds the first-edit text → a dry-run `diff` whose `before` lies (§2/§3), and under
+      `apply + dirtyOk` the second edit is silently lost (commit splices onto stale base; rollback
+      restores stale bytes). Masked in the common case by the chokidar `reindexAll`. Narrow fix: read
+      `before` from a fresh disk read for any path in the porcelain dirty set (or hash dirty-path
+      contents into the git-mode fingerprint, as walk-mode already does). Out of THIS task's scope
+      (touches shared freshness/assemble code) — filed here so it is not lost.
+- [ ] **re-export barrels are not repointed (honest refusal, not silent).** The LS "Move to file"
+      rewrites DIRECT importers but leaves `export { X } from './source'` re-export barrels untouched
+      — so a barrel naming the moved symbol dangles and the §2.8 gate REFUSES the whole move (verified
+      in `test/e2e/move-symbol.test.ts`; disclosed in the op notes). Closing it means supplementing
+      the LS edits with codemaster's own barrel-specifier rewrite (the same kind of import-rewrite
+      `rewriteImports` does for move/extract) — a follow-up; the current behavior is safe (never a
+      half-move), just less capable than direct-import repointing. Also: the default export's
+      importer (`import x from './source'`) is likewise not repointed by the LS → same honest refusal.
+
 ## kitchensink integration — the port's first realistic workout
 
 > Spec: [docs/spec-kitchensink-integration.md](spec-kitchensink-integration.md). Drive the
@@ -385,19 +479,22 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
         conflicts with sql-mode's "producers run uncapped" rule (a capped table feeding
         `NOT IN` lies, §2.3). The `summary.byDepth` counts cover the common aggregate; a
         sound sql face would need a "bounded-by-design, always-partial" table contract.
-  - [ ] **precise escape-site span** — a `dynamic` boundary is flagged at the _encloser's_
-        `file:line:col` (grouped `find_usages` gives no per-ref span); the exact value-read
-        token would be a tighter proof (an ungrouped re-query of flagged parents).
-  - [ ] **module-rollup leaves** — a `(top-level file.ts)` dependent can't be re-expanded by
-        SymbolId (no symbol at 1:1), so it's a closure leaf; impact flags it un-expandable +
-        `complete:false`. Two `find_usages`/`classifyRole` ROOT causes (filed to the feedback
-        inbox, would deepen impact's reach if fixed): (a) a ref inside a top-level value
-        binding (`export const b = a()`) rolls up to the module node, not `b` — so the chain
-        through `b` dead-ends; fix = `findEncloser` treats any top-level named
-        `VariableDeclaration` as an encloser. (b) an interface/type method-SIGNATURE
-        occurrence is classified role `read`, producing a spurious value-flow `dynamic`
-        boundary (safe over-warn, but noisy); fix = `classifyRole` returns `decl`/`type` for
-        type-member signatures.
+  - [x] **precise escape-site span** — DONE (spec-usage-role-rollup-fidelity, Task H). The
+        rollup now records a representative reference SITE span per encloser (`GroupRow.site`,
+        captured where ref+encloser are paired — no extra LS call, never a guessed heuristic);
+        a `dynamic` boundary points at the exact value-read TOKEN instead of the encloser name.
+        Stripped from agent-facing `find_usages`/`impact` listings (`group-row.ts`) — internal
+        plumbing, dense output preserved.
+  - [x] **module-rollup leaves** — DONE (spec-usage-role-rollup-fidelity, Task H). Both
+        `find_usages`/`classifyRole` ROOT causes fixed: (a) a ref inside a top-level non-function
+        value binding (`export const b = a()` / `const cfg = { f: dep }`) now rolls up to the
+        binding `b`/`cfg` (kind `const`/`variable`, re-resolvable `name@file:line:col`), not the
+        module node — so impact follows the chain through `b` to its own dependents instead of
+        dead-ending. `findEncloser` treats any TOP-LEVEL named `VariableDeclaration` as an
+        encloser (function-valued ones stay `function`; nested locals still roll to their
+        enclosing function). (b) an interface/type-literal method-/property-SIGNATURE occurrence
+        is now role `type` (was `read`), killing the spurious value-flow `dynamic` boundary on
+        ordinary symbols that structurally match an interface member.
   - [ ] **wall-clock deadline** — termination is guaranteed by the node cap (≤ `nodes`
         find_usages calls, each LS call itself deadline-bounded §19), but there is no
         cumulative wall-clock budget → on a huge repo the op can be slow-but-finite. A
@@ -435,8 +532,67 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
       name-rebind, via a `~rootTag` origin stamp (§4b) · validate a root is a TS project (§4c) ·
       one-shot staleness banner (§6)
 - [x] **P3** — softened the fuzzy/Cmd+T claim · ambiguous-decl column added · role read/write doc
-      (§5) · non-determinism (§1c, resolved via P0) · deferred new ops `construction_sites` /
-      `css_cascade` still parked (§7, out of scope)
+      (§5) · non-determinism (§1c, resolved via P0) · `css_cascade` now SHIPPED (see the
+      "Task L — `css_cascade`" section below); `construction_sites` still parked (§7, out of scope)
+
+## Task L — `css_cascade` op (resolved cascade / specificity for a CSS-module class)
+
+> Spec: [docs/spec-css-cascade-op.md](spec-css-cascade-op.md). A net-new read op extending the
+> scss plugin with a resolved-cascade/specificity VIEW over the postcss CST. Honest `partial`
+> first-class for the syntactic model's limits (§19); proof-carrying; bounded; wrapped.
+
+- [x] `plugins/scss/cascade/specificity.ts` — W3C (a,b,c) specificity over a resolved complex
+      selector (`:is`/`:not`/`:has` max-of-args, `:where` 0) + subject (rightmost-compound)
+      class extraction + condition traits (descendant/state/attribute/negation/pseudo-element/
+      interpolation). Oracle: canonical W3C examples (`test/unit/scss-cascade-specificity.test.ts`).
+- [x] `plugins/scss/cascade/rules.ts` — extract per-target CONTRIBUTIONS from a sheet's CST with
+      cascade's OWN inclusion policy (NOT parse.ts's class-decl machinery, which drops the
+      descendant/`:global`/compound selectors a cross-module override hides in): nesting/`&`
+      resolution, `:global` paren/bare forms, `@media`/`@supports` context, proof spans over the
+      selector-as-written + each `prop:value`, computed-value (`$var`/`#{}`) flag.
+- [x] `plugins/scss/cascade/resolve.ts` — order contributors by specificity; per-property winner
+      (`!important` > specificity > later source-order WITHIN a file) + losers. Confidence
+      `certain` ONLY for a same-module, unconditional, context-free, statically-valued, untied
+      winner; cross-module / state / attribute / `@media` / interpolated / computed / cross-file
+      tie → `partial` with the reason. A partial winner is still a NAMED winner.
+- [x] `plugins/scss/cascade/query.ts` — on-demand orchestration: re-parse the in-scope sheets
+      FRESH (bounded, scopeable by pathInclude — never extends the plugin's hot `warm`/`reindex`
+      path), resolve target (class, or a selector's subject), resolve cascade.
+- [x] `ops/css-cascade.ts` (registered in `builtins.ts`) + `condense.ts` dense collapse +
+      `status` golden. Tests: `test/differential/css-cascade.test.ts` (DoD multi-sheet: local vs
+      higher-specificity cross-module descendant/attribute → both reported, ordered, cross-module
+      winner NAMED & partial; state → partial; ancestor-context class excluded; !important wins;
+      pathInclude scoping; proof-span validity). css_cascade added to the span-validity sweep.
+
+### Out-of-scope findings — surfaced building Task L, parked (do not lose)
+
+- [ ] **scss plugin indexes `.scss` only** (`warm()`/`reindex` gate on `.endsWith('.scss')`), so
+      `css_cascade`'s cross-sheet search misses `.module.css` / `.sass` sheets unless one is named
+      directly as `{file}` (then it's read+parsed on demand). `cssModuleUsages` already accepts
+      `.css`/`.sass` imports, so the index and the usage scanner disagree on the sheet set. Real
+      close: index `.css`/`.sass` in the scss plugin (one walk-filter change + parser pick, which
+      `parseStylesheetRoot` already does). Stated in the op notes; low frequency.
+- [ ] **scss parse-failure messages leak an ABSOLUTE path** (filed to codemaster feedback inbox,
+      `friction`). `scss_classes` / `find_unused_scss_classes` / `css_cascade` all report
+      `{file:<repo-rel>, message:<postcss CssSyntaxError>}` where the message embeds the machine
+      path (postcss resolves `from` to absolute for `Input.file`). Pre-existing, shared across the
+      scss parse path; breaks path-scrub/golden stability across machines. Fix = strip the leading
+      `${root}/` (or substitute the rel) when recording the failure message.
+- [ ] **`:global` / bare-`:global` cross-module handling is best-effort syntactic.** `:global(.x)`
+      paren classes and bare `:global .x` / `:global { … }` blocks are surfaced as `global:true`
+      (→ always `partial`), but the per-compound boundary of a bare `:global` prefix isn't tracked
+      precisely (the whole branch's subject classes are treated global). Conservative-honest (never
+      a false `certain`); tighten if a real repo shows it mis-attributing.
+- [ ] **explicit `:local(.foo)` subject form is not matched as a module class** (rare false-NEGATIVE,
+      found in final bug review). `:global(.x)` paren classes are extracted (via `globalParenClasses`),
+      but `:local(.x)` — the explicit form of the css-modules DEFAULT — has its class buried in the
+      pseudo arg and is neither read as a module subject class nor as a global one, so a rule written
+      `:local(.foo) { … }` is missed entirely for target `foo`. Low frequency (people write `.foo`, not
+      `:local(.foo)`), and a missing-rule is far less severe than the false-`certain` it can't cause.
+      Fix = pull `:local(...)` arg classes into the MODULE subject set (mirror of globalParenClasses).
+- [ ] **cross-file source order is unknown** (we don't model `@use`/`@forward`/import order), so a
+      cross-module specificity+importance tie is reported as `ambiguousWith` co-winners at `partial`
+      — by design (§19). A real dart-sass evaluation would resolve it; deferred (lean-deps §14).
 
 ## Capture-safety — generalize the post-edit re-resolve (+ summaryOnly)
 
@@ -526,13 +682,24 @@ Discovered while implementing [spec-i18n-alias-aware.md](spec-i18n-alias-aware.m
 real but outside that task's scope (isolated to the i18n plugin + its ops). Captured so they
 don't evaporate.
 
-- [ ] **F-a (perf) — `scanLiteralCalls` runs uncached + now does per-call checker work.**
+> **F-a / F-b / F-c CLOSED** by [spec-i18n-symbol-identity.md](spec-i18n-symbol-identity.md)
+> (Task I). Memo lives in `plugins/ts/plugin.ts` (keyed `projectVersion()` + spec); the
+> by-identity scan in `plugins/ts/i18n-identity-scan.ts` (config `i18n.module`/`hook`,
+> tsconfig-paths-aware, checker-FREE — see the F-b note for why); provenance on every
+> `LiteralCall` + the `i18n_lookup` usage rows. Tests:
+> `test/differential/i18n-symbol-identity.test.ts`. The by-name model stays the default
+> (no `module` → no regression). Residual honest edges (under-report only, never fabricate):
+> element access `i18n['t']`, `t` passed as a value, a non-destructured hook return
+> (`const o = useTranslation(); o.t()`), multi-hop re-export chains, within-file shadowing.
+
+- [x] **F-a (perf) — `scanLiteralCalls` runs uncached + now does per-call checker work.**
       Each of `i18n_lookup` / `find_unused_i18n_keys` / `find_missing_i18n_keys` calls
       `ts.literalCalls(functions)` fresh, and the import-resolution adds `getSymbolAtLocation`
       per candidate callee — an O(#calls) checker sweep re-run per op. Bounded (linear, no loop),
       so honesty holds, but a memo keyed on `ts.freshness()` + `fnNames` (invalidated on reindex)
       would cut repeated work, especially for a `batch` that runs several i18n ops together.
-- [ ] **F-b (capability) — matching is by NAME (module-blind), not by symbol identity.**
+      DONE: single-slot memo in `createTsPlugin` keyed on `projectVersion()` + serialized spec.
+- [x] **F-b (capability) — matching is by NAME (module-blind), not by symbol identity.**
       Resolution is confined to user-named bindings (written name, named-import alias, configured
       dotted base) because config names only the FUNCTION, never its module — so the code cannot
       prove a `t`/`i18n.t` call targets THE i18n module vs a same-named function elsewhere. We
@@ -552,10 +719,142 @@ don't evaporate.
       NAME the i18n module/hook, resolve the configured function to ONE declaration, then match
       call sites by symbol identity (like `find_usages`). That closes both the false-positive
       residual AND the namespace-alias gap. Out of this spec's scope.
-- [ ] **F-c (DX) — no per-usage resolution provenance.** `i18n_lookup` usages carry only a span,
+      DONE (Task I): config `i18n.module` resolves the module once (tsconfig-paths aware), and a
+      `t('…')` counts iff its callee binding resolves to a function FROM that module (import /
+      alias / namespace / `useTranslation()` destructure incl. renamed `{ t: x }`). FP closed
+      (telemetry `t` no longer matches); FN closed (renamed destructure + renamed namespace now
+      match). Kept bounded/checker-free per §19 (advisor flagged the per-call-checker design).
+- [x] **F-c (DX) — no per-usage resolution provenance.** `i18n_lookup` usages carry only a span,
       so a user can't see which were written-name vs import-resolved (alias/destructure/namespace).
       Filed to the codemaster feedback inbox as a wish during dogfooding; a `provenance` column
       would make the new resolution self-auditable.
+      DONE: every `LiteralCall` + `i18n_lookup` usage row carries `provenance`
+      (`written | alias | destructure | namespace`); the op surfaces a per-provenance breakdown note.
+
+## Out-of-scope findings — surfaced during Task I (i18n symbol-identity) dogfooding, parked
+
+Found running the i18n ops on amiro (real repo); outside this task's scope, captured so they
+don't evaporate (also filed to the codemaster feedback inbox).
+
+- [ ] **I-a (UX/honesty) — a single dynamic `t(`…`)` buries `find_unused_i18n_keys` in 1000+
+      all-`partial` rows (output then caps).** On amiro the op returned 1025 keys, every one
+      `partial`, because one `t(`errors.codes.${code}`)` demotes the WHOLE scan; the dense output
+      capped at ~86 KB so the genuinely-dead tail is invisible. The §3 honesty is right (dynamic →
+      partial, never guessed) but the answer is unactionable. Candidate closes: (1) when degraded,
+      default to a SUMMARY (count + `degradedReason` + "narrow with prefix/pathExclude") instead of
+      dumping every partial row; (2) a flag to show only `certain`-dead; (3) **prefix-scoped dynamic
+      demotion** — a dynamic `t(`errors.codes.${x}`)` only makes the `errors.codes.*` PREFIX
+      unprovable; demote that prefix to `partial` and leave unrelated namespaces `certain`. (3) is
+      the real fix and would shrink the false-partial set dramatically; it needs the literal scan to
+      surface the static PREFIX of a dynamic template key (currently a dynamic call carries no arg).
+- [ ] **I-b (honesty residual) — within-file shadowing of a bound name can FABRICATE.** The
+      identity scan is syntactic-by-local-name with no scope resolution, so a local that shadows a
+      bound name (a parameter `t` in a file that also imports the configured `t`) is matched →
+      `find_missing` can emit a fabricated row, `find_unused` can mis-mark. Same class as the prior
+      by-name model (reviewer-rated LOW), documented in `call-identity-scan.ts` header + op notes.
+      The cheap closer is `plugins/ts/scope-shadow.ts` (already used by the refactor capture-safety):
+      gate a match on "the call site's nearest binding of this name IS the import/destructure", not
+      just the name. Out of §19's checker-free budget for this task.
+- [ ] **I-c (pre-existing, host) — a `tsconfig.json` `paths`/`baseUrl` edit leaves the identity
+      scan resolving against STALE compiler options** until a STRUCTURAL reindex re-globs. `ls-host`
+      caches `parsed.options` and only re-parses on a new/removed ts file (`ls-host.ts` `loadFileList`);
+      an in-place tsconfig edit bumps `projectVersion` (so the memo + scan re-run) but against the old
+      `@/*` mapping, so `resolveModuleArg` can resolve the i18n module to the old target. The F-a memo
+      is correct; the staleness is the host's config cache. Niche; flagged by a reviewer.
+- [ ] **I-d (minor) — `splitNames` silently no-ops a malformed name.** A leading-dot (`.t`) lands in
+      `simpleLeaves` (never matches an identifier); a multi-segment `a.b.c` yields base `a.b` which
+      the single-identifier base matcher never matches. Both under-report silently (never lie).
+      Could reject at the config schema with a pointed message. Documented in `call-scan-shared.ts`.
+
+## Out-of-scope findings — surfaced during Task H (usage-role-rollup-fidelity), parked
+
+Discovered while fixing `classifyRole` / `findEncloser` / `impact`; real but outside Task H's
+scope. Captured so they don't evaporate.
+
+- [ ] **Expose the representative reference SITE in grouped `find_usages` output.** The rollup
+      already records `GroupRow.site` (the span of the first reference inside each encloser) to
+      power impact's precise value-flow boundary, but it is stripped before the agent sees it
+      (`group-row.ts`). Surfacing it would make grouped `find_usages` proof-carrying at the
+      reference level — today a group points at the encloser's NAME token (e.g. "Widget uses X
+      ×3"), not at where X is actually referenced. Deferred because it widens the public
+      `find_usages`/SQL surface (new column, golden churn) beyond Task H; add behind a flag or as
+      a deliberate output-shape change with its own goldens.
+- [ ] **A factory/HOC-wrapped top-level component is labelled `kind:'const'`, not `function`.**
+      `const Foo = memo(() => …)`, `forwardRef(…)`, or a tagged-template (`styled.div`) have a
+      call/tagged-template initializer, so `findEncloser`'s `isFn` is false and a ref inside the
+      callback rolls up to `Foo` with kind `const`. Strictly BETTER than before (it previously
+      dead-ended at the module node) and harmless to `impact`'s value-flow detection (which keys
+      off the seed's `callable`, not the encloser kind). But a `find_usages`/`impact`
+      `kind:'function'` VIEW filter will skip these renderable bindings. A precise fix would peek
+      through known HOC wrappers (or any call/tagged-template whose callback is an arrow/fn-expr)
+      to label them `function`. Low priority — label imperfection, never a reachability or escape
+      lie.
+- [ ] **`findEncloser` does not treat a `namespace`/`module`-nested top-level binding as an
+      encloser.** `topLevelVariableStatement` requires the `VariableStatement`'s parent to be the
+      `SourceFile`, so a `const` declared inside `namespace N { … }` rolls up to the module node
+      (its refs dead-end in impact just like the pre-fix top-level case). Rare in modern ESM TS;
+      the position-addressed SymbolId would still re-resolve, so the fix is to walk to the nearest
+      `SourceFile`/`ModuleBlock` boundary. Low priority — surfaces only on namespace-heavy repos.
+
+## Task E — Transactional multi-mutation (chain of edits, one gate, all-or-nothing)
+
+> Spec: [docs/spec-transactional-mutation.md](spec-transactional-mutation.md). A new `op`
+> `transaction { steps: [{name,args}, …] }` (NOT a 4th MCP tool — §11) applies an ordered chain
+> of mutating ops atomically: step i+1 plans against step i's post-edit overlay, ONE §2.8 gate
+> over the cumulative result, and byte-exact rollback of the WHOLE sequence on any failure.
+
+- [x] **plan-against-overlay seam** — `PlanningOverlay` (plan.ts) threaded through the overlay-
+      aware plugin plan methods (`renameSites`/`planMove`/`planExtract`/`planChangeSignature`):
+      the move-tree is seeded from the overlay listing (prior moves/new files baked in) and the
+      LS is shadowed with prior-step content + tombstones for the synchronous plan, ALWAYS cleared
+      (never leaks into the final disk-baseline gate). `targetOf` (ts-target) is the single shared
+      target mapping — the op and the step planner never drift.
+- [x] **compose + gate-once** — `transaction-compose.ts` folds per-step `RefactorPlan`s into ONE
+      cumulative plan (identity keyed on origin path; `diff[].before` is always the original disk
+      bytes — the rollback baseline), fed to the SAME `applyRefactorPlan` backbone → `diff(dry) ==
+diff(apply)` is structural and a single-step transaction == the direct op. `refactor-steps.ts`
+      is the per-kind step registry (reuses each op's own zod schema).
+- [x] oracle-backed edit-safety tests (`test/e2e/transaction.test.ts`): 3-step rename→move→
+      change_sig applies with ONE clean gate + cold `ts.Program` compiles; a last step that errors
+      rolls back the WHOLE sequence byte-exact (`git status` empty); a middle step that can't plan
+      refuses with the step index, writes nothing; a chain that would CAPTURE refuses; single-step
+      == direct op. Self-described in `status`; dogfooded live through the MCP.
+
+### Task E follow-ups (out of scope, parked — do not lose)
+
+- [ ] **E-a — `codemod` is not a transaction step.** It reads disk directly (`readTextFile`) and
+      detects captures against the disk-LS, so threading the overlay through it is the most invasive
+      kind; the DoD chain doesn't need it. The transaction refuses a `codemod` step honestly. Close
+      by giving codemod an overlay-aware content source + an overlay-aware `detectCodemodCaptures`.
+- [ ] **E-b — CSS co-extract is not supported inside a transaction `extract_symbol` step.** The
+      scss join lives in the op (`extract-css-coextract.ts`), not the plan seam; a transaction
+      extract is TS-only and refuses `css`. Close by lifting the join into the step planner.
+- [ ] **E-c — a transaction containing an extract shares the §1b extract-baseline gap** (path+line
+      shift defeats the path-only baseline remap, so a pre-existing error relocated INTO an extracted
+      block can read as `introduced`). The op discloses this with a hedge note rather than asserting
+      it; the real fix is the span-aware baseline remap already tracked under "Stress-test findings".
+- [ ] **E-d — dir moves inside a transaction commit file-by-file** (per-file `git mv`, not one
+      dir move), so an emptied source directory may linger (git ignores empty dirs). A single
+      `move_file` of a folder is unaffected; only a folder move _inside a chain_ takes this path.
+- [ ] **E-e — a path swap/cycle within a composed transaction** (`a→b` while `c→a`) hits
+      `computeCommitPlan`'s clobber guard → an honest refusal (never corruption), but a legitimate
+      swap isn't supported (needs temp-file ordering). Same backstop as the single-op case.
+- [ ] **E-f — `move_symbol` (spec scope-IN list) does not exist as an op** — the spec's step list
+      was aspirational; the four real symbol/path refactors are wired. Revisit if `move_symbol` lands.
+- [ ] **E-g — import-capture detection for a move/extract step ≥2 is not overlay-aware.**
+      `capture/imports.ts` builds its OWN `ts.ModuleResolutionHost` (afterContent = this step's
+      `overlayFiles`, else `ts.sys` = pre-transaction disk), so a rewritten specifier that must
+      resolve through a PRIOR step's move is checked against the stale disk layout. The final
+      whole-program `typecheckOverlay` backstops a DANGLE, but a same-named type-compatible export
+      reachable only via the prior-move layout could slip the import-capture gate (a narrow
+      false-negative). Fix: seed that resolver from the cumulative overlay/listing the step planned
+      against (the rename-capture path is already nest-safe via `withMergedOverlay`).
+- [ ] **E-h — dry-run does not preview the capture/collision/dirty REFUSAL verdict.** The shared
+      `applyRefactorPlan` dry-run branch emits the `captures` rows but not `applied:false`+`reason`
+      (those gates are apply-only) — so `diff(dry)==diff(apply)` holds but an agent reading only
+      `typecheck.clean` (a separate signal from captures) wouldn't see the would-refuse. Pre-existing
+      across all mutating ops; a predictive `wouldApply:false`+reason on dry-run would close it
+      uniformly (touches the shared backbone + goldens, hence parked, not slipped into Task E).
 
 ## Cross-cutting (gates every box, not a phase)
 
@@ -566,3 +865,23 @@ don't evaporate.
       `ignoreDependencies`
 - [ ] every plugin reports honest freshness; every op aggregates freshness from the
       plugins it touched
+
+## Findings parked during Task K (`construction_sites`) — out of this spec's scope
+
+- [ ] **K-a (bug) — `find_usages groupBy:'enclosing'` mints a non-chainable SymbolId for a
+      CLASS-MEMBER encloser.** `usages.ts:300` mints `mintSymbolId(enc.name, …)` where
+      `enc.name` is the QUALIFIED display string `Class.method` (`usage-roles.ts:85`,
+      `${clsName}${up.name.text}`), but the line:col point at the BARE `method` token. So the §6
+      same-symbol check `text.startsWith('Class.method', offset)` fails, the rebind filter
+      `searchSymbols(...).filter(c => c.name === 'Class.method')` is empty (navto reports the bare
+      member name), and the encloser id resolves `gone` — a dead handle for every class-member
+      rollup. It is an honest `gone` (not a silent wrong-bind), but breaks chaining. Fix mirrors
+      Task K's `construction-encloser.ts`: mint the id on the BARE member token, keep the dotted
+      string as a display/`container` field only. (`construction_sites` already does this; the two
+      mint sites could share one helper.) Found by the bug-reviewer; filed to the codemaster
+      feedback inbox during dogfooding.
+- [ ] **K-b (polish) — a naked type-parameter target is labelled `value`.** `construction_sites`
+      pointed (via file:line:col) at a bare type parameter `T` inside a generic falls through
+      `targetKind` to `'value'`. Still scanned and correctly demoted to `partial` via
+      `isGenericTarget`, so no honesty issue — just a cosmetic mislabel on a degenerate input.
+      Low priority.

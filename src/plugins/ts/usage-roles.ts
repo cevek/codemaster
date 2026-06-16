@@ -54,6 +54,23 @@ export function classifyRole(
     }
     if (ts.isJsxClosingElement(up) && within(up.tagName, position)) return 'jsx-closing';
     if (ts.isTypeNode(up) || ts.isHeritageClause(up) || ts.isTypeQueryNode(up)) return 'type';
+    // A member-signature NAME inside an `interface`/type-literal (`m(): void`, `p: T`,
+    // `get x(): T` / `set x(v)`) is a TYPE-level declaration, not a value read/write.
+    // `findReferences` links such a signature to an implementing/structurally-matching
+    // value symbol, so the occurrence arrives here with `isDefinition:false` and would
+    // otherwise fall through to `read` — a spurious value-read that `impact` mistakes for
+    // a dynamic-dispatch escape. It lives in a type position, so it is a `type` usage. A
+    // COMPUTED name (`[expr]: T`) keeps its own role — `expr` is a genuine value read.
+    // `MethodSignature`/`PropertySignature` only ever appear as type members; an
+    // accessor SIGNATURE also has the value-context form (a class accessor), so it counts
+    // only when its parent is an interface/type-literal — a class accessor stays decl/read.
+    if (
+      isTypeMemberSignature(up) &&
+      !ts.isComputedPropertyName(up.name) &&
+      within(up.name, position)
+    ) {
+      return 'type';
+    }
     if ((ts.isCallExpression(up) || ts.isNewExpression(up)) && within(up.expression, position)) {
       return 'call';
     }
@@ -62,9 +79,31 @@ export function classifyRole(
   return flags.isWrite ? 'write' : 'read';
 }
 
+/** A NAMED member signature of an `interface`/type-literal — a TYPE-level member
+ *  declaration, never a value binding. `MethodSignature`/`PropertySignature` are type
+ *  members by construction (a class uses `MethodDeclaration`/`PropertyDeclaration`); an
+ *  accessor signature also has a value-context form (a class `get`/`set`), so it counts
+ *  only when its parent is the type context — a class accessor stays decl/read/write. */
+function isTypeMemberSignature(
+  node: ts.Node,
+): node is
+  | ts.MethodSignature
+  | ts.PropertySignature
+  | ts.GetAccessorDeclaration
+  | ts.SetAccessorDeclaration {
+  if (ts.isMethodSignature(node) || ts.isPropertySignature(node)) return true;
+  if (ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node)) {
+    return ts.isInterfaceDeclaration(node.parent) || ts.isTypeLiteralNode(node.parent);
+  }
+  return false;
+}
+
 export interface Encloser {
   name: string;
-  kind: 'function' | 'method' | 'class' | 'module';
+  /** `const`/`variable` = a top-level non-function value binding (`const b = a()`,
+   *  `let cfg = {…}`) — distinct from `function` so a data binding never reads as
+   *  callable. A function-valued binding stays `function`. */
+  kind: 'function' | 'method' | 'class' | 'module' | 'const' | 'variable';
   /** Start of the encloser's name token. */
   start: number;
   exported: boolean;
@@ -87,19 +126,49 @@ export function findEncloser(sourceFile: ts.SourceFile, position: number): Enclo
     if (ts.isClassDeclaration(up) && up.name !== undefined && !within(up.name, position)) {
       return encloser(up.name.text, 'class', up.name, up);
     }
-    if (
-      ts.isVariableDeclaration(up) &&
-      ts.isIdentifier(up.name) &&
-      up.initializer !== undefined &&
-      (ts.isArrowFunction(up.initializer) || ts.isFunctionExpression(up.initializer)) &&
-      within(up.initializer, position)
-    ) {
-      // `const Foo = () => …` — exported-ness lives on the VariableStatement.
-      const statement = up.parent.parent;
-      return encloser(up.name.text, 'function', up.name, statement);
+    if (ts.isVariableDeclaration(up) && ts.isIdentifier(up.name)) {
+      const initializer = up.initializer;
+      const isFn =
+        initializer !== undefined &&
+        (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
+      // A reference INSIDE a function-valued binding's body belongs to that function —
+      // `const Foo = () => …`; exported-ness lives on the VariableStatement.
+      if (isFn && within(initializer, position)) {
+        return encloser(up.name.text, 'function', up.name, up.parent.parent);
+      }
+      // Otherwise: a TOP-LEVEL non-function value binding (`export const b = a()`,
+      // `const cfg = { f: dep }`) is its own encloser, so a reference in its initializer
+      // rolls up to a re-resolvable `name@file:line:col` SymbolId instead of the module
+      // node. Scoped to module top level: a nested local `const` is not a useful
+      // re-resolvable encloser — its refs belong to the enclosing function/method, so we
+      // keep walking up. Function-valued bindings stay handled by the branch above (their
+      // body refs roll to the function; the name/decl ref keeps the prior module rollup).
+      if (!isFn) {
+        const statement = topLevelVariableStatement(up);
+        if (statement !== undefined) {
+          const kind = isConst(statement) ? 'const' : 'variable';
+          return encloser(up.name.text, kind, up.name, statement);
+        }
+      }
     }
   }
   return undefined;
+}
+
+/** The `VariableStatement` of `decl` iff it sits at module top level (its parent is the
+ *  SourceFile) — i.e. a re-resolvable module-scope binding. `undefined` for a nested
+ *  binding, a `for (const …)` head (parent is the loop, not a VariableStatement), or a
+ *  namespace-nested one. */
+function topLevelVariableStatement(decl: ts.VariableDeclaration): ts.VariableStatement | undefined {
+  const list = decl.parent;
+  if (!ts.isVariableDeclarationList(list)) return undefined;
+  const statement = list.parent;
+  if (!ts.isVariableStatement(statement)) return undefined;
+  return ts.isSourceFile(statement.parent) ? statement : undefined;
+}
+
+function isConst(statement: ts.VariableStatement): boolean {
+  return (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
 }
 
 function encloser(

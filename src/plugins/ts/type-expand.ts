@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import { spanFromRange } from './spans.ts';
 import { nodeAt } from './ast-node.ts';
+import { typeAtNode } from './type-at-node.ts';
 import type { ExpandOptions, MemberView, TypeView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
@@ -83,23 +84,6 @@ export function expandTypeAt(
   );
   if (members === undefined) return notes.length > 0 ? { ...base, notes } : base;
   return { ...base, members, ...(notes.length > 0 ? { notes } : {}) };
-}
-
-/** The type of the symbol at `node`: the DECLARED type for a type/interface/class/enum
- *  name, otherwise the type of the value at this location. (Robust where a raw
- *  `getTypeAtLocation` on a type-only name would not surface the members — §3.3.) */
-function typeAtNode(checker: ts.TypeChecker, node: ts.Node): ts.Type | undefined {
-  const symbol = checker.getSymbolAtLocation(node);
-  if (symbol !== undefined) {
-    const typeLike =
-      ts.SymbolFlags.Interface |
-      ts.SymbolFlags.TypeAlias |
-      ts.SymbolFlags.Class |
-      ts.SymbolFlags.Enum;
-    if ((symbol.flags & typeLike) !== 0) return checker.getDeclaredTypeOfSymbol(symbol);
-    return checker.getTypeOfSymbolAtLocation(symbol, node);
-  }
-  return checker.getTypeAtLocation(node);
 }
 
 /** Object-like members of `type`, or `undefined` when it has none to show (a function /

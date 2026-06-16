@@ -18,9 +18,18 @@ import { parseScssClasses, type ScssClass, type SheetReachability } from './pars
 import { parseStylesheetRoot } from './parse-root.ts';
 import { classifyForExtract, type ClassVerdict } from './extract-classify.ts';
 import { extractRules, type ExtractedRules } from './extract-rules.ts';
+import {
+  runCascadeQuery,
+  type CascadeInput,
+  type CascadeFilter,
+  type CascadeOutcome,
+} from './cascade/query.ts';
 
-// Re-export the co-extract shapes ops consume so they go through the plugin's public surface.
+// Re-export the shapes ops consume so they go through the plugin's public surface (layering:
+// ops compose plugins via their public API, never reaching into a plugin-internal module).
 export type { ClassVerdict, LeftBehindCode } from './extract-classify.ts';
+export type { CascadeInput } from './cascade/query.ts';
+export type { CascadeProperty } from './cascade/resolve.ts';
 
 type ClassifyResult =
   | { ok: true; verdicts: Map<string, ClassVerdict> }
@@ -77,6 +86,12 @@ export interface ScssPluginApi extends Plugin {
    *  sheet with those rules removed. Pure — the op writes both strings. A parse failure is
    *  returned, never thrown (§3.6). */
   extractRules(file: RepoRelPath, safeClassNames: readonly string[]): ExtractRulesResult;
+  /** Resolved cascade view (spec-css-cascade-op): every rule across the in-scope sheets whose
+   *  subject targets the class, ordered by specificity, with the winning declaration per
+   *  property. Re-parses the in-scope sheets fresh on demand (bounded, scopeable by `filter`);
+   *  cross-module/state/computed contributors stay `partial` — never a fabricated winner (§3,
+   *  §19). A bad selector (no class) returns `ok:false`, never a throw. */
+  cascadeFor(input: CascadeInput, filter?: CascadeFilter): CascadeOutcome;
 }
 
 /** Parsed facts for one stylesheet: its class declarations plus the reachability sets
@@ -287,6 +302,10 @@ export function createScssPlugin(root: string): ScssPluginApi {
       } catch (thrown) {
         return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
       }
+    },
+
+    cascadeFor(input, filter): CascadeOutcome {
+      return runCascadeQuery(root, [...warm().keys()], input, filter);
     },
   };
 }

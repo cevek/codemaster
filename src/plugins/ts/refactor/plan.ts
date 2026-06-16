@@ -8,6 +8,24 @@ import type { RepoRelPath } from '../../../core/brands.ts';
 import type { HandleRebind } from '../../../core/ids.ts';
 import type { Capture } from './capture/types.ts';
 
+/** The post-edit world a refactor must plan AGAINST when it is one step in a `transaction`
+ *  (spec-transactional-mutation): the cumulative state of all PRIOR steps, never yet written.
+ *  A planner given an overlay (a) builds its move-tree from `listing` (so a prior step's moves
+ *  /new files are baked in as the current layout) and (b) shadows the LS with `files` content +
+ *  `removed` tombstones (so every read — target resolution, reference sites, import rewrite,
+ *  the type checker — sees the prior steps' edits, not disk). Absent → plan against disk (the
+ *  standalone-op path). The overlay is set only around the synchronous plan and ALWAYS cleared,
+ *  so it never leaks into the transaction's single final gate (§2.4). */
+export interface PlanningOverlay {
+  /** Post-edit content at each touched file's CURRENT path (after prior moves) — the LS overlay. */
+  files: readonly { path: RepoRelPath; content: string }[];
+  /** Origin paths tombstoned by prior steps (moved-away sources) — hidden from the LS. */
+  removed: readonly RepoRelPath[];
+  /** The tracked-file listing AFTER prior steps (git ls-files, with prior moves applied and new
+   *  files added) — seeds the move-tree so prior structural changes appear as the current layout. */
+  listing: readonly RepoRelPath[];
+}
+
 /** One css-module import observed in the extracted file — the TS-domain analysis the op feeds
  *  to the scss plugin for co-extract (spec-css-coextract §2.3). */
 export interface CssExtractCandidate {

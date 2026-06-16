@@ -24,6 +24,18 @@ export interface I18nConfig {
   locales: string[];
   /** Translation function names to track, e.g. ['t', 'i18n.t']. */
   functions?: string[];
+  /** The module that EXPORTS the translation function / hook — a repo-relative path or any
+   *  specifier the project uses (`@/lib/i18n`, resolved via tsconfig `paths`). When set, usage
+   *  matching switches from by-NAME to by SYMBOL IDENTITY: a `t('…')` call counts iff its callee
+   *  binding resolves (through import / alias / namespace / hook-destructure) to a function from
+   *  THIS module — so a same-named `t` from another module no longer fabricates a usage, and a
+   *  renamed destructure / namespace alias of the real function is now caught. Omitted → the
+   *  by-name behaviour is kept (no regression for existing setups). */
+  module?: string;
+  /** The hook that RETURNS the translation function — e.g. `useTranslation` (so a
+   *  `const { t } = useTranslation()`, incl. a renamed `{ t: x }`, is matched by identity).
+   *  Requires `module` (the hook is anchored to it — a bare same-named hook is NOT matched). */
+  hook?: string;
   /** Reserved opt-in for template-literal key resolution. Off by default — dynamic
    *  keys are flagged `dynamic`, never guessed (ARCHITECTURE.md §18). */
   templateLiterals?: boolean;
