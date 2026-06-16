@@ -41,3 +41,11 @@ Cross-reference these by `§`; keep this file a pointer, not a copy.
 
 Stack: Node ≥ 22, ESM, strict TS via the raw compiler API (no ts-morph), `node:test`.
 Status: scaffolding — build order in ARCHITECTURE.md §17.
+
+@README.md
+
+@ARCHITECTURE.md
+
+@CONTRIBUTING.md
+
+@test/README.md
