@@ -6,7 +6,7 @@
 //
 // SCOPE: rename / move / extract / change_signature — the four that produce a plan through the
 // overlay-aware plugin methods. `codemod` (reads disk directly + detects captures against the
-// disk-LS) and CSS co-extract (an op-level scss join) are deferred follow-ups (docs/plan.md).
+// disk-LS) and CSS co-extract (an op-level scss join) are deferred follow-ups (docs/backlog.md).
 
 import type { z } from 'zod';
 import type { RepoRelPath } from '../core/brands.ts';
@@ -104,7 +104,7 @@ function planExtractStep(
   const a = args as TargetArgs & { dest: string; css?: string };
   if (a.css !== undefined) {
     return Promise.resolve(
-      'css co-extract is not supported inside a transaction — run extract_symbol standalone (follow-up: docs/plan.md)',
+      'css co-extract is not supported inside a transaction — run extract_symbol standalone (follow-up: docs/backlog.md)',
     );
   }
   return tsApi(ctx).planExtract(targetOf(a), a.dest as RepoRelPath, { css: false }, overlay);

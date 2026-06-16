@@ -10,7 +10,7 @@
 // INTRODUCED identifier (literal template text) that happens to bind a same-named local — flagging
 // that would refuse legitimate codemods wholesale (the §1 over-refusal risk) — nor a reference
 // OUTSIDE the span whose scope the rewrite changed (e.g. deleting a shadowing declaration). Those
-// reside with the whole-program typecheck the codemod already runs. See docs/plan.md.
+// reside with the whole-program typecheck the codemod already runs. See docs/backlog.md.
 
 import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
