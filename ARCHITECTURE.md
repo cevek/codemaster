@@ -515,7 +515,7 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > **over-refusal** (a false capture on a legitimate refactor is worse than the rare silent bug), so
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
 > Shared helper: `plugins/ts/refactor/capture/`. (Spec: `docs/spec-refactor-capture-safety.md`;
-> residual gaps tracked in `docs/plan.md`.)
+> residual gaps tracked in `docs/backlog.md`.)
 
 ---
 
@@ -869,7 +869,8 @@ codemaster/
     differential/            # the oracle-backed invariants (§16)
     golden/                  # output snapshots
   docs/
-    plan.md                  # implementation checklist (§17)
+    backlog.md               # open-items backlog — tagged type·imp·cx (§17)
+    plan.md                  # per-phase build checklist (folding into backlog.md as in-flight tasks land)
     about-ru.md              # long-form human guide (RU) — the "why" + big picture
     wishlist.md              # parked ideas, not yet scoped
 ```

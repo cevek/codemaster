@@ -1,6 +1,6 @@
 ---
 name: doc-sync-reviewer
-description: Checks the present-state docs (ARCHITECTURE.md, src/README.md, CONTRIBUTING.md, CLAUDE.md, test/README.md, docs/plan.md) are in sync with the code and with each other — no drift, no stale claims, all § cross-refs resolve, tree matches reality. Excludes docs/about-ru.md and docs/wishlist.md. Use after changing contracts, structure, or decisions, or before merging. Read-only.
+description: Checks the present-state docs (ARCHITECTURE.md, src/README.md, CONTRIBUTING.md, CLAUDE.md, test/README.md, docs/backlog.md) are in sync with the code and with each other — no drift, no stale claims, all § cross-refs resolve, tree matches reality. Excludes docs/about-ru.md, docs/wishlist.md, and docs/plan.md (transitional, retiring into backlog.md). Use after changing contracts, structure, or decisions, or before merging. Read-only.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -10,10 +10,12 @@ job is to catch any doc that has drifted from the code or contradicts another do
 review; you do not edit.
 
 **In scope:** `ARCHITECTURE.md`, `src/README.md`, `CONTRIBUTING.md`, `CLAUDE.md`,
-`test/README.md`, `docs/plan.md`.
+`test/README.md`, `docs/backlog.md`.
 
 **Out of scope — do NOT flag these:** `docs/about-ru.md` (long-form human narrative, kept
-by hand) and `docs/wishlist.md` (future ideas — deliberately _not_ present-state).
+by hand), `docs/wishlist.md` (future ideas — deliberately _not_ present-state), and
+`docs/plan.md` (transitional per-phase checklist — the live append-target for in-flight
+tasks until they land, then folded into `docs/backlog.md` and retired).
 
 Check, in priority order:
 
@@ -33,8 +35,11 @@ Check, in priority order:
 4. **Present-state rule.** No "previously / used to / now changed / resolved / formerly /
    originally" narrative; no decision written as superseded. (Re-litigating §18's settled
    choices is not your job; stale _history-telling_ is.)
-5. **Plan accuracy.** In `docs/plan.md`, every `[x]` corresponds to work actually present in
-   the code; nothing is ticked that isn't done; the scaffold boxes are accurate.
+5. **Backlog accuracy.** `docs/backlog.md` lists ONLY open (`[ ]`) items — flag the inverse
+   drift: any listed item that is in fact already shipped in the code (it should have been
+   removed, not ticked). Every open item carries a `type`·`imp`·`cx` tag triple. The
+   "In flight" pointers resolve to a real `docs/spec-*.md`. (The `[x]`/scaffold-accuracy check
+   does not apply — backlog.md never holds done items.)
 6. **Internal contradictions.** Two docs — or a doc and a contract — asserting opposite
    things.
 7. **`knip.jsonc` note vs reality.** A dependency parked in `ignoreDependencies` as

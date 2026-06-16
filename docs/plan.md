@@ -895,11 +895,11 @@ diff(apply)` is structural and a single-step transaction == the direct op. `refa
 > fat enough to justify its own task.
 
 - [ ] **scss `parseFailures` message leaks an ABSOLUTE path** (friction). Every scss parse-failure
-      path (`scss_classes`, `find_unused_scss_classes`, `css_cascade`) reports `{file:<rel>,
-    message:<postcss CssSyntaxError>}` where the message embeds the absolute path (postcss
-      resolves `from` to an absolute `Input.file`). Leaks the machine path into agent output and
-      breaks path-scrub/golden stability across machines. Mechanical: strip the leading `${root}/`
-      (or substitute the rel path) when recording the failure message — one shared scss helper.
+      path (`scss_classes`, `find_unused_scss_classes`, `css_cascade`) reports a file/message pair
+      where the message embeds the absolute machine path (postcss resolves `from` to an absolute
+      `Input.file`). Leaks the machine path into agent output and breaks path-scrub/golden stability
+      across machines. Mechanical: strip the leading `${root}/` (or substitute the rel path) when
+      recording the failure message — one shared scss helper.
 - [ ] **`find_unused_i18n_keys` collapses to 1000+ all-`partial` rows when ONE dynamic key exists**
       (friction; UX, honesty is correct). A single ``t(`errors.codes.${x}`)`` demotes the WHOLE
       scan to `partial` and the output cap then hides the genuinely-dead tail. Future task: (1) on
