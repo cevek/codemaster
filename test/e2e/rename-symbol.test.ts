@@ -103,6 +103,76 @@ test('rename_symbol: a shorthand property keeps its key (foo → { foo: bar }, n
   }
 });
 
+test('rename_symbol: CAPTURE guard — a rename that shadows an in-scope binding is refused (not silent)', async () => {
+  // The typecheck can't catch this: renaming slugify→upper rewrites the call `slugify(name)` to
+  // `upper(name)`, which now binds to the LOCAL `const upper` (type-compatible string→string), so
+  // the function silently stops calling slugify. Not a duplicate-identifier → the LS won't flag it.
+  // The reference-set check over the post-edit program must refuse (inbox 2026-06-16).
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/a.ts':
+      'export function slugify(s: string): string {\n  return s.toLowerCase();\n}\n' +
+      'export function makeLabel(name: string): string {\n' +
+      '  const upper = (s: string): string => s.toUpperCase();\n' +
+      '  return slugify(name) + upper(name);\n}\n',
+  });
+  try {
+    const [r] = await p.request([
+      { name: 'rename_symbol', args: { name: 'slugify', newName: 'upper' }, apply: true },
+    ]);
+    assert.ok(
+      r !== undefined && 'result' in r && !r.result.ok,
+      'a capturing rename must be refused',
+    );
+    if ('result' in r && !r.result.ok) assert.match(r.result.failure.message, /CAPTURE|capture/);
+    assert.equal(p.git('status', '--porcelain'), ''); // nothing written
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('rename_symbol: capture guard does NOT over-refuse — aliased multi-file + unrelated-scope names still apply', async () => {
+  // GUARD against the over-refusal trap (the worse regression): the symbol's references reached via
+  // an alias (`import {slugify as sg}` … `sg()`) are legitimately NOT rewritten and must NOT read as
+  // a "capture"; and a `newName` that exists only in an unrelated non-overlapping scope is fine.
+  const aliased = await project({
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"preserve","baseUrl":".","paths":{"@/*":["src/*"]}}}',
+    'src/slug.ts': 'export function slugify(s: string): string {\n  return s.toLowerCase();\n}\n',
+    'src/use.ts': "import { slugify as sg } from '@/slug';\nexport const r = sg('A');\n",
+  });
+  try {
+    const r = await rename(aliased, { name: 'slugify', newName: 'toSlug' });
+    assert.equal(
+      r.typecheck.clean,
+      true,
+      'an aliased multi-file rename must NOT be flagged a capture',
+    );
+    assert.match(r.diff, /toSlug/);
+  } finally {
+    await aliased.dispose();
+  }
+
+  const unrelated = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/a.ts':
+      'export function slugify(s: string): string {\n  return s.toLowerCase();\n}\n' +
+      'export const y = slugify("a");\n' +
+      'export function other(): string {\n  const upper = "x";\n  return upper;\n}\n',
+  });
+  try {
+    // `upper` exists only inside `other` — renaming slugify→upper does not reach it.
+    const r = await rename(unrelated, { name: 'slugify', newName: 'upper' });
+    assert.equal(
+      r.typecheck.clean,
+      true,
+      'a newName confined to an unrelated scope is not a capture',
+    );
+  } finally {
+    await unrelated.dispose();
+  }
+});
+
 test('rename_symbol: §2.8 gate — a colliding rename is refused, every file byte-identical', async () => {
   const before = {
     math: 'export const add = (a: number, b: number): number => a + b;\nexport const sum = (a: number, b: number): number => a * b;\n',
