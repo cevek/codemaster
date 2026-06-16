@@ -44,7 +44,8 @@ export const findUnusedI18nKeysOp = defineOp({
   example: { args: { prefix: 'errors.codes' } },
   notes: [
     'any dynamic call of a configured function demotes EVERY unused-claim to partial — flagged "could not prove dead", never reported as definitely unused.',
-    'usages are matched by call name as written — an `import { t as tr }` alias is missed (syntactic, not symbol-resolved).',
+    'usages are import-resolved via the TS checker: a named-import alias (`import { t as tr }; tr(…)`) counts as t, and an aliased-base member access (`import { i18n as i }; i.t(…)`) counts as a configured dotted name like i18n.t — so an aliased call no longer over-reports a used key as unused. Matching stays confined to user-named bindings — a bare t never matches an arbitrary `obj.t()`, nor a destructure rename of a non-i18n value.',
+    'BOUNDARY: a key used ONLY through a binding the resolver does not follow — a renamed destructure of the hook (`const { t: x } = useTranslation()`), element access (`i18n["t"]`), or `t` passed as a value — is not counted, so it may be reported unused. The certain/partial verdict reflects the RESOLVED usage scan only (a by-name limit; the module-anchored close is docs/plan.md F-b).',
     'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED (the whole-locale answer caps fast — narrow it); scanned.keys reflects the scope. The degraded verdict still reflects the whole usage scan, so scoping never invents a certain-dead key.',
   ],
   table: findUnusedI18nKeysTable,

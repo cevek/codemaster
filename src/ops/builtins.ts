@@ -11,6 +11,7 @@ import { expandTypeOp } from './expand-type.ts';
 import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
 import { importersOfOp } from './importers-of.ts';
+import { findUnusedExportsOp } from './find-unused-exports.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
 import { i18nLookupOp } from './i18n-lookup.ts';
 import { findUnusedI18nKeysOp } from './find-unused-i18n-keys.ts';
@@ -21,6 +22,7 @@ import { moveFileOp } from './move-file.ts';
 import { extractSymbolOp } from './extract-symbol.ts';
 import { changeSignatureOp } from './change-signature.ts';
 import { codemodOp } from './codemod.ts';
+import { impactOp } from './impact.ts';
 import { feedbackOp } from './feedback.ts';
 
 export function builtinOps(): readonly AnyOpDefinition[] {
@@ -31,6 +33,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     expandTypeOp,
     sourceOp,
     importersOfOp,
+    findUnusedExportsOp,
     scssClassesOp,
     findUnusedScssClassesOp,
     i18nLookupOp,
@@ -42,6 +45,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     extractSymbolOp,
     changeSignatureOp,
     codemodOp,
+    impactOp,
     feedbackOp,
   ];
 }

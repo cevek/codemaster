@@ -17,6 +17,7 @@ import { gitLsFiles } from '../support/git/ls-files.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
 import { matchesAnyGlob } from '../common/glob/match.ts';
 import { readTextFile } from '../support/fs/read-file.ts';
+import type { Capture, CodemodEdit, CodemodRegion, TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { absOf } from './mutation-support.ts';
 import { applyMutation, type MutationChange } from './refactor-apply.ts';
@@ -84,11 +85,63 @@ function rewriteFile(
   before: string,
   pattern: string,
   rewrite: string,
-): string | null {
+): { after: string; regions: CodemodRegion[] } | null {
   const root = sg.parse(isTsx ? sg.Lang.Tsx : sg.Lang.TypeScript, before).root();
   const matches = root.findAll(pattern);
   if (matches.length === 0) return null;
-  return root.commitEdits(matches.map((m) => m.replace(substitute(rewrite, m))));
+  const edits = matches.map((m) => m.replace(substitute(rewrite, m)));
+  const after = root.commitEdits(edits);
+  // The post-edit span of each rewrite (for capture-safety §): sort by start offset, accumulate the
+  // length delta of earlier edits. `commitEdits` DROPS an edit that overlaps an already-applied one
+  // (nested matches: `f($X)` over `f(f(1))` yields two matches, only the outer is committed), so we
+  // must mirror that here — an overlapping edit is skipped, contributing NO delta — else its phantom
+  // delta shifts every later region (a desynced capture window).
+  //
+  // ast-grep offsets are UTF-8 BYTE indices; the capture check enumerates identifiers at TS UTF-16
+  // CHAR offsets. Mixing them on non-ASCII source mis-bounds a window — which can MISS a capture OR
+  // FABRICATE one (refuse a clean codemod, the §1 over-refusal risk). So convert every edit boundary
+  // byte→UTF-16 up front and build the regions entirely in char space (`insertedText.length` is
+  // already UTF-16). The written `after` is byte-correct regardless (it's ast-grep's commitEdits).
+  const charOf = byteToUtf16(
+    before,
+    edits.flatMap((e) => [e.startPos, e.endPos]),
+  );
+  const regions: CodemodRegion[] = [];
+  let delta = 0;
+  let prevEnd = -1;
+  for (const e of [...edits].sort((a, b) => a.startPos - b.startPos)) {
+    const beforeStart = charOf(e.startPos);
+    const beforeEnd = charOf(e.endPos);
+    if (beforeStart < prevEnd) continue; // overlaps an applied edit → dropped by commitEdits
+    const deletedLength = beforeEnd - beforeStart;
+    const afterStart = beforeStart + delta;
+    const afterEnd = afterStart + e.insertedText.length;
+    regions.push({ beforeStart, beforeEnd, afterStart, afterEnd });
+    delta += e.insertedText.length - deletedLength;
+    prevEnd = beforeEnd;
+  }
+  return { after, regions };
+}
+
+/** A byte-offset → UTF-16-char-offset resolver for `text`, built in ONE pass over the requested
+ *  offsets (ast-grep reports UTF-8 byte indices; TS — and the capture check — use UTF-16). For an
+ *  ASCII file every byte == its char index, so this is the identity; it only matters on non-ASCII.
+ *  An offset that isn't on a code-point boundary (shouldn't happen for AST node bounds) falls back
+ *  to the byte value, preserving the old ASCII behavior. */
+function byteToUtf16(text: string, byteOffsets: readonly number[]): (byte: number) => number {
+  const want = [...new Set(byteOffsets)].sort((a, b) => a - b);
+  const map = new Map<number, number>();
+  let byte = 0;
+  let utf16 = 0;
+  let wi = 0;
+  for (const cp of text) {
+    while (wi < want.length && want[wi] === byte) map.set(want[wi++] as number, utf16);
+    if (wi >= want.length) break;
+    byte += Buffer.byteLength(cp, 'utf8');
+    utf16 += cp.length;
+  }
+  while (wi < want.length && (want[wi] as number) <= byte) map.set(want[wi++] as number, utf16);
+  return (b) => map.get(b) ?? b;
 }
 
 export const codemodOp = defineOp<CodemodArgs, JsonValue>({
@@ -103,6 +156,7 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
     'matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).',
     'dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.',
     'paths (optional) are GLOBS over tracked .ts/.tsx (e.g. "src/features/**", "**/*.tsx") — a literal file path works too; an entry that selects no tracked TS file FAILS loudly (never a silent clean). Omit paths to scan every tracked TS file.',
+    'capture-safe (best-effort, shape-based): a metavar ($X/$$$X) identifier PRESERVED into a rewritten span that silently re-resolves to a different declaration is listed under `captures` and apply is REFUSED. An INTRODUCED identifier binding a same-named local is NOT flagged (it would over-refuse) — the whole-program typecheck is its guard. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const root = ctx.daemon?.root;
@@ -177,21 +231,45 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
     }
 
     const changes: MutationChange[] = [];
+    const codemodEdits: CodemodEdit[] = [];
     try {
       for (const path of files) {
         const read = readTextFile(absOf(root, path));
         if (!read.ok) continue; // unreadable file — skip, never guess
-        const after = rewriteFile(sg, path.endsWith('.tsx'), read.data, args.pattern, args.rewrite);
-        if (after !== null && after !== read.data) changes.push({ path, before: read.data, after });
+        const rw = rewriteFile(sg, path.endsWith('.tsx'), read.data, args.pattern, args.rewrite);
+        if (rw !== null && rw.after !== read.data) {
+          changes.push({ path, before: read.data, after: rw.after });
+          codemodEdits.push({ path, before: read.data, after: rw.after, regions: rw.regions });
+        }
       }
     } catch (thrown) {
       return failFromThrown('ast-grep', thrown);
+    }
+
+    // Capture-safety (§): a metavar-preserved identifier inside a rewritten span can silently
+    // re-resolve to a DIFFERENT declaration (type-compatible → invisible to the §2.8 gate). The LS
+    // access lives in the ts plugin (ops never reach the LS — §5-L3). A throw here degrades the
+    // signal to a warning rather than sinking a codemod the typecheck still gates (§3.6).
+    let captures: Capture[] = [];
+    const captureWarnings: string[] = [];
+    if (codemodEdits.length > 0) {
+      try {
+        captures = ctx.plugins.get<TsPluginApi>('ts').detectCodemodCaptures(codemodEdits);
+      } catch {
+        captureWarnings.push(
+          'the capture-safety check could not run — the §2.8 whole-program typecheck still gated this edit',
+        );
+      }
     }
 
     // Shape-based: a rewrite can break an un-matched importer, so widen the §2.8 gate to the
     // whole program (crossFileScope) — unlike symbol-anchored rename, whose changeset is complete.
     return applyMutation(ctx, changes, {
       crossFileScope: true,
+      captures,
+      captureAction:
+        'narrow the pattern, or rename the colliding binding the rewrite now resolves to',
+      ...(captureWarnings.length > 0 ? { warnings: captureWarnings } : {}),
       ...(args.dirtyOk !== undefined ? { dirtyOk: args.dirtyOk } : {}),
     });
   },

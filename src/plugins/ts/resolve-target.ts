@@ -13,7 +13,73 @@ export type ResolvedTarget =
   | { ok: true; abs: string; offset: number; rebind?: HandleRebind }
   | { ok: false; message: string; rebind?: HandleRebind };
 
-export function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
+/** The three ways an agent addresses a symbol (§6 targets): a held `ts:` SymbolId, an
+ *  explicit `file+line+col`, or an unambiguous `name`. */
+export type TsTargetInput = {
+  /** A `ts:`-prefixed SymbolId from a previous answer. */
+  symbol?: string | undefined;
+  /** Or an explicit position. */
+  file?: string | undefined;
+  line?: number | undefined;
+  col?: number | undefined;
+  /** Or a name to resolve via workspace symbol search (must match exactly one). */
+  name?: string | undefined;
+};
+
+/** Resolve any `TsTargetInput` to a concrete `{abs, offset}` (with a §6 rebind when a held
+ *  SymbolId's file moved). Pure over the host — the shared entry every symbol-addressed read
+ *  method funnels through, so SymbolId / file:line:col / name dispatch lives in one place. */
+export function resolveTarget(h: TsProjectHost, target: TsTargetInput): ResolvedTarget {
+  if (target.symbol !== undefined) return resolveSymbolId(h, target.symbol);
+  if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
+    const abs = h.absOf(target.file as RepoRelPath);
+    const sourceFile = h.service.getProgram()?.getSourceFile(abs);
+    if (sourceFile === undefined) {
+      return { ok: false, message: `file not in the TS project: ${target.file}` };
+    }
+    const offset = offsetOfLoc(sourceFile, target.line, target.col);
+    if (offset === undefined) {
+      return {
+        ok: false,
+        message: `position ${target.line}:${target.col} is outside ${target.file}`,
+      };
+    }
+    return { ok: true, abs, offset };
+  }
+  if (target.name !== undefined) return resolveByName(h, target.name);
+  return { ok: false, message: 'target needs symbol, file+line+col, or name' };
+}
+
+/** Name → position, via the LS workspace-symbol provider. Multiple navto entries are often
+ *  ONE logical symbol seen twice (a declaration + its `export { X }` specifier — the shadcn
+ *  module pattern), so candidates are deduped by definition; a genuine ambiguity returns the
+ *  candidate list with file:line:col (+ kind) so the agent can pick one. */
+function resolveByName(h: TsProjectHost, name: string): ResolvedTarget {
+  const matches = searchSymbols(h, name, 10).matches.filter((m) => m.name === name);
+  const first = matches[0];
+  if (first === undefined) return { ok: false, message: `no symbol named '${name}'` };
+  const distinct = matches.length === 1 ? [first] : dedupeByDefinition(h, matches);
+  const sole = distinct[0];
+  if (distinct.length > 1 || sole === undefined) {
+    // Carry file:line:COL (+ kind) — two distinct declarations can share a line (a `const` and
+    // its named function expression both at col 41); without the column they render as a
+    // spurious duplicate. The col also makes each entry a copy-paste file:line:col target.
+    return {
+      ok: false,
+      message: `'${name}' is ambiguous (${distinct.length} distinct declarations: ${distinct
+        .map((m) => `${m.span.file}:${m.span.line}:${m.span.col} (${m.kind})`)
+        .join(', ')}) — pass file:line:col or a SymbolId`,
+    };
+  }
+  const abs = h.absOf(sole.span.file);
+  const sourceFile = h.service.getProgram()?.getSourceFile(abs);
+  const offset =
+    sourceFile === undefined ? undefined : offsetOfLoc(sourceFile, sole.span.line, sole.span.col);
+  if (offset === undefined) return { ok: false, message: `cannot locate '${name}'` };
+  return { ok: true, abs, offset };
+}
+
+function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
   const decoded = decodeSymbolId(id);
   if (decoded === undefined || decoded.plugin !== 'ts') {
     return { ok: false, message: `not a ts SymbolId: '${id}'` };
@@ -101,7 +167,7 @@ export function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
 /** Collapse same-named navto candidates that resolve to one declaration (decl +
  *  `export { X }` re-mention). Candidates whose definition can't be resolved stay —
  *  dropping them could hide a real ambiguity. */
-export function dedupeByDefinition(h: TsProjectHost, matches: readonly SymbolView[]): SymbolView[] {
+function dedupeByDefinition(h: TsProjectHost, matches: readonly SymbolView[]): SymbolView[] {
   const byDefinition = new Map<string, SymbolView>();
   for (const match of matches) {
     const abs = h.absOf(match.span.file);

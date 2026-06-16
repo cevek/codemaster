@@ -10,6 +10,8 @@ const opRequestSchema = z.object({
   name: z.string().min(1),
   args: jsonValue.default({}),
   apply: z.boolean().optional(),
+  /** Mutating ops: return only the verdict + a per-file diffstat, omitting the unified diff. */
+  summaryOnly: z.boolean().optional(),
   verbosity: z.enum(['terse', 'normal', 'full']).optional(),
   format: z.enum(['text', 'json']).optional(),
   debug: z.boolean().optional(),
@@ -29,7 +31,14 @@ export const opToolSchema = opRequestSchema.extend({
   return: returnModeSchema,
 });
 
-export const statusToolSchema = z.object({ root: z.string().optional() });
+export const statusToolSchema = z.object({
+  root: z.string().optional(),
+  /** Token-saver renders (spec-agent-surface-ergonomics §1). Default (both absent) is the
+   *  FULL manifest. `brief` drops arg schemas / per-op notes / concepts; `op` renders just
+   *  that one op's full detail (and takes precedence over `brief`). */
+  brief: z.boolean().optional(),
+  op: z.string().optional(),
+});
 
 export const batchToolSchema = z.object({
   requests: z.array(opRequestSchema).min(1),
@@ -64,6 +73,10 @@ export const TOOL_DESCRIPTORS = [
         name: { type: 'string', description: 'Op name from the status catalogue' },
         args: { type: 'object', description: 'Op-specific args (schema in status)' },
         apply: { type: 'boolean', description: 'Mutating ops: actually write (default dry-run)' },
+        summaryOnly: {
+          type: 'boolean',
+          description: 'Mutating ops: verdict + diffstat only, omit the unified diff',
+        },
         verbosity: { type: 'string', enum: ['terse', 'normal', 'full'] },
         format: { type: 'string', enum: ['text', 'json'] },
         debug: { type: 'boolean', description: 'Inline per-call debug trace' },
@@ -87,10 +100,18 @@ export const TOOL_DESCRIPTORS = [
     name: 'status',
     exampleCall: {},
     description:
-      'First contact: active plugins, per-repo op catalogue with arg schemas, freshness, debug topics.',
+      'First contact: active plugins, per-repo op catalogue with arg schemas, freshness, debug topics. ' +
+      'Pass brief:true for names+summaries only, or op:"<name>" for one op\'s full schema.',
     inputSchema: {
       type: 'object',
-      properties: { root: { type: 'string' } },
+      properties: {
+        root: { type: 'string' },
+        brief: {
+          type: 'boolean',
+          description: 'Names + summaries only (drops arg schemas, per-op notes, concepts)',
+        },
+        op: { type: 'string', description: "Render only this one op's full detail on demand" },
+      },
     },
   },
   {
@@ -111,6 +132,7 @@ export const TOOL_DESCRIPTORS = [
               name: { type: 'string' },
               args: { type: 'object' },
               apply: { type: 'boolean' },
+              summaryOnly: { type: 'boolean' },
               verbosity: { type: 'string', enum: ['terse', 'normal', 'full'] },
               format: { type: 'string', enum: ['text', 'json'] },
               as: {

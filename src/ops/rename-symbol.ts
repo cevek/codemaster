@@ -37,6 +37,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
   notes: [
     'dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.',
     'apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.',
+    'capture-safe: if the new name shadows / is shadowed by an in-scope binding so a rewritten reference would silently re-bind to a DIFFERENT symbol (type-compatible → invisible to the typecheck), the sites are listed under `captures` and apply is REFUSED (shown on dry-run too). summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -99,6 +100,8 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
       ...(args.dirtyOk !== undefined ? { dirtyOk: args.dirtyOk } : {}),
       ...(outcome.rebind !== undefined ? { handle: outcome.rebind } : {}),
       ...(warnings !== undefined ? { warnings } : {}),
+      captures: outcome.captures,
+      captureAction: `pick a different newName than \`${args.newName}\`, or remove the shadowing binding first`,
       buildNote: (changes) => {
         // Aliases are AST-found in the FORMATTED post-rename content (per touched file), so the
         // spans match exactly what apply writes (§3.2). The op resolves the helper through the

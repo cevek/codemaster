@@ -23,11 +23,14 @@ import type { HandleRebind } from '../core/ids.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import { ok, fail, failFromThrown, messageOfThrown } from '../common/result/construct.ts';
 import { writeFileAtomic } from '../support/text-edits/write.ts';
-import type { TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { Capture, TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
 import {
   absOf,
   buildTypecheckField,
+  capturesField,
+  captureRefusal,
+  diffstat,
   formatOne,
   resolvePrettier,
   dirtyAmong,
@@ -64,6 +67,13 @@ export interface ApplyOptions {
   buildNote?: (
     changes: readonly MutationChange[],
   ) => { fields?: Record<string, JsonValue>; notes?: string[] } | undefined;
+  /** Capture sites (§ capture-safety) the caller detected — rewritten references that would
+   *  silently re-bind to a DIFFERENT symbol (type-compatible → invisible to the §2.8 gate).
+   *  Surfaced on every envelope; apply is REFUSED when non-empty. Absent/empty → no capture. */
+  captures?: readonly Capture[];
+  /** The corrective action named in the capture-refusal message (op-specific, e.g. "pick a
+   *  different newName"). */
+  captureAction?: string;
 }
 
 /** Write every `before` back to disk (byte-exact revert) and reindex. Best-effort: a failed
@@ -138,9 +148,23 @@ export async function applyMutation(
   const baseNotes = notes.length > 0 ? { notes } : {};
   const appliedFields = built?.fields ?? {};
   const touched = changes.map((c) => c.path);
-  const diff = changes
-    .map((c) => createTwoFilesPatch(c.path, c.path, c.before, c.after, '', ''))
-    .join('');
+  const captures = options.captures ?? [];
+  const captureRows = capturesField(captures);
+  // Verdict-first envelope tail (§3a): `summaryOnly` swaps the (tens-of-KB) unified diff for a
+  // compact per-file `+added/-removed` diffstat — the safety verdict stays, the bytes don't. Either
+  // way it is the LAST key, so the render cap can only ever truncate it, never the verdict.
+  const tail: Record<string, JsonValue> =
+    ctx.flags.summaryOnly === true
+      ? {
+          diffstat: diffstat(
+            changes.map((c) => ({ label: String(c.path), before: c.before, after: c.after })),
+          ),
+        }
+      : {
+          diff: changes
+            .map((c) => createTwoFilesPatch(c.path, c.path, c.before, c.after, '', ''))
+            .join(''),
+        };
 
   // §2.8 gate — typecheck the post-edit content over the overlay. Scope depends on whether the
   // changeset is COMPLETE: a symbol-anchored rename (LS findRenameLocations) touches every ref
@@ -166,19 +190,42 @@ export async function applyMutation(
   const gate = buildTypecheckField(baselineDiag, overlayDiag);
   const typecheck = gate.field;
 
-  // Envelope key order matters: the unified `diff` can be tens of KB and the render self-caps at a
-  // char budget (§12), so anything emitted AFTER the diff (the typecheck verdict + touched count —
-  // the whole point of the gate) falls past the cap on a big edit and the agent never sees whether
-  // the edit is safe (spec-stresstest §3a). So the verdict summary leads and `diff` is ALWAYS the
-  // last key — the cap can only ever truncate the (re-fetchable) diff, never the verdict.
+  // Envelope key order matters: the diff/diffstat tail can be tens of KB and the render self-caps
+  // at a char budget (§12), so anything emitted AFTER it (the typecheck + captures verdict + touched
+  // count — the whole point of the gates) falls past the cap on a big edit and the agent never sees
+  // whether the edit is safe (spec-stresstest §3a). So the verdict summary (typecheck, captures)
+  // leads and the diff/diffstat is ALWAYS the last key — the cap can only truncate the re-fetchable
+  // bytes, never the verdict.
   const refused = (reason: string): Result<JsonValue> =>
     ok<JsonValue>(
-      { mode: 'dry-run', applied: false, reason, typecheck, touched, ...baseNotes, diff },
+      {
+        mode: 'dry-run',
+        applied: false,
+        reason,
+        typecheck,
+        touched,
+        ...captureRows,
+        ...baseNotes,
+        ...tail,
+      },
       handleExtra,
     );
 
   if (ctx.flags.apply !== true) {
-    return ok<JsonValue>({ mode: 'dry-run', typecheck, touched, ...baseNotes, diff }, handleExtra);
+    return ok<JsonValue>(
+      { mode: 'dry-run', typecheck, touched, ...captureRows, ...baseNotes, ...tail },
+      handleExtra,
+    );
+  }
+  // Capture gate FIRST (§ capture-safety): a type-compatible re-bind is the insidious one the §2.8
+  // typecheck cannot see, so refuse on it before the typecheck verdict (both fields stay visible).
+  if (captures.length > 0) {
+    return refused(
+      captureRefusal(
+        captures,
+        options.captureAction ?? 'pick a different edit, or remove the shadowing binding first',
+      ),
+    );
   }
   if (!gate.clean) {
     return refused('this edit introduces new typecheck errors — apply refused (§2.8)');
@@ -210,8 +257,9 @@ export async function applyMutation(
         typecheck: tc,
         touched,
         rollback: { performed: reverted.complete, reason },
+        ...captureRows,
         ...baseNotes,
-        diff,
+        ...tail,
       },
       handleExtra,
     );
@@ -255,7 +303,7 @@ export async function applyMutation(
       ...baseNotes,
       // Proof spans valid only now that the post-edit content is on disk (§3.2).
       ...appliedFields,
-      diff, // last — the cap can only ever truncate the diff, never the verdict (§3a).
+      ...tail, // last — the cap can only ever truncate the diff/diffstat, never the verdict (§3a).
     },
     handleExtra,
   );

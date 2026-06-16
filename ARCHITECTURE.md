@@ -497,6 +497,21 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > needed, so a double-fire from the watcher (seeing our own writes) or a missed event is
 > **self-correcting**, not a stale window to defend.
 
+> **Capture-safety gate (`captures`).** The post-edit typecheck is necessary but **not
+> sufficient**: a mutation that rewrites references/imports can make a rewritten site silently
+> re-bind to a _different_, **type-compatible** symbol/module (a shadow, or a relinked import
+> landing on a same-named export) — invisible to the typecheck and not a redeclaration the LS
+> flags. So every mutating op runs a second, bounded gate: re-resolve the exact rewritten sites
+> over the post-edit overlay and confirm each still binds to the SAME symbol it did before
+> (rename = the LS reference set, both directions; move/extract = the project's own module
+> resolution; codemod = the resolved declaration of each metavar-preserved identifier). Divergences
+> surface as `captures: [{file:line:col, kind, detail}]` on the envelope — shown on dry-run, and
+> **apply is refused** when non-empty, exactly like the typecheck gate. The #1 design risk is
+> **over-refusal** (a false capture on a legitimate refactor is worse than the rare silent bug), so
+> detection is conservative: a divergence is flagged only when positively proven, never fabricated.
+> Shared helper: `plugins/ts/refactor/capture/`. (Spec: `docs/spec-refactor-capture-safety.md`;
+> residual gaps tracked in `docs/plan.md`.)
+
 ---
 
 ## 8. Plugin lifecycle, watcher, freshness
@@ -621,11 +636,17 @@ honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
 'text'|'json'`, etc. (§12); column projection is done with `sql`, not a `fields` flag. There
   are no individual MCP tools per op — that would scale
   the token tax linearly with the op catalogue.
-- **`status()`** — the first-contact manifest. Lists active plugins (with their
-  versions/freshness fingerprints), the op catalogue for _this_ repo (op names + one-line
-  what-it-does + args schema), available debug namespaces (§13), and a steer toward
-  codemaster vs grep. Teaches the op catalogue **dynamically**, so ops cost zero standing
-  context — only `op`/`status`/`batch` do. It also carries the **self-staleness** line
+- **`status({ brief?, op? })`** — the first-contact manifest. Lists active plugins (with
+  their versions/freshness fingerprints), the op catalogue for _this_ repo (op names +
+  one-line what-it-does + args schema + per-op notes + the shared concepts), and available
+  debug namespaces (§13). Teaches the op catalogue **dynamically**, so ops cost zero
+  standing context — only `op`/`status`/`batch` do. The codemaster-vs-grep steer is **not**
+  re-emitted here — it ships once per session in the MCP `initialize` response
+  (`SERVER_INSTRUCTIONS`), so repeating it every `status` would be a pure token tax.
+  Two opt-in token-saver renders sit on top of the FULL default: **`brief: true`** drops
+  the arg schemas / per-op notes / concepts and prints just names + summaries; **`op:
+"<name>"`** renders one op's full detail on demand (cheaper than re-emitting the whole
+  catalogue to re-read one op). It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend a
   one-line "reconnect MCP" banner — suppressed in `format:'json'` (it would corrupt the
@@ -650,8 +671,9 @@ discovered through `status`.
 Usage guidance ships in the MCP `initialize` response — **not** an instructions file
 bolted into `CLAUDE.md`/`AGENTS.md` — and it steers the agent to **query codemaster
 directly rather than delegate to file-reading sub-agents** (the plugins already did that
-work; a sub-agent grep/read loop just repeats it). `status` carries the same steer per
-repo, plus the per-repo op catalogue.
+work; a sub-agent grep/read loop just repeats it). `status` does **not** re-emit that steer
+(it would be a per-call duplicate of the once-per-session `initialize` instructions); it
+carries the per-repo op catalogue.
 
 ---
 

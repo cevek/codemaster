@@ -30,6 +30,7 @@ export const moveFileOp = defineOp<MoveArgs, JsonValue>({
   notes: [
     'dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.',
     'dry-run writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back to the pre-op state if the post-apply typecheck shows newly-introduced errors.',
+    'capture-safe: each rewritten import is re-resolved over the post-move tree — if one lands on a DIFFERENT same-named, type-compatible export (a path-capture the typecheck cannot see) the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

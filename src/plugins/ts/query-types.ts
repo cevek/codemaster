@@ -27,6 +27,11 @@ export type SymbolView = {
    *  `findDefinitions`; absent where a declaration node couldn't be located. */
   decl?: Span;
   container?: string;
+  /** The symbol's type has a call/construct signature (a function, method, class, OR an
+   *  arrow/fn-expr-bound `const` whose `kind` reads as `const`). `impact` uses this to flag a
+   *  value-only read of a CALLABLE as a dynamic-dispatch boundary — a kind-only check misses the
+   *  arrow-const case. Populated by `buildDefinition`; absent where it wasn't computed. */
+  callable?: boolean;
 };
 
 export type UsageView = {

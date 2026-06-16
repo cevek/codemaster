@@ -57,40 +57,68 @@ export interface StatusView {
    *  project. Surfaced instead of the generic "none resolved" so the agent learns the cause. */
   workspaceError: string | undefined;
   debugTopics: readonly string[];
-  guidance: readonly string[];
   /** True when codemaster's own source changed since the daemon spawned — it is serving
    *  behavior older than the code on disk (§3.6 applied to the tool itself). */
   sourceStale: boolean;
 }
 
-export function renderStatus(view: StatusView): string {
+/** Render dials for `status` (spec-agent-surface-ergonomics §1). The FULL render is the
+ *  default + the golden; `brief`/`op` are opt-in token-savers an agent reaches for once it
+ *  knows the catalogue:
+ *  - `brief` — header + warm roots + plugins + per-op NAME+summary + freshness only; no arg
+ *    schemas, no per-op notes, no concepts dump (the heavy two-thirds of the full render).
+ *  - `op` — one op's full block (schema + notes + columns + example) on demand. Beats
+ *    re-emitting the whole catalogue to re-read a single op. */
+export interface RenderStatusOptions {
+  brief?: boolean | undefined;
+  /** Render only this op's full detail. Takes precedence over `brief`. */
+  op?: string | undefined;
+}
+
+export function renderStatus(view: StatusView, options?: RenderStatusOptions): string {
+  const header = renderHeader(view);
+  if (options?.op !== undefined) return [...header, ...renderSingleOp(view, options.op)].join('\n');
+  if (options?.brief === true) return renderBrief(view, header).join('\n');
+  return renderFull(view, header).join('\n');
+}
+
+/** The daemon line (+ self-staleness banner + warm roots) — shared verbatim by every render
+ *  mode so the brief/op surfaces never drift from full in the header. */
+function renderHeader(view: StatusView): string[] {
   const lines: string[] = [
     `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
   // §3.6 applied to the tool itself: if our own source moved since spawn, say so loudly and
   // first — the agent is otherwise talking to a daemon serving pre-edit behavior.
-  if (view.sourceStale) {
-    lines.push(SOURCE_STALE_LINE);
-  }
+  if (view.sourceStale) lines.push(SOURCE_STALE_LINE);
   // Warm engines by root (cross-repo §2): a query/batch request may carry `root` to target
   // any of these sibling repos; this is the agent's signal that multi-root is live.
-  if (view.engineRoots.length > 0) {
-    lines.push(`warm roots: ${view.engineRoots.join(' · ')}`);
-  }
+  if (view.engineRoots.length > 0) lines.push(`warm roots: ${view.engineRoots.join(' · ')}`);
+  return lines;
+}
 
+/** The workspace identity + freshness line (or the §4c "why no workspace" line). Shared by
+ *  full + brief. */
+function renderWorkspaceLines(view: StatusView): string[] {
   const ws = view.workspace;
   if (ws === undefined) {
     // §4c: name the cause (bad root / not a TS project) instead of a bare "none resolved".
-    lines.push(
+    return [
       view.workspaceError !== undefined
         ? `workspace: none resolved — ${view.workspaceError}`
         : 'workspace: none resolved (pass root, or call from inside a repo)',
-    );
-  } else {
-    lines.push(`workspace: ${ws.root}`);
-    lines.push(
-      `  freshness=${ws.freshnessMode} watcher=${renderWatcher(ws.watcher)} config=${ws.configSource ?? 'defaults (no codemaster.config.*)'}`,
-    );
+    ];
+  }
+  return [
+    `workspace: ${ws.root}`,
+    `  freshness=${ws.freshnessMode} watcher=${renderWatcher(ws.watcher)} config=${ws.configSource ?? 'defaults (no codemaster.config.*)'}`,
+  ];
+}
+
+function renderFull(view: StatusView, header: string[]): string[] {
+  const lines = [...header, ...renderWorkspaceLines(view)];
+  const ws = view.workspace;
+  if (ws !== undefined) {
     lines.push(renderPlugins(ws.plugins));
     lines.push(...renderOps(ws.ops));
     // The shared mechanics — status IS the documentation, so the concepts that belong to
@@ -100,10 +128,46 @@ export function renderStatus(view: StatusView): string {
       for (const concept of CONCEPTS_LINES) lines.push(`  ${concept}`);
     }
   }
-
   if (view.debugTopics.length > 0) lines.push(`debug topics: ${view.debugTopics.join(',')}`);
-  lines.push(...view.guidance.map((g) => `> ${g}`));
-  return lines.join('\n');
+  // No GUIDANCE tail: the steer ships once per session in the MCP `initialize` response
+  // (SERVER_INSTRUCTIONS) — re-emitting it on every status was a verbatim duplicate
+  // (spec-agent-surface-ergonomics §2).
+  return lines;
+}
+
+/** Brief render (§1): the daemon/workspace/plugins frame + a one-line-per-op catalogue
+ *  (name + summary), dropping arg schemas, per-op notes, columns, examples and the concepts
+ *  dump. The agent learns WHICH ops exist; `status {op:"<name>"}` fetches one's full detail. */
+function renderBrief(view: StatusView, header: string[]): string[] {
+  const lines = [...header, ...renderWorkspaceLines(view)];
+  const ws = view.workspace;
+  if (ws !== undefined) {
+    lines.push(renderPlugins(ws.plugins));
+    if (ws.ops.length === 0) {
+      lines.push('ops: none (no plugins active; op catalogue grows with each plugin)');
+    } else {
+      lines.push(
+        `ops (${ws.ops.length}) — names+summaries; \`status {op:"<name>"}\` for full schema:`,
+      );
+      for (const op of ws.ops) {
+        lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} — ${op.summary}`);
+      }
+    }
+  }
+  return lines;
+}
+
+/** Single-op render (§1): one op's full catalogue block on demand. An unknown name lists the
+ *  available ops so the agent self-corrects without a second `status` round-trip. */
+function renderSingleOp(view: StatusView, name: string): string[] {
+  const ws = view.workspace;
+  if (ws === undefined) return renderWorkspaceLines(view);
+  const op = ws.ops.find((o) => o.name === name);
+  if (op === undefined) {
+    const names = ws.ops.map((o) => o.name).join(', ');
+    return [`op '${name}' not in this repo's catalogue (${ws.ops.length} ops): ${names}`];
+  }
+  return renderOps([op]);
 }
 
 function renderWatcher(watcher: WorkspaceStatusView['watcher']): string {

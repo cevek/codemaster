@@ -59,7 +59,7 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
           const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
           if (!parsed.success) return badArgs('status', parsed.error.message);
           const view = await orchestrator.status(cwd, parsed.data.root);
-          return text(renderStatus(view));
+          return text(renderStatus(view, { brief: parsed.data.brief, op: parsed.data.op }));
         }
         case 'op': {
           const parsed = opToolSchema.safeParse(request.params.arguments ?? {});

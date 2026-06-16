@@ -182,7 +182,6 @@ export class Orchestrator {
       workspace,
       workspaceError,
       debugTopics: this.deps.debug.topics(),
-      guidance: GUIDANCE,
       sourceStale: this.sourceStale(),
     };
   }
@@ -355,14 +354,6 @@ export class Orchestrator {
     }
   }
 }
-
-const GUIDANCE = [
-  'Query codemaster directly for structural/semantic answers instead of grepping or delegating to file-reading subagents.',
-  'Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.',
-  'Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.',
-  "Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}).",
-  'Working across sibling repos? Any call or batch request may carry `root` — neighbouring TS repos are first-class (status lists the warm ones).',
-] as const;
 
 async function statusOf(host: ProjectHost): Promise<WorkspaceStatusView | undefined> {
   return engineOf(host)?.status();

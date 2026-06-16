@@ -14,6 +14,11 @@ import type { JsonValue } from '../core/json.ts';
 export interface OpFlags {
   /** Mutating ops only: `false` (default) → dry-run preview; `true` → apply writes. */
   apply?: boolean;
+  /** Mutating ops only: omit the (potentially huge) unified `diff` from the envelope and return
+   *  only the verdict (`mode`/`applied`/`typecheck`/`captures`/`touched`) + a per-file `diffstat`
+   *  (+added/-removed line counts). For when the agent wants the safety verdict, not the bytes —
+   *  re-run without the flag for the full diff. */
+  summaryOnly?: boolean;
   /** Output density (§12). */
   verbosity?: Verbosity;
   /** Output mode. Default `text` (the dense formatter); `json` for machine composition. */

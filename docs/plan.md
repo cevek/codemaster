@@ -374,8 +374,35 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
 - [ ] `ops/component-card.ts`, `ops/feature-map.ts`, `ops/mount-path.ts`,
       `ops/find-unused-props.ts`, `ops/why-this-line.ts`, `ops/recent-changes.ts`,
       `ops/changed-since-branch.ts`, `ops/refactor-extract-container.ts`
-- [ ] `ops/impact.ts` — type-aware blast radius (the real type errors a change would
-      cause, not just call edges)
+- [x] `ops/impact.ts` — type-aware blast radius: the bounded transitive set of DEPENDENTS,
+      a depth/node-capped BFS over `find_usages` (encloser rollup). Proof-carrying, cycle-safe
+      (visited-set), honest truncation + value-flow `dynamic` boundaries (spec-impact-op.md).
+      Deferred follow-ups (out of this task's scope — parked, not lost):
+  - [ ] **type-error blast radius** — beyond reference edges, simulate the change and report
+        the real `tsc` errors it would introduce at each dependent (needs a trial edit +
+        `typecheckOverlay`; the spec scoped impact to the reference closure only).
+  - [ ] **`batch + sql` table** — impact omits `TableSpec` because its hard never-hang cap
+        conflicts with sql-mode's "producers run uncapped" rule (a capped table feeding
+        `NOT IN` lies, §2.3). The `summary.byDepth` counts cover the common aggregate; a
+        sound sql face would need a "bounded-by-design, always-partial" table contract.
+  - [ ] **precise escape-site span** — a `dynamic` boundary is flagged at the _encloser's_
+        `file:line:col` (grouped `find_usages` gives no per-ref span); the exact value-read
+        token would be a tighter proof (an ungrouped re-query of flagged parents).
+  - [ ] **module-rollup leaves** — a `(top-level file.ts)` dependent can't be re-expanded by
+        SymbolId (no symbol at 1:1), so it's a closure leaf; impact flags it un-expandable +
+        `complete:false`. Two `find_usages`/`classifyRole` ROOT causes (filed to the feedback
+        inbox, would deepen impact's reach if fixed): (a) a ref inside a top-level value
+        binding (`export const b = a()`) rolls up to the module node, not `b` — so the chain
+        through `b` dead-ends; fix = `findEncloser` treats any top-level named
+        `VariableDeclaration` as an encloser. (b) an interface/type method-SIGNATURE
+        occurrence is classified role `read`, producing a spurious value-flow `dynamic`
+        boundary (safe over-warn, but noisy); fix = `classifyRole` returns `decl`/`type` for
+        type-member signatures.
+  - [ ] **wall-clock deadline** — termination is guaranteed by the node cap (≤ `nodes`
+        find_usages calls, each LS call itself deadline-bounded §19), but there is no
+        cumulative wall-clock budget → on a huge repo the op can be slow-but-finite. A
+        per-op deadline → `ToolFailure{timeout}` needs a live `Clock` in `OpContext` (only a
+        captured `nowMs` is exposed today) — an engine-level addition, not impact-local.
 - [ ] `ops/affected.ts` — changed files → tests, via the `ts` plugin's import graph
 - [ ] each op is pure composition of plugins; output golden + an oracle
 
@@ -410,6 +437,125 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
 - [x] **P3** — softened the fuzzy/Cmd+T claim · ambiguous-decl column added · role read/write doc
       (§5) · non-determinism (§1c, resolved via P0) · deferred new ops `construction_sites` /
       `css_cascade` still parked (§7, out of scope)
+
+## Capture-safety — generalize the post-edit re-resolve (+ summaryOnly)
+
+> Spec: [docs/spec-refactor-capture-safety.md](spec-refactor-capture-safety.md). Turned the
+> rename-only silent-capture fix (commit `530cb0b`) into a general guarantee across every mutating
+> op, surfaced as `captures: [...]` on the envelope (refuses apply, shown on dry-run). Shared helper
+> in `src/plugins/ts/refactor/capture/` (types · overlay-resolve · rename · imports · codemod).
+
+- [x] shared `capture/` helper; rename refactored to use it (returns `captures` on the outcome,
+      no longer fails the whole op — the agent still sees the diff)
+- [x] move/extract: each rewritten import re-resolved over the post-move tree (path-capture)
+- [x] codemod: re-resolution of metavar-PRESERVED identifiers inside the rewritten span
+- [x] `captures` on every mutating envelope (verdict-first, before the diff); apply refused when
+      non-empty, naming the sites + the corrective action
+- [x] `summaryOnly` mutation flag → verdict + per-file `+added/-removed` diffstat, omits the diff
+- [x] oracle-backed corpus (`test/e2e/capture-safety.test.ts`): rename/move/extract/codemod capture
+      repros that REFUSE (cold-checker confirms the genuine re-bind) + over-refusal guards that APPLY
+
+### Residual gaps (honest — follow-ups, NOT silent)
+
+- [ ] **codemod, introduced-identifier capture.** Only metavar-PRESERVED references are checked. A
+      rewrite that INTRODUCES an identifier (literal template text) which binds a same-named local is
+      NOT flagged — flagging it would over-refuse legitimate codemods (the §1 risk). The
+      whole-program §2.8 typecheck is its only guard (catches a type mismatch, not a same-typed
+      shadow). Documented in the op notes + `capture/codemod.ts` header.
+- [ ] **codemod, out-of-span re-resolution.** A rewrite that changes scope by deleting/adding a
+      declaration can re-resolve a reference OUTSIDE the rewritten span; only in-span references are
+      checked (the spec's stated minimum). §2.8 catches a resulting dangle/type-mismatch, NOT a
+      type-compatible re-bind (the typecheck is blind to a same-typed shadow — the whole reason this
+      capture gate exists).
+- [x] **codemod region offsets byte↔UTF-16 (FIXED, post-review).** ast-grep reports UTF-8 byte
+      indices; the capture check enumerates identifiers at TS UTF-16 char offsets. The mismatch on
+      non-ASCII source could MISS a capture OR FABRICATE one (over-refuse a clean codemod — the §1
+      risk). `byteToUtf16` now converts every edit boundary up front so regions are built entirely in
+      char space (`codemod.ts`).
+- [ ] **import-capture is forward-only.** Verifies each rewritten import still lands on its intended
+      target; does not check a pre-existing non-rewritten import that the move now shadows (rarer,
+      and a fresh-ground collision is already refused). Reverse import-capture is a follow-up.
+- [ ] **import-capture `directoryExists` tombstones files, not now-empty dirs** (under-refusal, LOW;
+      from bug-review). `postMoveResolutionHost` (`capture/imports.ts`) tombstones moved-away FILES
+      in `removedAbs`, but a directory left empty by the move still `directoryExists` on disk during
+      dry-run, so a stale relative resolution could land and MASK a capture. Within the conservative
+      "only a positive divergence is a capture" contract (the §2.8 typecheck still gates a true
+      dangle), so accepted — closing it means tombstoning emptied dirs too.
+
+## Task B — Agent-surface ergonomics: `status` brief/op + `find_unused_exports`
+
+> Spec: [docs/spec-agent-surface-ergonomics.md](spec-agent-surface-ergonomics.md).
+
+- [x] **`status {brief}` / `status {op:"<name>"}`** — brief = header + warm roots + plugins + per-op name+summary + freshness only; single-op = one op's full schema/notes/example
+      on demand. Default `status` stays FULL (back-compat + golden).
+- [x] **Drop the duplicated GUIDANCE tail** — the 4 `>` lines in `status` duplicated
+      `SERVER_INSTRUCTIONS` (shipped once per session at MCP `initialize`); removed the
+      `guidance` field + render.
+- [x] **`find_unused_exports`** — TS exports with no importer/usage anywhere (semantic, via
+      the LS). Barrel/`export *`/dynamic-`import()`-reached → `partial` ("could not prove
+      dead"), never "definitely unused". pathInclude/pathExclude scope + bounded candidate
+      scan (caps fast). Mirrors `find_unused_scss_classes`/`find_unused_i18n_keys` honesty.
+
+### Out-of-scope findings (do not lose — surfaced while building Task B)
+
+> Backlog discovered during Task B; NOT in its scope. File-and-park so they survive the session.
+
+- [ ] **`find_usages` / dead-code ops are blind to a separate test program (`tsconfig.test.json`).**
+      The warm LS runs the MAIN `tsconfig`; a symbol used only by `test/**` (compiled under
+      `tsconfig.test.json`) reads as having no usage — e.g. `nullWatcher` shows `total=1 (decl)`
+      though `test/helpers/project.ts` imports it. So `find_unused_exports` can mark such a symbol
+      `certain` unused. Disclosed in the op's notes for now (matches `find_usages`), but the real
+      fix is indexing sibling tsconfigs (project-references / a test-program overlay) or a caveat
+      when a symbol's file participates in an unloaded `*.test.json`. Filed to codemaster feedback
+      (friction). Inherent to any single-program "is X used" op.
+- [ ] **No wall-time bound on synchronous TS ops until the §19 kill-on-deadline backstop lands.**
+      `find_unused_exports` is `cap × O(import-graph)` (cap=200 reference searches); `find_usages`
+      is 1× but on a 10k-importer symbol is itself O(repo). Both are bounded by DESIGN (scoped/
+      capped inputs, §19) but neither degrades to an honest `ToolFailure{timeout}` on a pathological
+      whole-repo call — a default `find_unused_exports {}` on a 50k-file repo could put widely-
+      imported modules among the first 200 candidates and exceed the latency budget. The hard
+      guarantee is the §19 engine isolation + kill-on-deadline (process mode), still roadmap. A
+      genuinely-O(repo) single-pass `find_unused_exports` (walk refs once, resolve via the checker,
+      diff against the export set) is the future optimization IF profiling shows the cap limits real
+      use — but it re-opens the false-certain risks the current LS-delegating design closes, so park
+      it behind that evidence. Meanwhile: scope with pathInclude.
+
+## Out-of-scope findings — surfaced during Task F (i18n alias-aware), parked
+
+Discovered while implementing [spec-i18n-alias-aware.md](spec-i18n-alias-aware.md); each is
+real but outside that task's scope (isolated to the i18n plugin + its ops). Captured so they
+don't evaporate.
+
+- [ ] **F-a (perf) — `scanLiteralCalls` runs uncached + now does per-call checker work.**
+      Each of `i18n_lookup` / `find_unused_i18n_keys` / `find_missing_i18n_keys` calls
+      `ts.literalCalls(functions)` fresh, and the import-resolution adds `getSymbolAtLocation`
+      per candidate callee — an O(#calls) checker sweep re-run per op. Bounded (linear, no loop),
+      so honesty holds, but a memo keyed on `ts.freshness()` + `fnNames` (invalidated on reindex)
+      would cut repeated work, especially for a `batch` that runs several i18n ops together.
+- [ ] **F-b (capability) — matching is by NAME (module-blind), not by symbol identity.**
+      Resolution is confined to user-named bindings (written name, named-import alias, configured
+      dotted base) because config names only the FUNCTION, never its module — so the code cannot
+      prove a `t`/`i18n.t` call targets THE i18n module vs a same-named function elsewhere. We
+      pick the honest-safe side: only assert a match where the user explicitly named the binding
+      (a bare `t` never matches `<import>.t()`; a destructure rename of a non-i18n value is not
+      resolved). Two residuals remain, accepted and documented (op notes + literal-calls.ts):
+      (1) FALSE POSITIVE — a `t` from a non-i18n module still matches by resolved name, both the
+      pre-existing `import { t } from './telemetry'; t('k')` AND, new in Task F, its aliased form
+      `import { t as tr } from './telemetry'; tr('k')` (one hop further, rarer; a call carrying no
+      i18n signal at the site → a fabricated find_missing row / usage). (2) FALSE NEGATIVE — a key
+      reached ONLY through a binding we don't follow (a renamed destructure of the real hook
+      `const { t: x } = useTranslation()`, element access `i18n['t']`, `t` passed as a value) is
+      missed → find_unused may report a live key as `certain` unused. Both are the by-name model's
+      limit, not coding bugs. A namespace/default import renamed at the import site
+      (`import * as foo from '@/i18n'; foo.t()`, config `i18n.t`) is also NOT resolved — a
+      namespace import has no export name to de-alias. The real close: add config to
+      NAME the i18n module/hook, resolve the configured function to ONE declaration, then match
+      call sites by symbol identity (like `find_usages`). That closes both the false-positive
+      residual AND the namespace-alias gap. Out of this spec's scope.
+- [ ] **F-c (DX) — no per-usage resolution provenance.** `i18n_lookup` usages carry only a span,
+      so a user can't see which were written-name vs import-resolved (alias/destructure/namespace).
+      Filed to the codemaster feedback inbox as a wish during dogfooding; a `provenance` column
+      would make the new resolution self-auditable.
 
 ## Cross-cutting (gates every box, not a phase)
 

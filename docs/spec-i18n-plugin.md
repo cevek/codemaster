@@ -41,14 +41,23 @@ clean oracle (the JSON itself) — exactly what a plugin is for.
   precedent) — never silently dropped.
 - **Cross-tier usages — ONE generic method on the `ts` plugin** (no i18n knowledge
   inside it): `literalCalls(fnNames: readonly string[])` →
-  `{ fn, arg?: string, span, dynamic: boolean }[]` — syntactic scan for
-  `CallExpression` whose callee name is in `fnNames`; string-literal first arg →
-  `arg`; template literal / computed → `dynamic: true`, never guessed (§18). The
-  i18n plugin (`deps: ['ts']`) consumes it — the cross-tier fact lives with the
-  plugin that observes it (§5).
-  - **Known v1 limit, stated where it bites:** matching is by call name as written —
-    `import { t as tr }` calls are missed. Say so in the op `notes` and in the
-    result when claims could be affected; do not pretend symbol resolution.
+  `{ fn, arg?: string, span, dynamic: boolean }[]` — scan for `CallExpression` whose
+  callee matches a `fnName`; string-literal first arg → `arg`; template literal /
+  computed → `dynamic: true`, never guessed (§18). The i18n plugin (`deps: ['ts']`)
+  consumes it — the cross-tier fact lives with the plugin that observes it (§5).
+  - **Import-resolved matching (Task F, spec-i18n-alias-aware):** the callee is matched
+    against `fnNames` through its IMPORT via the checker, not only as written — a SIMPLE
+    name (`t`) matches an identifier callee written `t` or a named-import alias
+    (`import { t as tr }; tr(…)`); a DOTTED name (`i18n.t`) matches a member access whose
+    base is `i18n` as written or through an aliased import (`import { i18n as i }; i.t(…)`).
+    `fn` is the matched configured name, not the written callee. Matching is confined to
+    USER-NAMED bindings: a bare `t` does NOT match an arbitrary `<import>.t()` and a
+    destructure rename of a non-i18n value is not resolved — a match must be strong enough
+    to ASSERT (find_missing/i18n_lookup report positive facts, so a name-collision match
+    would fabricate, §3). The checker stays inside the `ts` plugin (the layering rule); the
+    resolution is of the FUNCTION, never the key — a dynamic key is still `dynamic`.
+    (Long-term close — true symbol-identity anchored on the i18n module — needs config to
+    name the source; parked in docs/plan.md F-b.)
 - **SymbolId:** `i18n:<dotted.key>@<locale-file>:v<n>` (§6 format). Rebind =
   re-locate the dotted key in the current parse; location-not-identity confidence
   rules apply (§6).

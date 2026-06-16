@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { coldDiagnostics as coldTscErrors } from '../helpers/cold-ls.ts';
+import { coldDiagnostics as coldTscErrors, coldDeclarationAt } from '../helpers/cold-ls.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import { project } from '../helpers/project.ts';
 
@@ -23,6 +23,8 @@ type Envelope = {
   touched: string[];
   typecheck: { clean: boolean };
   applied?: boolean;
+  reason?: string;
+  captures?: { at: string; kind: string; detail: string }[];
   rollback?: { performed: boolean };
 };
 type Proj = Awaited<ReturnType<typeof project>>;
@@ -103,11 +105,13 @@ test('rename_symbol: a shorthand property keeps its key (foo → { foo: bar }, n
   }
 });
 
-test('rename_symbol: CAPTURE guard — a rename that shadows an in-scope binding is refused (not silent)', async () => {
+test('rename_symbol: CAPTURE guard — a shadowing rename surfaces captures on the envelope + refuses apply', async () => {
   // The typecheck can't catch this: renaming slugify→upper rewrites the call `slugify(name)` to
   // `upper(name)`, which now binds to the LOCAL `const upper` (type-compatible string→string), so
   // the function silently stops calling slugify. Not a duplicate-identifier → the LS won't flag it.
-  // The reference-set check over the post-edit program must refuse (inbox 2026-06-16).
+  // The reference-set check over the post-edit program must surface a `captures` site and refuse
+  // apply — but still SHOW the diff (the agent sees the edit it asked for). Oracle below confirms
+  // the rewritten call genuinely re-binds to a DIFFERENT declaration.
   const p = await project({
     'tsconfig.json': TSCONFIG,
     'src/a.ts':
@@ -117,17 +121,50 @@ test('rename_symbol: CAPTURE guard — a rename that shadows an in-scope binding
       '  return slugify(name) + upper(name);\n}\n',
   });
   try {
-    const [r] = await p.request([
-      { name: 'rename_symbol', args: { name: 'slugify', newName: 'upper' }, apply: true },
-    ]);
-    assert.ok(
-      r !== undefined && 'result' in r && !r.result.ok,
-      'a capturing rename must be refused',
-    );
-    if ('result' in r && !r.result.ok) assert.match(r.result.failure.message, /CAPTURE|capture/);
+    // Dry-run: captures is non-empty, the diff is still shown (not failed away).
+    const dry = await rename(p, { name: 'slugify', newName: 'upper' });
+    assert.ok(dry.captures !== undefined && dry.captures.length > 0, 'dry-run must carry captures');
+    assert.equal(dry.captures[0]?.kind, 'forward');
+    assert.match(dry.diff, /upper/); // the rewrite is visible to the agent
+
+    // Apply: refused, mode/applied reflect it, nothing written.
+    const ap = await rename(p, { name: 'slugify', newName: 'upper' }, true);
+    assert.equal(ap.applied, false, 'a capturing rename must refuse apply');
+    assert.match(String(ap.reason), /CAPTURE|capture/);
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();
+  }
+});
+
+test('rename_symbol: CAPTURE oracle — a cold checker confirms the rewritten call re-binds to the local', async () => {
+  // Independent oracle (NOT golden): write the POST-edit content the capturing rename WOULD produce
+  // (slugify→upper applied) and ask a fresh-from-cold checker which declaration the rewritten call
+  // binds to. It must resolve to the LOCAL `const upper` (line 5), NOT the top-level function
+  // (line 1) — proof the refusal guards a genuine semantic capture, type-compatible and clean to tsc.
+  const post = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/a.ts':
+      'export function upper(s: string): string {\n  return s.toLowerCase();\n}\n' + // line 1: decl
+      'export function makeLabel(name: string): string {\n' +
+      '  const upper = (s: string): string => s.toUpperCase();\n' + // line 5: the local shadow
+      '  return upper(name) + upper(name);\n}\n', // line 6: the captured calls
+  });
+  try {
+    assert.deepEqual(
+      coldTscErrors(post.root),
+      [],
+      'the captured rewrite is type-clean (gate-blind)',
+    );
+    // occurrence 0 = `function upper`, 1 = `const upper`, 2 = first `upper(name)` call.
+    const decl = coldDeclarationAt(post.root, 'src/a.ts', 'upper', 2);
+    assert.equal(
+      decl.line,
+      5,
+      'the rewritten call binds to the local `const upper`, not the function',
+    );
+  } finally {
+    await post.dispose();
   }
 });
 
@@ -137,18 +174,25 @@ test('rename_symbol: capture guard does NOT over-refuse — aliased multi-file +
   // a "capture"; and a `newName` that exists only in an unrelated non-overlapping scope is fine.
   const aliased = await project({
     'tsconfig.json':
-      '{"compilerOptions":{"strict":true,"module":"preserve","baseUrl":".","paths":{"@/*":["src/*"]}}}',
+      '{"compilerOptions":{"strict":true,"module":"preserve","baseUrl":".","paths":{"@/*":["src/*"]},"ignoreDeprecations":"6.0"}}',
     'src/slug.ts': 'export function slugify(s: string): string {\n  return s.toLowerCase();\n}\n',
     'src/use.ts': "import { slugify as sg } from '@/slug';\nexport const r = sg('A');\n",
   });
   try {
     const r = await rename(aliased, { name: 'slugify', newName: 'toSlug' });
+    // typecheck.clean is NOT sufficient here — a CAPTURING rename is also clean. The real guard is
+    // that NO capture is flagged (the aliased `sg()` usage is not rewritten and must not read as one)
+    // and that the rename APPLIES.
     assert.equal(
-      r.typecheck.clean,
-      true,
+      r.captures,
+      undefined,
       'an aliased multi-file rename must NOT be flagged a capture',
     );
+    assert.equal(r.typecheck.clean, true);
     assert.match(r.diff, /toSlug/);
+    const ap = await rename(aliased, { name: 'slugify', newName: 'toSlug' }, true);
+    assert.equal(ap.applied, true, 'a non-capturing aliased rename must apply');
+    assert.deepEqual(coldTscErrors(aliased.root), []);
   } finally {
     await aliased.dispose();
   }
@@ -164,10 +208,14 @@ test('rename_symbol: capture guard does NOT over-refuse — aliased multi-file +
     // `upper` exists only inside `other` — renaming slugify→upper does not reach it.
     const r = await rename(unrelated, { name: 'slugify', newName: 'upper' });
     assert.equal(
-      r.typecheck.clean,
-      true,
+      r.captures,
+      undefined,
       'a newName confined to an unrelated scope is not a capture',
     );
+    assert.equal(r.typecheck.clean, true);
+    const ap = await rename(unrelated, { name: 'slugify', newName: 'upper' }, true);
+    assert.equal(ap.applied, true, 'a non-overlapping rename must apply');
+    assert.deepEqual(coldTscErrors(unrelated.root), []);
   } finally {
     await unrelated.dispose();
   }

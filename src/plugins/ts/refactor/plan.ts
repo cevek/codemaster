@@ -6,6 +6,7 @@
 
 import type { RepoRelPath } from '../../../core/brands.ts';
 import type { HandleRebind } from '../../../core/ids.ts';
+import type { Capture } from './capture/types.ts';
 
 /** One css-module import observed in the extracted file — the TS-domain analysis the op feeds
  *  to the scss plugin for co-extract (spec-css-coextract §2.3). */
@@ -60,6 +61,11 @@ export interface RefactorPlan {
   checkPaths: RepoRelPath[];
   /** Per-file before/after for the unified diff (a pure move shows as a rename header). */
   diff: { from: RepoRelPath; to: RepoRelPath; before: string; after: string }[];
+  /** Import-path capture sites (§ capture-safety): rewritten import specifiers that now resolve
+   *  to a DIFFERENT same-named target than intended (the typecheck can't see a type-compatible
+   *  one). Empty when every rewritten import still lands on its intended target. The op surfaces
+   *  these on the envelope and refuses apply when non-empty. */
+  captures: Capture[];
   /** Set when the extract edits came from the §4 patched-LS rescue rather than the project's
    *  own LS — surfaced as provenance on the op envelope (§3.3), never silent. */
   rescued?: boolean;

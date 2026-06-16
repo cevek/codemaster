@@ -59,7 +59,7 @@ export const i18nLookupOp = defineOp({
   notes: [
     'values are opaque text (no ICU/plural semantics); keys missing in some locale are listed per key.',
     'reverse lookup: value (case-insensitive substring; valueMode:"exact" for a whole-value match) finds the dotted key(s) for a string you see in the UI — returns the same defs (full key + locale + span + value). At most one selector (key | prefix | value).',
-    'usage sites are found by call name as written — an `import { t as tr }` alias is missed (syntactic, not symbol-resolved).',
+    'usage sites are import-resolved via the TS checker: a named-import alias (`import { t as tr }; tr(…)`) counts as t, and an aliased-base member access (`import { i18n as i }; i.t(…)`) counts as a configured dotted name like i18n.t. Matching stays confined to user-named bindings — a bare t never matches an arbitrary `obj.t()`, nor a destructure rename of a non-i18n value (no fabrication). It resolves the FUNCTION, not the key — a dynamic key stays unresolvable.',
   ],
   table: i18nLookupTable,
   async run(ctx, args) {

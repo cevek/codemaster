@@ -15,6 +15,9 @@ import type { OpContext } from './registry.ts';
 import {
   absOf,
   buildTypecheckField,
+  capturesField,
+  captureRefusal,
+  diffstat,
   formatOne,
   resolvePrettier,
   dirtyAmong,
@@ -25,7 +28,13 @@ import { commitMove, revertMove, type CommitMovePlan, type RevertSpec } from './
 export async function applyRefactorPlan(
   ctx: OpContext,
   plan: RefactorPlan,
-  opts: { dirtyOk?: boolean; refusalLabel: string; cssCoExtract?: JsonValue },
+  opts: {
+    dirtyOk?: boolean;
+    refusalLabel: string;
+    cssCoExtract?: JsonValue;
+    /** Corrective action named in the capture-refusal message (§ capture-safety). */
+    captureAction?: string;
+  },
 ): Promise<Result<JsonValue>> {
   const root = ctx.daemon?.root;
   if (root === undefined)
@@ -53,9 +62,6 @@ export async function applyRefactorPlan(
   const contentOf = (rel: RepoRelPath, fallback: string): string =>
     formatted.get(String(rel)) ?? fallback;
 
-  const diff = plan.diff
-    .map((d) => createTwoFilesPatch(d.from, d.to, d.before, contentOf(d.to, d.after), '', ''))
-    .join('');
   const touched = [
     ...new Set<RepoRelPath>([
       ...plan.diff.map((d) => d.from),
@@ -63,6 +69,28 @@ export async function applyRefactorPlan(
       ...plan.newFiles.map((f) => f.path),
     ]),
   ];
+  const captures = plan.captures;
+  const captureRows = capturesField(captures);
+  // Verdict-first tail (§3a): `summaryOnly` swaps the unified diff for a per-file diffstat; either
+  // way it is the LAST envelope key, so the render cap truncates only the re-fetchable bytes.
+  const tail: Record<string, JsonValue> =
+    ctx.flags.summaryOnly === true
+      ? {
+          diffstat: diffstat(
+            plan.diff.map((d) => ({
+              label: String(d.to),
+              before: d.before,
+              after: contentOf(d.to, d.after),
+            })),
+          ),
+        }
+      : {
+          diff: plan.diff
+            .map((d) =>
+              createTwoFilesPatch(d.from, d.to, d.before, contentOf(d.to, d.after), '', ''),
+            )
+            .join(''),
+        };
   const baseNotes = {
     ...(notes.length > 0 ? { notes } : {}),
     ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
@@ -109,9 +137,35 @@ export async function applyRefactorPlan(
   const typecheck = gate.field;
 
   if (ctx.flags.apply !== true) {
-    // `diff` is ALWAYS the last key: it can be tens of KB and the render self-caps (§12), so the
-    // verdict (typecheck + touched) must lead or it falls past the cap on a big move (§3a).
-    return ok<JsonValue>({ mode: 'dry-run', typecheck, touched, ...baseNotes, diff }, handleExtra);
+    // The diff/diffstat tail is ALWAYS the last key: it can be tens of KB and the render self-caps
+    // (§12), so the verdict (typecheck + captures + touched) must lead or it falls past the cap on a
+    // big move (§3a).
+    return ok<JsonValue>(
+      { mode: 'dry-run', typecheck, touched, ...captureRows, ...baseNotes, ...tail },
+      handleExtra,
+    );
+  }
+  // Capture gate FIRST (§ capture-safety): a rewritten import landing on a different same-named,
+  // type-compatible export is invisible to the §2.8 typecheck — refuse on it before the typecheck
+  // verdict (both fields stay visible on the envelope).
+  if (captures.length > 0) {
+    return ok<JsonValue>(
+      {
+        mode: 'dry-run',
+        applied: false,
+        reason: captureRefusal(
+          captures,
+          opts.captureAction ??
+            `the ${opts.refusalLabel} relinks an import onto a different export — choose a different destination or relink manually`,
+        ),
+        typecheck,
+        touched,
+        ...captureRows,
+        ...baseNotes,
+        ...tail,
+      },
+      handleExtra,
+    );
   }
   if (!gate.clean) {
     // Honesty (§3): `extract_symbol` does NOT re-key its baseline (the §1b carve-out — extract
@@ -123,7 +177,16 @@ export async function applyRefactorPlan(
         ? "this extract introduces new typecheck errors — OR relocates a pre-existing one into the extracted block, which extract can't yet distinguish (§1b); apply refused (§2.8)"
         : `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`;
     return ok<JsonValue>(
-      { mode: 'dry-run', applied: false, reason, typecheck, touched, ...baseNotes, diff },
+      {
+        mode: 'dry-run',
+        applied: false,
+        reason,
+        typecheck,
+        touched,
+        ...captureRows,
+        ...baseNotes,
+        ...tail,
+      },
       handleExtra,
     );
   }
@@ -147,8 +210,9 @@ export async function applyRefactorPlan(
         reason: `a path already exists at the destination(s) ${collidingDests.join(', ')} — refusing to overwrite`,
         typecheck,
         touched,
+        ...captureRows,
         ...baseNotes,
-        diff,
+        ...tail,
       },
       handleExtra,
     );
@@ -164,8 +228,9 @@ export async function applyRefactorPlan(
         reason: `touched files have uncommitted changes (${dirty.data.join(', ')}); commit/stash or pass dirtyOk`,
         typecheck,
         touched,
+        ...captureRows,
         ...baseNotes,
-        diff,
+        ...tail,
       },
       handleExtra,
     );
@@ -204,8 +269,9 @@ export async function applyRefactorPlan(
         typecheck: tc,
         touched,
         rollback: { performed: reverted.complete, reason },
+        ...captureRows,
         ...baseNotes,
-        diff,
+        ...tail,
       },
       handleExtra,
     );
@@ -240,7 +306,7 @@ export async function applyRefactorPlan(
       touched,
       rollback: { performed: false },
       ...baseNotes,
-      diff, // last — the cap can only ever truncate the diff, never the verdict (§3a).
+      ...tail, // last — the cap can only ever truncate the diff/diffstat, never the verdict (§3a).
     },
     handleExtra,
   );

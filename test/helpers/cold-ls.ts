@@ -123,6 +123,51 @@ export function coldFindReferences(root: string, fileRel: string, symbolName: st
   return [...files].sort();
 }
 
+/** The declaration site (repo-relative file + 1-based line) the identifier at the `nth` (0-based)
+ *  word-boundary occurrence of `needle` in `fileRel` resolves to, via a cold checker — the
+ *  independent oracle for capture-safety (§ spec): proof that a (post-edit) reference binds to a
+ *  SPECIFIC declaration, e.g. a local shadow rather than the symbol the refactor intended. Cold +
+ *  whole-program, never the warm LS that detected the capture. */
+export function coldDeclarationAt(
+  root: string,
+  fileRel: string,
+  needle: string,
+  nth = 0,
+): { file: string; line: number } {
+  const { program, checker } = coldProgram(root);
+  const abs = path.join(root, fileRel);
+  const sf = program.getSourceFile(abs);
+  assert.ok(sf !== undefined, `oracle could not load ${fileRel}`);
+  let found: ts.Identifier | undefined;
+  let count = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isIdentifier(n) && n.text === needle) {
+      if (count === nth) found = n;
+      count++;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  assert.ok(
+    found !== undefined,
+    `oracle could not find occurrence ${nth} of ${needle} in ${fileRel}`,
+  );
+  let sym = checker.getSymbolAtLocation(found);
+  // Follow an import alias to the REAL declaration in the resolved module — otherwise an imported
+  // binding resolves only to its own import specifier, which would hide WHICH module it bound to
+  // (the whole point of the move/extract import-capture oracle).
+  if (sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0) {
+    sym = checker.getAliasedSymbol(sym);
+  }
+  const decl = sym?.declarations?.[0];
+  assert.ok(decl !== undefined, `oracle: ${needle}#${nth} did not resolve to a declaration`);
+  const declSf = decl.getSourceFile();
+  return {
+    file: path.relative(root, declSf.fileName).split(path.sep).join('/'),
+    line: declSf.getLineAndCharacterOfPosition(decl.getStart(declSf)).line + 1,
+  };
+}
+
 /** Independent edit-safety oracle (§16.4): the pre-emit diagnostics a cold compile of the
  *  on-disk tree produces — never the warm LS that performed the edit. A missed/wrong import
  *  rewrite surfaces here as a real "no exported member" error, so a clean list IS the

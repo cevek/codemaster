@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (14):
+ops (16):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -33,6 +33,15 @@ ops (14):
     · module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.
     columns: module,file,line,imports,confidence
     e.g. op {"name":"importers_of","args":{"module":"@/components/ui/dialog"}}
+  find_unused_exports { pathInclude?: string[], pathExclude?: string[], limit?: number } — TS exports with no importer/usage anywhere (semantic, via the LS); barrel/export*/dynamic import() demotes to partial
+    · semantic, not textual: an aliased `import { X as Y }` (which text-grep would miss) still counts X as used, so X is never falsely reported.
+    · an export reached only via a barrel re-export (`export { X } from`), an `export *`, or a dynamic `import()` demotes to partial — flagged "could not prove dead", never reported as definitely unused.
+    · an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.
+    · an export used only WITHIN its own module (never imported) is NOT reported — it has a usage; this finds dead exports, not redundant `export` keywords.
+    · usage is observed only across the files in the ACTIVE TS program (the main tsconfig). A symbol used solely by an out-of-program file — tests under a separate tsconfig.test.json, a build script — is not seen, so it can read `certain` here; this matches find_usages (same program).
+    · bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.
+    columns: name,kind,file,line,col,confidence,symbol,note
+    e.g. op {"name":"find_unused_exports","args":{"pathInclude":["src/features/**"]}}
   scss_classes { file?: string } — SCSS class declarations across the workspace (or one stylesheet)
     · syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.
     columns: name,file,line,col,confidence
@@ -45,16 +54,19 @@ ops (14):
   rename_symbol [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)
     · dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.
     · apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.
+    · capture-safe: if the new name shadows / is shadowed by an in-scope binding so a rewritten reference would silently re-bind to a DIFFERENT symbol (type-compatible → invisible to the typecheck), the sites are listed under `captures` and apply is REFUSED (shown on dry-run too). summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.
     e.g. op {"name":"rename_symbol","args":{"file":"src/app.ts","line":12,"col":8,"newName":"renamed"}}
   move_file [mutating] { source: RepoRelPath, dest: RepoRelPath (full new path), dirtyOk?: boolean } — Move a file/folder and rewrite every importer (dry-run unless apply:true)
     · dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.
     · dry-run writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back to the pre-op state if the post-apply typecheck shows newly-introduced errors.
+    · capture-safe: each rewritten import is re-resolved over the post-move tree — if one lands on a DIFFERENT same-named, type-compatible export (a path-capture the typecheck cannot see) the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.
     e.g. op {"name":"move_file","args":{"source":"src/old/Button.tsx","dest":"src/ui/Button.tsx"}}
   extract_symbol [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' } — Move a top-level symbol to a new file, rewriting imports (dry-run unless apply:true)
     · dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.
     · when the LS refuses (e.g. several cross-referencing declarations in one file) the failure is reported with its ts-ls category — never a half-written file. A shape the stock LS asserts on is retried through the §4 patched-LS rescue (surfaced as a note).
     · css: 'copy-safe' co-extracts the CSS-module classes the extracted block uses into a sibling sheet — ONLY the provably-safe ones move; the rest stay (rewritten to an sLegacy import) and every class is reported under cssCoExtract with a code. scss is type-blind, so a move is the taxonomy's proof, never the typecheck's.
     · co-extract safety covers the source remainder + RELATIVELY-importing files of the same sheet; a third file importing that sheet via an ALIASED specifier (@/…) is not yet resolved, so verify aliased importers of a shared sheet yourself (matches codemaster’s relative-only css resolution).
+    · capture-safe: each rewritten import (the source relinked to the new file, and consumers) is re-resolved over the post-edit tree — if one lands on a DIFFERENT same-named, type-compatible export the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.
     e.g. op {"name":"extract_symbol","args":{"name":"Helper","dest":"src/lib/helper.ts"}}
   change_signature [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, removeParam?: number | reorder?: number[], dirtyOk?: boolean } — Remove or reorder a function’s parameters at the declaration and every call site
     · positional params only; pass removeParam (0-based index) OR reorder (a full permutation of param indices). Renaming a param is rename_symbol, not this.
@@ -64,7 +76,14 @@ ops (14):
     · matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).
     · dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.
     · paths (optional) are GLOBS over tracked .ts/.tsx (e.g. "src/features/**", "**/*.tsx") — a literal file path works too; an entry that selects no tracked TS file FAILS loudly (never a silent clean). Omit paths to scan every tracked TS file.
+    · capture-safe (best-effort, shape-based): a metavar ($X/$$$X) identifier PRESERVED into a rewritten span that silently re-resolves to a different declaration is listed under `captures` and apply is REFUSED. An INTRODUCED identifier binding a same-named local is NOT flagged (it would over-refuse) — the whole-program typecheck is its guard. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.
     e.g. op {"name":"codemod","args":{"pattern":"oldApi($A)","rewrite":"newApi($A)"}}
+  impact { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — plus { depth?: 1-12 (default 3), nodes?: 1-2000 (default 200), kind?, exportedOnly?, pathInclude?, pathExclude?, summary?: boolean } — Type-aware blast radius: the bounded transitive set of dependents of a symbol (BFS over find_usages), proof-carrying, depth/node-capped
+    · bounded BFS over find_usages: who transitively depends on the target (encloser rollup → those enclosers’ usages → …). Each dependent is a chainable SymbolId, grouped by its SHALLOWEST depth (proximity), sorted by fan-in within a depth.
+    · HARD bounds (§1 never-hang): a depth cap AND a global node cap (total work = nodes × find_usages). Hitting either — or a dependent that cannot be re-expanded (a module-level rollup) — is flagged `!!`; a truncated closure NEVER reads as complete.
+    · value-flow boundary: a dependent that reads a callable target as a VALUE (not call/jsx) is where dynamic dispatch can carry impact past what find_usages sees — flagged `dynamic`, NOT traversed, the closure reported PARTIAL (never silently bridged).
+    · summary:true returns counts-per-depth only (gauge risk without the node list). kind/path/exportedOnly are a VIEW over the complete closure (they shrink the listing, never the walk); hidden counts are surfaced.
+    e.g. op {"name":"impact","args":{"name":"createEngine","depth":2}}
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.
     · the daemon attaches timestamp/version/repo/plugins automatically; you supply only kind/title/detail (+ optional example call). Nothing else leaves the machine.
@@ -79,8 +98,3 @@ concepts:
   freshness: "reindexed N at entry" = your just-made edits were picked up · "PENDING N" = index behind, re-run · none / "current @commit" = fresh. bad args end with "— valid: {…}", a call you can copy.
   cross-repo: `root` is a TOP-LEVEL field, beside `name`/`args` (NOT inside `args`) — `op {name,args,root}` or a batch request `{name,args,root}`; resolution request root > tool root > cwd. One batch can mix repos and a mixed-root `sql` join runs across them. SymbolIds do not cross roots (re-search in the new root). The status header lists the warm roots.
 debug topics: daemon,repo,resync,watcher
-> Query codemaster directly for structural/semantic answers instead of grepping or delegating to file-reading subagents.
-> Call the op tool with {name, args, …} for any catalogued op; batch with {requests: [{name, args, …}], …} to run several in one round-trip. The catalogue above is per-repo.
-> Results are proof-carrying (file:line + verbatim text) and report freshness/uncertainty explicitly — a FAIL or partial answer means fall back to your own tools.
-> Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}).
-> Working across sibling repos? Any call or batch request may carry `root` — neighbouring TS repos are first-class (status lists the warm ones).

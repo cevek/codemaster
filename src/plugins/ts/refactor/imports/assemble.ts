@@ -10,6 +10,7 @@ import type { RepoRelPath } from '../../../../core/brands.ts';
 import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { computeCommitPlan } from '../tree/commit-plan.ts';
 import type { RefactorPlan } from '../plan.ts';
+import { detectImportCaptures } from '../capture/imports.ts';
 import { rewriteImports } from './rewrite.ts';
 
 const TS_RE = /\.(tsx?|mts|cts)$/;
@@ -29,7 +30,7 @@ export function assemblePlan(
   tree: VFSTree,
   options: ts.CompilerOptions,
 ): RefactorPlan | string {
-  rewriteImports(host, tree, options);
+  const { rewrites } = rewriteImports(host, tree, options);
   const commit = computeCommitPlan(tree);
 
   const removed: RepoRelPath[] = [];
@@ -82,6 +83,14 @@ export function assemblePlan(
     if (TS_RE.test(abs)) checkPaths.add(String(host.relOf(abs)));
   }
 
+  // Import-path capture gate (§ capture-safety): confirm every rewritten specifier still resolves
+  // to its intended target over the POST-MOVE file set — a same-named, type-compatible export the
+  // §2.8 typecheck would wave through is caught here. Bounded to the rewritten specifiers, not a
+  // whole-repo scan.
+  const captures = detectImportCaptures(options, rewrites, overlayFiles, removed, (rel) =>
+    host.absOf(rel),
+  );
+
   return {
     moves: commit.moves.map((m) => ({ from: m.from, to: m.to, kind: m.kind })),
     newFiles: commit.newFiles.map((f) => ({ path: f.path, content: f.content })),
@@ -90,5 +99,6 @@ export function assemblePlan(
     overlayFiles,
     checkPaths: [...checkPaths] as RepoRelPath[],
     diff,
+    captures,
   };
 }

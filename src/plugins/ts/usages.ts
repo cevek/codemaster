@@ -141,6 +141,29 @@ export function referenceSpans(
   return spans;
 }
 
+/** True when the symbol declared at `pos` has a call/construct signature — catches an
+ *  arrow/fn-expr-bound `const` (whose LS `kind` is `const`) that `impact`'s kind check would
+ *  otherwise treat as non-callable, falsely declaring a value-only-read closure complete. */
+function isCallableAt(host: TsProjectHost, defFile: ts.SourceFile, pos: number): boolean {
+  const checker = host.service.getProgram()?.getTypeChecker();
+  if (checker === undefined) return false;
+  let node: ts.Node | undefined;
+  const visit = (n: ts.Node): void => {
+    if (pos >= n.getStart(defFile) && pos < n.getEnd()) {
+      node = n;
+      n.forEachChild(visit);
+    }
+  };
+  defFile.forEachChild(visit);
+  if (node === undefined) return false;
+  try {
+    const type = checker.getTypeAtLocation(node);
+    return type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function buildDefinition(
   host: TsProjectHost,
   def: ts.ReferencedSymbolDefinitionInfo,
@@ -162,6 +185,7 @@ function buildDefinition(
     name,
     kind: def.kind,
     span,
+    callable: isCallableAt(host, defFile, def.textSpan.start),
   };
 }
 

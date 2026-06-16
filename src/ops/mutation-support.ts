@@ -4,6 +4,7 @@
 // in the op / its apply helper.
 
 import * as path from 'node:path';
+import { diffLines } from 'diff';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
@@ -12,7 +13,7 @@ import { isOk } from '../common/result/narrow.ts';
 import { gitStatus } from '../support/git/status.ts';
 import { resolvePrettier, type ResolvedPrettier } from '../support/prettier/resolve.ts';
 import { formatContent } from '../support/prettier/format.ts';
-import type { TsDiagnostic } from '../plugins/ts/plugin.ts';
+import type { Capture, TsDiagnostic } from '../plugins/ts/plugin.ts';
 
 /** Repo-relative path → absolute (posix `/` → OS separators for the filesystem). */
 export const absOf = (root: string, rel: RepoRelPath): string => path.join(root, ...rel.split('/'));
@@ -121,6 +122,50 @@ export async function formatOne(
 }
 
 export { resolvePrettier };
+
+/** One file's before/after for the diffstat (the `summaryOnly` substitute for the unified diff). */
+export interface DiffstatEntry {
+  label: string;
+  before: string;
+  after: string;
+}
+
+/** Per-file `+added/-removed` line counts — the compact verdict `summaryOnly` returns instead of
+ *  the (potentially tens-of-KB) unified diff. Keyed by display path so the dense renderer prints
+ *  one `path=+A -R` line each. */
+export function diffstat(entries: readonly DiffstatEntry[]): JsonValue {
+  const out: Record<string, JsonValue> = {};
+  for (const e of entries) {
+    let added = 0;
+    let removed = 0;
+    for (const part of diffLines(e.before, e.after)) {
+      if (part.added === true) added += part.count ?? 0;
+      else if (part.removed === true) removed += part.count ?? 0;
+    }
+    out[e.label] = `+${added} -${removed}`;
+  }
+  return out;
+}
+
+/** The envelope `captures` field (the §-capture-safety verdict), empty object when none — so it
+ *  spreads cleanly into the envelope only when there is something to refuse on. Each row is
+ *  `file:line:col` + kind + detail, the dense shape the §2.8 `typecheck.introduced` list uses. */
+export function capturesField(captures: readonly Capture[]): Record<string, JsonValue> {
+  if (captures.length === 0) return {};
+  return {
+    captures: captures.map((c) => ({
+      at: `${c.file}:${c.line}:${c.col}`,
+      kind: c.kind,
+      detail: c.detail,
+    })),
+  };
+}
+
+/** The honest apply-refusal message naming the captured sites + the corrective action (§3.6). */
+export function captureRefusal(captures: readonly Capture[], action: string): string {
+  const sites = captures.map((c) => `${c.file}:${c.line}:${c.col} ${c.detail}`).join('; ');
+  return `this edit would CAPTURE an in-scope binding — refused (a type-compatible shadow is NOT proof the edit is correct): ${sites}. ${action}`;
+}
 
 /** Which of `touched` have uncommitted changes (the dirty-gate subset). Surfaces a git
  *  failure honestly rather than guessing the tree is clean. */

@@ -45,6 +45,7 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
     'when the LS refuses (e.g. several cross-referencing declarations in one file) the failure is reported with its ts-ls category — never a half-written file. A shape the stock LS asserts on is retried through the §4 patched-LS rescue (surfaced as a note).',
     "css: 'copy-safe' co-extracts the CSS-module classes the extracted block uses into a sibling sheet — ONLY the provably-safe ones move; the rest stay (rewritten to an sLegacy import) and every class is reported under cssCoExtract with a code. scss is type-blind, so a move is the taxonomy's proof, never the typecheck's.",
     'co-extract safety covers the source remainder + RELATIVELY-importing files of the same sheet; a third file importing that sheet via an ALIASED specifier (@/…) is not yet resolved, so verify aliased importers of a shared sheet yourself (matches codemaster’s relative-only css resolution).',
+    'capture-safe: each rewritten import (the source relinked to the new file, and consumers) is re-resolved over the post-edit tree — if one lands on a DIFFERENT same-named, type-compatible export the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + a per-file diffstat instead of the full diff.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

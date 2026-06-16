@@ -70,6 +70,8 @@ const SWEEP: Record<string, JsonValue> = {
   expand_type: { name: 'Props' },
   source: { targets: [{ name: 'Button' }] },
   scss_classes: { file: 'src/styles.module.scss' },
+  // `App` is exported but never imported → a certain-unused row with a name-token span.
+  find_unused_exports: {},
   find_unused_scss_classes: {},
   i18n_lookup: { key: 'greeting' },
   find_unused_i18n_keys: {},
@@ -81,6 +83,8 @@ const SWEEP: Record<string, JsonValue> = {
  *  port owns (spec §1 boundary — edit-safety is tested there, not re-tested here). */
 const EXCLUSIONS: Record<string, string> = {
   importers_of: 'emits compact `at:"file:line"` strings, not proof Spans — nothing to validate',
+  impact:
+    'emits encloser rollups (file:line:col + chainable SymbolIds), like find_usages grouped mode — no verbatim Spans; closure correctness is oracle-tested in impact.test.ts',
   feedback: 'writes the global inbox; carries no source Spans',
   rename_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_file: 'mutating — edit-safety is the refactor port’s domain (spec §1)',

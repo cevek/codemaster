@@ -8,7 +8,6 @@ import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/pl
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
-import { offsetOfLoc } from './spans.ts';
 import { findDefinitions } from './definitions.ts';
 import { findUsages, referenceSpans } from './usages.ts';
 import { expandTypeAt } from './type-expand.ts';
@@ -25,6 +24,11 @@ import { searchSymbols, type SearchFilter, type SearchView } from './search.ts';
 import { scanCssModuleUsages, type CssModuleUsages } from './css-modules.ts';
 import { scanLiteralCalls, type LiteralCall } from './literal-calls.ts';
 import { findImporters, type ImportersView } from './importers.ts';
+import {
+  findUnusedExports,
+  type TsUnusedExportsFilter,
+  type UnusedExportsView,
+} from './unused-exports.ts';
 import { computeRename, type RenameOutcome } from './refactor/rename/rename-sites.ts';
 import { collectDiagnostics, type TsDiagnostic } from './diagnostics.ts';
 import { planMove } from './refactor/imports/plan-move.ts';
@@ -33,14 +37,20 @@ import { rewriteExtractedCss, type ImportRewrite } from './refactor/extract/css-
 import { planChangeSignature, type SignatureChange } from './refactor/change-signature/plan.ts';
 import { loadTreeFromGit } from './refactor/tree/build.ts';
 import { isOk } from '../../common/result/narrow.ts';
-import { resolveSymbolId, dedupeByDefinition, type ResolvedTarget } from './resolve-target.ts';
+import { resolveTarget, type ResolvedTarget, type TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
+import type { Capture } from './refactor/capture/types.ts';
+import { detectCodemodCaptures, type CodemodEdit } from './refactor/capture/codemod.ts';
 
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
 export type { RefactorPlan, CssExtractCandidate, CssExtractAnalysis } from './refactor/plan.ts';
 export type { ImportRewrite } from './refactor/extract/css-usage.ts';
+// Capture-safety types (§ capture-safety). Envelope formatting lives in the ops layer.
+export type { Capture } from './refactor/capture/types.ts';
+export type { CodemodEdit, CodemodRegion } from './refactor/capture/codemod.ts';
+export type { UnusedExportView } from './unused-exports.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
@@ -52,18 +62,7 @@ interface OverlayCheck {
   check?: readonly RepoRelPath[];
 }
 
-export type TsTargetInput = {
-  /** A `ts:`-prefixed SymbolId from a previous answer. */
-  symbol?: string | undefined;
-  /** Or an explicit position. */
-  file?: string | undefined;
-  line?: number | undefined;
-  col?: number | undefined;
-  /** Or a name to resolve via workspace symbol search (must match exactly one). */
-  name?: string | undefined;
-};
-
-export type { ResolvedTarget };
+export type { ResolvedTarget, TsTargetInput };
 
 export interface TsPluginApi extends Plugin {
   searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
@@ -91,12 +90,20 @@ export interface TsPluginApi extends Plugin {
     content: string,
     rewrites: readonly ImportRewrite[],
   ): string;
-  /** Cross-tier API (§5-L2): syntactic calls to the named functions — `t('a.b')`,
-   *  `i18n.t('x')`. The i18n plugin consumes it; non-literal args are flagged `dynamic`,
-   *  matching is by call name as written (no alias resolution). */
+  /** Cross-tier API (§5-L2): calls to the named functions — `t('a.b')`, `i18n.t('x')`. The
+   *  i18n plugin consumes it; non-literal args are flagged `dynamic`. Matching is IMPORT-
+   *  resolved via the checker — a simple name matches a named-import alias (`import { t as tr }`),
+   *  a dotted name matches an aliased-base member access (`import { i18n as i }; i.t`). Confined
+   *  to user-named bindings (no bare-`t`-matches-`obj.t()`, no destructure-rename) so a match is
+   *  strong enough to assert a usage (§3). `fn` is the matched configured name, not the written
+   *  callee. */
   literalCalls(fnNames: readonly string[]): LiteralCall[];
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
+  /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A
+   *  barrel-/`export *`-/dynamic-`import()`-reached export demotes to `partial` ("could not
+   *  prove dead"), never `certain` unused. Bounded: the candidate set is scoped + hard-capped. */
+  unusedExports(filter?: TsUnusedExportsFilter): UnusedExportsView;
   /** Symbol-anchored rename (§7): every semantic reference site as a per-file before/after
    *  pair, or a message when the position cannot be renamed. A rebound stale handle (§6)
    *  surfaces on `rebind`. The new name's legality is the post-edit typecheck's call. */
@@ -129,6 +136,10 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     change: SignatureChange,
   ): Promise<RefactorPlan | string>;
+  /** Capture-safety for `codemod` (§): a metavar-preserved reference inside a rewritten span that
+   *  silently re-resolves to a DIFFERENT declaration (type-compatible → invisible to §2.8). Keeps
+   *  the LS access in the plugin (ops never reach the LS directly — §5-L3). */
+  detectCodemodCaptures(edits: readonly CodemodEdit[]): Capture[];
   /** Diagnostics over the current disk-backed state for `paths` — the post-apply check
    *  (call `reindex` first so the LS sees the freshly written files). */
   diagnostics(paths: readonly RepoRelPath[]): TsDiagnostic[];
@@ -153,59 +164,9 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     return host;
   };
 
-  const resolve = (target: TsTargetInput): ResolvedTarget => {
-    const h = warm();
-    if (target.symbol !== undefined) return resolveSymbolId(h, target.symbol);
-    if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
-      const abs = h.absOf(target.file as RepoRelPath);
-      const sourceFile = h.service.getProgram()?.getSourceFile(abs);
-      if (sourceFile === undefined) {
-        return { ok: false, message: `file not in the TS project: ${target.file}` };
-      }
-      const offset = offsetOfLoc(sourceFile, target.line, target.col);
-      if (offset === undefined) {
-        return {
-          ok: false,
-          message: `position ${target.line}:${target.col} is outside ${target.file}`,
-        };
-      }
-      return { ok: true, abs, offset };
-    }
-    if (target.name !== undefined) {
-      const matches = searchSymbols(h, target.name, 10).matches.filter(
-        (m) => m.name === target.name,
-      );
-      const first = matches[0];
-      if (first === undefined) return { ok: false, message: `no symbol named '${target.name}'` };
-      // Multiple navto entries are often ONE logical symbol seen twice — the
-      // declaration plus an `export { X }` specifier (the shadcn-style module
-      // pattern). Resolve each candidate to its definition; if they all land on one
-      // declaration, there is no ambiguity to report.
-      const distinct = matches.length === 1 ? [first] : dedupeByDefinition(h, matches);
-      const sole = distinct[0];
-      if (distinct.length > 1 || sole === undefined) {
-        return {
-          ok: false,
-          // Carry file:line:COL (+ kind) — two distinct declarations can share a line (a `const`
-          // and its named function expression both at col 41); without the column they render as a
-          // spurious duplicate (spec-stresstest §5b). The col also makes each entry a copy-paste
-          // file:line:col target the agent can pass straight back.
-          message: `'${target.name}' is ambiguous (${distinct.length} distinct declarations: ${distinct
-            .map((m) => `${m.span.file}:${m.span.line}:${m.span.col} (${m.kind})`)
-            .join(', ')}) — pass file:line:col or a SymbolId`,
-        };
-      }
-      const abs = warm().absOf(sole.span.file);
-      const sourceFile = warm().service.getProgram()?.getSourceFile(abs);
-      const offset =
-        sourceFile === undefined
-          ? undefined
-          : offsetOfLoc(sourceFile, sole.span.line, sole.span.col);
-      if (offset === undefined) return { ok: false, message: `cannot locate '${target.name}'` };
-      return { ok: true, abs, offset };
-    }
-    return { ok: false, message: 'target needs symbol, file+line+col, or name' };
-  };
+  // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
+  // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
+  const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target);
 
   return {
     id: 'ts',
@@ -279,17 +240,18 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 
     importersOf: (module) => findImporters(warm(), module),
 
+    unusedExports: (filter) => findUnusedExports(warm(), filter),
+
     renameSites(target, newName) {
       const resolved = resolve(target);
       if (!resolved.ok) return resolved.message;
       const outcome = computeRename(warm(), resolved.abs, resolved.offset, newName);
       if (typeof outcome === 'string') return outcome;
-      return {
-        changes: outcome.changes,
-        dropped: outcome.dropped,
-        oldName: outcome.oldName,
-        ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
-      };
+      return { ...outcome, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
+    detectCodemodCaptures(edits) {
+      return detectCodemodCaptures(warm(), edits);
     },
 
     typecheckOverlay(files, opts) {

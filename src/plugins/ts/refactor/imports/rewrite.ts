@@ -8,14 +8,19 @@
 import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
+import type { RepoRelPath } from '../../../../core/brands.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
 import { emitQuoted } from '../../../../support/text-edits/quote.ts';
+import type { RewrittenImport } from '../capture/imports.ts';
 import { resolveSpecifierToNode } from './resolve.ts';
 import { deriveAliasPrefixes, emitSpecifier } from './emit.ts';
 
 export interface ImportRewrite {
   /** Files whose import text changed, keyed by current path. */
   changed: Map<string, { before: string; after: string }>;
+  /** Per-specifier capture-detection metadata (§ capture-safety): each rewritten import with the
+   *  target it was pointed at, so the move/extract gate can confirm it still resolves there. */
+  rewrites: RewrittenImport[];
 }
 
 function moduleSpecifierOf(node: ts.Node): ts.StringLiteral | undefined {
@@ -63,6 +68,7 @@ export function rewriteImports(
   const aliasPrefixes = deriveAliasPrefixes(host, options);
   const program = host.service.getProgram();
   const changed = new Map<string, { before: string; after: string }>();
+  const rewrites: RewrittenImport[] = [];
 
   for (const node of tree.iterFiles()) {
     // Include .js/.jsx/.mjs/.cjs importers, not just TS: an allowJs project has them in the
@@ -105,6 +111,18 @@ export function rewriteImports(
             if (newSpec !== spec.text) {
               const start = spec.getStart(sf);
               edits.push({ start, end: spec.getEnd(), text: emitQuoted(before, start, newSpec) });
+              // Record the rewrite so the move/extract gate can confirm the EMITTED specifier
+              // still resolves to `target` post-move (a path-capture the typecheck can't see).
+              // Line/col read off the BEFORE text — a specifier rewrite never adds/removes lines.
+              const lc = sf.getLineAndCharacterOfPosition(start);
+              rewrites.push({
+                importerCurrentAbs: host.absOf(node.currentPath()),
+                importerCurrentPath: node.currentPath() as RepoRelPath,
+                newSpec,
+                expectedTargetCurrentAbs: host.absOf(target.currentPath()),
+                line: lc.line + 1,
+                col: lc.character + 1,
+              });
             }
           }
         }
@@ -119,5 +137,5 @@ export function rewriteImports(
       changed.set(String(node.currentPath()), { before, after });
     }
   }
-  return { changed };
+  return { changed, rewrites };
 }
