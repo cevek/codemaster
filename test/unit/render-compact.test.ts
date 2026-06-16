@@ -57,6 +57,62 @@ test('unused scss class surfaces non-certain confidence + note on the same line'
   );
 });
 
+// The strip-vs-surface invariant has TWO encloser shapes that must BOTH render terse, never
+// fall through to a verbose key=value block: `find_usages` surfaces `site` (so a group is
+// proof-carrying at the reference level), `impact` strips it. This is the CI backstop the
+// invariant otherwise lacks — a future GroupRow emit path that leaks an unrecognized key set
+// would flip one of these (the condense renderer only matches the two exact key sets).
+test('grouped find_usages encloser row surfaces the reference `site` on the terse line', () => {
+  const groupRow: JsonValue = {
+    id: 'ts:render@src/c.ts:3:3',
+    name: 'Widget.render',
+    file: 'src/c.ts',
+    line: 3,
+    col: 3,
+    kind: 'method',
+    count: 2,
+    roles: 'call',
+    exported: false,
+    confidence: 'certain',
+    site: span('src/c.ts', 4, 12, 'useX'),
+  };
+  const out = renderResult(ok({ enclosers: [groupRow] }));
+  assert.match(
+    out,
+    /ts:render@src\/c\.ts:3:3 · method · x2 \(call\) · ref src\/c\.ts:4:12/,
+    'terse one-liner WITH the ref site',
+  );
+  assert.doesNotMatch(out, /\n\s*site=/, 'site never leaks as a verbose key=value line');
+  assert.doesNotMatch(out, /\n\s*id=/, 'the row stays collapsed, not a verbose block');
+});
+
+test('impact-style encloser row (site stripped) still renders terse, with NO ref segment', () => {
+  const stripped: JsonValue = {
+    id: 'ts:render@src/c.ts:3:3',
+    name: 'Widget.render',
+    file: 'src/c.ts',
+    line: 3,
+    col: 3,
+    kind: 'method',
+    count: 2,
+    roles: 'call',
+    exported: false,
+    confidence: 'certain',
+  };
+  const out = renderResult(ok({ dependents: { '1': [stripped] } }));
+  assert.match(
+    out,
+    /ts:render@src\/c\.ts:3:3 · method · x2 \(call\)/,
+    'terse one-liner, no verbose block',
+  );
+  assert.doesNotMatch(out, / · ref /, 'no ref segment when site was stripped');
+  assert.doesNotMatch(
+    out,
+    /\n\s*id=/,
+    'the row stays collapsed (the site-less key set still matches)',
+  );
+});
+
 test('expand_type union member stays one line (name?: type), no 3-line explosion', () => {
   const out = renderResult(
     ok({

@@ -6,6 +6,7 @@
 
 import ts from 'typescript';
 import { nodeAt } from './ast-node.ts';
+import { qualifyMember } from './encloser-id.ts';
 
 /** Syntactic role of one reference site. `decl` = the definition itself. `reexport` =
  *  an `export { X }` / `export { X } from …` barrel specifier — structurally load-bearing
@@ -99,12 +100,20 @@ function isTypeMemberSignature(
 }
 
 export interface Encloser {
+  /** Display name — qualified `Class.method` for a class member, the bare name otherwise.
+   *  NEVER the source of the SymbolId (that is `idName`); a qualified display minted as an
+   *  id resolves `gone` (§6, see `encloser-id.ts`). */
   name: string;
+  /** The BARE name-token text the SymbolId anchors on — equals the identifier at `start`, so
+   *  the §6 same-symbol check holds. Equals `name` except for a class member (`make` vs the
+   *  display `Class.make`). */
+  idName: string;
   /** `const`/`variable` = a top-level non-function value binding (`const b = a()`,
    *  `let cfg = {…}`) — distinct from `function` so a data binding never reads as
-   *  callable. A function-valued binding stays `function`. */
+   *  callable. A function-valued binding (incl. a HOC/tagged-template-wrapped one) stays
+   *  `function`. */
   kind: 'function' | 'method' | 'class' | 'module' | 'const' | 'variable';
-  /** Start of the encloser's name token. */
+  /** Start of the encloser's name token (the `idName` identifier). */
   start: number;
   exported: boolean;
 }
@@ -115,39 +124,57 @@ export function findEncloser(sourceFile: ts.SourceFile, position: number): Enclo
   const node = nodeAt(sourceFile, position);
   for (let up: ts.Node | undefined = node; up !== undefined; up = up.parent) {
     if (ts.isFunctionDeclaration(up) && up.name !== undefined) {
-      return encloser(up.name.text, 'function', up.name, up);
+      return encloser(up.name.text, up.name.text, 'function', up.name, up);
     }
     if (ts.isMethodDeclaration(up) && ts.isIdentifier(up.name)) {
-      const cls = up.parent;
-      const clsName =
-        ts.isClassDeclaration(cls) && cls.name !== undefined ? `${cls.name.text}.` : '';
-      return encloser(`${clsName}${up.name.text}`, 'method', up.name, up);
+      // Display name qualifies (`Class.method`); the id anchors on the bare `method` token
+      // (`up.name`), so the handle chains (§6 / `encloser-id.ts`).
+      return encloser(qualifyMember(up.parent, up.name.text), up.name.text, 'method', up.name, up);
+    }
+    // A FUNCTION-valued class field (`handler = () => …`, a React arrow component method, or a
+    // HOC/styled-wrapped one) is a member encloser exactly like a `MethodDeclaration` — display
+    // `Class.prop`, id on the bare `prop` token. Bug 1's scope is "class-method/property
+    // encloser"; without this a ref inside the field rolls up to the CLASS, a coarser handle. A
+    // plain-VALUE class field stays rolled to the class (no member-level `kind` to mint for it).
+    if (
+      ts.isPropertyDeclaration(up) &&
+      ts.isIdentifier(up.name) &&
+      isFunctionValued(up.initializer)
+    ) {
+      return encloser(qualifyMember(up.parent, up.name.text), up.name.text, 'method', up.name, up);
     }
     if (ts.isClassDeclaration(up) && up.name !== undefined && !within(up.name, position)) {
-      return encloser(up.name.text, 'class', up.name, up);
+      return encloser(up.name.text, up.name.text, 'class', up.name, up);
     }
     if (ts.isVariableDeclaration(up) && ts.isIdentifier(up.name)) {
-      const initializer = up.initializer;
-      const isFn =
-        initializer !== undefined &&
-        (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer));
-      // A reference INSIDE a function-valued binding's body belongs to that function —
-      // `const Foo = () => …`; exported-ness lives on the VariableStatement.
-      if (isFn && within(initializer, position)) {
-        return encloser(up.name.text, 'function', up.name, up.parent.parent);
-      }
-      // Otherwise: a TOP-LEVEL non-function value binding (`export const b = a()`,
-      // `const cfg = { f: dep }`) is its own encloser, so a reference in its initializer
-      // rolls up to a re-resolvable `name@file:line:col` SymbolId instead of the module
-      // node. Scoped to module top level: a nested local `const` is not a useful
-      // re-resolvable encloser — its refs belong to the enclosing function/method, so we
-      // keep walking up. Function-valued bindings stay handled by the branch above (their
-      // body refs roll to the function; the name/decl ref keeps the prior module rollup).
-      if (!isFn) {
-        const statement = topLevelVariableStatement(up);
-        if (statement !== undefined) {
+      // ONLY a MODULE-SCOPE binding (a `SourceFile`/`ModuleBlock` boundary) is a useful,
+      // robustly re-resolvable encloser. A nested LOCAL binding — value OR function-valued —
+      // belongs to its enclosing function/method, so we keep walking up. Gating BOTH cases is
+      // load-bearing: a function-valued LOCAL (`const cb = useCallback(() => dep(), [dep])`, or
+      // any HOC/tagged-template-wrapped local) must NOT divert `dep` off its enclosing function
+      // onto the fragile local handle `cb` — that would HIDE the real function under a
+      // `kind:'function'` view, the very under-report bug 2 set out to fix.
+      const statement = moduleScopeVariableStatement(up);
+      if (statement !== undefined) {
+        const initializer = up.initializer;
+        // A reference INSIDE a function-valued binding's body belongs to that function —
+        // `const Foo = () => …`, or a HOC/tagged-template-wrapped one (`const Foo = memo(() =>
+        // …)`, `const Box = styled.div\`…\``). The binding's own name/decl ref is NOT inside the
+        // initializer, so it falls through to the module rollup (unchanged). Exported-ness lives
+        // on the VariableStatement.
+        if (
+          isFunctionValued(initializer) &&
+          initializer !== undefined &&
+          within(initializer, position)
+        ) {
+          return encloser(up.name.text, up.name.text, 'function', up.name, statement);
+        }
+        // Otherwise a MODULE-SCOPE non-function value binding (`export const b = a()`,
+        // `const cfg = { f: dep }`) is its own encloser → a reference in its initializer rolls up
+        // to a re-resolvable `name@file:line:col` SymbolId instead of the module node.
+        if (!isFunctionValued(initializer)) {
           const kind = isConst(statement) ? 'const' : 'variable';
-          return encloser(up.name.text, kind, up.name, statement);
+          return encloser(up.name.text, up.name.text, kind, up.name, statement);
         }
       }
     }
@@ -155,16 +182,40 @@ export function findEncloser(sourceFile: ts.SourceFile, position: number): Enclo
   return undefined;
 }
 
-/** The `VariableStatement` of `decl` iff it sits at module top level (its parent is the
- *  SourceFile) — i.e. a re-resolvable module-scope binding. `undefined` for a nested
- *  binding, a `for (const …)` head (parent is the loop, not a VariableStatement), or a
- *  namespace-nested one. */
-function topLevelVariableStatement(decl: ts.VariableDeclaration): ts.VariableStatement | undefined {
+/** The `VariableStatement` of `decl` iff it sits at a module boundary — its parent is the
+ *  `SourceFile` OR a `ModuleBlock` (`namespace N { … }` / `module M { … }`). Such a binding
+ *  is re-resolvable by name, so it is its own encloser instead of dead-ending in the module
+ *  rollup (the pre-Task-H top-level bug, here extended to namespace members). `undefined` for
+ *  a function/block-local binding or a `for (const …)` head (parent is the loop, not a
+ *  VariableStatement) — those belong to the enclosing function/method, not themselves. */
+function moduleScopeVariableStatement(
+  decl: ts.VariableDeclaration,
+): ts.VariableStatement | undefined {
   const list = decl.parent;
   if (!ts.isVariableDeclarationList(list)) return undefined;
   const statement = list.parent;
   if (!ts.isVariableStatement(statement)) return undefined;
-  return ts.isSourceFile(statement.parent) ? statement : undefined;
+  const parent = statement.parent;
+  return ts.isSourceFile(parent) || ts.isModuleBlock(parent) ? statement : undefined;
+}
+
+/** A binding initializer that makes the binding renderable/callable — kinded `function` so a
+ *  `kind:'function'` view never SKIPS it (the under-report bug 2 closes). Direct
+ *  arrow/function-expression; a HOC wrapper (`memo(() => …)`, `forwardRef(…)`,
+ *  `observer(…)`, `React.memo(…)`) whose call carries an arrow/fn-expr argument; or a tagged
+ *  template (`styled.div\`…\``). The trigger is deliberately broad (any call with a callback
+ *  argument, no HOC name allowlist) so it catches `React.memo`, `styled(...)`, and
+ *  `forwardRef<T>(…)` for free — at the cost of labelling a value-returning callback wrapper
+ *  (`useMemo(() => v, [])`, `arr.map(fn)` bound to a const) `function` too. That over-label is
+ *  the spec's intended breadth: under-reporting a real component/hook is the worse direction. */
+function isFunctionValued(init: ts.Expression | undefined): boolean {
+  if (init === undefined) return false;
+  if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return true;
+  if (ts.isTaggedTemplateExpression(init)) return true;
+  if (ts.isCallExpression(init)) {
+    return init.arguments.some((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a));
+  }
+  return false;
 }
 
 function isConst(statement: ts.VariableStatement): boolean {
@@ -173,11 +224,12 @@ function isConst(statement: ts.VariableStatement): boolean {
 
 function encloser(
   name: string,
+  idName: string,
   kind: Encloser['kind'],
   nameNode: ts.Node,
   declaration: ts.Node,
 ): Encloser {
-  return { name, kind, start: nameNode.getStart(), exported: isExported(declaration) };
+  return { name, idName, kind, start: nameNode.getStart(), exported: isExported(declaration) };
 }
 
 function isExported(node: ts.Node): boolean {

@@ -9,6 +9,7 @@ import type { Confidence, Span } from '../../core/span.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId, moduleName } from './symbol-id.ts';
+import { mintEncloserId } from './encloser-id.ts';
 import { classifyRole, findEncloser, type UsageRole } from './usage-roles.ts';
 import type { SymbolView, GroupRow, UsageView, UsageOptions, UsagesView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
@@ -279,12 +280,13 @@ function rollupRow(
       exported: false,
     };
   }
-  const lc = sourceFile.getLineAndCharacterOfPosition(enc.start);
-  const line = lc.line + 1;
-  const col = lc.character + 1;
+  // Mint the handle on the BARE name token (`enc.idName`, anchored at `enc.start`) so a
+  // class-member encloser's id chains instead of resolving `gone` — the display `name`
+  // (`Class.method`) is never the id (§6 / `encloser-id.ts`).
+  const { id, line, col } = mintEncloserId(sourceFile, rel, enc.idName, enc.start, host.rootTag);
   return {
     key: `${rel}#${enc.name}#${enc.start}`,
-    id: mintSymbolId(enc.name, rel, line, col, host.rootTag),
+    id,
     name: enc.name,
     line,
     col,

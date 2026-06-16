@@ -6,6 +6,7 @@
 // construction site, `const defaultUser: User = {…}`) which `findEncloser` deliberately does not.
 
 import ts from 'typescript';
+import { qualifyMember } from './encloser-id.ts';
 
 export interface ConstructionEncloser {
   /** Display name — qualified `Class.member` for a class member, the bare name otherwise. */
@@ -36,13 +37,13 @@ export function enclosingConstruction(literal: ts.Node): ConstructionEncloser | 
       return mk(up.name.text, up.name, kind, isExported(up.parent.parent));
     }
     if (ts.isPropertyDeclaration(up) && ts.isIdentifier(up.name)) {
-      return mk(qualify(up.parent, up.name.text), up.name, 'property', false);
+      return mk(qualifyMember(up.parent, up.name.text), up.name, 'property', false);
     }
     if (ts.isFunctionDeclaration(up) && up.name !== undefined) {
       return mk(up.name.text, up.name, 'function', isExported(up));
     }
     if (ts.isMethodDeclaration(up) && ts.isIdentifier(up.name)) {
-      return mk(qualify(up.parent, up.name.text), up.name, 'method', false);
+      return mk(qualifyMember(up.parent, up.name.text), up.name, 'method', false);
     }
     if (ts.isClassDeclaration(up) && up.name !== undefined) {
       return mk(up.name.text, up.name, 'class', isExported(up));
@@ -66,13 +67,6 @@ function mk(
     nameStart: nameNode.getStart(),
     exported,
   };
-}
-
-/** `Class.member` when the owner is a named class, else the bare member name. */
-function qualify(owner: ts.Node, member: string): string {
-  return ts.isClassLike(owner) && owner.name !== undefined
-    ? `${owner.name.text}.${member}`
-    : member;
 }
 
 function isFunctionInit(init: ts.Expression | undefined): boolean {

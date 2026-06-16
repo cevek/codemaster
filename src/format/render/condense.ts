@@ -62,12 +62,21 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     return `${String(v['span'])} · ${String(v['confidence'])}`;
   }
   // GroupRow (enclosing rollup): { id, name, file, line, col, kind, count, roles,
-  // exported, confidence } — the id already carries name + file:line:col, so terse
-  // collapses to one line; the explicit columns exist for relational projection (§3).
-  if (keys === 'col,confidence,count,exported,file,id,kind,line,name,roles') {
+  // exported, confidence, site? } — the id already carries name + file:line:col, so terse
+  // collapses to one line; the explicit columns exist for relational projection (§3). The
+  // `site` (a representative reference span inside the encloser) is present in `find_usages`
+  // output and absent in `impact`'s closure listing (stripped via `omitGroupSite`) — a
+  // separate key set, so both render terse instead of dropping to verbose key=value blocks.
+  if (
+    keys === 'col,confidence,count,exported,file,id,kind,line,name,roles' ||
+    keys === 'col,confidence,count,exported,file,id,kind,line,name,roles,site'
+  ) {
     const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
     const exp = v['exported'] === true ? ' · exported' : '';
-    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${conf}`;
+    // The encloser's `id` anchors at its NAME token; `site` is WHERE a reference actually is
+    // (a distinct location) — surfaced so the group is proof-carrying at the reference level.
+    const ref = v['site'] !== undefined ? ` · ref ${String(v['site'])}` : '';
+    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${conf}${ref}`;
   }
   // ImporterRow: { at, imports }
   if (keys === 'at,imports') {

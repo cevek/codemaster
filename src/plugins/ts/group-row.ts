@@ -1,10 +1,12 @@
-// `GroupRow.site` is internal plumbing: the rollup records a representative reference
-// span on each encloser so `impact` can point a value-flow `dynamic` boundary at the
-// exact value-read token (not the encloser's name). It is NOT part of the agent-facing
-// `find_usages`/`impact` listing. Stripping is LOAD-BEARING, not just denseness: the terse
-// renderer (`format/render/condense.ts`) matches a `GroupRow` by its EXACT sorted key set,
-// so a leaked `site` key would silently drop every encloser row to verbose rendering. Every
-// `GroupRow` emit path routes through this one chokepoint before emit.
+// `GroupRow.site` is a representative reference span on each encloser — WHERE a reference
+// actually is, distinct from the encloser's name token. `find_usages` SURFACES it (a group is
+// then proof-carrying at the reference level; the terse renderer in `format/render/condense.ts`
+// has a key set WITH `site`). `impact` STRIPS it via `omitGroupSite` below: it already pins the
+// precise value-flow `dynamic` boundary at `site` separately, and a per-row span across a whole
+// closure listing is noise (§12). Stripping is still load-bearing where applied — the terse
+// renderer matches a `GroupRow` by its EXACT sorted key set, so impact's listing must carry the
+// site-less key set. Any NEW `GroupRow` emit path must either strip site here OR add a matching
+// condense branch, never leak an unrecognized key set.
 
 import type { GroupRow } from './query-types.ts';
 

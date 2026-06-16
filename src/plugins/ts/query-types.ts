@@ -58,15 +58,15 @@ export type GroupRow = {
   confidence: Confidence;
   /** A representative reference SITE inside this encloser — the span of the first
    *  reference rolled up here (`line`/`col` above are the encloser's NAME token, not
-   *  where the reference is). `impact` uses it to point a `dynamic` value-flow boundary
-   *  at the exact value-read token rather than the encloser. Populated by the rollup.
+   *  where the reference is). Populated by the rollup.
    *
-   *  INTERNAL plumbing — MUST be stripped (via `group-row.ts`'s `omitGroupSite`) before a
-   *  `GroupRow` is emitted to the agent. Two reasons it never reaches output: (1) dense
-   *  output (§12) — a per-row span across a whole closure is noise; (2) the terse renderer
-   *  matches a `GroupRow` by its EXACT sorted key set (`format/render/condense.ts`), so a
-   *  leaked `site` key silently drops the row to verbose rendering. Any new `GroupRow`
-   *  emit path must strip it. */
+   *  `find_usages` SURFACES it (a group becomes proof-carrying at the reference level —
+   *  the condense renderer has a key set WITH `site`). `impact` STRIPS it (via
+   *  `group-row.ts`'s `omitGroupSite`): it pins the precise `dynamic` value-flow boundary at
+   *  `site` separately, and a per-row span across the whole closure listing is noise (§12).
+   *  The terse renderer matches a `GroupRow` by its EXACT sorted key set
+   *  (`format/render/condense.ts`), so any new `GroupRow` emit path must either strip site
+   *  or add a matching condense branch — never leak an unrecognized key set. */
   site?: Span;
 };
 

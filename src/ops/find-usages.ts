@@ -14,7 +14,6 @@ import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
-import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
 import { findUsagesTable } from './find-usages-table.ts';
@@ -172,7 +171,7 @@ export const findUsagesOp = defineOp({
           targets.push({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
-            ...(view.groups !== undefined ? { enclosers: view.groups.map(omitGroupSite) } : {}),
+            ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
             ...(view.usages !== undefined ? { usages: view.usages } : {}),
             total: view.total,
             ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
@@ -221,7 +220,7 @@ export const findUsagesOp = defineOp({
       const notes = usageNotes(view, args.role, verbosity);
       const data: Record<string, JsonValue> = {
         ...(view.definition !== undefined ? { definition: view.definition } : {}),
-        ...(view.groups !== undefined ? { enclosers: view.groups.map(omitGroupSite) } : {}),
+        ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
         ...(view.usages !== undefined ? { usages: view.usages } : {}),
         total: view.total,
         ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),

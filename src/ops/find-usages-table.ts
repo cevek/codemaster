@@ -2,8 +2,12 @@
 // the line cap. One relation over reference sites from both halves of the answer: the
 // semantic refs (`provenance='semantic'`) and, under `text:true`, the textual occurrences
 // (`provenance='text'`, NULL role/encloser — role is an AST concept, NULL means "not our
-// domain"; `0`/`''` would be a measured claim). The `provenance` column is appended LAST
-// so existing column positions never shift.
+// domain"; `0`/`''` would be a measured claim). New columns are appended at the END so
+// existing positions never shift: `provenance`, then the representative reference site
+// (`ref_file/ref_line/ref_col`) for a grouped encloser row — the encloser's own
+// `file/line/col` is its NAME token, so the ref site (WHERE a reference actually is) is a
+// distinct, proof-carrying location. NULL for flat/text rows, whose `file/line/col` already
+// IS the reference site.
 
 import type { JsonValue } from '../core/json.ts';
 import type { GroupRow, SymbolView, UsageView } from '../plugins/ts/query-types.ts';
@@ -36,6 +40,9 @@ function sectionRows(s: Section): readonly Cell[][] {
       null,
       u.confidence,
       'semantic',
+      null, // ref_file — a flat row's file/line/col already IS the ref site
+      null,
+      null,
     ]);
   }
   for (const g of s.enclosers ?? []) {
@@ -53,6 +60,11 @@ function sectionRows(s: Section): readonly Cell[][] {
       g.count,
       g.confidence,
       'semantic',
+      // The representative reference site — distinct from the encloser's name token
+      // (file/line/col above). Always present for a real grouped ref; NULL-guarded for safety.
+      g.site?.file ?? null,
+      g.site?.line ?? null,
+      g.site?.col ?? null,
     ]);
   }
   // Text-only rows: same text, identity unproven — no AST role/encloser to claim.
@@ -71,6 +83,9 @@ function sectionRows(s: Section): readonly Cell[][] {
       null,
       t.confidence,
       'text',
+      null,
+      null,
+      null,
     ]);
   }
   return rows;
@@ -120,6 +135,9 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     { name: 'count', type: 'int' },
     { name: 'confidence', type: 'text' },
     { name: 'provenance', type: 'text' },
+    { name: 'ref_file', type: 'text' },
+    { name: 'ref_line', type: 'int' },
+    { name: 'ref_col', type: 'int' },
   ],
   rows(data) {
     return sectionsOf(data).flatMap(sectionRows);

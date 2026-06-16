@@ -20,15 +20,6 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ---
 
-## In flight (active — tracked in their own brief, not duplicated below)
-
-- [ ] **Encloser identity & rollup fidelity** —
-      [spec-encloser-identity-fidelity.md](spec-encloser-identity-fidelity.md). Chainable class-member
-      encloser id, HOC-wrapped `function` kind, namespace-nested encloser, surface the reference
-      `site` span. `bug`·`med`·`cx:L`
-
----
-
 ## Roadmap — unbuilt phases
 
 ### Phase 4 — framework plugins + `list` ops
@@ -135,6 +126,11 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       dedup fixture. `dx`·`low`·`cx:M`
 
 ### ts / refactor
+
+- [ ] **`construction-sites.ts` exceeds the 300-line cap** (347 → 353 after the encloser-id
+      unification) — pre-existing debt, nudged by the shared-helper import + wrapped call. Split the
+      scan loop / target-description / encloser-view helpers into a sibling module (sibling to the
+      already-extracted `construction-encloser.ts` / `construction-confidence.ts`). `dx`·`low`·`cx:S`
 
 - [ ] **Stale `before` on a RE-DIRTIED tracked file in non-watcher mode** (cross-cutting; every
       refactor op via `assemble.ts`/`applyRefactorPlan`). `diskText` reads `before` from the warm

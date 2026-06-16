@@ -25,6 +25,7 @@ import type { Confidence, Span } from '../../core/span.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId, moduleName } from './symbol-id.ts';
+import { mintEncloserId } from './encloser-id.ts';
 import { nodeAt } from './ast-node.ts';
 import { typeAtNode } from './type-at-node.ts';
 import { classifyConstructionSite } from './construction-confidence.ts';
@@ -195,13 +196,18 @@ function encloserView(
   rel: RepoRelPath,
   enc: ConstructionEncloser,
 ): ConstructionEncloserView {
-  const lc = sourceFile.getLineAndCharacterOfPosition(enc.nameStart);
-  const line = lc.line + 1;
-  const col = lc.character + 1;
+  // Mint on the BARE token (`enc.idName`) so the handle chains — a class member's display name
+  // is `Class.member`, but its id must anchor on the `member` token at line:col (§6 rebind).
+  // Shared with the `find_usages` rollup via `encloser-id.ts` — one mint site, no drift.
+  const { id, line, col } = mintEncloserId(
+    sourceFile,
+    rel,
+    enc.idName,
+    enc.nameStart,
+    host.rootTag,
+  );
   return {
-    // Mint on the BARE token (`enc.idName`) so the handle chains — a class member's display name
-    // is `Class.member`, but its id must anchor on the `member` token at line:col (§6 rebind).
-    id: mintSymbolId(enc.idName, rel, line, col, host.rootTag),
+    id,
     name: enc.name,
     kind: enc.kind,
     file: rel,
