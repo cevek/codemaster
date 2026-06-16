@@ -21,13 +21,33 @@ export interface ColdView {
  *  file set + options a real cold boot would compile). Whole-repo, not single-file, so
  *  cross-file references resolve — `coldMembers` and (Stage 3) `coldFindReferences` share it.
  *  Internal until a test imports it directly; keeping it unexported avoids a knip dead-export. */
+// The default-lib SourceFiles (lib.es2022.d.ts, …) are immutable and identical across every
+// cold Program/LS this process builds, yet re-parsing them per oracle call is a big slice of the
+// e2e cost (many tests per file, each rebuilding from cold). Cache the parsed lib SourceFile per
+// (path × target) and share it across every cold build in the process — node's test runner forks
+// per file, so this caches within a file's tests. Test-only + read-only + immutable, so sound.
+const libCache = new Map<string, ts.SourceFile | undefined>();
+const isLib = (fileName: string): boolean => /\/typescript\/lib\/lib\..+\.d\.ts$/.test(fileName);
+
+function cachingHost(options: ts.CompilerOptions): ts.CompilerHost {
+  const host = ts.createCompilerHost(options);
+  const inner = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, version, onError, shouldCreate) => {
+    if (!isLib(fileName)) return inner(fileName, version, onError, shouldCreate);
+    const key = `${fileName}@${JSON.stringify(version)}`;
+    if (!libCache.has(key)) libCache.set(key, inner(fileName, version, onError, shouldCreate));
+    return libCache.get(key);
+  };
+  return host;
+}
+
 function coldProgram(root: string): ColdView {
   const configPath = path.join(root, 'tsconfig.json');
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
   assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
   const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const program = ts.createProgram(parsed.fileNames, parsed.options, cachingHost(parsed.options));
   return { program, checker: program.getTypeChecker() };
 }
 
@@ -102,8 +122,12 @@ function coldLanguageService(root: string): { service: ts.LanguageService; fileN
     directoryExists: ts.sys.directoryExists,
     getDirectories: ts.sys.getDirectories,
   };
-  return { service: ts.createLanguageService(host, ts.createDocumentRegistry()), fileNames };
+  return { service: ts.createLanguageService(host, sharedRegistry), fileNames };
 }
+
+// Shared across every cold LS in the process so the immutable lib + identical fixture files are
+// parsed once, not per oracle call (see the libCache note above).
+const sharedRegistry = ts.createDocumentRegistry();
 
 /** The set of repo-relative files a cold LS finds referencing `symbolName` — located at its
  *  first word-boundary occurrence in `fileRel`. Includes the declaration file, every
