@@ -1,6 +1,9 @@
 # Spec: stress-test findings — mutation-gate, codemod, output & honesty hardening
 
-Status: **proposed**. Consolidated backlog from a 90-point adversarial stress test of the MCP
+Status: **implemented** (§1–§6, with one recorded carve-out: §1b is fixed for `move_file`; the
+`extract_symbol` half is a documented known limitation — see §1b). §7 wishes still parked; the
+daemon-singleton (§6 root) is its own spec. Consolidated backlog from a 90-point adversarial stress
+test of the MCP
 surface against `amiro` — full evidence in [findings-stresstest.md](findings-stresstest.md)
 (report) + [findings-stresstest-journal.md](findings-stresstest-journal.md) (per-point journal);
 9 in-band `feedback` entries triaged here. The **read/search/type/scss/i18n/sql layer passed
@@ -20,14 +23,19 @@ poisons every verdict.
 - **1a (P0, ROOT) — the LS reports ~600 phantom errors the project's own tsc does not.** On a
   byte-clean `amiro`, every mutation reports `preExisting≈602` while the project's `tsgo`/`tsc` =
   **0** (P53/P57 confirmed independently; reproduced here: a no-op codemod → `preExisting=602`).
-  The `ts` plugin's LanguageService is not honoring the project's real `compilerOptions`
-  (`allowImportingTsExtensions`, `paths`, `moduleResolution`, `lib`, `types` …) — amiro writes
-  imports with explicit `.tsx` extensions and uses bundler resolution, so a mis-configured host
-  yields phantom implicit-any / unresolved errors. **This violates ARCHITECTURE §5/§19**
-  ("drive the project's OWN TS with its tsconfig — a different tsc means different diagnostics, a
-  lie"). Fix: make the LS host load the inspected repo's tsconfig faithfully so the baseline is
-  ≈0. Everything below is secondary to this — with a correct baseline the diff is trustworthy and
-  1b/1c largely vanish.
+  **ROOT CAUSE (empirically narrowed — the original tsconfig hypothesis was DISPROVEN):** the
+  config loads correctly (`moduleResolution=Bundler`, `paths`, `allowImportingTsExtensions` all
+  present), and it's not a TS-version issue. The bug is a missing **`realpath`** on the
+  `LanguageServiceHost`. `tsc`/`createProgram` canonicalize symlinks (`realpath: sys.realpath`);
+  the LS host omitted it, so on a **pnpm** repo (whose `node_modules/<pkg>` are symlinks into
+  `.pnpm/`) the same package loads under TWO paths — the symlink for a direct dep, the realpath for
+  a transitive one — and its types stop unifying: `UseSuspenseQueryOptions` ≠
+  `UseSuspenseQueryOptions`, callbacks lose their parameter types (implicit-any), valid object
+  literals are rejected → ~600 phantom errors. Proof: a cold `createProgram` over the SAME files +
+  options = **0**; the LS-built program = **602**; adding `realpath` to the host = **0**. **This
+  violated ARCHITECTURE §5/§19** ("a different tsc means different diagnostics, a lie"). **Fixed:**
+  the LS host now sets `realpath: tsm.sys.realpath` (guarded for synthetic overlay paths). Baseline
+  is ≈0 again — with a correct baseline the diff is trustworthy and 1b/1c follow.
 
 - **1b (P1, move/extract re-key) — a moved file's OWN pre-existing errors are re-counted as
   `introduced`.** `buildTypecheckField` keys diagnostics by `file·line·message`; `move_file` /
@@ -35,9 +43,15 @@ poisons every verdict.
   and re-appear as `introduced` (new path) → a semantically-safe move is REFUSED. Proof (P58,
   reproduced here moving `query-client.ts`): `602 = 596 + 6` — `preExisting` dropped exactly by
   the count that surfaced as `introduced`, same errors, new path. **This is a flaw in the
-  baseline-diff shipped this session.** Fix: track the move's old→new path mapping and re-key the
-  moved file's baseline diagnostics to the new path before computing the introduced-delta (a
-  diagnostic that merely relocated is not "introduced").
+  baseline-diff shipped this session.** **Fixed for `move_file`:** the op now threads `plan.moves`
+  (old→new path mapping, exact for a file move + prefix for a folder move) into
+  `buildTypecheckField`, which re-keys the moved file's baseline diagnostics before the
+  introduced-delta — verified op-level (move a file carrying a real pre-existing error → not
+  refused, error rides as `preExisting`). **Known limitation — `extract_symbol` not fixed:** extract
+  relocates a SUBSET of a file (new path AND shifted line), so the `file·line·message` key breaks
+  beyond a path-remap; a pre-existing error inside an extracted block still over-refuses the extract
+  (erring toward refuse on a changed file is the safe write-gate direction). A span-aware remap is
+  the follow-up; extract of clean code (the common case) is unaffected.
 
 - **1c (P69) — the gate is NON-DETERMINISTIC: identical op, dry-run `clean=false` vs apply
   `clean=true`.** The same codemod produced `introduced(3), preExisting=599` on dry-run and
@@ -92,8 +106,13 @@ t"`. Fix: wire `fields` into the op flag schema, OR drop it from the docs and po
   `amiro` SymbolId passed with `root:'../customer-frontend-v2'` was `rebound` (confidence=partial,
   "structural continuity not proven") onto cf2's own `formatCurrency` — a different symbol. The
   status concept says "SymbolIds do not cross roots (re-search in the new root)". Honest about the
-  uncertainty, but a cross-repo name-rebind is conceptually wrong. Fix: a SymbolId whose root ≠ the
-  request root → `gone` / "re-search in <root>", never a cross-repo rebind.
+  uncertainty, but a cross-repo name-rebind is conceptually wrong. **Fixed:** every `ts:` SymbolId
+  now carries a `~<rootTag>` origin stamp (an 8-hex FNV of the canonical root the orchestrator
+  already dedups engines by); `resolveSymbolId` refuses to name-rebind a handle whose tag ≠ the
+  resolving host's tag, returning `gone` + "re-search in this root" instead. Same-root handles still
+  resolve/rebind across calls and respawns (the tag is stable per root). Scope: `ts:` ids only —
+  `scss:`/`i18n:` handles are not yet origin-gated (out of this fix's scope; they share the
+  re-search guidance).
 
 - **4c (P1) — root resolution warms ANY folder, even a non-TS one, and is silent on a bad relative
   root.** A Java repo (`control-plane`, 0 `.ts`, 0 tsconfig) was taken as a warm root (indexing a

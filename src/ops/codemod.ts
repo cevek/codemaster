@@ -15,6 +15,7 @@ import { fail, failFromThrown } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
 import { gitLsFiles } from '../support/git/ls-files.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
+import { matchesAnyGlob } from '../common/glob/match.ts';
 import { readTextFile } from '../support/fs/read-file.ts';
 import { defineOp } from './registry.ts';
 import { absOf } from './mutation-support.ts';
@@ -58,8 +59,16 @@ function hasTwoDollarMetavar(s: string): boolean {
 function substitute(template: string, match: SgMatch): string {
   return template
     .replace(/\$\$\$([A-Z_][A-Z0-9_]*)/g, (_, name: string) =>
+      // `getMultipleMatches` returns the list INCLUDING the separator nodes (the `,` punctuation
+      // between args), so joining every node with ', ' double-emits them: `cn(a, b)` → `clsx(a, ,,
+      // b)` (spec-stresstest §2a). Keep only the NAMED nodes (the real arguments) and re-join with
+      // a single separator so `$$$` reconstructs a clean list.
+      // KNOWN LIMITATION: an ELIDED array hole (`[a, , b]`) has no node, so `$$$` drops it and the
+      // list shifts to `[a, b]` — a pathological, vanishingly-rare source shape, and codemod is
+      // shape-not-semantic by contract; the whole-program gate still guards type-breaking rewrites.
       match
         .getMultipleMatches(name)
+        .filter((n) => n.isNamed())
         .map((n) => n.text())
         .join(', '),
     )
@@ -93,6 +102,7 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
   notes: [
     'matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).',
     'dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.',
+    'paths (optional) are GLOBS over tracked .ts/.tsx (e.g. "src/features/**", "**/*.tsx") — a literal file path works too; an entry that selects no tracked TS file FAILS loudly (never a silent clean). Omit paths to scan every tracked TS file.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const root = ctx.daemon?.root;
@@ -128,6 +138,10 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
       return failFromThrown('ast-grep', thrown);
     }
 
+    const ls = await gitLsFiles(root);
+    if (!isOk(ls)) return fail(ls.failure);
+    const trackedTs = ls.data.map(brandGitPath).filter((f) => /\.(tsx?|mts|cts)$/.test(f));
+
     let files: RepoRelPath[];
     if (args.paths !== undefined) {
       // A `../`-escaping path would read/write outside the repo — invisible to the dirty-gate
@@ -139,13 +153,28 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
           message: `path(s) escape the repo root: ${escaping.join(', ')}`,
         });
       }
-      files = args.paths.map((p) => p as RepoRelPath);
+      // `paths` are GLOBS over tracked TS files, same engine as scss/usages `pathInclude` — so a
+      // directory glob (`src/features/**`) and a literal file path both work. A silent 0-match
+      // reads as "no matches in scope" and is dangerous (spec-stresstest §2b): fail loudly naming
+      // every entry that selected no tracked TS file (a typo'd path, a glob over an empty dir, a
+      // wrong extension), rather than report a misleading `clean=true`.
+      const selected = new Set<RepoRelPath>();
+      const empty: string[] = [];
+      for (const pat of args.paths) {
+        const hits = trackedTs.filter((f) => matchesAnyGlob(f, [pat]));
+        if (hits.length === 0) empty.push(pat);
+        for (const h of hits) selected.add(h);
+      }
+      if (empty.length > 0) {
+        return fail({
+          tool: 'codemod',
+          message: `paths entr${empty.length === 1 ? 'y' : 'ies'} matched no tracked TS file: ${empty.join(', ')} (paths are globs over tracked .ts/.tsx — check the spelling/extension/scope)`,
+        });
+      }
+      files = [...selected];
     } else {
-      const ls = await gitLsFiles(root);
-      if (!isOk(ls)) return fail(ls.failure);
-      files = ls.data.map(brandGitPath);
+      files = trackedTs;
     }
-    files = files.filter((f) => /\.(tsx?|mts|cts)$/.test(f));
 
     const changes: MutationChange[] = [];
     try {

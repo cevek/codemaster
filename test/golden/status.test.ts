@@ -32,7 +32,7 @@ test('status render is stable & complete on a two-plugin fixture (golden)', asyn
     // Completeness: both plugins, the concepts block, and per-op notes must be present.
     assert.match(rendered, /plugins: ts@.+ · scss@/);
     assert.match(rendered, /\nconcepts:\n/);
-    assert.match(rendered, /· fuzzy \(editor Cmd\+T style\)/, 'per-op notes render');
+    assert.match(rendered, /camelCase-initials.*NOT arbitrary subsequence/, 'per-op notes render');
 
     // Only the explicit UPDATE_GOLDEN flag regenerates — a missing/deleted golden must
     // FAIL (readFileSync throws), never silently self-heal green.

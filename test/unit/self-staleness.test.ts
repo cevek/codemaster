@@ -8,7 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
-import { staleBanner, opBanner } from '../../src/mcp/server.ts';
+import { staleBanner, createOnceBanner, opResultText } from '../../src/mcp/server.ts';
+import type { OpResult } from '../../src/ops/contracts.ts';
 import {
   defaultSourceFingerprint,
   createSourceStaleTracker,
@@ -116,10 +117,48 @@ test('staleBanner: empty when fresh, a reconnect line when stale (the MCP op sur
   assert.match(staleBanner(true), /reconnect MCP/);
 });
 
-test('opBanner: suppressed for format:json so the JSON payload is never corrupted (§12)', () => {
-  assert.equal(opBanner('json', true), '', 'a stale daemon must NOT prepend to a json op result');
-  assert.match(opBanner('text', true), /reconnect MCP/, 'text mode still warns');
-  assert.equal(opBanner('text', false), '', 'fresh text mode stays silent');
+test('§6: the staleness banner is ONE-SHOT per session — warns once, then stays silent', () => {
+  const once = createOnceBanner(() => true); // stale for the whole session
+  assert.match(once(false), /reconnect MCP/, 'first response carries the banner');
+  assert.equal(once(false), '', 'a second response does NOT repeat the un-actionable warning');
+  assert.equal(once(false), '', 'and a third stays silent too');
+});
+
+test('§6/§12: a json-suppressed call is silent AND does not consume the one-shot', () => {
+  const once = createOnceBanner(() => true);
+  // json mode suppresses the prefix (it would corrupt the payload) — and must NOT spend the
+  // one-shot, so a following text-mode call still gets the single warning.
+  assert.equal(once(true), '', 'json-suppressed → no banner');
+  assert.match(once(false), /reconnect MCP/, 'the later text response still warns once');
+  assert.equal(once(false), '', 'and only once');
+});
+
+test('§6: a fresh daemon never emits the banner (no false positive, no wasted one-shot)', () => {
+  const once = createOnceBanner(() => false);
+  assert.equal(once(false), '', 'fresh → silent');
+  assert.equal(once(false), '', 'still silent');
+});
+
+test('§6: an op-level ERROR result does NOT consume the one-shot banner (it ships only on success)', () => {
+  // The leak the bug-review caught: if the session's first staleness-eligible call returns an
+  // op-level error, the banner must NOT be spent — a later success still carries the single warning.
+  let calls = 0;
+  const thunk = (): string => {
+    calls++;
+    return 'STALE-BANNER\n';
+  };
+  const textOf = (r: ReturnType<typeof opResultText>): string =>
+    (r.content[0] as { text?: string } | undefined)?.text ?? '';
+
+  const errResult: OpResult = { name: 'find_usages', error: { kind: 'bad_args', message: 'x' } };
+  const errOut = opResultText(errResult, 'text', 'terse', thunk);
+  assert.equal(calls, 0, 'an error result must not call (consume) the banner thunk');
+  assert.match(textOf(errOut), /bad_args: x/);
+
+  const okResult: OpResult = { name: 'find_usages', result: { ok: true, data: 'ok-body' } };
+  const okOut = opResultText(okResult, 'text', 'terse', thunk);
+  assert.equal(calls, 1, 'a success result consumes the banner exactly once');
+  assert.match(textOf(okOut), /STALE-BANNER/);
 });
 
 test('root-placement: docs say top-level, and `root` inside `args` still fails bad_args (schema unchanged)', async () => {

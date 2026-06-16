@@ -11,7 +11,6 @@ const opRequestSchema = z.object({
   args: jsonValue.default({}),
   apply: z.boolean().optional(),
   verbosity: z.enum(['terse', 'normal', 'full']).optional(),
-  fields: z.array(z.string()).optional(),
   format: z.enum(['text', 'json']).optional(),
   debug: z.boolean().optional(),
   /** SQL table alias for this request under a sql-carrying batch (§3). */

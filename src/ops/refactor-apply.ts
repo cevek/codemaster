@@ -166,15 +166,19 @@ export async function applyMutation(
   const gate = buildTypecheckField(baselineDiag, overlayDiag);
   const typecheck = gate.field;
 
-  // A requested apply we decline to perform (gate unclean / dirty tree) — nothing written.
+  // Envelope key order matters: the unified `diff` can be tens of KB and the render self-caps at a
+  // char budget (§12), so anything emitted AFTER the diff (the typecheck verdict + touched count —
+  // the whole point of the gate) falls past the cap on a big edit and the agent never sees whether
+  // the edit is safe (spec-stresstest §3a). So the verdict summary leads and `diff` is ALWAYS the
+  // last key — the cap can only ever truncate the (re-fetchable) diff, never the verdict.
   const refused = (reason: string): Result<JsonValue> =>
     ok<JsonValue>(
-      { mode: 'dry-run', applied: false, reason, diff, touched, typecheck, ...baseNotes },
+      { mode: 'dry-run', applied: false, reason, typecheck, touched, ...baseNotes, diff },
       handleExtra,
     );
 
   if (ctx.flags.apply !== true) {
-    return ok<JsonValue>({ mode: 'dry-run', diff, touched, typecheck, ...baseNotes }, handleExtra);
+    return ok<JsonValue>({ mode: 'dry-run', typecheck, touched, ...baseNotes, diff }, handleExtra);
   }
   if (!gate.clean) {
     return refused('this edit introduces new typecheck errors — apply refused (§2.8)');
@@ -203,11 +207,11 @@ export async function applyMutation(
       {
         mode: 'applied',
         applied: false,
-        diff,
-        touched,
         typecheck: tc,
+        touched,
         rollback: { performed: reverted.complete, reason },
         ...baseNotes,
+        diff,
       },
       handleExtra,
     );
@@ -243,15 +247,15 @@ export async function applyMutation(
     {
       mode: 'applied',
       applied: true,
-      diff,
-      touched,
       // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
       // error count rides along on success too — honest, and consistent with the dry-run field.
       typecheck: postGate.field,
+      touched,
       rollback: { performed: false },
       ...baseNotes,
       // Proof spans valid only now that the post-edit content is on disk (§3.2).
       ...appliedFields,
+      diff, // last — the cap can only ever truncate the diff, never the verdict (§3a).
     },
     handleExtra,
   );

@@ -84,23 +84,46 @@ export async function applyRefactorPlan(
   } catch (thrown) {
     return failFromThrown('ts-ls', thrown);
   }
-  const gate = buildTypecheckField(baselineDiag, diag);
+  // A whole-file move renames the file, so its OWN pre-existing errors would leave the baseline
+  // under the old path and re-surface under the new path as "introduced" — refusing a
+  // semantically-safe move (§1b). Re-key the baseline's moved paths (exact for a file move, prefix
+  // for a folder move) so a merely-relocated error matches and drops out.
+  //
+  // KNOWN LIMITATION (§1b, extract): this covers `move_file` (plan.moves) only. `extract_symbol`
+  // populates `newFiles`, not `moves`, and relocates a SUBSET of a file — so an extracted block's
+  // own pre-existing error shifts BOTH path AND line, breaking the file·line·message key beyond
+  // what a path-remap can repair. A pre-existing error inside an extracted symbol therefore still
+  // reads as introduced and over-refuses the extract. Erring toward refuse on a file the edit
+  // changed is the safe direction for a write-gate (§2.8); the clean fix is a span-aware remap,
+  // tracked as a follow-up. (Extract of clean code — the common case — is unaffected.)
+  const remapBaselineFile = (file: string): string => {
+    for (const m of plan.moves) {
+      if (file === String(m.from)) return String(m.to);
+      if (m.kind === 'dir' && file.startsWith(`${m.from}/`)) {
+        return `${m.to}${file.slice(String(m.from).length)}`;
+      }
+    }
+    return file;
+  };
+  const gate = buildTypecheckField(baselineDiag, diag, remapBaselineFile);
   const typecheck = gate.field;
 
   if (ctx.flags.apply !== true) {
-    return ok<JsonValue>({ mode: 'dry-run', diff, touched, typecheck, ...baseNotes }, handleExtra);
+    // `diff` is ALWAYS the last key: it can be tens of KB and the render self-caps (§12), so the
+    // verdict (typecheck + touched) must lead or it falls past the cap on a big move (§3a).
+    return ok<JsonValue>({ mode: 'dry-run', typecheck, touched, ...baseNotes, diff }, handleExtra);
   }
   if (!gate.clean) {
+    // Honesty (§3): `extract_symbol` does NOT re-key its baseline (the §1b carve-out — extract
+    // shifts a moved error's path AND line, beyond a path-remap), so an `introduced` count on an
+    // extract MAY be a pre-existing error that merely relocated INTO the extracted block, not one
+    // the edit caused. Don't assert "introduces new errors" as fact for extract — hedge it.
+    const reason =
+      opts.refusalLabel === 'extract'
+        ? "this extract introduces new typecheck errors — OR relocates a pre-existing one into the extracted block, which extract can't yet distinguish (§1b); apply refused (§2.8)"
+        : `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`;
     return ok<JsonValue>(
-      {
-        mode: 'dry-run',
-        applied: false,
-        reason: `this ${opts.refusalLabel} introduces new typecheck errors — apply refused (§2.8)`,
-        diff,
-        touched,
-        typecheck,
-        ...baseNotes,
-      },
+      { mode: 'dry-run', applied: false, reason, typecheck, touched, ...baseNotes, diff },
       handleExtra,
     );
   }
@@ -122,10 +145,10 @@ export async function applyRefactorPlan(
         mode: 'dry-run',
         applied: false,
         reason: `a path already exists at the destination(s) ${collidingDests.join(', ')} — refusing to overwrite`,
-        diff,
-        touched,
         typecheck,
+        touched,
         ...baseNotes,
+        diff,
       },
       handleExtra,
     );
@@ -139,10 +162,10 @@ export async function applyRefactorPlan(
         mode: 'dry-run',
         applied: false,
         reason: `touched files have uncommitted changes (${dirty.data.join(', ')}); commit/stash or pass dirtyOk`,
-        diff,
-        touched,
         typecheck,
+        touched,
         ...baseNotes,
+        diff,
       },
       handleExtra,
     );
@@ -178,11 +201,11 @@ export async function applyRefactorPlan(
       {
         mode: 'applied',
         applied: false,
-        diff,
-        touched,
         typecheck: tc,
+        touched,
         rollback: { performed: reverted.complete, reason },
         ...baseNotes,
+        diff,
       },
       handleExtra,
     );
@@ -196,7 +219,11 @@ export async function applyRefactorPlan(
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
     // Diff against the SAME pre-edit baseline — a pre-existing repo error must not roll back a
     // sound refactor.
-    postGate = buildTypecheckField(baselineDiag, ts.diagnostics(plan.checkPaths));
+    postGate = buildTypecheckField(
+      baselineDiag,
+      ts.diagnostics(plan.checkPaths),
+      remapBaselineFile,
+    );
   } catch (thrown) {
     return rollback(`post-apply typecheck threw (${String(thrown)})`, typecheck);
   }
@@ -207,13 +234,13 @@ export async function applyRefactorPlan(
     {
       mode: 'applied',
       applied: true,
-      diff,
-      touched,
       // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
       // error count rides along on success too — honest, and consistent with the dry-run field.
       typecheck: postGate.field,
+      touched,
       rollback: { performed: false },
       ...baseNotes,
+      diff, // last — the cap can only ever truncate the diff, never the verdict (§3a).
     },
     handleExtra,
   );

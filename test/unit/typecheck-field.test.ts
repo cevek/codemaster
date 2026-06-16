@@ -44,6 +44,44 @@ test('MULTISET: a 2nd occurrence of a pre-existing (file,line,message) is INTROD
   assert.equal(f.preExisting, 1, 'exactly one occurrence was pre-existing');
 });
 
+test('§1b: a moved file’s own pre-existing error is NOT counted as introduced (path re-key)', () => {
+  // The whole file `old.ts` moved to `new.ts`, carrying its pre-existing error verbatim (same
+  // line + message, new path). Without the re-key the baseline keys on old.ts and the after on
+  // new.ts → the identical error reads as "introduced" and a sound move is refused (the P58 bug:
+  // 602 = 596 + 6). With the move's old→new remap it matches the baseline and drops out.
+  const remap = (f: string): string => (f === 'old.ts' ? 'new.ts' : f);
+  const baseline = [d('old.ts', 5, "Type 'X' is not assignable to 'Y'.")];
+  const after = [d('new.ts', 5, "Type 'X' is not assignable to 'Y'.")];
+
+  const withoutRemap = buildTypecheckField(baseline, after);
+  assert.equal(
+    withoutRemap.clean,
+    false,
+    'guard: without the re-key the relocated error mis-reads as introduced',
+  );
+
+  const r = buildTypecheckField(baseline, after, remap);
+  assert.equal(r.clean, true, 'a relocated-but-identical error must not block the move');
+  assert.deepEqual(r.field, { clean: true, preExisting: 1 });
+});
+
+test('§1b: a folder move re-keys errors under the moved prefix; an unrelated new error still surfaces', () => {
+  const remap = (f: string): string =>
+    f.startsWith('src/old/') ? `src/new/${f.slice('src/old/'.length)}` : f;
+  const baseline = [d('src/old/a.ts', 2, 'E1'), d('src/old/sub/b.ts', 3, 'E2')];
+  // both pre-existing errors relocate with the folder; plus a genuinely new error in an importer.
+  const after = [
+    d('src/new/a.ts', 2, 'E1'),
+    d('src/new/sub/b.ts', 3, 'E2'),
+    d('importer.ts', 9, 'NEW'),
+  ];
+  const r = buildTypecheckField(baseline, after, remap);
+  assert.equal(r.clean, false);
+  const f = r.field as { introduced: { file: string }[]; preExisting?: number };
+  assert.deepEqual(f.introduced, [{ file: 'importer.ts', line: 9, message: 'NEW' }]);
+  assert.equal(f.preExisting, 2, 'both relocated errors ride as pre-existing, not introduced');
+});
+
 test('introduced list is capped with moreIntroduced; never reads clean while dropping', () => {
   const after: TsDiagnostic[] = [];
   for (let i = 0; i < 25; i++) after.push(d('a.ts', i + 1, `E${i}`));

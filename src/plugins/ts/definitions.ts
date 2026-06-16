@@ -34,7 +34,7 @@ export function findDefinitions(
         ? undefined
         : spanFromRange(sourceFile, rel, declNode.getStart(), declNode.getEnd(), DECL_TEXT_CAP);
     views.push({
-      id: mintSymbolId(def.name, rel, span.line, span.col),
+      id: mintSymbolId(def.name, rel, span.line, span.col, host.rootTag),
       name: def.name,
       kind: def.kind,
       span,

@@ -1,4 +1,5 @@
-// Workspace symbol search (LS navto provider) — fuzzy, editor-Cmd+T style. One read-side
+// Workspace symbol search (LS navto provider) — prefix / substring / camelCase-initials, NOT
+// arbitrary-subsequence fuzzy (the matcher is the LS's, not ours). One read-side
 // query module among definitions/usages/type-expand. Results are proof-carrying SymbolViews
 // anchored on the NAME token (where quickInfo/references resolve), with explicit total
 // vs shown so a cap never reads as completeness (§3.4).
@@ -71,7 +72,7 @@ function navigateToView(host: TsProjectHost, item: ts.NavigateToItem): SymbolVie
   const nameStart = nameIdx >= 0 ? item.textSpan.start + nameIdx : item.textSpan.start;
   const span = spanFromRange(sourceFile, rel, nameStart, nameStart + item.name.length);
   return {
-    id: mintSymbolId(item.name, rel, span.line, span.col),
+    id: mintSymbolId(item.name, rel, span.line, span.col, host.rootTag),
     name: item.name,
     kind: item.kind,
     span,

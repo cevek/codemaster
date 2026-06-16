@@ -157,7 +157,12 @@ function buildDefinition(
   // `def.name` from the LS is the full display string; the span text is the identifier
   // itself — use it when it is one.
   const name = /^[\w$]+$/.test(span.text) ? span.text : def.name;
-  return { id: mintSymbolId(name, rel, span.line, span.col), name, kind: def.kind, span };
+  return {
+    id: mintSymbolId(name, rel, span.line, span.col, host.rootTag),
+    name,
+    kind: def.kind,
+    span,
+  };
 }
 
 /** Roll displayed refs up to their nearest enclosing named declaration. Collapse is
@@ -255,7 +260,7 @@ function rollupRow(
     // the synthetic `(top-level X)` nodes without a name LIKE-heuristic.
     return {
       key: `${rel}#<module>`,
-      id: mintSymbolId(name, rel, 1, 1),
+      id: mintSymbolId(name, rel, 1, 1, host.rootTag),
       name,
       line: 1,
       col: 1,
@@ -268,7 +273,7 @@ function rollupRow(
   const col = lc.character + 1;
   return {
     key: `${rel}#${enc.name}#${enc.start}`,
-    id: mintSymbolId(enc.name, rel, line, col),
+    id: mintSymbolId(enc.name, rel, line, col, host.rootTag),
     name: enc.name,
     line,
     col,

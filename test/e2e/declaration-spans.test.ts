@@ -55,7 +55,8 @@ test('find_definition at full verbosity contains the body, not just the identifi
     // Terse stays a single clickable location — no echo, no body dump.
     const terse = renderResult(r.result, 'terse');
     assert.ok(!terse.includes('return n * 2'), 'terse is location-only');
-    assert.match(terse, /ts:compute@src\/f\.ts:1:\d+ · function/);
+    // The id carries an origin-root tag suffix (`~<hash>`, §4b) between the position and the kind.
+    assert.match(terse, /ts:compute@src\/f\.ts:1:\d+(?:~[0-9a-f]+)? · function/);
   } finally {
     await p.dispose();
   }

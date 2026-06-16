@@ -53,6 +53,9 @@ export interface StatusView {
    *  multi-root is live and which sibling repos are already loaded. */
   engineRoots: readonly string[];
   workspace: WorkspaceStatusView | undefined;
+  /** Why no workspace resolved (§4c) — a bad/unresolvable root, or a folder that isn't a TS
+   *  project. Surfaced instead of the generic "none resolved" so the agent learns the cause. */
+  workspaceError: string | undefined;
   debugTopics: readonly string[];
   guidance: readonly string[];
   /** True when codemaster's own source changed since the daemon spawned — it is serving
@@ -77,7 +80,12 @@ export function renderStatus(view: StatusView): string {
 
   const ws = view.workspace;
   if (ws === undefined) {
-    lines.push('workspace: none resolved (pass root, or call from inside a repo)');
+    // §4c: name the cause (bad root / not a TS project) instead of a bare "none resolved".
+    lines.push(
+      view.workspaceError !== undefined
+        ? `workspace: none resolved — ${view.workspaceError}`
+        : 'workspace: none resolved (pass root, or call from inside a repo)',
+    );
   } else {
     lines.push(`workspace: ${ws.root}`);
     lines.push(

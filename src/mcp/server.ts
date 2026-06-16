@@ -29,6 +29,9 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
+  // Self-staleness banner is ONE-SHOT per session (spec-stresstest §6): see `createOnceBanner`.
+  const sessionBanner = createOnceBanner(() => orchestrator.sourceStale());
+
   // The MCP client owns our lifetime: when it closes stdin (session over), dispose
   // engines (watchers would otherwise keep the event loop alive — a zombie per
   // session) and exit.
@@ -62,7 +65,13 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
           const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
           if (!parsed.success) return badArgs('op', parsed.error.message);
           const { root, sql, return: returnMode, ...req } = parsed.data;
-          const banner = opBanner(req.format, orchestrator.sourceStale());
+          // The one-shot banner (§6) is consumed ONLY where it actually ships in a text response —
+          // NOT eagerly, or an early error return (bad route / dispatch fail / op-level error) would
+          // silently spend the session's single warning and leave every later call quiet (a stale
+          // daemon never owning up). `sessionBanner` is therefore called inside the success returns
+          // below, never before them; json mode passes `true` (a prefix corrupts the payload) and
+          // does not consume the one-shot.
+          const suppress = req.format === 'json';
           if (sql !== undefined) {
             // §2.6: single-op sql sugar = a batch of one request aliased `t`.
             const outcome = await orchestrator.request(
@@ -72,13 +81,15 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
               { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) },
             );
             if (!outcome.ok) return errorText(outcome.message);
-            return text(banner + renderResults(outcome.results, req.format, req.verbosity));
+            return text(
+              sessionBanner(suppress) + renderResults(outcome.results, req.format, req.verbosity),
+            );
           }
           const outcome = await orchestrator.request(cwd, root, [req as OpRequest]);
           if (!outcome.ok) return errorText(outcome.message);
           const result = outcome.results[0];
           if (result === undefined) return errorText('no result (codemaster bug)');
-          return opResultText(result, req.format, req.verbosity, banner);
+          return opResultText(result, req.format, req.verbosity, () => sessionBanner(suppress));
         }
         case 'batch': {
           const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
@@ -94,7 +105,7 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
           );
           if (!outcome.ok) return errorText(outcome.message);
           return text(
-            staleBanner(orchestrator.sourceStale()) +
+            sessionBanner(false) +
               renderBatch(outcome.results, parsed.data.requests, {
                 sqlPresent: sql !== undefined,
                 format,
@@ -116,16 +127,18 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
   await server.connect(transport);
 }
 
-function opResultText(
+export function opResultText(
   result: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
-  banner = '',
+  // A THUNK, not a string: an op-level `error` result must NOT consume the one-shot banner (§6) —
+  // it's called only on the success branch, where the banner truly ships.
+  banner: () => string = () => '',
 ): CallToolResult {
   if ('error' in result) {
     return errorText(`${result.error.kind}: ${result.error.message}`);
   }
-  return text(banner + renderOne(result, format, verbosity));
+  return text(banner() + renderOne(result, format, verbosity));
 }
 
 function renderOne(
@@ -182,12 +195,22 @@ export function staleBanner(sourceStale: boolean): string {
   return sourceStale ? `${SOURCE_STALE_LINE}\n` : '';
 }
 
-/** The op-response banner, suppressed for `format:'json'`: prepending a line to the single
- *  JSON payload an agent feeds into the next call would corrupt it (§12). A json-mode agent
- *  still learns staleness from `status().sourceStale`. (batch output is always text-framed,
- *  so it keeps the banner.) Exported so the json-suppression is unit-tested. */
-export function opBanner(format: 'text' | 'json' | undefined, sourceStale: boolean): string {
-  return format === 'json' ? '' : staleBanner(sourceStale);
+/** A session-scoped, ONE-SHOT self-staleness banner (spec-stresstest §6). The "reconnect MCP"
+ *  warning is un-actionable mid-session (an MCP client can't reconnect on demand), so repeating it
+ *  on every op/batch response is noise that erodes trust. This returns a function that emits the
+ *  banner on the FIRST response that would carry it (stale + not suppressed), then stays silent for
+ *  the rest of the session — `status().sourceStale` still reports the true state on demand.
+ *  `suppressed` is the json-mode guard: prepending a line to a single JSON payload would corrupt it
+ *  (§12), and a suppressed call must NOT consume the one-shot (so a later text call still warns once). */
+export function createOnceBanner(sourceStale: () => boolean): (suppressed: boolean) => string {
+  let emitted = false;
+  return (suppressed: boolean): string => {
+    if (suppressed || emitted) return '';
+    const banner = staleBanner(sourceStale());
+    if (banner === '') return '';
+    emitted = true;
+    return banner;
+  };
 }
 
 function text(body: string): CallToolResult {

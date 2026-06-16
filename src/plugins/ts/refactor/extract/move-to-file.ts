@@ -11,7 +11,7 @@
 // unavailable the assertion path fails honestly with the `ts-ls-internal` category. The css
 // co-extract analysis (`plan.cssExtract`) is built here when requested; the op does the join.
 
-import type ts from 'typescript';
+import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
@@ -51,6 +51,66 @@ function topLevelStatementAt(sf: ts.SourceFile, offset: number): ts.Statement | 
   return undefined;
 }
 
+/** A node kind whose NAME an extract target can land on (the "thing being declared"). The set is
+ *  deliberately broad — it must include every MEMBER kind (class member, enum member, object-literal
+ *  property, interface/type member), or a target on one of those would walk past it to the top-level
+ *  statement and be mistaken for the top-level symbol. */
+function isDeclarationNode(n: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(n) ||
+    ts.isClassDeclaration(n) ||
+    ts.isInterfaceDeclaration(n) ||
+    ts.isTypeAliasDeclaration(n) ||
+    ts.isEnumDeclaration(n) ||
+    ts.isModuleDeclaration(n) ||
+    ts.isVariableDeclaration(n) ||
+    ts.isEnumMember(n) ||
+    ts.isPropertyDeclaration(n) ||
+    ts.isPropertySignature(n) ||
+    ts.isMethodDeclaration(n) ||
+    ts.isMethodSignature(n) ||
+    ts.isGetAccessorDeclaration(n) ||
+    ts.isSetAccessorDeclaration(n) ||
+    ts.isConstructorDeclaration(n) ||
+    ts.isPropertyAssignment(n) ||
+    ts.isShorthandPropertyAssignment(n)
+  );
+}
+
+/** True when `offset` lands on a declaration NESTED inside `topStmt` (a class/enum/object/interface
+ *  MEMBER, or a binding inside a function body) rather than on the top-level statement's own
+ *  declaration. The LS "Move to a new file" refactor extracts the ENCLOSING top-level statement, so
+ *  without this guard a nested target is silently retargeted to its top-level ancestor — a DIFFERENT
+ *  symbol than the agent asked for (spec-stresstest §4a: a nested `BoundInput` silently moved the
+ *  whole `useAppForm`; an enum member / object property / class field would move its whole
+ *  enum/object/class). Decided by the NEAREST declaration enclosing the offset: if it is `topStmt`
+ *  itself (`function`/`class`/`enum`/`interface`/`type`/namespace) OR one of `topStmt`'s own
+ *  top-level `const`/`let` bindings, the target IS the top-level symbol; anything deeper is nested. */
+function targetsNestedDeclaration(
+  sf: ts.SourceFile,
+  offset: number,
+  topStmt: ts.Statement,
+): boolean {
+  const deepest = (node: ts.Node): ts.Node => {
+    let found = node;
+    node.forEachChild((child) => {
+      if (offset >= child.getStart(sf) && offset < child.getEnd()) found = deepest(child);
+    });
+    return found;
+  };
+  let node: ts.Node | undefined = deepest(topStmt);
+  while (node !== undefined && node !== sf) {
+    if (isDeclarationNode(node)) {
+      if (node === topStmt) return false; // the top-level statement's own declaration
+      // a top-level `const x = …` binding: VariableDeclaration → VariableDeclarationList → topStmt.
+      if (ts.isVariableDeclaration(node) && node.parent.parent === topStmt) return false;
+      return true; // a deeper declaration (member / inner binding) → nested
+    }
+    node = node.parent;
+  }
+  return false; // no declaration encloses the offset — let the LS decide (it will produce no edits)
+}
+
 export function planExtractTo(
   host: TsProjectHost,
   tree: VFSTree,
@@ -65,6 +125,12 @@ export function planExtractTo(
   if (sf === undefined) return 'source file not in the TS project';
   const stmt = topLevelStatementAt(sf, offset);
   if (stmt === undefined) return 'no top-level declaration at the target position';
+  // Refuse a nested target rather than silently extract its top-level ancestor (§4a). The LS
+  // refactor below operates on `stmt` (the enclosing top-level statement), so a nested symbol would
+  // be acted on as a different symbol than requested — the exact silent retarget §6 forbids.
+  if (targetsNestedDeclaration(sf, offset, stmt)) {
+    return 'ts-ls-nested-target: the target is a declaration nested inside another (the LS "Move to a new file" extracts only a TOP-LEVEL symbol) — extract its enclosing top-level symbol, or lift this one to the top level first';
+  }
   const range: ts.TextRange = { pos: stmt.getStart(sf), end: stmt.getEnd() };
 
   const requestEdits = (service: ts.LanguageService): ts.RefactorEditInfo | undefined =>

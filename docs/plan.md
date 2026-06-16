@@ -396,17 +396,20 @@ s.notCss }`) is NOT skipped, so that access is mis-counted as a class use (a fal
 > backlog from a 90-point adversarial MCP stress test (read/sql layer passed clean; all findings
 > are in mutating ops + codemod + output/honesty edges). Priority-ordered:
 
-- [ ] **P0** — `ts` LS loads the project's real tsconfig (`allowImportingTsExtensions`/`paths`/
-      `moduleResolution`/`lib`); kills the ~600 phantom errors (vs project tsc=0) that poison every
-      mutation gate (§1a; ARCHITECTURE §5/§19)
-- [ ] **P1** — move/extract baseline-diff re-keys a moved file's own pre-existing errors as
+- [x] **P0** — `ts` LS host canonicalizes symlinks (`realpath`, like `tsc`/`createProgram`) — the
+      tsconfig WAS loaded correctly (root cause was NOT config); on pnpm repos the missing `realpath`
+      loaded a package under two paths (symlink + realpath) → duplicate type identity → the ~600
+      phantom errors (vs project tsc=0) that poison every mutation gate (§1a; ARCHITECTURE §5/§19)
+- [x] **P1** — move/extract baseline-diff re-keys a moved file's own pre-existing errors as
       `introduced` (§1b, shipped bug) · codemod `$$$` malformed output + `paths` glob silent-0 (§2)
       · extract of a nested symbol silently retargets to the enclosing top-level (§4a)
-- [ ] **P2** — mutation summary before the diff (cap hides verdict, §3a) · wire or drop `fields`
-      dial (§3b) · cross-root SymbolId → gone/re-search not name-rebind (§4b) · validate a root is a
-      TS project (§4c) · one-shot staleness banner (§6, with spec-daemon-singleton)
-- [ ] **P3** — fuzzy vs Cmd+T claim · ambiguous-decl column · role read/write doc (§5) ·
-      non-determinism (§1c, resolves via P0) · deferred new ops `construction_sites` / `css_cascade` (§7)
+- [x] **P2** — mutation summary before the diff (cap hides verdict, §3a) · dropped the uninvokable
+      `fields` dial, point to `sql` projection (§3b) · cross-root SymbolId → gone/re-search not
+      name-rebind, via a `~rootTag` origin stamp (§4b) · validate a root is a TS project (§4c) ·
+      one-shot staleness banner (§6)
+- [x] **P3** — softened the fuzzy/Cmd+T claim · ambiguous-decl column added · role read/write doc
+      (§5) · non-determinism (§1c, resolved via P0) · deferred new ops `construction_sites` /
+      `css_cascade` still parked (§7, out of scope)
 
 ## Cross-cutting (gates every box, not a phase)
 

@@ -16,8 +16,6 @@ export interface OpFlags {
   apply?: boolean;
   /** Output density (§12). */
   verbosity?: Verbosity;
-  /** Selective field projection for dense output (§12). */
-  fields?: readonly string[];
   /** Output mode. Default `text` (the dense formatter); `json` for machine composition. */
   format?: 'text' | 'json';
   /** Per-call debug trace inline in a delimited trailer (§13). Off by default — spending

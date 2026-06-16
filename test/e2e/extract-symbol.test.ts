@@ -75,6 +75,75 @@ test('extract_symbol: a top-level symbol moves to a new file; source imports it 
   }
 });
 
+test('§4a: extracting a NESTED symbol refuses — never silently retargets the enclosing top-level', async () => {
+  // `BoundInput` is declared INSIDE `useAppForm`. The LS "Move to a new file" refactor acts on the
+  // enclosing top-level statement, so without the guard this silently extracts the whole
+  // `useAppForm` — a different symbol than asked for. It must refuse with a ts-ls category.
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/form.ts':
+      'export const useAppForm = () => {\n' +
+      '  const BoundInput = (p: { v: string }): string => p.v;\n' +
+      '  return { BoundInput };\n' +
+      '};\n',
+  });
+  try {
+    // line 2, col 9 → the `B` of the nested `const BoundInput`.
+    const [r] = await p.request([
+      {
+        name: 'extract_symbol',
+        args: { file: 'src/form.ts', line: 2, col: 9, dest: 'src/lib/bound.ts' },
+        apply: true,
+      },
+    ]);
+    assert.ok(
+      r !== undefined && 'result' in r && !r.result.ok,
+      'a nested target must refuse, not retarget',
+    );
+    if ('result' in r && !r.result.ok) {
+      assert.match(r.result.failure.message, /nested|TOP-LEVEL/);
+    }
+    assert.equal(p.git('status', '--porcelain'), ''); // nothing written, useAppForm untouched
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('§4a: extracting a MEMBER (enum/object/interface/class field) refuses — never moves the whole container', async () => {
+  // The bug-review caught that the first guard only saw function/block/module boundaries, so a
+  // member whose own declaration is a property/enum/signature slipped through and the LS silently
+  // moved the ENTIRE enum/object/interface/class. Each member sits at line 2, col 3.
+  const cases: { label: string; src: string }[] = [
+    { label: 'enum member', src: 'export enum E {\n  A = 1,\n  B = 2,\n}\n' },
+    {
+      label: 'object-literal property',
+      src: 'export const cfg = {\n  handler: 1,\n  other: 2,\n};\n',
+    },
+    { label: 'interface member', src: 'export interface I {\n  foo: number;\n  bar: number;\n}\n' },
+    { label: 'class arrow-property', src: 'export class C {\n  handler = (): number => 1;\n}\n' },
+  ];
+  for (const c of cases) {
+    const p = await project({ 'tsconfig.json': TSCONFIG, 'src/m.ts': c.src });
+    try {
+      const [r] = await p.request([
+        {
+          name: 'extract_symbol',
+          args: { file: 'src/m.ts', line: 2, col: 3, dest: 'src/out.ts' },
+          apply: true,
+        },
+      ]);
+      assert.ok(
+        r !== undefined && 'result' in r && !r.result.ok,
+        `${c.label}: a member target must refuse, not move the whole container`,
+      );
+      if ('result' in r && !r.result.ok) assert.match(r.result.failure.message, /nested|TOP-LEVEL/);
+      assert.equal(p.git('status', '--porcelain'), '', `${c.label}: nothing written`);
+    } finally {
+      await p.dispose();
+    }
+  }
+});
+
 test('extract_symbol: an unsatisfiable extract fails honestly (no crash, nothing written)', async () => {
   // The `Expected symbol to be a module` LS assertion is version-specific and not
   // reproducible here; the recognizer + wrapping are unit-pinned below. This pins that a

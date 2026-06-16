@@ -202,11 +202,13 @@ test('a SymbolId from repo A fails honestly when its file is absent in repo B (n
   }
 });
 
-test('SymbolIds are positional: an identical relpath+name+pos in another root is an undetectable collision (§4 limitation)', async () => {
-  // KNOWN LIMITATION, pinned so it stays visible: a SymbolId encodes no origin root, so a
-  // handle from A dispatched to B resolves against B IF B has the same relpath with the
-  // same name at the same offset. §4 makes cross-root SymbolId a non-goal for exactly this
-  // reason — re-search in the target root. If origin-gating is ever added, this test flips.
+test('§4b: SymbolIds are origin-gated — a handle from A is NOT name-rebound onto B’s same-named symbol', async () => {
+  // A SymbolId now carries the workspace root it was minted in (a `~rootTag` suffix). Even when B
+  // has the SAME relpath + name + offset, an A-minted handle dispatched to B must NOT resolve
+  // positionally against B (that would bind the handle to a DIFFERENT repo's symbol) — it reports
+  // `gone` and tells the agent to re-search in the new root. (Previously this was an undetectable
+  // positional collision — spec-stresstest §4b fixed it; ARCHITECTURE §6 "SymbolIds do not cross
+  // roots".)
   const same = (value: string) => `export const thing = '${value}';\n`;
   const m = await multiRepo({
     A: { 'tsconfig.json': TSCONFIG, 'src/same.ts': same('A_VALUE') },
@@ -221,8 +223,61 @@ test('SymbolIds are positional: an identical relpath+name+pos in another root is
     const symbol = okData<Matches>(search, 0).matches[0]?.id;
     assert.ok(symbol !== undefined);
     const r = await m.request([{ name: 'find_definition', args: { symbol }, root: m.root('B') }]);
-    const defs = okData<{ definitions: { decl?: { text: string } }[] }>(r, 0).definitions;
-    assert.match(defs[0]?.decl?.text ?? '', /B_VALUE/, 'resolved positionally against B, not A');
+    const res = at(r, 0);
+    assert.ok(
+      'result' in res && !res.result.ok,
+      'a cross-root handle must NOT resolve against B even on an identical relpath+name+pos',
+    );
+    if ('result' in res && !res.result.ok) {
+      assert.match(
+        res.result.failure.message,
+        /different workspace root|do not cross roots|re-search/i,
+      );
+    }
+  } finally {
+    await m.dispose();
+  }
+});
+
+test('§4c: a non-TS folder is NOT warmed — status names the cause instead of a silent workspace', async () => {
+  // A Java repo (no tsconfig, no tracked .ts/.tsx) must be refused, not silently warmed (which
+  // would index nothing useful and read as success). status names why.
+  const m = await multiRepo({
+    Java: { 'src/Main.java': 'class Main {}\n', 'README.md': '# not typescript\n' },
+  });
+  try {
+    const status = await m.status(m.root('Java'));
+    assert.match(
+      status,
+      /workspace: none resolved/,
+      'a non-TS folder must not resolve a workspace',
+    );
+    assert.match(
+      status,
+      /no TS project|tsconfig|TypeScript/i,
+      'status must name WHY (not a TS project)',
+    );
+  } finally {
+    await m.dispose();
+  }
+});
+
+test('§4c: an unresolvable root surfaces the cause in status (never a bare "none resolved")', async () => {
+  const m = await multiRepo({
+    A: { 'tsconfig.json': TSCONFIG, 'src/a.ts': 'export const a = 1;\n' },
+  });
+  try {
+    const status = await m.status('/no/such/codemaster/root/xyz');
+    assert.match(
+      status,
+      /workspace: none resolved —/,
+      'the cause must be appended, not a bare none',
+    );
+    assert.match(
+      status,
+      /no\/such\/codemaster\/root\/xyz|not exist|canonical/i,
+      'names the bad root',
+    );
   } finally {
     await m.dispose();
   }

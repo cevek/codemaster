@@ -449,7 +449,10 @@ There is no central registry of how a SymbolId is shaped — only of which plugi
 > this name/kind is here now; can't prove it's the one you held"). We never claim identity
 > we can't prove — the exact lie this protocol exists to prevent. A cross-file move
 > (e.g. `move_file` / `extract_symbol`) is a `rebound` whose `to` is in the new file;
-> `{ status: 'gone' }` means truly absent, not merely moved.
+> `{ status: 'gone' }` means absent **in this workspace root** — truly removed, or a handle
+> minted in a _different_ root (SymbolIds are root-scoped: a `ts:` id carries its origin root, and
+> resolving it against another root returns `gone` + "re-search here", never a cross-repo rebind).
+> "gone" is never "merely moved within this root" — that is always a `rebound`.
 
 **Each plugin owns its rebind.** There is no universal rebind algorithm. The `ts` plugin
 rebinds through the LS (re-find symbol by name/kind in current AST); the `scss` plugin
@@ -614,8 +617,9 @@ honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
 - **`op({ name, args, ...flags })`** — the single dispatcher. `name` is an enum of
   available ops in _this_ repo (the set depends on which plugins are active);
   `args` is op-specific; `flags` carry op-shape modifiers like `apply: true|false` for
-  mutating ops, `verbosity: 'terse'|'normal'|'full'`, `fields: [...]`, `format:
-'text'|'json'`, etc. (§12). There are no individual MCP tools per op — that would scale
+  mutating ops, `verbosity: 'terse'|'normal'|'full'`, `format:
+'text'|'json'`, etc. (§12); column projection is done with `sql`, not a `fields` flag. There
+  are no individual MCP tools per op — that would scale
   the token tax linearly with the op catalogue.
 - **`status()`** — the first-contact manifest. Lists active plugins (with their
   versions/freshness fingerprints), the op catalogue for _this_ repo (op names + one-line
@@ -658,8 +662,16 @@ one-line legend + sectioned summary). Rules:
 
 - Always emit clickable `file:line`.
 - Default cap with explicit `… N more (filter: …)` — never silent.
-- `verbosity = terse | normal | full` and a `fields` selector let the agent dial
-  token cost.
+- **Verdict-before-bulk ordering (a stated contract, not an accident).** The dense renderer emits
+  object keys in **insertion order** and the hard char-cap truncates the **tail**, so a result
+  must place its small, load-bearing verdict FIRST and any bulky/re-fetchable payload LAST. The
+  mutating ops rely on this — they put `typecheck`/`touched` before a `diff` that can be tens of KB,
+  so the cap can only ever truncate the (re-fetchable) diff, never the safety verdict (§3a /
+  spec-stresstest). A renderer change that reorders keys (e.g. sorting them) would silently re-bury
+  the verdict — keep insertion-order rendering, or move this guarantee behind an explicit field
+  ordering.
+- `verbosity = terse | normal | full` lets the agent dial token cost; column
+  projection is done with `sql` (SELECT over the op table), not a `fields` flag.
 - `format=json` for machine composition (agent feeding one call into another).
 - The default text mode carries the proof spans compactly; `terse` may elide span
   text and keep only `file:line` (the agent can re-fetch via `expand_type` or

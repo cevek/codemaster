@@ -186,8 +186,12 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       if (distinct.length > 1 || sole === undefined) {
         return {
           ok: false,
+          // Carry file:line:COL (+ kind) — two distinct declarations can share a line (a `const`
+          // and its named function expression both at col 41); without the column they render as a
+          // spurious duplicate (spec-stresstest §5b). The col also makes each entry a copy-paste
+          // file:line:col target the agent can pass straight back.
           message: `'${target.name}' is ambiguous (${distinct.length} distinct declarations: ${distinct
-            .map((m) => `${m.span.file}:${m.span.line}`)
+            .map((m) => `${m.span.file}:${m.span.line}:${m.span.col} (${m.kind})`)
             .join(', ')}) — pass file:line:col or a SymbolId`,
         };
       }

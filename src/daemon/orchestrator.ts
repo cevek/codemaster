@@ -31,6 +31,7 @@ import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher } from '../support/watch/seam.ts';
 import { canonicalizeRoot } from '../support/fs/canonicalize.ts';
 import { gitRepoRoot } from '../support/git/repo-root.ts';
+import { tsProjectRefusal } from './ts-project-check.ts';
 import { loadConfig } from '../support/config-load/load.ts';
 import { createRotatingFileSink } from '../support/debug/file-sink.ts';
 import type { CodemasterConfig } from '../config/config.ts';
@@ -165,13 +166,12 @@ export class Orchestrator {
   async status(cwd: string, root?: string): Promise<StatusView> {
     let workspace: WorkspaceStatusView | undefined;
     const routed = await this.route(cwd, root);
+    // §4c: surface WHY no workspace resolved (bad root / not a TS project), never a silent none.
+    let workspaceError = routed.ok ? undefined : routed.message;
     if (routed.ok) {
       const spawned = await this.getOrSpawn(routed.repoId, routed.root);
-      if (spawned.ok) {
-        workspace = await statusOf(spawned.slot.host);
-      } else {
-        this.trace('status spawn failed', () => ({ error: spawned.message }));
-      }
+      if (spawned.ok) workspace = await statusOf(spawned.slot.host);
+      else workspaceError = spawned.message;
     }
     return {
       daemonVersion: this.deps.version,
@@ -180,6 +180,7 @@ export class Orchestrator {
       engines: this.engines.size,
       engineRoots: [...this.engines.values()].map((s) => s.root),
       workspace,
+      workspaceError,
       debugTopics: this.deps.debug.topics(),
       guidance: GUIDANCE,
       sourceStale: this.sourceStale(),
@@ -228,6 +229,9 @@ export class Orchestrator {
       return { ok: false, message: `config: ${loaded.failure.message}` };
     }
     const { config, source } = loaded.data;
+    // §4c: refuse a non-TS folder before warming (a config opts in explicitly → trust it).
+    const tsRefusal = await tsProjectRefusal(root, source);
+    if (tsRefusal !== undefined) return { ok: false, message: tsRefusal };
     if (config.daemon?.isolation === 'process') {
       return {
         ok: false,

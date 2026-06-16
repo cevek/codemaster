@@ -68,6 +68,46 @@ test('move_file: alias + relative importers rewritten, self-import re-emitted, h
   }
 });
 
+test('§1b: moving a file that carries its OWN pre-existing error is NOT refused (baseline path re-key)', async () => {
+  // The P58 shipped bug: the gate keys diagnostics on file·line·message; a move renames the file,
+  // so the moved file's pre-existing error leaves the baseline under the OLD path and re-appears
+  // under the NEW path → mis-counted as "introduced" → a semantically-safe move REFUSED. The
+  // old→new remap must make the relocated-but-identical error ride as `preExisting`, not block.
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    // `broken` is a genuine pre-existing type error (TS2322) that the move does NOT touch.
+    'src/lib/widget.ts':
+      'export const widget = (n: number): number => n;\nexport const broken: string = 123;\n',
+    'src/user.ts': "import { widget } from './lib/widget';\nexport const r: number = widget(1);\n",
+  });
+  try {
+    const dry = await move(p, { source: 'src/lib/widget.ts', dest: 'src/core/widget.ts' });
+    // The relocated error must NOT read as introduced — the move is clean, the error rides along.
+    assert.equal(
+      dry.typecheck.clean,
+      true,
+      'a moved file’s own pre-existing error must not block the move',
+    );
+    const tc = dry.typecheck as { clean: boolean; preExisting?: number };
+    assert.ok((tc.preExisting ?? 0) >= 1, 'the pre-existing error rides as a preExisting count');
+    assert.equal((dry as { applied?: boolean }).applied, undefined, 'dry-run, not refused');
+
+    const applied = await move(
+      p,
+      { source: 'src/lib/widget.ts', dest: 'src/core/widget.ts' },
+      true,
+    );
+    assert.equal(applied.mode, 'applied');
+    assert.equal(applied.applied, true, 'apply must SUCCEED — the move introduced nothing');
+    assert.equal(applied.typecheck.clean, true);
+    // The cold compile still has exactly the one pre-existing error (merely relocated), proving the
+    // move added nothing — it did not multiply or hide errors.
+    assert.equal(coldTscErrors(p.root).length, 1, 'the one pre-existing error simply relocated');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('move_file: a `typeof import()` type-position importer is rewritten (not missed)', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,

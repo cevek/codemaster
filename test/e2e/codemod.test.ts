@@ -151,6 +151,77 @@ test('codemod: a paths entry escaping the repo root is rejected', async () => {
   }
 });
 
+test('§2a: $$$ many-node metavar re-joins args cleanly (no doubled separator commas)', async () => {
+  // The bug: getMultipleMatches returns the separator `,` nodes too, so joining every node with
+  // ", " double-emitted them → `clsx(a, ,, b)` (invalid). Keep only NAMED nodes → a clean list.
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/x.ts':
+      'declare function cn(...xs: string[]): string;\n' +
+      'declare function clsx(...xs: string[]): string;\n' +
+      "const variant = 'a'; const className = 'b';\n" +
+      'export const r = cn(variant, className);\n',
+  });
+  try {
+    const dry = await codemod(p, { pattern: 'cn($$$A)', rewrite: 'clsx($$$A)' });
+    assert.equal(dry.typecheck.clean, true);
+    assert.match(dry.diff, /clsx\(variant, className\)/);
+    assert.doesNotMatch(dry.diff, /, ,|,,/); // no spurious empty commas
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('§2b: a paths directory glob matches files (not silently zero)', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/feature/a.ts':
+      'export const f = (...n: number[]): number => n.length;\nexport const x = f(1);\n',
+    'src/other/b.ts':
+      'export const f = (...n: number[]): number => n.length;\nexport const y = f(2);\n',
+  });
+  try {
+    // a directory glob used to resolve to 0 files silently (treated as a literal path); now it
+    // globs the tracked TS set and scopes the rewrite to src/feature only.
+    const dry = await codemod(p, {
+      pattern: 'f($A)',
+      rewrite: 'f($A, 9)',
+      paths: ['src/feature/**'],
+    });
+    assert.equal(dry.typecheck.clean, true);
+    assert.deepEqual(dry.touched, ['src/feature/a.ts']); // other/ out of scope
+    assert.match(dry.diff, /f\(1, 9\)/);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('§2b: a paths entry that selects no tracked TS file fails loudly (never a silent clean)', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/x.ts': 'export const x = 1;\n',
+  });
+  try {
+    const [r] = await p.request([
+      {
+        name: 'codemod',
+        args: { pattern: 'f($A)', rewrite: 'g($A)', paths: ['src/does-not-exist/**'] },
+        apply: true,
+      },
+    ]);
+    assert.ok(
+      r !== undefined && 'result' in r && !r.result.ok,
+      'a 0-match path must fail, not read clean',
+    );
+    if ('result' in r && !r.result.ok) {
+      assert.match(r.result.failure.message, /matched no tracked TS file|src\/does-not-exist/);
+    }
+    assert.equal(p.git('status', '--porcelain'), '');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('codemod: a pattern that matches nothing writes nothing and stays clean', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,

@@ -5,7 +5,7 @@ workspace: <ROOT>
 plugins: ts@0.1.0 · scss@0.1.0
 ops (14):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
-    · fuzzy (editor Cmd+T style); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
+    · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
     e.g. op {"name":"search_symbol","args":{"query":"Dialog","kind":"function","exportedOnly":true,"pathExclude":["**/ui/**"]}}
   find_definition { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — Resolve a symbol to its definition site(s), proof-carrying
@@ -13,6 +13,7 @@ ops (14):
     e.g. op {"name":"find_definition","args":{"file":"src/app.ts","line":12,"col":8}}
   find_usages { symbol?: 'ts:…', name?: string, file?: string, line?: number, col?: number } | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} } — Semantic reference sites of symbol(s); role filter (jsx/call/type/import), rollup to enclosing declaration, path filters
     · role = what a ref syntactically IS: jsx (<X/> tags, closing deduped) · call · type · import · reexport (barrel `export {X} from` — never collapsed) · read · write · decl.
+    · role:read/write is SYNTACTIC (is the identifier read vs assigned) — it does NOT resolve store-field access: a zustand `useStore(s => s.count)` or a `set(...)` call reads as a `call`, not a read/write of `count`. Use it for variable/binding reads-vs-writes, not store-field tracing.
     · collapseImports (default true): an import is hidden once its file also has a real usage (count returns as importsCollapsed); import-only files & re-exports always stay. collapseImports:false or role:import to list all. sql-mode keeps every import row.
     · groupBy:'enclosing' rolls refs up to the nearest enclosing declaration ('which components render <X>'), sorted by count; encloser ids chain into other ops.
     · filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.
@@ -62,6 +63,7 @@ ops (14):
   codemod [mutating] { pattern: string, rewrite: string, paths?: string[], dirtyOk?: boolean } — Shape-based structural find/replace via ast-grep — NOT symbol-anchored (§7)
     · matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).
     · dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.
+    · paths (optional) are GLOBS over tracked .ts/.tsx (e.g. "src/features/**", "**/*.tsx") — a literal file path works too; an entry that selects no tracked TS file FAILS loudly (never a silent clean). Omit paths to scan every tracked TS file.
     e.g. op {"name":"codemod","args":{"pattern":"oldApi($A)","rewrite":"newApi($A)"}}
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.
@@ -69,7 +71,7 @@ ops (14):
     e.g. op {"name":"feedback","args":{"kind":"wish","title":"find_usages should accept a regex name","detail":"wanted to match Use* hooks in one call; had to enumerate names instead."}}
 concepts:
   targets: symbol-addressed ops take {symbol:"ts:…"} (a SymbolId from a prior answer) · {name} (must be unambiguous — ambiguity returns the candidate list) · {file,line,col} (1-based). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.
-  dials: verbosity=terse (default; file:line:col) · normal (+first line) · full (verbatim text). fields:[…] projects columns. format:"json" for machine composition.
+  dials: verbosity=terse (default; file:line:col) · normal (+first line) · full (verbatim text). format:"json" for machine composition. To project columns, post-filter with `sql` (SELECT the columns you want from the op table `t`).
   sql: a batch (or op) carrying `sql` loads each aliased (`as`) request's table into an ephemeral in-memory SQLite db and runs ONE read-only SELECT — anti-joins / negations / aggregates over op outputs. Producers run uncapped; a `partial` table makes NOT IN untrustworthy.
     e.g. batch {requests:[{as:"r",name:"find_usages",args:{symbols:["Input"],role:"jsx",groupBy:"enclosing"}},{as:"f",name:"find_usages",args:{symbols:["useAppForm"],groupBy:"enclosing"}}], sql:"SELECT encloser FROM r WHERE encloser NOT IN (SELECT encloser FROM f)"}
   confidence: certain (type-proven) · partial (incomplete) · dynamic (computed dispatch) · unresolved — a partial/dynamic claim is honest uncertainty, not a fact.

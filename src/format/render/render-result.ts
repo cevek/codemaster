@@ -81,7 +81,7 @@ function capOutput(rendered: string): string {
   if (rendered.length <= RENDER_CHAR_CAP) return rendered;
   const cut = rendered.lastIndexOf('\n', RENDER_CHAR_CAP);
   const head = rendered.slice(0, cut > 0 ? cut : RENDER_CHAR_CAP);
-  return `${head}\n!! OUTPUT CAPPED: ${rendered.length} chars total, showing first ${head.length}. Narrow the query (lower limit, scope by file/dir) or use fields/terse — do NOT assume this is everything.`;
+  return `${head}\n!! OUTPUT CAPPED: ${rendered.length} chars total, showing first ${head.length}. Narrow the query (lower limit, scope by file/dir), use terse, or project columns with sql — do NOT assume this is everything.`;
 }
 
 function renderTruncation(t: Truncation): string {

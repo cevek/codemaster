@@ -18,11 +18,26 @@ export function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
   if (decoded === undefined || decoded.plugin !== 'ts') {
     return { ok: false, message: `not a ts SymbolId: '${id}'` };
   }
-  const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)$/);
+  const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)(?:~([0-9a-f]+))?$/);
   if (m === null) return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-  const [, name, rel, lineStr, colStr] = m;
+  const [, name, rel, lineStr, colStr, tag] = m;
   if (name === undefined || rel === undefined) {
     return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
+  }
+  // Cross-root guard (§6 / spec-stresstest §4b): a SymbolId carries the workspace it was minted in.
+  // If it was minted in a DIFFERENT root than the one resolving it (an `amiro` id passed with
+  // root:'../cf2'), do NOT name-rebind it onto a same-named symbol in this repo — that binds the
+  // handle to a different symbol entirely. Report `gone` and tell the agent to re-search here.
+  if (tag !== undefined && tag !== h.rootTag) {
+    return {
+      ok: false,
+      message: `SymbolId '${id}' was minted in a different workspace root — re-search the symbol by name in this root (SymbolIds do not cross roots)`,
+      rebind: {
+        status: 'gone',
+        from: id as SymbolId,
+        reason: 'handle belongs to a different workspace root — re-search by name in the new root',
+      },
+    };
   }
   const abs = h.absOf(rel as RepoRelPath);
   const sourceFile = h.service.getProgram()?.getSourceFile(abs);

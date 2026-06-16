@@ -114,3 +114,39 @@ test('extract cssCoExtract leftBehind row collapses to one line', () => {
   );
   assert.doesNotMatch(out, /\n\s*code=/, 'no exploded code= line');
 });
+
+test('§3a: the typecheck/touched verdict survives the output cap; only the diff is truncated', () => {
+  // A big mutation diff exceeds RENDER_CHAR_CAP (20k). Because `diff` is the LAST key, the verdict
+  // (typecheck + touched) renders first and stays intact; the cap truncates only the diff — the
+  // agent always learns whether the edit is safe (spec-stresstest §3a). Before the fix the diff led
+  // and buried the verdict past `!! OUTPUT CAPPED`.
+  const hugeDiff = Array.from(
+    { length: 4000 },
+    (_, i) => `+ line ${i} of a very large unified diff`,
+  ).join('\n');
+  const out = renderResult(
+    ok({
+      mode: 'dry-run',
+      typecheck: { clean: true, preExisting: 12 },
+      touched: ['src/a.ts', 'src/b.ts'],
+      diff: hugeDiff,
+    } as JsonValue),
+  );
+  assert.match(
+    out,
+    /!! OUTPUT CAPPED/,
+    'guard: the diff must actually bust the cap for this test to mean anything',
+  );
+  const verdictAt = out.indexOf('preExisting=12');
+  const cappedAt = out.indexOf('!! OUTPUT CAPPED');
+  assert.ok(verdictAt >= 0, 'the typecheck verdict must be present in the capped output');
+  assert.ok(
+    verdictAt < cappedAt,
+    'the verdict must render BEFORE the cap marker, never be buried by the diff',
+  );
+  assert.match(
+    out.slice(0, cappedAt),
+    /touched \(2\)/,
+    'the touched summary must survive the cap too',
+  );
+});

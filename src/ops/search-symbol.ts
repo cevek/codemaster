@@ -1,4 +1,5 @@
-// `search_symbol` — LS workspace symbol search (fuzzy, like editor Cmd+T).
+// `search_symbol` — LS workspace symbol search (the navto provider: prefix / substring /
+// camelCase-initials, NOT arbitrary-subsequence fuzzy — see the op note).
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
@@ -59,7 +60,7 @@ export const searchSymbolOp = defineOp({
     args: { query: 'Dialog', kind: 'function', exportedOnly: true, pathExclude: ['**/ui/**'] },
   },
   notes: [
-    'fuzzy (editor Cmd+T style); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.',
+    'matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.',
   ],
   table: searchSymbolTable,
   async run(ctx, args) {

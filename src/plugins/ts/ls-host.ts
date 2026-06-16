@@ -14,11 +14,18 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { toPosix } from '../../support/fs/canonicalize.ts';
+import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import { Overlay, type OverlayEntry } from './vfs/overlay.ts';
 
 export interface TsProjectHost {
   readonly service: ts.LanguageService;
   readonly configPath: string | undefined;
+  /** A short stable fingerprint of THIS workspace root — stamped into every minted SymbolId so a
+   *  handle minted here can be told apart from one minted in a sibling repo. A SymbolId carrying a
+   *  different `rootTag` than the resolving host is `gone` (re-search in the new root), never
+   *  name-rebound onto a same-named symbol in a DIFFERENT repo (§6 "SymbolIds do not cross roots";
+   *  spec-stresstest §4b). */
+  readonly rootTag: string;
   /** Repo-relative posix path → absolute path, for every tracked file. */
   fileNames(): readonly string[];
   absOf(rel: RepoRelPath): string;
@@ -110,6 +117,23 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     directoryExists: (dir) => overlay.hasDirectory(toPosix(dir)) || tsm.sys.directoryExists(dir),
     getDirectories: tsm.sys.getDirectories,
     getProjectVersion: () => String(projectVersion),
+    // Canonicalize symlinks — what `tsc`/`createProgram`'s default compiler host does
+    // (`realpath: sys.realpath`) and what a LanguageServiceHost silently drops if omitted. Without
+    // it, a pnpm repo (whose `node_modules/<pkg>` are symlinks into `.pnpm/`) loads the SAME package
+    // under two paths — the symlink for a direct dep, the realpath for a transitive one — so its
+    // types stop unifying: `Opts` ≠ `Opts`, callbacks lose their parameter types (implicit any),
+    // valid object literals are rejected. That manufactured ~600 phantom errors on a byte-clean
+    // pnpm repo whose own `tsc`/`tsgo` reports zero (spec-stresstest §1a) — poisoning every
+    // mutation gate's baseline. Guarded: a synthetic overlay/removed path that isn't on disk
+    // realpaths to itself (sys.realpath throws on a missing file). Resolving a real source file is
+    // identity (no symlink), so the only effect is collapsing symlinked node_modules to one home.
+    realpath: (fileName) => {
+      try {
+        return tsm.sys.realpath ? tsm.sys.realpath(fileName) : fileName;
+      } catch {
+        return fileName;
+      }
+    },
   });
 
   const service = ts.createLanguageService(makeServicesHost(ts), ts.createDocumentRegistry());
@@ -128,9 +152,16 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     return rescue;
   };
 
+  // Derived from the canonical root the orchestrator passes in (its repoId), so it is stable for a
+  // root and distinct across sibling repos / worktrees — the cross-root discriminator for §4b.
+  // 8 hex chars (32 bits) — ample to tell a session's handful of warm roots apart, and keeps the
+  // suffix it adds to every rendered SymbolId small.
+  const rootTag = fnv1a64Hex(toPosix(root)).slice(0, 8);
+
   return {
     service,
     configPath,
+    rootTag,
     fileNames: () => [...files.keys()],
     absOf: (rel) => path.join(root, rel),
     relOf: (abs) => {
