@@ -1061,7 +1061,11 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   two spellings of one file must brand to one value, or freshness and `find_usages`/rebind
   silently misfire (§3.5, §6).
 - **Non-git freshness is best-effort; git is the strong guarantee.** `git status --porcelain`
-  handles racy-clean (re-hash on mtime tie); the non-git mtime fallback must copy that — size
+  is content-INSENSITIVE for an already-dirty tracked file (` M path` both before and after a
+  second edit), so the (HEAD, porcelain) fingerprint alone would serve a stale program for a
+  re-modified dirty file in a warm watcher-OFF daemon. The git check therefore also re-stats
+  each dirty path and re-hashes on an mtime tie — bounded by the dirty set, content read only on
+  a tie. The non-git mtime fallback copies the same racy-clean rule across the whole tree — size
   - mtime, treating a file within the FS mtime-resolution window of the recorded stamp as
     dirty (hash-on-tie) — else a same-tick edit is silently missed on coarse FS (HFS+, FAT,
     some network mounts). (§3.5, §8)

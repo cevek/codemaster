@@ -20,7 +20,7 @@ import { gitDiffNames } from '../support/git/diff-changed.ts';
 import { runGit, type GitRunner } from '../support/git/run.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
 import { walkFiles } from '../support/fs/walk.ts';
-import { hashFileContent } from '../support/fs/stat-fingerprint.ts';
+import { hashFileContent, statFingerprint } from '../support/fs/stat-fingerprint.ts';
 
 export type FreshnessMode = 'git' | 'mtime-walk';
 
@@ -41,6 +41,11 @@ interface GitState {
   fingerprint: string;
   head: string;
   dirtyPaths: readonly string[];
+  /** Stat fingerprint of each dirty path at capture. `git status --porcelain` is
+   *  content-INSENSITIVE for an already-dirty tracked file (` M path` both before and after a
+   *  second edit), so the (head, porcelain) fingerprint alone misses a re-modification. This
+   *  lets the equal-fingerprint case catch it by content, hashing only on a racy tie (§3.5/§19). */
+  dirtyFps: Map<RepoRelPath, FileFingerprint>;
 }
 
 interface WalkState {
@@ -50,6 +55,45 @@ interface WalkState {
 
 export interface FreshnessGuard {
   check(): Promise<DriftCheck>;
+}
+
+/** Did `path`'s content change between two stat fingerprints? A racy size+mtime tie (§19)
+ *  escalates to a content hash; a known hash is carried forward so a later tie resolves to
+ *  'same'. Mutates `nextFp.contentHash`. A hash read failure counts as changed — never miss a
+ *  dirty file (§3.5). Shared by the git and mtime-walk drift checks. */
+function fileContentChanged(
+  root: string,
+  prevFp: FileFingerprint,
+  nextFp: FileFingerprint,
+): boolean {
+  const comparison = compareFingerprints(prevFp, nextFp);
+  if (comparison === 'changed') return true;
+  if (comparison === 'tie') {
+    const hashed = hashFileContent(root, nextFp.path);
+    if (!hashed.ok) return true;
+    nextFp.contentHash = hashed.hash;
+    return prevFp.contentHash === undefined || prevFp.contentHash !== hashed.hash;
+  }
+  if (prevFp.contentHash !== undefined) nextFp.contentHash = prevFp.contentHash;
+  return false;
+}
+
+/** Stat every dirty path (cheap, bounded by the dirty set — never a whole-repo walk). A
+ *  deleted path is skipped — its removal already shifts porcelain into the drift branch. A
+ *  still-present but unstat-able path is also skipped (it just left no baseline fp); rare —
+ *  git stat'd it moments ago — and never a false-clean of a content change git can still see. */
+function statDirty(
+  root: string,
+  dirtyPaths: readonly string[],
+  nowMs: number,
+): Map<RepoRelPath, FileFingerprint> {
+  const map = new Map<RepoRelPath, FileFingerprint>();
+  for (const p of dirtyPaths) {
+    const rel = brandGitPath(p);
+    const outcome = statFingerprint(root, rel, nowMs);
+    if (outcome.state === 'present') map.set(rel, outcome.fingerprint);
+  }
+  return map;
 }
 
 export function createFreshnessGuard(
@@ -64,7 +108,8 @@ export function createFreshnessGuard(
   const checkGit = async (): Promise<DriftCheck | undefined> => {
     const captured = await gitRepoFingerprint(root, git);
     if (!isOk(captured)) return undefined;
-    const next: GitState = { mode: 'git', ...captured.data };
+    const dirtyFps = statDirty(root, captured.data.dirtyPaths, clock.now());
+    const next: GitState = { mode: 'git', ...captured.data, dirtyFps };
     const cleanAtCommit =
       next.dirtyPaths.length === 0 && next.head !== 'no-head' ? next.head : undefined;
 
@@ -91,8 +136,21 @@ export function createFreshnessGuard(
       };
     }
     if (prev.fingerprint === next.fingerprint) {
+      // HEAD + porcelain identical — but an already-dirty tracked file can be re-modified with
+      // NO porcelain-visible change (` M path` both times). Without this content check a warm
+      // watcher-OFF daemon serves a stale program for that path: a refactor's `before` then lies
+      // and `apply+dirtyOk` silently drops the second edit (§3.5). Stat each dirty path, hashing
+      // only a racy size+mtime tie (§19) — bounded by the dirty set, content read only on a tie.
+      const changed = new Set<RepoRelPath>();
+      for (const [p, nextFp] of next.dirtyFps) {
+        const prevFp = prev.dirtyFps.get(p);
+        if (prevFp !== undefined && fileContentChanged(root, prevFp, nextFp)) changed.add(p);
+      }
       state = next;
-      return { mode: 'git', changed: [], cleanAtCommit, failure: undefined };
+      if (changed.size === 0)
+        return { mode: 'git', changed: [], cleanAtCommit, failure: undefined };
+      trace('git re-dirty', () => ({ changed: changed.size }));
+      return { mode: 'git', changed: [...changed].sort(), cleanAtCommit, failure: undefined };
     }
 
     // Drift: committed delta ∪ both captures' dirty sets (a path dirty before and
@@ -157,26 +215,8 @@ export function createFreshnessGuard(
         changed.add(path); // removed
         continue;
       }
-      const comparison = compareFingerprints(prevFp, nextFp);
-      if (comparison === 'changed') changed.add(path);
-      else if (comparison === 'tie') {
-        // Racy-clean (§19): same size+mtime recorded within the FS resolution
-        // window — only content decides. Hash now; compare to a stored hash when we
-        // have one, else treat as changed (reindexing a clean file is cheap; missing
-        // a dirty one is a lie).
-        const hashed = hashFileContent(root, path);
-        if (!hashed.ok) {
-          changed.add(path);
-          continue;
-        }
-        nextFp.contentHash = hashed.hash;
-        if (prevFp.contentHash === undefined || prevFp.contentHash !== hashed.hash) {
-          changed.add(path);
-        }
-      } else if (prevFp.contentHash !== undefined) {
-        // Carry forward known hashes so future ties can resolve to 'same'.
-        nextFp.contentHash = prevFp.contentHash;
-      }
+      // Racy-clean (§19) tie-break + hash carry-forward live in the shared helper.
+      if (fileContentChanged(root, prevFp, nextFp)) changed.add(path);
     }
     for (const path of next.files.keys()) {
       if (!prev.files.has(path)) changed.add(path); // added

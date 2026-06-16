@@ -81,6 +81,12 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       aliased `.scss` importers now resolve (via the shared `alias-paths.ts`, Task J), but a
       bundler-only alias absent from tsconfig `paths` stays invisible (the same resolution boundary
       codemaster applies repo-wide), and there's still no dedicated `module-resolve` module. `feat`·`low`·`cx:M`
+- [ ] **freshness `statDirty` stats the FULL dirty set incl. `--untracked-files=all`** — the
+      re-dirty content check (`src/daemon/freshness.ts`) re-stats every porcelain-dirty path on
+      every op-entry check; `dirtyPaths` includes untracked files, so a repo with a large
+      un-gitignored untracked tree pays per-op stat work that scales with it (not a hang — stat is
+      cheap, untracked files keep old mtimes → no hash escalation). Scope `statDirty` to
+      tracked-modified paths (untracked can't be the porcelain-insensitive re-dirty case). `perf`·`low`·`cx:S`
 - [ ] **`ts` public API gaps** — `assignability`, `imports(file)`, deep `expandType`. `feat`·`low`·`cx:M`
 - [ ] **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`
 - [ ] **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into
@@ -132,14 +138,6 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       scan loop / target-description / encloser-view helpers into a sibling module (sibling to the
       already-extracted `construction-encloser.ts` / `construction-confidence.ts`). `dx`·`low`·`cx:S`
 
-- [ ] **Stale `before` on a RE-DIRTIED tracked file in non-watcher mode** (cross-cutting; every
-      refactor op via `assemble.ts`/`applyRefactorPlan`). `diskText` reads `before` from the warm
-      program, not fresh disk; `git status --porcelain` is content-insensitive for an already-dirty
-      file (` M path` both times → no reindex). Warm daemon + watcher OFF + a tracked file edited a
-      SECOND time → a dry-run `diff` whose `before` lies, and under `apply+dirtyOk` the second edit
-      is silently lost. Masked in the common case by chokidar `reindexAll`. Fix: read `before` fresh
-      for any porcelain-dirty path (or hash dirty contents into the git-mode fingerprint).
-      `bug`·`high`·`cx:M`
 - [ ] **codemod: full ast-grep RULE object** — [spec-codemod-ast-grep-rule.md](spec-codemod-ast-grep-rule.md).
       Accept relational constraints (`inside`/`has`/`follows`/`not`) alongside the string `pattern`;
       engine already supports it. Additive; the metavar guard must walk the whole rule tree.

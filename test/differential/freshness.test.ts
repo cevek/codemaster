@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { utimesSync } from 'node:fs';
+import { readFileSync, utimesSync } from 'node:fs';
 import * as path from 'node:path';
 import { project, assertSpansValid } from '../helpers/project.ts';
 import { fail } from '../../src/common/result/construct.ts';
@@ -218,6 +218,56 @@ test('i18n keys reflect a real git checkout (per-plugin freshness, watcher silen
       0,
       'the i18n plugin reindexed the checkout on read — `extra` is gone',
     );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('re-dirtied tracked file: the second edit is NOT lost under apply+dirtyOk (git mode, §3.5)', async () => {
+  // Warm daemon, watcher silenced, git mode. A tracked+committed file is edited TWICE with no
+  // reindex between. `git status --porcelain` shows ` M src/m.ts` BOTH times, so the
+  // (head, porcelain) fingerprint is IDENTICAL — the program would stay stale at edit-1. A
+  // refactor reads `before` from that warm program and writes `after = before + edits` over the
+  // whole file, so apply+dirtyOk silently overwrites edit-2. The fix catches the re-dirty by
+  // content and reindexes the path. Oracle: the distinctive marker we wrote in edit-2, far from
+  // the renamed symbol — independent of the warm LS that performs the rename.
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/m.ts': 'export const oldName = 1;\n// V0\n',
+  });
+  const onDisk = (): string => readFileSync(path.join(p.root, 'src/m.ts'), 'utf8');
+  try {
+    // Edit 1 dirties the tracked file (clean → ` M`): the porcelain changes, so this edit IS
+    // reindexed on the next read. Warm the program at edit-1.
+    p.write('src/m.ts', 'export const oldName = 1;\n// EDIT1\n');
+    const warm = await p.op('find_definition', { name: 'oldName' });
+    assert.ok('result' in warm && warm.result.ok);
+
+    // Edit 2 re-dirties the SAME file (` M` → ` M`, porcelain UNCHANGED) with a distinctive
+    // marker the rename never touches.
+    p.write('src/m.ts', 'export const oldName = 1;\n// EDIT2_DISTINCTIVE_MARKER\n');
+
+    // Rename under apply+dirtyOk — the destructive path; the op rewrites the whole file.
+    const [r] = await p.request([
+      {
+        name: 'rename_symbol',
+        args: { name: 'oldName', newName: 'newName', dirtyOk: true },
+        apply: true,
+      },
+    ]);
+    assert.ok(
+      r !== undefined && 'result' in r && r.result.ok,
+      `rename apply failed: ${JSON.stringify(r)}`,
+    );
+
+    const result = onDisk();
+    assert.match(result, /newName/, 'the rename transform was applied');
+    assert.match(
+      result,
+      /EDIT2_DISTINCTIVE_MARKER/,
+      'the second edit must survive — never overwritten by a stale-program plan (§3.5 data loss)',
+    );
+    assert.doesNotMatch(result, /EDIT1\b/, 'the stale edit-1 content must not be resurrected');
   } finally {
     await p.dispose();
   }
