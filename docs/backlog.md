@@ -96,6 +96,20 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
+- [ ] **`codemaster.config.ts` is not watched/reloaded — a config edit is silently stale until engine
+      respawn** — `loadConfig(root)` runs ONCE at engine creation (`orchestrator.ts` / `bin.ts`), and
+      `builtinPlugins(config, root)` bakes the plugin SET (i18n/schema config-gated; framework autodetect),
+      the `ts` tsconfig override, i18n locales/functions, and schema entrypoint AT SPAWN. The watcher
+      never reloads the config; freshness reindexes plugin DATA, not the plugin set / config-derived
+      options. So editing `codemaster.config.ts` (enable i18n, change locales, add a framework plugin,
+      change the tsconfig override) has NO effect on a running engine. The **Stage-2 daemon worsens it**:
+      pre-daemon each `mcp` connection respawned with the current config (short-lived); the long-lived
+      daemon now keeps the baked config across its whole lifetime (until idle-TTL exit or reconnect). And
+      it is SILENT — the §3.6 self-staleness banner covers the daemon's OWN `src/**`, not the inspected
+      repo's config, so `status` shows the stale plugin set with no drift signal. Honest fix: fingerprint
+      the resolved config file at spawn; on a config change in the freshness changed-set, at minimum
+      surface a "config changed — reconnect" note (the silent direction must become honest), ideally
+      re-evaluate the plugin set (heavier — set changes mean plugin init/dispose). `bug`·`med`·`cx:M`
 - [ ] **No wall-time bound on synchronous TS ops** — `find_unused_exports` (`cap×O(import-graph)`)
       and a 10k-importer `find_usages` are bounded by DESIGN but don't degrade to honest
       `ToolFailure{timeout}` on a pathological whole-repo call. The hard guarantee is §19 engine
