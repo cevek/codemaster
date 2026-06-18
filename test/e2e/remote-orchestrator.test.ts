@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { serveDaemon } from '../../src/daemon/daemon-server.ts';
 import { createRemoteOrchestrator } from '../../src/daemon/remote-orchestrator.ts';
-import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
+import type { OrchestratorApi, ServingOrchestrator } from '../../src/daemon/orchestrator-api.ts';
 import { createUnixSocketTransport } from '../../src/support/transport/unix-socket.ts';
 import { socketPath } from '../../src/support/transport/socket-path.ts';
 import { systemClock, type Clock } from '../../src/common/async/clock.ts';
@@ -46,7 +46,7 @@ function manualClock(): Clock & { advance(ms: number): void } {
 
 const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
 
-function stubOrch(over: Partial<OrchestratorApi> = {}): OrchestratorApi {
+function stubOrch(over: Partial<ServingOrchestrator> = {}): ServingOrchestrator {
   return {
     request: async () => ({ ok: true, results: [] }),
     status: async () => ({
@@ -61,13 +61,14 @@ function stubOrch(over: Partial<OrchestratorApi> = {}): OrchestratorApi {
       sourceStale: false,
     }),
     sourceStale: () => false,
+    daemonInfo: () => ({ pid: 99, uptimeMs: 0, engines: 1, engineRoots: ['/repo'] }),
     dispose: async () => undefined,
     ...over,
   };
 }
 
 async function withDaemonAndRemote(
-  orch: OrchestratorApi,
+  orch: ServingOrchestrator,
   run: (remote: OrchestratorApi, clock: Clock & { advance(ms: number): void }) => Promise<void>,
 ): Promise<void> {
   const dir = mkdtempSync(path.join(tmpdir(), 'cm-rem-'));

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { StatusView } from '../format/render/render-status.ts';
+import type { DaemonInfo } from './orchestrator-api.ts';
 
 interface RequestEnvelope {
   id: number;
@@ -28,13 +29,25 @@ interface StatusEnvelope {
   cwd: string;
   root?: string;
 }
-export type WireRequest = RequestEnvelope | StatusEnvelope;
+// Management verbs (spec-daemon-cli). `daemon-info` reads the daemon's own process facts (no cwd —
+// it must NOT warm an engine). `shutdown` asks the daemon to self-terminate; it has NO reply — the
+// confirmation is the connection CLOSING (the daemon closes its listener → unlink → dispose → exit).
+interface DaemonInfoEnvelope {
+  id: number;
+  kind: 'daemon-info';
+}
+interface ShutdownEnvelope {
+  id: number;
+  kind: 'shutdown';
+}
+export type WireRequest = RequestEnvelope | StatusEnvelope | DaemonInfoEnvelope | ShutdownEnvelope;
 
 type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
 
 export type WireReply =
   | { id: number; kind: 'request'; sourceStale: boolean; outcome: RequestOutcome }
   | { id: number; kind: 'status'; sourceStale: boolean; view: StatusView }
+  | { id: number; kind: 'daemon-info'; sourceStale: boolean; info: DaemonInfo }
   | { id: number; kind: 'error'; message: string };
 
 const batchSchema = z
@@ -60,7 +73,18 @@ const requestSchema = z.discriminatedUnion('kind', [
     cwd: z.string(),
     root: z.string().optional(),
   }),
+  z.object({ id: z.number(), kind: z.literal('daemon-info') }),
+  z.object({ id: z.number(), kind: z.literal('shutdown') }),
 ]);
+
+const daemonInfoSchema = z
+  .object({
+    pid: z.number(),
+    uptimeMs: z.number(),
+    engines: z.number(),
+    engineRoots: z.array(z.string()),
+  })
+  .strict();
 
 const replySchema = z.discriminatedUnion('kind', [
   z.object({
@@ -77,6 +101,12 @@ const replySchema = z.discriminatedUnion('kind', [
     kind: z.literal('status'),
     sourceStale: z.boolean(),
     view: z.unknown(),
+  }),
+  z.object({
+    id: z.number(),
+    kind: z.literal('daemon-info'),
+    sourceStale: z.boolean(),
+    info: daemonInfoSchema,
   }),
   z.object({ id: z.number(), kind: z.literal('error'), message: z.string() }),
 ]);

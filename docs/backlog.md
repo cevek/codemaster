@@ -96,16 +96,6 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
-- [ ] **self-staleness banner remedy text is stale in daemon mode** (`format/render/render-status.ts`)
-      — the banner reads "daemon code behind source — reconnect MCP (running pre-edit behavior)". In the
-      Stage-2 model that remedy no longer works: reconnecting the MCP client restarts only the BRIDGE,
-      which then `connect-or-spawn`s and CONNECTS to the still-alive stale-code daemon (same socket) —
-      the daemon's code is what's behind, and it isn't restarted by a bridge reconnect. The banner
-      correctly DETECTS staleness (rides the daemon's spawn fingerprint, so it keeps firing after a
-      bridge-only reconnect), but its REMEDY is now misleading. Fix: update the text for daemon mode —
-      the daemon must be restarted (kill it; the next bridge spawns a fresh one on current code), or use
-      `mcp --in-process` for the dev loop. Consider a `codemaster daemon restart/stop` management command
-      (none today — only `pkill`). `dx`·`med`·`cx:S`
 - [ ] **`codemaster.config.ts` is not watched/reloaded — a config edit is silently stale until engine
       respawn** — `loadConfig(root)` runs ONCE at engine creation (`orchestrator.ts` / `bin.ts`), and
       `builtinPlugins(config, root)` bakes the plugin SET (i18n/schema config-gated; framework autodetect),

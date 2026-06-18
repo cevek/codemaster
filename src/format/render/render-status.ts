@@ -7,9 +7,13 @@ import type { OpExample } from '../../core/op-example.ts';
 import { CONCEPTS_LINES } from './concepts.ts';
 
 /** The self-staleness line (§3.6 applied to the tool). Shared by `status` (first line) and
- *  the MCP op/batch banner so the two surfaces never drift in wording. */
+ *  the MCP op/batch banner so the two surfaces never drift in wording. The remedy is `codemaster
+ *  daemon restart`, NOT "reconnect MCP": in the singleton-daemon model (spec-daemon-singleton) a
+ *  bridge reconnect just re-attaches to the SAME stale-code daemon on the same socket — the daemon
+ *  itself must be restarted to spawn a fresh one on current source. (`--in-process` serving has no
+ *  daemon; there, restart the MCP client.) */
 export const SOURCE_STALE_LINE =
-  '!! daemon code behind source — reconnect MCP (running pre-edit behavior)';
+  '!! daemon code behind source — run `codemaster daemon restart` to pick up edits (running pre-edit behavior)';
 
 export interface PluginStatusView {
   id: string;

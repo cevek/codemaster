@@ -17,11 +17,11 @@ import { messageOfThrown } from '../common/result/construct.ts';
 import type { JsonValue } from '../core/json.ts';
 import { createIdleExit } from '../common/async/idle-exit.ts';
 import type { Transport, TransportConnection } from '../support/transport/seam.ts';
-import type { OrchestratorApi } from './orchestrator-api.ts';
+import type { ServingOrchestrator } from './orchestrator-api.ts';
 import { parseWireRequest, type WireReply } from './protocol.ts';
 
 export interface DaemonServerDeps {
-  orchestrator: OrchestratorApi;
+  orchestrator: ServingOrchestrator;
   transport: Transport;
   clock: Clock;
   /** Idle-exit TTL (ms) — zero connections for this long → self-exit. */
@@ -98,7 +98,19 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     const req = parsed.value;
     try {
       const sourceStale = deps.orchestrator.sourceStale();
-      if (req.kind === 'status') {
+      if (req.kind === 'shutdown') {
+        // No reply: the connection CLOSING (listener torn down, socket unlinked) is the management
+        // client's confirmation that the daemon committed to exit (§3 / spec-daemon-cli stop).
+        void shutdown();
+      } else if (req.kind === 'daemon-info') {
+        // A pure read of this daemon's own facts — no cwd, no engine warm (spec-daemon-cli status).
+        send(connection, {
+          id: req.id,
+          kind: 'daemon-info',
+          sourceStale,
+          info: deps.orchestrator.daemonInfo(),
+        });
+      } else if (req.kind === 'status') {
         const view = await deps.orchestrator.status(req.cwd, req.root);
         send(connection, { id: req.id, kind: 'status', sourceStale, view });
       } else {

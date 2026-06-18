@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { serveDaemon, type DaemonHandle } from '../../src/daemon/daemon-server.ts';
-import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
+import type { ServingOrchestrator } from '../../src/daemon/orchestrator-api.ts';
 import { createUnixSocketTransport } from '../../src/support/transport/unix-socket.ts';
 import { socketPath } from '../../src/support/transport/socket-path.ts';
 import type { Transport, TransportConnection } from '../../src/support/transport/seam.ts';
@@ -60,7 +60,7 @@ const STATUS_VIEW: StatusView = {
   sourceStale: false,
 };
 
-function stubOrch(over: Partial<OrchestratorApi> = {}): OrchestratorApi {
+function stubOrch(over: Partial<ServingOrchestrator> = {}): ServingOrchestrator {
   return {
     request: async () => ({
       ok: true,
@@ -68,6 +68,7 @@ function stubOrch(over: Partial<OrchestratorApi> = {}): OrchestratorApi {
     }),
     status: async () => STATUS_VIEW,
     sourceStale: () => false,
+    daemonInfo: () => ({ pid: 1, uptimeMs: 0, engines: 0, engineRoots: [] }),
     dispose: async () => undefined,
     ...over,
   };
@@ -82,7 +83,7 @@ interface Harness {
   cleanup(): Promise<void>;
 }
 
-async function harness(orch: OrchestratorApi, idleMs = 1000): Promise<Harness> {
+async function harness(orch: ServingOrchestrator, idleMs = 1000): Promise<Harness> {
   const dir = mkdtempSync(path.join(tmpdir(), 'cm-dmn-'));
   const transport = createUnixSocketTransport(socketPath('test', dir));
   const clock = manualClock();

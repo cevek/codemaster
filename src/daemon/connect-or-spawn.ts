@@ -71,7 +71,10 @@ export async function connectOrSpawnDaemon(
   }
 }
 
-async function tryConnect(transport: Transport): Promise<TransportConnection | undefined> {
+/** One fail-fast connect attempt: a live daemon → a connection; no/stale socket (ENOENT /
+ *  ECONNREFUSED) or any connect error → `undefined`. Shared with the management verbs
+ *  (spec-daemon-cli) so "is a daemon up?" is probed identically everywhere. */
+export async function tryConnect(transport: Transport): Promise<TransportConnection | undefined> {
   try {
     return await transport.connect();
   } catch {

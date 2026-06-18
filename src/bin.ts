@@ -28,6 +28,7 @@ import { serveMcp } from './mcp/server.ts';
 import { serveDaemon } from './daemon/daemon-server.ts';
 import { connectOrSpawnDaemon } from './daemon/connect-or-spawn.ts';
 import { spawnDaemon } from './daemon/spawn-daemon.ts';
+import { runDaemonCommand } from './daemon/manage.ts';
 import { createRemoteOrchestrator } from './daemon/remote-orchestrator.ts';
 import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
@@ -126,27 +127,49 @@ async function main(): Promise<number> {
 
   switch (command) {
     case 'daemon': {
-      // Internal: the long-lived singleton the bridge spawns (spec-daemon-singleton §2). Hosts one
-      // in-process orchestrator behind the unix socket, shared across every bridge. Not a
-      // user-facing command — `codemaster mcp` (the bridge) spawns and converges on it.
-      const orchestrator = buildOrchestrator();
+      // `daemon` is a sub-router (spec-daemon-cli). `serve` is the INTERNAL long-lived singleton the
+      // bridge spawns (spec-daemon-singleton §2) — it needs an orchestrator and stays here. The
+      // user-facing management verbs (`start`/`stop`/`restart`/`status`) are pure socket clients and
+      // live in `daemon/manage.ts`. Bare `daemon` (or an unknown verb) prints usage.
+      const verb = args.shift();
+      if (verb === 'serve') {
+        // Hosts one in-process orchestrator behind the unix socket, shared across every bridge.
+        const orchestrator = buildOrchestrator();
+        const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
+        const transport = createUnixSocketTransport(socket);
+        try {
+          await serveDaemon({
+            orchestrator,
+            transport,
+            clock: systemClock,
+            idleMs: mcpIdleMs(process.cwd()),
+          });
+        } catch (err) {
+          // Lost the bind race (§19) — another daemon already holds the socket. Exit cleanly; the
+          // bridges converge on the winner. Any other bind error is a real failure.
+          await orchestrator.dispose().catch(() => undefined);
+          if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') return 0;
+          throw err;
+        }
+        return -1; // long-lived
+      }
+      if (verb === undefined) {
+        process.stderr.write(
+          'usage: codemaster daemon <status|start|stop|restart>\n  (serve is the internal verb spawned by the MCP bridge)\n',
+        );
+        return 2;
+      }
       const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
       const transport = createUnixSocketTransport(socket);
-      try {
-        await serveDaemon({
-          orchestrator,
-          transport,
-          clock: systemClock,
-          idleMs: mcpIdleMs(process.cwd()),
-        });
-      } catch (err) {
-        // Lost the bind race (§19) — another daemon already holds the socket. Exit cleanly; the
-        // bridges converge on the winner. Any other bind error is a real failure.
-        await orchestrator.dispose().catch(() => undefined);
-        if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') return 0;
-        throw err;
-      }
-      return -1; // long-lived
+      const binPath = fileURLToPath(import.meta.url);
+      const result = await runDaemonCommand(verb, {
+        transport,
+        socketPath: socket,
+        clock: systemClock,
+        spawnDaemon: () => spawnDaemon(binPath, process.env['CODEMASTER_SOCK_DIR']),
+      });
+      for (const line of result.lines) out(line);
+      return result.code;
     }
     case 'mcp': {
       const idleMs = mcpIdleMs(root ?? process.cwd());
@@ -234,7 +257,7 @@ async function main(): Promise<number> {
     case undefined:
     default:
       process.stderr.write(
-        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
+        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio (the daemon bridge)\n  codemaster daemon <status|start|stop|restart>   manage the singleton daemon\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
       );
       return command === undefined || command === 'help' ? 0 : 2;
   }

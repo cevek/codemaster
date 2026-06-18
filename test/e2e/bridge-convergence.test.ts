@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { connectOrSpawnDaemon } from '../../src/daemon/connect-or-spawn.ts';
 import { serveDaemon, type DaemonHandle } from '../../src/daemon/daemon-server.ts';
-import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
+import type { ServingOrchestrator } from '../../src/daemon/orchestrator-api.ts';
 import { createUnixSocketTransport } from '../../src/support/transport/unix-socket.ts';
 import { socketPath } from '../../src/support/transport/socket-path.ts';
 import { systemClock } from '../../src/common/async/clock.ts';
@@ -18,7 +18,7 @@ import type { Transport } from '../../src/support/transport/seam.ts';
 
 process.setMaxListeners(50);
 
-function stubOrch(): OrchestratorApi {
+function stubOrch(): ServingOrchestrator {
   return {
     request: async () => ({ ok: true, results: [] }),
     status: async () => ({
@@ -33,6 +33,7 @@ function stubOrch(): OrchestratorApi {
       sourceStale: false,
     }),
     sourceStale: () => false,
+    daemonInfo: () => ({ pid: 1, uptimeMs: 0, engines: 0, engineRoots: [] }),
     dispose: async () => undefined,
   };
 }

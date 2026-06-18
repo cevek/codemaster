@@ -6,11 +6,13 @@
 
 import { spawn } from 'node:child_process';
 
-/** Fire-and-forget: launch `node <bin> daemon`. The child binds the socket (or loses the bind race
- *  and exits — bin.ts `daemon` treats EADDRINUSE as "another daemon won"). `sockDir` forwards the
- *  test socket-dir seam so a spawned daemon shares the bridge's endpoint. */
+/** Fire-and-forget: launch `node <bin> daemon serve`. The child binds the socket (or loses the bind
+ *  race and exits — bin.ts `daemon serve` treats EADDRINUSE as "another daemon won"). `serve` is the
+ *  INTERNAL long-lived verb, split from the user-facing `daemon start|stop|restart|status` management
+ *  verbs (spec-daemon-cli). `sockDir` forwards the test socket-dir seam so a spawned daemon shares
+ *  the bridge's endpoint. */
 export function spawnDaemon(binPath: string, sockDir: string | undefined): void {
-  const child = spawn(process.execPath, [binPath, 'daemon'], {
+  const child = spawn(process.execPath, [binPath, 'daemon', 'serve'], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, ...(sockDir !== undefined ? { CODEMASTER_SOCK_DIR: sockDir } : {}) },

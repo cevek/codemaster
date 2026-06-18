@@ -7,6 +7,16 @@
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { StatusView } from '../format/render/render-status.ts';
 
+/** Lightweight daemon-process facts for the `codemaster daemon status` management verb
+ *  (spec-daemon-cli). Deliberately NOT routed through `status`: that warms an engine for
+ *  `cwd` as a side effect, whereas this is a pure read of the daemon's own state. */
+export interface DaemonInfo {
+  pid: number;
+  uptimeMs: number;
+  engines: number;
+  engineRoots: readonly string[];
+}
+
 export interface OrchestratorApi {
   /** Dispatch op requests against the workspace(s) resolved from `cwd`/`root`. */
   request(
@@ -23,4 +33,12 @@ export interface OrchestratorApi {
   /** Release this orchestrator's hold. In-process: dispose engines. Remote: close the socket
    *  connection only — the shared daemon keeps running for other bridges. */
   dispose(): Promise<void>;
+}
+
+/** The orchestrator the daemon process serves. The daemon hosts the in-process `Orchestrator`,
+ *  which can report `daemonInfo()` synchronously; the bridge's `RemoteOrchestrator` has no real
+ *  daemon-process facts of its own (it would have to fake them — a latent lie), so `daemonInfo`
+ *  lives HERE, not on the shared `OrchestratorApi`. */
+export interface ServingOrchestrator extends OrchestratorApi {
+  daemonInfo(): DaemonInfo;
 }

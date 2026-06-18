@@ -1,5 +1,5 @@
 // Stage 6 DX riders. (1) Daemon self-staleness (§3.6 applied to the tool): when
-// codemaster's OWN source moves after spawn, `status` and the MCP op banner say "reconnect"
+// codemaster's OWN source moves after spawn, `status` and the MCP op banner say "daemon restart"
 // — but NEVER on an unchanged tree (a false positive would train the agent to ignore it).
 // (2) The `root`-placement docs clarification: `root` is top-level; the schema is unchanged,
 // so `root` inside `args` still fails with a self-correcting `bad_args` (docs improved, not
@@ -36,7 +36,7 @@ test('self-staleness: status warns once the daemon source moved after spawn', as
     fingerprint = 'v2';
     assert.match(
       await p.status(),
-      /daemon code behind source — reconnect MCP/,
+      /daemon code behind source.*daemon restart/,
       'a daemon serving pre-edit behavior must say so',
     );
   } finally {
@@ -112,14 +112,14 @@ test('createSourceStaleTracker: TTL-caches the verdict, recomputes after it elap
   assert.equal(tracker.stale(), false, 'recovers — the verdict is never a permanent latch');
 });
 
-test('staleBanner: empty when fresh, a reconnect line when stale (the MCP op surface)', () => {
+test('staleBanner: empty when fresh, a restart line when stale (the MCP op surface)', () => {
   assert.equal(staleBanner(false), '', 'fresh → no banner, never noise on the using agent');
-  assert.match(staleBanner(true), /reconnect MCP/);
+  assert.match(staleBanner(true), /daemon restart/);
 });
 
 test('§6: the staleness banner is ONE-SHOT per session — warns once, then stays silent', () => {
   const once = createOnceBanner(() => true); // stale for the whole session
-  assert.match(once(false), /reconnect MCP/, 'first response carries the banner');
+  assert.match(once(false), /daemon restart/, 'first response carries the banner');
   assert.equal(once(false), '', 'a second response does NOT repeat the un-actionable warning');
   assert.equal(once(false), '', 'and a third stays silent too');
 });
@@ -129,7 +129,7 @@ test('§6/§12: a json-suppressed call is silent AND does not consume the one-sh
   // json mode suppresses the prefix (it would corrupt the payload) — and must NOT spend the
   // one-shot, so a following text-mode call still gets the single warning.
   assert.equal(once(true), '', 'json-suppressed → no banner');
-  assert.match(once(false), /reconnect MCP/, 'the later text response still warns once');
+  assert.match(once(false), /daemon restart/, 'the later text response still warns once');
   assert.equal(once(false), '', 'and only once');
 });
 

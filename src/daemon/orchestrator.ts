@@ -39,7 +39,7 @@ import { createEngine } from './engine.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
-import type { OrchestratorApi } from './orchestrator-api.ts';
+import type { DaemonInfo, ServingOrchestrator } from './orchestrator-api.ts';
 
 export interface OrchestratorDeps {
   clock: Clock;
@@ -79,7 +79,7 @@ export const DEFAULT_IDLE_EVICTION_MIN = 30;
 const DEFAULT_SWEEP_SECONDS = 60;
 const DEFAULT_MAX_ENGINES = 8;
 
-export class Orchestrator implements OrchestratorApi {
+export class Orchestrator implements ServingOrchestrator {
   private readonly deps: OrchestratorDeps;
   private readonly engines = new Map<RepoId, EngineSlot>();
   private readonly trace;
@@ -176,12 +176,13 @@ export class Orchestrator implements OrchestratorApi {
       if (spawned.ok) workspace = await statusOf(spawned.slot.host);
       else workspaceError = spawned.message;
     }
+    const info = this.daemonInfo();
     return {
       daemonVersion: this.deps.version,
-      pid: process.pid,
+      pid: info.pid,
       isolation: 'in-process',
-      engines: this.engines.size,
-      engineRoots: [...this.engines.values()].map((s) => s.root),
+      engines: info.engines,
+      engineRoots: info.engineRoots,
       workspace,
       workspaceError,
       debugTopics: this.deps.debug.topics(),
@@ -194,8 +195,15 @@ export class Orchestrator implements OrchestratorApi {
     this.trace('debug reconfigured', () => ({ spec }));
   }
 
-  get uptimeMs(): number {
-    return this.deps.clock.now() - this.startedAtMs;
+  /** Daemon-process facts for the `daemon status` management verb (spec-daemon-cli) — a pure
+   *  read of this process's own state (uptime via the injected clock), no routing/engine warm. */
+  daemonInfo(): DaemonInfo {
+    return {
+      pid: process.pid,
+      uptimeMs: this.deps.clock.now() - this.startedAtMs,
+      engines: this.engines.size,
+      engineRoots: [...this.engines.values()].map((s) => s.root),
+    };
   }
 
   async dispose(): Promise<void> {

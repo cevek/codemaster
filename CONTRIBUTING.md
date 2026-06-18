@@ -118,12 +118,14 @@ Drive codemaster against its own tree from the CLI — same front door as MCP, n
 (e.g. `node src/bin.ts op find_usages '{"name":"Orchestrator"}'`). Each invocation is a
 fresh one-shot process, so it always reflects the current source.
 
-A **long-lived** daemon (the MCP server your editor connects to) does **not** — it serves
-the behavior it spawned with. So after you edit `src/`, the running MCP daemon is stale.
-`status` and every op response say so outright (`!! daemon code behind source — reconnect
-MCP`), driven by a `src/**` fingerprint taken at spawn (§3.6 applied to the tool itself);
-**reconnect the MCP client to pick up your change** (hot-reload is a wishlist item — the
-client owns the process lifetime). The signal degrades silently to off where the source
+A **long-lived** daemon (the singleton the MCP bridge connects to) does **not** — it serves
+the behavior it spawned with. So after you edit `src/`, the running daemon is stale.
+`status` and every op response say so outright (`!! daemon code behind source — run
+`codemaster daemon restart``), driven by a `src/**` fingerprint taken at spawn (§3.6 applied
+to the tool itself). **Run `codemaster daemon restart` to pick up your change\** — it stops the
+stale-code daemon so the next bridge spawns a fresh one on current source (a bridge *reconnect\*
+alone re-attaches to the SAME stale daemon on the same socket; for the dev loop, `codemaster mcp
+--in-process` skips the daemon entirely). The signal degrades silently to off where the source
 tree can't be located (a global / `npx` install — §19), never a false positive.
 
 ## Output is the product

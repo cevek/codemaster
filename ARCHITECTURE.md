@@ -68,7 +68,13 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
   blocks (no heavy work), so its stdin-EOF is always processed and a per-request reply deadline
   yields an honest `ToolFailure` if the daemon stalls — but a **permanently wedged daemon**
   (accepts-but-never-replies / a wedged sync loop holding the socket) is _not_ reaped here; that
-  needs process-mode engine isolation + kill-on-deadline (§9, separate roadmap). The
+  needs process-mode engine isolation + kill-on-deadline (§9, separate roadmap), though the
+  user-facing **management verbs** (`codemaster daemon start|stop|restart|status`,
+  spec-daemon-cli) give a manual path: a bounded socket-probe `status`, a control-message
+  `stop` (graceful; honest "kill pid X" if the daemon is wedged past the deadline), and
+  `restart` — the "pick up new code" command that kills the stale-code daemon so the next
+  bridge spawns a fresh one. The internal long-lived process is spawned as `codemaster daemon
+serve` (split from the management verbs). The
   `--in-process` flag bypasses the socket and serves a local orchestrator directly (debug /
   self-dev), carrying its own idle self-exit.
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
@@ -700,8 +706,11 @@ honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
   catalogue to re-read one op). It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend a
-  one-line "reconnect MCP" banner — suppressed in `format:'json'` (it would corrupt the
-  payload) and silent where the source can't be located (global/`npx` — §19).
+  one-line "run `codemaster daemon restart`" banner — suppressed in `format:'json'` (it would
+  corrupt the payload) and silent where the source can't be located (global/`npx` — §19). The
+  remedy is **restart**, not a bridge reconnect: a reconnect re-attaches to the same stale-code
+  daemon on the same socket (§2 singleton), so the daemon itself must be restarted (`codemaster
+  daemon restart` — the management verbs, §2).
 - **`batch(requests)`** — one tool carrying a list of op invocations; results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
   ops in the batch see a consistent view per plugin (each plugin pins its state at

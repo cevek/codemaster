@@ -243,13 +243,13 @@ export function renderBatch(
 
 /** The one-line self-staleness banner (§3.6 applied to the tool). Prepended to op/batch
  *  responses when the daemon's own source moved since spawn, so an agent acting on a
- *  stale answer is told to reconnect. Empty when fresh — pure, exported, unit-tested. */
+ *  stale answer is told to restart the daemon. Empty when fresh — pure, exported, unit-tested. */
 export function staleBanner(sourceStale: boolean): string {
   return sourceStale ? `${SOURCE_STALE_LINE}\n` : '';
 }
 
-/** A session-scoped, ONE-SHOT self-staleness banner (spec-stresstest §6). The "reconnect MCP"
- *  warning is un-actionable mid-session (an MCP client can't reconnect on demand), so repeating it
+/** A session-scoped, ONE-SHOT self-staleness banner (spec-stresstest §6). The "daemon restart"
+ *  warning is un-actionable mid-session (an agent can't restart the daemon on demand), so repeating it
  *  on every op/batch response is noise that erodes trust. This returns a function that emits the
  *  banner on the FIRST response that would carry it (stale + not suppressed), then stays silent for
  *  the rest of the session — `status().sourceStale` still reports the true state on demand.

@@ -79,10 +79,12 @@ length-asserted at bind to stay under `sun_path`'s ~104/108-byte limit. A `Trans
   churn evicts engines centrally instead of leaking a whole orchestrator per worktree.
 - **Stale-socket recovery (§19).** A `SIGKILL`ed daemon leaves a dangling socket file; the next
   bridge's connect fails, it probes liveness, `unlink`s, and rebinds — no hang, no manual cleanup.
-- **Self-staleness banner preserved.** The `src/**` fingerprint that drives the "reconnect MCP"
-  banner (spec-status-as-the-doc, §3.6) is taken at **daemon** spawn; reconnecting a bridge does
+- **Self-staleness banner preserved.** The `src/**` fingerprint that drives the staleness banner
+  (spec-status-as-the-doc, §3.6) is taken at **daemon** spawn; reconnecting a bridge does
   not refresh it (the daemon is the long-lived code) — so the banner still tells the agent when the
-  daemon predates an edit. The daemon's own idle-exit naturally clears stale code over time.
+  daemon predates an edit. Its remedy is **`codemaster daemon restart`** (the management verbs,
+  spec-daemon-cli), NOT a bridge reconnect: a reconnect re-attaches to the SAME stale-code daemon on
+  the same socket. The daemon's own idle-exit also clears stale code over time.
 
 ## 4. Transport seam
 
@@ -113,7 +115,9 @@ daemon without the socket. The socket daemon is a `mcp`-only concern.
   split: `support/transport/` (seam + unix socket + NDJSON), `daemon/daemon-server.ts` (hosts one
   in-process orchestrator, routes per-message async), `daemon/remote-orchestrator.ts` (the bridge's
   forwarding `OrchestratorApi`, reply-deadline bounded), `daemon/connect-or-spawn.ts` (bind-or-connect
-  convergence + stale-socket recovery), `daemon/spawn-daemon.ts` (detached spawn). The daemon's
+  convergence + stale-socket recovery), `daemon/spawn-daemon.ts` (detached spawn of `codemaster
+daemon serve` — the internal long-lived verb, split from the user-facing management verbs in
+  spec-daemon-cli). The daemon's
   idle-exit reuses the Stage-1 deadline with hold = open bridge connection, subsuming Stage 1 at the
   daemon level. `codemaster mcp` is now the bridge; `--in-process` is the escape hatch.
 
