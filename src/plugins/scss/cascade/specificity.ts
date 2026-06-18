@@ -7,6 +7,8 @@
 // argument list (`:is`/`:not`/`:has`), `:where(…)` contributes 0 — matching the spec, so a
 // cross-module override is ordered correctly and never under/over-counted.
 
+import { unwrapLocalScope } from '../selector-scope.ts';
+
 /** The (a,b,c) specificity triple. Higher `a`, then `b`, then `c` wins. */
 export type Specificity = { a: number; b: number; c: number };
 
@@ -309,10 +311,14 @@ export function specificityOfComplex(selector: string): Specificity {
 
 /** Analyse a resolved selector branch: specificity, subject classes, and the conditions that
  *  keep it from being an unconditional context-free match. `interpolated` flags `#{…}`. */
-export function analyzeBranch(selector: string): {
+export function analyzeBranch(rawSelector: string): {
   specificity: Specificity;
   traits: SelectorTraits;
 } {
+  // `:local(.foo)` is the explicit default scoping (compiles to `.foo`), so its arg classes ARE
+  // module-local subjects — unwrap it before subject analysis. `:global(.x)` stays wrapped (its
+  // global flag is the caller's job in rules.ts) — the asymmetry is intended (§selector-scope).
+  const selector = unwrapLocalScope(rawSelector);
   const interpolated = selector.includes('#{');
   const { compounds, hasCombinator } = splitCompounds(stripInterpolation(selector));
   const subject = compounds[compounds.length - 1] ?? '';

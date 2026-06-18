@@ -383,10 +383,19 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **`scss/plugin.ts` near the 300-line cap** — ~290 real lines after the index/demotion/scrub
       work; the next scss change should split it by responsibility (e.g. lift `unusedClasses`/`demote`
       into their own module) rather than grow it. `dx`·`low`
-- [ ] **`:local(.foo)` subject form not matched as a module class** — `:global(.x)` paren classes are
-      extracted but `:local(.x)` (the explicit form of the default) is missed → a rule written
-      `:local(.foo){…}` is invisible for target `foo`. Rare false-NEGATIVE. Fix: pull `:local(...)`
-      arg classes into the module subject set. `bug`·`low`·`cx:S`
+- [ ] **`:local` bare-prefix / block forms not module-owned** — the paren subject form `:local(.foo){}`
+      is now unwrapped to behave exactly like `.foo{}` (`selector-scope.ts`), but the bare-prefix
+      `:local .foo {}` and block `:local { .foo {} }` forms are still treated as entangled (descendant /
+      nested) → demoted to `partial` for `find_unused`, and the cascade reads `:local .foo` as a
+      descendant. Conservative-honest (never a false `certain`), but `.foo` there is module-local too.
+      Fix: extend the unwrap to the prefix/block forms (precise per-compound scoping). `bug`·`low`·`cx:M`
+- [ ] **`:local(.a, .b)` paren-comma list under-reports in cascade** — a multi-subject `:local(...)`
+      unwraps to `.a, .b`, but `analyzeBranch` reads only the LAST compound's subject (`b`), so a
+      `css_cascade` query for target `a` emits no contribution from that rule → a wrong `certain`
+      winner for `.a` is possible ONLY if another same-specificity rule also targets `.a`. NOT a
+      regression (the multi-subject form was invisible before the `:local` fix too); the find_unused
+      side stays honest (`:local(.a, .b)` is not-owned → `partial`). Fix: split the unwrapped
+      `:local(...)` selector list into per-branch subjects. `bug`·`low`·`cx:M`
 - [ ] **`:global` bare-prefix handling is best-effort syntactic** — `:global(.x)` and bare
       `:global .x`/`:global{…}` are surfaced as `global:true` (→ always `partial`), but the
       per-compound boundary of a bare prefix isn't tracked precisely. Conservative-honest (never a

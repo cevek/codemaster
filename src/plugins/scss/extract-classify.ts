@@ -8,6 +8,7 @@
 // Conservative-and-honest beats complete-and-wrong.
 
 import type { Root, Rule } from 'postcss';
+import { unwrapLocalScope } from './selector-scope.ts';
 
 /** Reason a class was left behind. Short codes for dense output (§12); the report keeps the
  *  legend so the agent never memorizes them. */
@@ -235,7 +236,11 @@ function isExtendedBy(root: Root, cls: string): boolean {
  *  which stays behind under a different css-module hash (a silent type-blind break). A selector
  *  list `A, B, C` is owned only if EVERY branch is. */
 export function selectorIsOwnedBy(selector: string, cls: string): boolean {
-  const branches = selector.split(',').map((s) => s.trim());
+  // `:local(.X)` is the explicit form of the default scoping — unwrap it so it owns exactly as
+  // `.X` would; `:global(.X)` stays wrapped (never module-owned). Symmetry, §selector-scope.
+  const branches = unwrapLocalScope(selector)
+    .split(',')
+    .map((s) => s.trim());
   if (branches.length === 0) return false;
   // `[^).]` inside the pseudo-arg group rejects any `(... .cls ...)` — a class reference inside
   // `:not()`/`:has()`/`:is()` disqualifies ownership.
