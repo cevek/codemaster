@@ -18,7 +18,8 @@ import type {
 import type { SearchFilter, SearchView } from './search.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
 import type { CssModuleUsages } from './css-modules.ts';
-import type { CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
+import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
+import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
 import type { RenameOutcome } from './refactor/rename/rename-sites.ts';
@@ -82,6 +83,21 @@ export interface TsPluginApi extends Plugin {
    *  alias). Each match carries `provenance` (how it resolved). MEMOIZED on `freshness()` + the
    *  spec, so a batch of i18n ops scans once. */
   literalCalls(spec: CallMatchSpec): LiteralCallsResult;
+  /** Cross-tier API (§5-L2): the classified SHAPE of every configured call's arguments — the seam
+   *  framework plugins (e.g. react-query) consume. Same `CallMatchSpec` + matching models as
+   *  `literalCalls` (by-name / by-identity). GENERIC: argument values are classified by syntactic
+   *  shape (string/number/array-segment/object-prop/function/identifier/…), literals `certain` and
+   *  indeterminate forms `dynamic`; each call carries its enclosing declaration (chainable id) and
+   *  the nearest enclosing matched call (`enclosingCallId`) so a nested call (e.g.
+   *  `invalidateQueries` in an `onSuccess`) links to its container. Zero framework policy here.
+   *  MEMOIZED on `freshness()` + the spec. */
+  callArgShapes(spec: CallMatchSpec): CallArgShapesResult;
+  /** Cross-tier API (§5-L2): every function-like declaration (`function`/arrow/function-expression/
+   *  method/call-wrapped) with a syntactic `returnsJsx` TSX-language fact + confidence — the seam
+   *  the `react` plugin consumes for component/hook detection. GENERIC: no react convention here
+   *  (PascalCase / `use*` live in plugins/react). The name-token span is a chainable target.
+   *  MEMOIZED on `freshness()`. */
+  functionDeclarations(): FunctionDeclarationsResult;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A

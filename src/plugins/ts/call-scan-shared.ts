@@ -6,7 +6,8 @@
 // consuming plugin owns that policy (§4/§5).
 
 import ts from 'typescript';
-import type { Span } from '../../core/span.ts';
+import type { RepoRelPath } from '../../core/brands.ts';
+import type { Confidence, Span } from '../../core/span.ts';
 import { spanFromRange } from './spans.ts';
 
 /** How a matched callee resolved to a configured function — the self-audit trail (F-c).
@@ -69,6 +70,98 @@ export function splitNames(fnNames: readonly string[]): {
   }
   return { simpleLeaves, dotted };
 }
+
+/** What a matched callee resolved to — the unit a `MatchModel`'s matcher returns. */
+export type CalleeMatch = { fn: string; provenance: LiteralCallProvenance };
+
+/** A per-file matcher (built over that file's bindings/aliases) plus the shadow pool to thread
+ *  down the AST. `pool` empty → no shadow threading happens (the by-name model never shadows). */
+export type FilePrep = {
+  match: (callee: ts.Expression, shadowed: ReadonlySet<string>) => CalleeMatch | undefined;
+  pool: ReadonlySet<string>;
+};
+
+/** A matching model (by-name or by-identity): whether the configured module resolved, and a
+ *  per-program factory of per-file preps. A file-prep `undefined` means "skip this file" (the
+ *  by-identity model skips files with no module binding — the cost short-circuit it always had).
+ *  The walk ({@link forEachMatchedCall}) drives the model; the model owns the resolution policy. */
+export type MatchModel = {
+  mode: LiteralCallsResult['mode'];
+  moduleResolved: boolean;
+  perGroup: (
+    program: ts.Program,
+  ) => (sourceFile: ts.SourceFile, rel: RepoRelPath) => FilePrep | undefined;
+};
+
+/** One matched call surfaced by the walk. `callId` is a stable, per-site key (`rel:offset`); a
+ *  consumer joins nested calls to their lexical container via `enclosingMatchedCallId` — the
+ *  nearest enclosing matched call (e.g. `invalidateQueries` inside a `useMutation`'s `onSuccess`),
+ *  or `undefined` at the outermost match. */
+export type MatchHit = {
+  sourceFile: ts.SourceFile;
+  rel: RepoRelPath;
+  callNode: ts.CallExpression;
+  fn: string;
+  provenance: LiteralCallProvenance;
+  callId: string;
+  enclosingMatchedCallId?: string;
+};
+
+// ── Call-arg-shape scan (callArgShapes) ─────────────────────────────────────────────────────
+// A GENERIC classification of a matched call's argument VALUES — the seam framework plugins
+// (react-query: queryKey segments, invalidateQueries shapes) consume. Domain-neutral: nothing here
+// knows queryKey/onSuccess; the consumer picks properties by name. A literal value is `certain`
+// (read verbatim); a bare identifier / member access / interpolated template / spread / call is
+// `dynamic` (the value is not statically determinable — never guessed, §3.3).
+
+/** A classified argument/property/element value. A discriminated union over its syntactic shape;
+ *  `array`/`object` recurse (bounded depth — deeper nodes collapse to `other`). */
+export type ValueShape =
+  | { kind: 'string'; value: string; span: Span; confidence: 'certain' }
+  | { kind: 'number'; value: string; span: Span; confidence: 'certain' }
+  | { kind: 'boolean'; value: string; span: Span; confidence: 'certain' }
+  | { kind: 'null'; span: Span; confidence: 'certain' }
+  | { kind: 'array'; elements: ValueShape[]; span: Span; confidence: Confidence }
+  | { kind: 'object'; props: ValueProp[]; span: Span; confidence: Confidence }
+  | { kind: 'function'; span: Span; confidence: 'certain' }
+  | { kind: 'identifier'; span: Span; confidence: 'dynamic' }
+  | { kind: 'property-access'; span: Span; confidence: 'dynamic' }
+  | { kind: 'template'; span: Span; confidence: 'dynamic' }
+  | { kind: 'spread'; span: Span; confidence: 'dynamic' }
+  | { kind: 'call'; span: Span; confidence: 'dynamic' }
+  | { kind: 'other'; span: Span; confidence: 'dynamic' };
+
+/** One property of an object-literal argument. `key` is the static property name; a computed /
+ *  spread property surfaces with a synthetic key (`[computed]` / `...`) so it is never silently
+ *  dropped (§3.4). */
+export type ValueProp = { key: string; value: ValueShape };
+
+/** The enclosing named declaration a call rolls up to (chainable id, §6) — the association anchor
+ *  (e.g. a `useMutation` and its `invalidateQueries` share one enclosing `const`). */
+export type ShapedEncloser = { id: string; name: string; kind: string; span: Span };
+
+export type ShapedCall = {
+  /** The configured name this call matched (canonical, not the written callee). */
+  fn: string;
+  provenance: LiteralCallProvenance;
+  /** Stable per-site key (`rel:offset`) — the join key for `enclosingCallId`. */
+  callId: string;
+  /** Span over the callee expression — proof of WHERE the call is. */
+  callSpan: Span;
+  /** Classified arguments (consumers typically read `args[0]`). */
+  args: ValueShape[];
+  encloser: ShapedEncloser;
+  /** `callId` of the nearest enclosing matched call (e.g. the `useMutation` whose `onSuccess`
+   *  lexically contains this `invalidateQueries`) — the precise disambiguator when one enclosing
+   *  declaration holds more than one matched call. Absent at the outermost match. */
+  enclosingCallId?: string;
+};
+
+export type CallArgShapesResult = {
+  calls: ShapedCall[];
+  mode: 'by-name' | 'identity';
+  moduleResolved: boolean;
+};
 
 /** Classify a call's first argument: a string-literal-LIKE key is static (read verbatim);
  *  anything else (interpolated template, identifier, computed) is `dynamic`, never guessed (§18).

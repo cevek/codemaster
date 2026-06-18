@@ -34,7 +34,7 @@ import {
   type TsTargetInput,
 } from './resolve-target.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
-import { createLiteralCallsMemo, createPlanningHelpers } from './plugin-helpers.ts';
+import { createScanMemos, createPlanningHelpers } from './plugin-helpers.ts';
 import type { TsPluginApi } from './api.ts';
 
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
@@ -80,7 +80,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 
   // Per-instance bookkeeping (the `literalCalls` memo + transaction planning-overlay helpers) lives
   // in plugin-helpers.ts to keep this file under the line cap. The memo MUST be cleared on dispose.
-  const literalMemo = createLiteralCallsMemo(warm);
+  const memos = createScanMemos(warm);
   const { runWithOverlay, planTree } = createPlanningHelpers(warm, root);
 
   return {
@@ -97,7 +97,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     dispose() {
       host?.dispose();
       host = undefined;
-      literalMemo.clear(); // back to cold — never let a slot survive into a re-warm (§3.1)
+      // Back to cold — never let a slot survive into a re-warm (§3.1).
+      memos.literalCalls.clear();
+      memos.callArgShapes.clear();
+      memos.functionDeclarations.clear();
       return Promise.resolve();
     },
     freshness(): FreshnessFingerprint {
@@ -180,7 +183,9 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     rewriteExtractedCss: (fileName, content, rewrites) =>
       rewriteExtractedCss(fileName, content, rewrites),
 
-    literalCalls: (spec) => literalMemo.call(spec),
+    literalCalls: (spec) => memos.literalCalls.call(spec),
+    callArgShapes: (spec) => memos.callArgShapes.call(spec),
+    functionDeclarations: () => memos.functionDeclarations.call(),
 
     importersOf: (module) => findImporters(warm(), module),
 

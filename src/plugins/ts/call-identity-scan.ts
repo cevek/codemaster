@@ -29,17 +29,13 @@
 
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
-import { extendShadow } from './scope-shadow.ts';
 import {
-  literalArgFields,
   splitNames,
   type CallMatchSpec,
-  type LiteralCall,
   type LiteralCallProvenance,
-  type LiteralCallsResult,
+  type MatchModel,
 } from './call-scan-shared.ts';
 import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
-import { programFileGroups } from './program/project-files.ts';
 
 /** A call's callee shape we can match: an identifier `t`, or a member access `base.leaf`. */
 type IdentBinding = { fn: string; provenance: LiteralCallProvenance };
@@ -52,10 +48,17 @@ type FileBindings = {
   bases: Map<string, Map<string, string>>;
 };
 
-export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): LiteralCallsResult {
-  const out: LiteralCall[] = [];
+/** Build the by-IDENTITY matching model (the walk lives in call-match-walk.ts). The configured
+ *  module is resolved ONCE to a canonical target FILE; per program, a per-file prep collects the
+ *  local bindings that resolve to it (imports / hook destructures) and exposes a matcher gated by
+ *  the scope-shadow set (backlog I-b). A file with no binding is skipped (the matcher's cost
+ *  short-circuit). `moduleResolved=false` (no program resolves the arg) makes the walk emit nothing
+ *  so the consumer demotes — a §3.6 lie otherwise ("every key unused" when truth is "no binding"). */
+export function buildByIdentityModel(host: TsProjectHost, spec: CallMatchSpec): MatchModel {
   const moduleArg = spec.module;
-  if (moduleArg === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
+  if (moduleArg === undefined) {
+    return { mode: 'identity', moduleResolved: false, perGroup: () => () => undefined };
+  }
 
   // Spec-invariant lookups (independent of program / options).
   const { simpleLeaves, dotted } = splitNames(spec.functions);
@@ -71,68 +74,48 @@ export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): Litera
   const simpleLeafMap = new Map<string, string>();
   for (const leaf of simpleLeaves) simpleLeafMap.set(leaf, leaf);
 
-  // Across ALL loaded programs (spec Task G): a `t('a.b')` whose `t` is imported from the module in
-  // a `test/**` file is a real key usage. The module ARG is resolved ONCE to a canonical target
-  // FILE — the arg may be a `paths` alias only ONE tsconfig declares, so resolve it under whichever
-  // program resolves it (primary preferred). We must NOT skip a sibling group just because that
-  // program can't resolve the arg: a `test/**` file imports the same target via a RELATIVE path
-  // that resolves there, and `collectBindings` matches it per-file against the shared target. (The
-  // earlier per-group gate dropped exactly that file → a live key read `certain` dead.) Each file
-  // is scanned once (primary preferred). `moduleResolved` = could ANY program resolve the arg.
-  const groups = programFileGroups(host);
+  // The module ARG resolves ONCE to a canonical target FILE — the arg may be a `paths` alias only
+  // ONE tsconfig declares, so resolve under whichever program resolves it (primary preferred). The
+  // resolution only needs each program's compilerOptions; the file groups are walked later. We must
+  // NOT later skip a sibling group just because that program can't resolve the arg: a `test/**` file
+  // imports the same target via a RELATIVE path that resolves there, and `collectBindings` matches
+  // it per-file against the shared target.
   let targetAbs: string | undefined;
-  for (const { program } of groups) {
+  for (const p of host.programs()) {
+    const program = p.getProgram();
+    if (program === undefined) continue;
     targetAbs = resolveModuleArg(host, moduleArg, program.getCompilerOptions());
     if (targetAbs !== undefined) break;
   }
-  // No program resolves the module → nothing can bind. Report it so the consumer demotes (a §3.6
-  // lie otherwise: "every key unused" when the truth is "we resolved no binding").
-  if (targetAbs === undefined) return { calls: out, mode: 'identity', moduleResolved: false };
-
-  for (const { program, files } of groups) {
-    const options = program.getCompilerOptions();
-    const ctx: SpecCtx = {
-      targetAbs,
-      options,
-      simpleLeaves,
-      dottedBases,
-      dottedByBase,
-      simpleLeafMap,
-    };
-    const specCache = new Map<string, string | undefined>();
-
-    for (const sourceFile of files) {
-      if (sourceFile.isDeclarationFile) continue;
-      const rel = host.relOf(sourceFile.fileName);
-
-      const bindings = collectBindings(sourceFile, spec, ctx, specCache);
-      if (bindings.idents.size === 0 && bindings.bases.size === 0) continue; // no binding here
-
-      // Scope-shadow gate (backlog I-b): a local that shadows a bound name (a param `t`, a catch
-      // var) is NOT the module function — counting its call would FABRICATE a usage. Thread the
-      // shadowed set down the subtree (the css-modules precedent); the pool is every bound local.
-      const pool = new Set<string>([...bindings.idents.keys(), ...bindings.bases.keys()]);
-      const visit = (node: ts.Node, shadowed: ReadonlySet<string>): void => {
-        const inner = extendShadow(node, pool, shadowed);
-        if (ts.isCallExpression(node)) {
-          const matched = matchCall(node.expression, bindings, inner);
-          if (matched !== undefined) {
-            const arg0 = node.arguments[0];
-            if (arg0 !== undefined) {
-              out.push({
-                fn: matched.fn,
-                ...literalArgFields(sourceFile, rel, arg0),
-                provenance: matched.provenance,
-              });
-            }
-          }
-        }
-        ts.forEachChild(node, (child) => visit(child, inner));
-      };
-      visit(sourceFile, EMPTY_SHADOW);
-    }
+  if (targetAbs === undefined) {
+    return { mode: 'identity', moduleResolved: false, perGroup: () => () => undefined };
   }
-  return { calls: out, mode: 'identity', moduleResolved: true };
+  const resolvedTarget = targetAbs;
+
+  return {
+    mode: 'identity',
+    moduleResolved: true,
+    perGroup: (program) => {
+      const ctx: SpecCtx = {
+        targetAbs: resolvedTarget,
+        options: program.getCompilerOptions(),
+        simpleLeaves,
+        dottedBases,
+        dottedByBase,
+        simpleLeafMap,
+      };
+      const specCache = new Map<string, string | undefined>();
+      return (sourceFile) => {
+        const bindings = collectBindings(sourceFile, spec, ctx, specCache);
+        if (bindings.idents.size === 0 && bindings.bases.size === 0) return undefined;
+        // Scope-shadow gate (backlog I-b): a local that shadows a bound name (a param `t`, a catch
+        // var) is NOT the module function — counting its call would FABRICATE a usage. The pool is
+        // every bound local; the walk threads the shadowed set down the subtree.
+        const pool = new Set<string>([...bindings.idents.keys(), ...bindings.bases.keys()]);
+        return { pool, match: (callee, shadowed) => matchCall(callee, bindings, shadowed) };
+      };
+    },
+  };
 }
 
 type SpecCtx = {
@@ -271,9 +254,6 @@ function collectHookBindings(
   };
   visit(sourceFile);
 }
-
-/** No shadowing at file scope — the root walk starts here. */
-const EMPTY_SHADOW: ReadonlySet<string> = new Set<string>();
 
 /** Match a call's callee against the file's bindings: an identifier `t`; a member access
  *  `base.leaf`; or an element access `base['leaf']` (a string-literal index) — all on a base

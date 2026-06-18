@@ -431,6 +431,30 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       via `isGenericTarget`, so no honesty issue — cosmetic mislabel on a degenerate input.
       `bug`·`low`·`cx:S`
 
+### framework seams (`callArgShapes` / `functionDeclarations`, wave 5)
+
+- [ ] **W5-a — `new QueryClient()` receiver not bound** — `callArgShapes` matches a member call
+      (`qc.invalidateQueries()`) only when the receiver came from the configured `hook`
+      (`const qc = useQueryClient()`), via the existing `collectHookBindings` machinery. A
+      `const qc = new QueryClient()` receiver (setup/test code, rare in app code) is NOT bound → the
+      member call under-reports. Generic fix: an optional `CallMatchSpec.constructors?: string[]`
+      (module-anchored class names whose `new C()` result is a member base, like `hook`). Deferred —
+      react-query covers it with a method-name `partial` fallback in its own policy. `feat`·`low`·`cx:M`
+- [ ] **W5-b — anonymous default-export component not reported** — `functionDeclarations` reports only
+      NAMED declarations; `export default () => <x/>` / `export default function () {}` has no name
+      token (the chainable anchor), so it is omitted (under-reports, never fabricates). A consumer that
+      wants it needs a synthetic name (e.g. the module basename) — react policy, not a ts-language fact.
+      `bug`·`low`·`cx:M`
+- [ ] **W5-c — class components out of v1** — `functionDeclarations` covers function-like forms only;
+      a `class X extends Component { render() {…} }` is not surfaced as a component (its `render`
+      method IS reported as a `method` with `returnsJsx`, but the class itself is not). The react plugin
+      detects class components separately when needed. `feat`·`low`·`cx:M`
+- [ ] **W5-d — `isExported` misses a separate `export { X }` / `export default X` statement** —
+      `functionDeclarations.isExported` reads the `export` modifier on the declaration or its owning
+      `VariableStatement`; a declaration exported by a later `export { X }` / `export default X`
+      statement reads `isExported:false` (under-reports). Fix: fold the file's export-specifier set into
+      the scan. `bug`·`low`·`cx:M`
+
 ---
 
 ## Wishes (new capabilities — no task yet)

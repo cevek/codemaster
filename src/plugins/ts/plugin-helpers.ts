@@ -6,36 +6,69 @@ import type { RepoRelPath } from '../../core/brands.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { scanLiteralCalls } from './literal-calls.ts';
-import type { CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
+import { scanCallArgShapes } from './call-arg-shape.ts';
+import { scanFunctionDeclarations } from './function-declarations.ts';
+import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
+import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { PlanningOverlay } from './refactor/plan.ts';
 import { loadTreeFromGit, buildTree } from './refactor/tree/build.ts';
 import type { VFSTree } from './refactor/tree/tree.ts';
 
-export interface LiteralCallsMemo {
-  call(spec: CallMatchSpec): LiteralCallsResult;
-  /** Drop the slot — MUST be called on dispose: a re-warmed host restarts `projectVersion` at the
-   *  same value, so a surviving slot could otherwise collide and serve a pre-dispose scan (§3.1). */
+/** A single-slot, projectVersion-keyed memo over a whole-program scan. A batch running several
+ *  ops over the same scan calls it with the same key each time; the scan is a whole-program AST
+ *  walk, so re-running it per op is pure waste (F-a). The key always embeds `projectVersion()`
+ *  (what `freshness()` reports), so any reindex / overlay bumps it — the slot can never serve a
+ *  stale scan (§3.1). `clear()` MUST run on dispose: a re-warmed host restarts `projectVersion` at
+ *  the same value, so a surviving slot could otherwise collide and serve a pre-dispose scan. */
+interface ScanMemo<A, R> {
+  call(arg: A): R;
   clear(): void;
 }
 
-/** F-a memo: a batch running several i18n ops calls `literalCalls` with the SAME spec each time;
- *  the scan is a whole-program AST walk, so re-running it per op is pure waste. Single-slot cache
- *  keyed on `projectVersion()` (what `freshness()` reports) + the serialized spec — any reindex /
- *  overlay bumps the version and invalidates it, so the memo can never serve a stale scan (§3.1). */
-export function createLiteralCallsMemo(warm: () => TsProjectHost): LiteralCallsMemo {
-  let slot: { key: string; result: LiteralCallsResult } | undefined;
+function singleSlotMemo<A, R>(
+  warm: () => TsProjectHost,
+  keyOf: (h: TsProjectHost, arg: A) => string,
+  compute: (h: TsProjectHost, arg: A) => R,
+): ScanMemo<A, R> {
+  let slot: { key: string; result: R } | undefined;
   return {
-    call(spec) {
+    call(arg) {
       const h = warm();
-      const key = `${h.projectVersion()}|${spec.functions.join(',')}|${spec.module ?? ''}|${spec.hook ?? ''}`;
+      const key = keyOf(h, arg);
       if (slot?.key === key) return slot.result;
-      const result = scanLiteralCalls(h, spec);
+      const result = compute(h, arg);
       slot = { key, result };
       return result;
     },
     clear() {
       slot = undefined;
     },
+  };
+}
+
+/** projectVersion + serialized CallMatchSpec — shared by the literalCalls and callArgShapes memos
+ *  (same spec shape, same invalidation). */
+function specKey(h: TsProjectHost, spec: CallMatchSpec): string {
+  return `${h.projectVersion()}|${spec.functions.join(',')}|${spec.module ?? ''}|${spec.hook ?? ''}`;
+}
+
+/** The three whole-program scan memos a `ts` plugin instance owns, built in one call (keeps the
+ *  factory's wiring out of plugin.ts's line budget). Each MUST be `clear()`-ed on dispose. */
+export interface ScanMemos {
+  literalCalls: ScanMemo<CallMatchSpec, LiteralCallsResult>;
+  callArgShapes: ScanMemo<CallMatchSpec, CallArgShapesResult>;
+  functionDeclarations: ScanMemo<void, FunctionDeclarationsResult>;
+}
+
+export function createScanMemos(warm: () => TsProjectHost): ScanMemos {
+  return {
+    literalCalls: singleSlotMemo(warm, specKey, (h, spec) => scanLiteralCalls(h, spec)),
+    callArgShapes: singleSlotMemo(warm, specKey, (h, spec) => scanCallArgShapes(h, spec)),
+    functionDeclarations: singleSlotMemo(
+      warm,
+      (h) => `v${h.projectVersion()}`,
+      (h) => scanFunctionDeclarations(h),
+    ),
   };
 }
 
