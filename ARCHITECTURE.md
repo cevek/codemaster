@@ -119,10 +119,11 @@ This is the section that the rest of the design serves.
    adapter contributions come from their owning plugin's current scan. **A cached answer
    may exist inside a plugin only if it is rigorously invalidated against current file
    state**; serving an answer the plugin's own oracle would now contradict is the exact
-   lie this contract forbids. (The `ts` plugin's `literalCalls` memo is such a cache — a
-   _syntactic_ AST scan keyed on `projectVersion()`, which every reindex/overlay bumps, so it
-   is invalidated against current state by construction. A future opt-in plugin-internal
-   _semantic_ memo with sound invalidation is a deferred wishlist item; not Phase 0.)
+   lie this contract forbids. (The `ts` plugin's whole-program _syntactic_ scan memos —
+   `literalCalls`, `callArgShapes`, `functionDeclarations` — are such caches, each keyed on
+   `projectVersion()`, which every reindex/overlay bumps, so they are invalidated against current
+   state by construction. A future opt-in plugin-internal _semantic_ memo with sound invalidation
+   is a deferred wishlist item; not Phase 0.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
