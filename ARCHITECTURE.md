@@ -321,6 +321,12 @@ probing.
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
+  Discovery is adjacent-`tsconfig*.json` + transitive `references`; a nested-package config
+  reachable by neither is **not** loaded, so `find_unused_exports` carries an honest floor — when
+  any such **undiscovered** config exists (a one-time cached repo walk), every otherwise-`certain`
+  claim is demoted to `partial` and the config is **named**, never a silent false-`certain`-dead
+  (§3.4). (Precise per-export discovery, and the same floor for `find_usages`/`importers_of`, are
+  `docs/backlog.md` residuals.)
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`
   / `extract_symbol` repoint sibling-only importers via a disk read, and the §2.8 typecheck gate

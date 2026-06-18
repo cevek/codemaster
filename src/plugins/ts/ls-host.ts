@@ -17,7 +17,12 @@ import { toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
-import { discoverSiblingConfigs, type DiscoveredConfig } from './program/discover.ts';
+import {
+  discoverSiblingConfigs,
+  findRepoTsconfigs,
+  relLabel,
+  type DiscoveredConfig,
+} from './program/discover.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
 
@@ -90,6 +95,14 @@ export interface TsProjectHost {
   /** Labels of every program codemaster will load for this repo (primary first), via cheap
    *  discovery WITHOUT building the sibling LS objects — for status self-describe. */
   programLabels(): readonly string[];
+  /** Labels of repo tsconfigs codemaster does NOT load as programs — a nested-package config
+   *  neither adjacent to the primary nor reached via `references` (the discovery sources). Such a
+   *  program's files could reference an export every LOADED program reads as dead, so
+   *  `find_unused_exports` demotes its otherwise-`certain` verdicts to `partial` against this set
+   *  (never a silent false-dead, §3.4). Empty on the common repo (all tsconfigs adjacent/
+   *  referenced). Cached once — never per query (§19). Like `discover()`, a config ADDED post-warm
+   *  is not picked up (consistent with sibling discovery; reconnect to re-scan). */
+  undiscoveredProgramLabels(): readonly string[];
   dispose(): void;
 }
 
@@ -107,6 +120,23 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
   let discovered: DiscoveredConfig[] | undefined;
   const discover = (): DiscoveredConfig[] =>
     (discovered ??= discoverSiblingConfigs(root, configPath));
+
+  // Repo tsconfigs found on disk MINUS the loaded set (primary + the adjacent/`references`
+  // siblings `discover()` returns) — the UNDISCOVERED programs. Cached once (the repo walk is the
+  // §19-bounded part); both sides are `toPosix`-canonical so the primary/siblings exclude cleanly
+  // (a spelling mismatch would leave the primary in the set → universal false demotion).
+  let undiscovered: string[] | undefined;
+  const undiscoveredLabels = (): readonly string[] => {
+    if (undiscovered === undefined) {
+      const loaded = new Set<string>();
+      if (configPath !== undefined) loaded.add(toPosix(configPath));
+      for (const c of discover()) loaded.add(toPosix(c.path));
+      undiscovered = findRepoTsconfigs(root)
+        .filter((abs) => !loaded.has(abs))
+        .map((abs) => relLabel(root, abs));
+    }
+    return undiscovered;
+  };
 
   let siblings: SingleProgram[] | undefined;
   const built = (): readonly SingleProgram[] => {
@@ -191,6 +221,7 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       return undefined;
     },
     programLabels: () => [primary.label, ...discover().map((c) => c.label)],
+    undiscoveredProgramLabels: () => undiscoveredLabels(),
     dispose() {
       for (const program of builtSoFar()) program.dispose();
     },

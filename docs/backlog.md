@@ -146,10 +146,27 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       could make the two ownership predicates disagree → under-include (a missed dangle). Pre-existing
       (`absOf` predates this work); not a bug on the current platform. Fix: route `absOf` through
       `toPosix`. `bug`·`low`·`cx:S`
-- [ ] **Sibling-tsconfig discovery is adjacent-dir + `references` only** — a nested package
-      `tsconfig.json` neither beside the primary nor reachable via `references` isn't loaded, so a
-      cross-package-used export could still read `certain`-dead (the full monorepo project-reference
-      redirect graph the spec scoped OUT). `demote()` has no "used in an undiscovered program" net.
+- [ ] **Sibling-tsconfig discovery is adjacent-dir + `references` only — real nested discovery (the
+      STRETCH on the shipped floor)** — discovery loads the primary + adjacent `tsconfig*.json` +
+      transitive `references`; a nested-package `tsconfig.json` neither beside the primary nor
+      `references`d isn't loaded as a program. `find_unused_exports` NOW has its honest floor: when any
+      such undiscovered config exists (`host.undiscoveredProgramLabels()`, a one-time cached repo walk
+      over `walkFiles`' ignore set), every otherwise-`certain` claim is demoted to `partial` and the
+      config is NAMED (`demote()` in `unused-exports-classify.ts`) — never a silent false-`certain`-dead
+      (§3.4). The floor is BLUNT (any undiscovered config demotes ALL otherwise-certain claims; e.g. on
+      codemaster itself `test/fixtures/repos/kitchensink/tsconfig.json` demotes every dead `src` export
+      to partial — honest, but coarse). The stretch: load nested configs as real sibling programs (or an
+      import-graph proxy) so usages are SEEN and only genuinely-undiscovered-reachable exports demote —
+      precise, not blunt. Risk: slurping hermetic fixture/sub-project configs as siblings (cost + the
+      reason discovery is conservative today); needs a "shares the import graph" test the cheap blunt
+      floor avoids. NOT the full monorepo project-reference redirect graph (still scoped OUT). `imp`·`med`·`cx:L`
+- [ ] **`find_usages` / `importers_of` under-report a usage living only in an UNDISCOVERED program** —
+      the parallel gap to the `find_unused_exports` floor above: a `src` symbol referenced ONLY from a
+      nested-package program codemaster doesn't load reads as having that usage MISSING (a completeness
+      under-report, the safe direction — never a false dead, but an incomplete usage set). Unlike
+      dead-code, a usage list has no per-row "confidence" to demote, so the honest fix is a `partial` +
+      a note naming the undiscovered config(s) (reuse `host.undiscoveredProgramLabels()`) when any
+      exists. Same root cause as the discovery gap; fixed wholesale by the real-nested-discovery stretch.
       `bug`·`med`·`cx:M`
 - [ ] **Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op** —
       the per-program READ fan-outs (`getNavigateToItems`/`resolveModuleArg`/`findReferences`) aren't

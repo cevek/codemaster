@@ -43,6 +43,14 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
         'a computed import(expr) exists in the repo — it could load any module, so every claim here is demoted to partial.',
       );
     }
+    const u = (data as { undiscoveredPrograms?: string[] }).undiscoveredPrograms;
+    if (u !== undefined && u.length > 0) {
+      const named = u.slice(0, 3).join(', ');
+      const more = u.length > 3 ? `, +${u.length - 3} more` : '';
+      out.push(
+        `repo has ${u.length} tsconfig(s) NOT loaded as a program (${named}${more}) — a nested-package config neither adjacent to the main config nor \`references\`d. Every otherwise-certain claim here is demoted to partial (that program may use the export); load/reference it to recover certain verdicts.`,
+      );
+    }
     const t = (data as { truncated?: { examined: number; candidates: number } }).truncated;
     if (t !== undefined) {
       out.push(
@@ -72,6 +80,7 @@ export const findUnusedExportsOp = defineOp({
     'an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.',
     'an export used only WITHIN its own module (never imported) is NOT reported — it has a usage; this finds dead exports, not redundant `export` keywords.',
     "usage is observed across ALL the repo's loaded TS programs — the main tsconfig AND its siblings (`tsconfig.test.json`, Vite's app/node split, build configs discovered via `tsconfig.*.json` + `references`). An export used only from a `test/**` file is SEEN as used (not falsely reported); a genuinely-dead export reads `certain` again. Matches find_usages, which also fans out across programs.",
+    'honest floor for the UNDISCOVERED case: a nested-package tsconfig that is neither adjacent to the main config nor `references`d is NOT loaded as a program, so an export used only from it cannot be proven dead. When any such config exists, every otherwise-`certain` claim is demoted to `partial` and the config is NAMED in the result note — never a silent false-`certain`-dead (§3.4).',
     'bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.',
   ],
   table: findUnusedExportsTable,
@@ -96,6 +105,9 @@ export const findUnusedExportsOp = defineOp({
           unused: view.unused,
           scanned: { exports: view.scannedExports, files: view.scannedFiles },
           ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
+          ...(view.undiscoveredPrograms !== undefined
+            ? { undiscoveredPrograms: view.undiscoveredPrograms }
+            : {}),
           ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
         },
         truncated !== undefined ? { truncated } : undefined,

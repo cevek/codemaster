@@ -21,6 +21,7 @@ export function classifyExport(
   program: ts.Program,
   c: Candidate,
   edges: ModuleEdges,
+  undiscovered: readonly string[],
 ): UnusedExportView | undefined {
   // Primary first — the cheap common case (most exports are used in-program). Only a candidate
   // DEAD in the primary pays the sibling-program searches (spec Task G cost short-circuit: one
@@ -40,7 +41,7 @@ export function classifyExport(
     if (verdict.barrelReexport) barrelReexport = true;
   }
 
-  const demotion = demote(c.abs, barrelReexport, edges);
+  const demotion = demote(c.abs, barrelReexport, edges, undiscovered);
   const span = spanFromRange(c.sourceFile, c.rel, c.namePos, c.nameEnd);
   return {
     name: c.name,
@@ -99,6 +100,7 @@ function demote(
   abs: string,
   barrelReexport: boolean,
   edges: ModuleEdges,
+  undiscovered: readonly string[],
 ): { confidence: Confidence; note?: string } {
   if (barrelReexport) {
     return {
@@ -122,6 +124,17 @@ function demote(
     return {
       confidence: 'partial',
       note: 'a computed import(expr) exists in the repo — it could load any module; could not prove dead',
+    };
+  }
+  // Repo has a tsconfig codemaster did NOT load as a program (a nested package, neither adjacent to
+  // the primary nor `references`d) — its files could reference this export and are not searched, so
+  // a `certain`-dead here would be a false dead (§3.4). Name the config(s) — proof of WHY partial.
+  if (undiscovered.length > 0) {
+    const named = undiscovered.slice(0, 3).join(', ');
+    const more = undiscovered.length > 3 ? `, +${undiscovered.length - 3} more` : '';
+    return {
+      confidence: 'partial',
+      note: `repo has TS program(s) codemaster did not load (${named}${more}) — a nested-package tsconfig may reference this export; could not prove dead`,
     };
   }
   return { confidence: 'certain' };

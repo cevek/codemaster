@@ -14,6 +14,7 @@ import { readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
+import { walkFiles } from '../../../support/fs/walk.ts';
 
 export interface DiscoveredConfig {
   /** Absolute path to the sibling tsconfig. */
@@ -90,7 +91,29 @@ function referencePaths(configPath: string): string[] {
   return out;
 }
 
-function relLabel(root: string, abs: string): string {
+export function relLabel(root: string, abs: string): string {
   const rel = path.relative(root, abs);
   return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
+}
+
+/** Every `tsconfig.json` / `tsconfig.*.json` anywhere in the repo, absolute posix. Drives the
+ *  honest demotion in `find_unused_exports`: the set MINUS the loaded configs (primary + the
+ *  adjacent/`references` siblings above) is the UNDISCOVERED programs — a nested-package tsconfig
+ *  codemaster does not build, whose files could reference an export the loaded programs all read
+ *  as dead (a false `certain`-dead). Reuses `walkFiles`' ignore set (node_modules / dist / build /
+ *  .next / tool + agent state dirs, §10) — conservative by construction: it skips ONLY non-source
+ *  dirs, never a user package, so a real cross-referencing package is never missed (which would
+ *  re-introduce the very lie). One-time scan; the host caches it (never per query, §19). A partial
+ *  walk (unreadable subtree) returns what it found — fewer configs only ever UNDER-demotes. */
+export function findRepoTsconfigs(root: string): string[] {
+  const rootPosix = toPosix(root);
+  const walked = walkFiles(rootPosix);
+  const out: string[] = [];
+  for (const f of walked.data ?? []) {
+    const base = f.path.slice(f.path.lastIndexOf('/') + 1);
+    if (base === 'tsconfig.json' || /^tsconfig\..+\.json$/.test(base)) {
+      out.push(`${rootPosix}/${f.path}`);
+    }
+  }
+  return out;
 }

@@ -43,6 +43,12 @@ export type UnusedExportsView = {
   /** Set when a computed `import(expr)` exists anywhere — it could load any module, so every
    *  otherwise-`certain` claim is demoted (the i18n-degraded precedent). */
   computedDynamicImport: boolean;
+  /** Repo tsconfigs codemaster did NOT load as programs (a nested-package config, neither adjacent
+   *  to the primary nor `references`d). Present (non-empty) when any exists — every otherwise-
+   *  `certain` claim is then demoted to `partial`, since such a program could use the export and is
+   *  not searched. The §3.4 floor against a false `certain`-dead; surfaced so the renderer can name
+   *  the configs the agent should check. */
+  undiscoveredPrograms?: string[];
   /** Present when the candidate cap was hit: `examined` of `candidates` total. */
   truncated?: { examined: number; candidates: number };
 };
@@ -117,9 +123,14 @@ export function findUnusedExports(
   const cap = filter?.limit ?? DEFAULT_UNUSED_EXPORTS_CAP;
   const examined = candidates.slice(0, cap);
 
+  // The §3.4 floor: any repo tsconfig codemaster did NOT load as a program could reference an
+  // export every loaded program reads as dead. Computed once (host-cached) and applied per dead
+  // verdict — it only demotes a DEAD claim's confidence; a USED export is never in `unused` at all.
+  const undiscovered = host.undiscoveredProgramLabels();
+
   const unused: UnusedExportView[] = [];
   for (const c of examined) {
-    const verdict = classifyExport(host, program, c, edges);
+    const verdict = classifyExport(host, program, c, edges, undiscovered);
     if (verdict !== undefined) unused.push(verdict);
   }
 
@@ -128,6 +139,7 @@ export function findUnusedExports(
     scannedExports: examined.length,
     scannedFiles,
     computedDynamicImport: edges.computedDynamicImport,
+    ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
     ...(candidates.length > examined.length
       ? { truncated: { examined: examined.length, candidates: candidates.length } }
       : {}),
