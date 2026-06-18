@@ -14,7 +14,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 import { applyCssCoExtract, type CssCoExtractReport } from './extract-css-coextract.ts';
 
@@ -58,11 +58,9 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
     const scssActive = ctx.daemon?.plugins.some((p) => p.id === 'scss') ?? false;
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planExtract(
-        { symbol: args.symbol, file: args.file, line: args.line, col: args.col, name: args.name },
-        args.dest as RepoRelPath,
-        { css: wantsCss && scssActive },
-      );
+      plan = await ts.planExtract(targetOf(args), args.dest as RepoRelPath, {
+        css: wantsCss && scssActive,
+      });
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

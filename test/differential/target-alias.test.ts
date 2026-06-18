@@ -89,3 +89,44 @@ test('the alias is honored across symbol-addressed ops (not just find_usages) an
     await p.dispose();
   }
 });
+
+// H1 regression (BugReviewer-2, §3.6-self-contradiction): the MUTATING ops built a manual target
+// literal WITHOUT args.target, so the schema accepted `target` but resolveTarget saw all-undefined
+// and failed "target needs symbol, file+line+col, or name". They now route through `targetOf`. A
+// dry-run must RESOLVE the target identically to the `symbol` spelling, never the self-contradiction.
+test('mutating ops resolve `target` identically to `symbol` (H1: no manual-literal bypass)', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const id = definitionId(await p.op('find_usages', { name: 'Button', collapseImports: false }));
+
+    // rename_symbol (run + the referenceSpans path) — dry-run, both spellings.
+    const bySymbol = await p.op('rename_symbol', { symbol: id, newName: 'Renamed' });
+    const byTarget = await p.op('rename_symbol', { target: id, newName: 'Renamed' });
+    assert.ok('result' in bySymbol && bySymbol.result.ok, JSON.stringify(bySymbol));
+    assert.ok(
+      'result' in byTarget && byTarget.result.ok,
+      `rename_symbol {target} must resolve, not self-contradict: ${JSON.stringify(byTarget)}`,
+    );
+    // Same plan from either spelling — the alias is purely an addressing synonym.
+    assert.deepEqual(
+      (byTarget.result.data as { touched?: unknown }).touched,
+      (bySymbol.result.data as { touched?: unknown }).touched,
+      'target and symbol produce the same rename plan',
+    );
+
+    // A second mutating op proves the fix is not rename-specific.
+    const csTarget = await p.op('change_signature', { target: id, removeParam: 0 });
+    assert.ok(
+      'result' in csTarget,
+      `change_signature {target} must dispatch + resolve, never bad_args / self-contradiction: ${JSON.stringify(csTarget)}`,
+    );
+    // Whatever the plan verdict, it must NOT be the "target needs …" resolution failure.
+    assert.doesNotMatch(
+      JSON.stringify(csTarget),
+      /target needs symbol, file\+line\+col, or name/,
+      'change_signature resolved the target (no manual-literal bypass)',
+    );
+  } finally {
+    await p.dispose();
+  }
+});

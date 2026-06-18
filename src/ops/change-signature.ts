@@ -9,7 +9,7 @@ import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 
 const changeArgsSchema = z
@@ -44,13 +44,10 @@ export const changeSignatureOp = defineOp<ChangeArgs, JsonValue>({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planChangeSignature(
-        { symbol: args.symbol, file: args.file, line: args.line, col: args.col, name: args.name },
-        {
-          ...(args.removeParam !== undefined ? { removeParam: args.removeParam } : {}),
-          ...(args.reorder !== undefined ? { reorder: args.reorder } : {}),
-        },
-      );
+      plan = await ts.planChangeSignature(targetOf(args), {
+        ...(args.removeParam !== undefined ? { removeParam: args.removeParam } : {}),
+        ...(args.reorder !== undefined ? { reorder: args.reorder } : {}),
+      });
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

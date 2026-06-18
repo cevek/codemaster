@@ -14,7 +14,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 
 const moveSymbolArgsSchema = z
@@ -49,10 +49,7 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planMoveSymbol(
-        { symbol: args.symbol, file: args.file, line: args.line, col: args.col, name: args.name },
-        args.dest as RepoRelPath,
-      );
+      plan = await ts.planMoveSymbol(targetOf(args), args.dest as RepoRelPath);
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

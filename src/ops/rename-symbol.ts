@@ -10,7 +10,7 @@ import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import { findReExportAliasSites, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
 import { applyMutation } from './refactor-apply.ts';
 import { buildOldNameSurvives, touchedSet } from './rename-survivors.ts';
 
@@ -45,10 +45,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     let outcome: ReturnType<TsPluginApi['renameSites']>;
     try {
-      outcome = ts.renameSites(
-        { symbol: args.symbol, file: args.file, line: args.line, col: args.col, name: args.name },
-        args.newName,
-      );
+      outcome = ts.renameSites(targetOf(args), args.newName);
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }
@@ -70,13 +67,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
     // could not be resolved for references) degrades the same way.
     let refs: ReturnType<TsPluginApi['referenceSpans']>;
     try {
-      refs = ts.referenceSpans({
-        symbol: args.symbol,
-        file: args.file,
-        line: args.line,
-        col: args.col,
-        name: args.name,
-      });
+      refs = ts.referenceSpans(targetOf(args));
     } catch {
       refs = 'reference resolution failed';
     }

@@ -228,6 +228,14 @@ export const findUsagesOp = defineOp({
       let shown = rowsShown(view);
       let total = rowsTotal(view);
       const notes = usageNotes(view, args.role, verbosity);
+      // R1 — honest disclosure (§3.6): mergeDeclarations was requested but the target addresses ONE
+      // declaration (a SymbolId/position), so it could not apply. Say so instead of silently dropping
+      // the flag. (When it DID apply, `view.mergedDeclarations` is present and this never fires.)
+      if (args.mergeDeclarations === true && view.mergedDeclarations === undefined) {
+        notes.push(
+          'mergeDeclarations ignored — a symbol/position target addresses ONE declaration; pass a `name` to union all same-named declarations',
+        );
+      }
       const data: Record<string, JsonValue> = {
         ...(view.definition !== undefined ? { definition: view.definition } : {}),
         ...(view.mergedDeclarations !== undefined

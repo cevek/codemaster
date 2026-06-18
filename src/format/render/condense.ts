@@ -38,6 +38,10 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   // Optional provenance decorations carried ONLY on usage rows (Task G program · merge decls).
   // They append to the rendered line and are stripped from the key set so the base UsageView /
   // GroupRow branches still match — a single-program non-merge row carries neither and is unchanged.
+  // FRAGILE COUPLING (R2): the strip is keyed on field NAMES, applied before EVERY branch below — so
+  // a future non-usage shape with a literal `program`/`programs`/`decls` data field would silently
+  // lose it from its key set here and mis-collapse. These names are reserved for usage decorations;
+  // a new shape needing one of them must namespace it (the deco only fires when `usageDeco` matched).
   const deco = usageDeco(v);
   const coreKeys =
     deco === ''

@@ -160,3 +160,27 @@ test('mergeDeclarations on RELATED decls (interface + impl): a shared site is at
     await p.dispose();
   }
 });
+
+test('R1: mergeDeclarations on a symbol/position target is disclosed as ignored, never silently dropped', async () => {
+  const p: TestProject = await project(RELATED_FILES);
+  try {
+    // A position target addresses ONE declaration — merge cannot apply. The flag must be disclosed
+    // as ignored (§3.6 honest disclosure), not silently swallowed.
+    const r = await p.op('find_usages', {
+      file: 'src/iface.ts',
+      line: 1,
+      col: 22, // the `run` member token
+      mergeDeclarations: true,
+    });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const notes = (r.result.data as { notes?: string[] }).notes ?? [];
+    assert.ok(
+      notes.some((n) => /mergeDeclarations ignored/.test(n)),
+      `the ignored flag is disclosed: ${JSON.stringify(notes)}`,
+    );
+    // And no merge artifact leaked: a single-declaration answer carries no mergedDeclarations.
+    assert.equal((r.result.data as { mergedDeclarations?: unknown }).mergedDeclarations, undefined);
+  } finally {
+    await p.dispose();
+  }
+});
