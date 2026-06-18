@@ -35,6 +35,17 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
  *  yields a richer line (+ the decl header for a SymbolView). Unknown shapes pass through. */
 function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   const keys = Object.keys(v).sort().join(',');
+  // Optional provenance decorations carried ONLY on usage rows (Task G program · merge decls).
+  // They append to the rendered line and are stripped from the key set so the base UsageView /
+  // GroupRow branches still match — a single-program non-merge row carries neither and is unchanged.
+  const deco = usageDeco(v);
+  const coreKeys =
+    deco === ''
+      ? keys
+      : Object.keys(v)
+          .filter((k) => k !== 'program' && k !== 'programs' && k !== 'decls')
+          .sort()
+          .join(',');
   // SymbolView: { id, name, kind, span(condensed), decl?(condensed), container? }. The id already
   // carries name + file:line:col, and `span` is the name-token (text === name) — both redundant,
   // dropped. `decl` condenses to a bare `loc` at terse (→ no header) and `loc · <first line>` at
@@ -51,10 +62,10 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
     const header = sep >= 0 ? `\n  ${declStr.slice(sep + 3)}` : '';
     return `${String(v['id'])} · ${String(v['kind'])}${container}${header}`;
   }
-  // UsageView: { span(condensed), role, confidence }
-  if (keys === 'confidence,role,span') {
+  // UsageView: { span(condensed), role, confidence } (+ optional program/decls decorations).
+  if (coreKeys === 'confidence,role,span') {
     const confidence = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
-    return `${String(v['span'])} · ${String(v['role'])}${confidence}`;
+    return `${String(v['span'])} · ${String(v['role'])}${confidence}${deco}`;
   }
   // Text-only hit (§ text-overlay): { span(condensed), confidence:'unresolved' } — no role,
   // because role is an AST concept the text scanner can't claim.
@@ -68,15 +79,15 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   // output and absent in `impact`'s closure listing (stripped via `omitGroupSite`) — a
   // separate key set, so both render terse instead of dropping to verbose key=value blocks.
   if (
-    keys === 'col,confidence,count,exported,file,id,kind,line,name,roles' ||
-    keys === 'col,confidence,count,exported,file,id,kind,line,name,roles,site'
+    coreKeys === 'col,confidence,count,exported,file,id,kind,line,name,roles' ||
+    coreKeys === 'col,confidence,count,exported,file,id,kind,line,name,roles,site'
   ) {
     const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
     const exp = v['exported'] === true ? ' · exported' : '';
     // The encloser's `id` anchors at its NAME token; `site` is WHERE a reference actually is
     // (a distinct location) — surfaced so the group is proof-carrying at the reference level.
     const ref = v['site'] !== undefined ? ` · ref ${String(v['site'])}` : '';
-    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${conf}${ref}`;
+    return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${conf}${ref}${deco}`;
   }
   // ImporterRow: { at, imports }
   if (keys === 'at,imports') {
@@ -209,6 +220,21 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
 
 function asArray(value: JsonValue | undefined): readonly JsonValue[] {
   return value !== undefined && isJsonArray(value) ? value : [];
+}
+
+/** Optional per-usage provenance decorations (Task G program · merge decls) appended to a usage
+ *  line. `program`/`programs` carry the surfacing tsconfig; `decls` (number[] flat | string group)
+ *  the merged-declaration indices. Empty when none present — the common single-program non-merge row. */
+function usageDeco(v: Record<string, JsonValue>): string {
+  let s = '';
+  const program = v['program'];
+  if (typeof program === 'string') s += ` · prog ${program}`;
+  const programs = v['programs'];
+  if (typeof programs === 'string') s += ` · prog ${programs}`;
+  const decls = v['decls'];
+  if (decls !== undefined && isJsonArray(decls)) s += ` · decls[${decls.map(String).join(',')}]`;
+  else if (typeof decls === 'string' && decls.length > 0) s += ` · decls[${decls}]`;
+  return s;
 }
 
 /** `[spec] span · selector = value [!important]` — the shared line for a cascade decl ref. */

@@ -38,6 +38,16 @@ export type UsageView = {
   span: Span;
   role: UsageRole;
   confidence: Confidence;
+  /** The program that surfaced this ref (`tsconfig.json` / `tsconfig.test.json`), primary
+   *  preferred. Populated ONLY when more than one program is loaded (Task G) — so a single-program
+   *  repo's view shape is unchanged. HONEST ASYMMETRY: a sibling label means present ONLY there; the
+   *  primary label means present in primary, POSSIBLY elsewhere too (the dedup prefers primary and
+   *  this label cannot enumerate every containing program). */
+  program?: string;
+  /** `mergeDeclarations` mode: indices into `UsagesView.mergedDeclarations` of the declaration(s)
+   *  whose reference set surfaced this exact site — per-site provenance so two unrelated same-named
+   *  symbols are never presented as one undifferentiated set (§3.3). */
+  decls?: number[];
 };
 
 /** One enclosing-declaration rollup row. `id` is a chainable ts: SymbolId of the
@@ -56,6 +66,12 @@ export type GroupRow = {
   roles: string;
   exported: boolean;
   confidence: Confidence;
+  /** Multi-program (Task G): the comma-joined set of programs that surfaced the refs rolled up
+   *  here (a group can span programs). Populated ONLY when more than one program is loaded. */
+  programs?: string;
+  /** `mergeDeclarations` mode: the comma-joined set of `mergedDeclarations` indices whose refs
+   *  rolled up into this encloser (per-site provenance aggregated to the group, §3.3). */
+  decls?: string;
   /** A representative reference SITE inside this encloser — the span of the first
    *  reference rolled up here (`line`/`col` above are the encloser's NAME token, not
    *  where the reference is). Populated by the rollup.
@@ -64,9 +80,11 @@ export type GroupRow = {
    *  the condense renderer has a key set WITH `site`). `impact` STRIPS it (via
    *  `group-row.ts`'s `omitGroupSite`): it pins the precise `dynamic` value-flow boundary at
    *  `site` separately, and a per-row span across the whole closure listing is noise (§12).
-   *  The terse renderer matches a `GroupRow` by its EXACT sorted key set
+   *  The terse renderer matches a `GroupRow` by its sorted key set
    *  (`format/render/condense.ts`), so any new `GroupRow` emit path must either strip site
-   *  or add a matching condense branch — never leak an unrecognized key set. */
+   *  or add a matching condense branch — never leak an unrecognized key set. (The optional
+   *  `programs`/`decls` decorations above are STRIPPED from the key set before matching and
+   *  appended to the rendered line, so they don't multiply the branch set.) */
   site?: Span;
 };
 
@@ -89,10 +107,18 @@ export type UsageOptions = {
    *  `role:'import'` question is naturally unaffected. Never a filter: an import-only file
    *  always stays, and `reexport` refs (barrel surface) are never dropped. */
   collapseImports?: boolean | undefined;
+  /** Union usages across ALL same-named declarations (the interface-decl + host-decl + impl
+   *  triplet pattern), instead of failing on the ambiguity. Per-site provenance is preserved
+   *  (`UsageView.decls`), so unrelated same-named symbols are never silently conflated (§3.3).
+   *  Only meaningful for a `name` target — a SymbolId / position addresses one declaration. */
+  mergeDeclarations?: boolean | undefined;
 };
 
 export type UsagesView = {
   definition?: SymbolView;
+  /** `mergeDeclarations` mode: the declarations whose usages were unioned, in `decls`-index
+   *  order — the legend each `UsageView.decls` entry points into. */
+  mergedDeclarations?: SymbolView[];
   /** Flat mode. */
   usages?: UsageView[];
   /** Grouped mode (`groupBy: 'enclosing'`), sorted by count desc. */

@@ -18,6 +18,8 @@ export type ResolvedTarget =
 export type TsTargetInput = {
   /** A `ts:`-prefixed SymbolId from a previous answer. */
   symbol?: string | undefined;
+  /** Alias for `symbol` — agents naturally address by `target`; collapsed to `symbol` here. */
+  target?: string | undefined;
   /** Or an explicit position. */
   file?: string | undefined;
   line?: number | undefined;
@@ -30,7 +32,10 @@ export type TsTargetInput = {
  *  SymbolId's file moved). Pure over the host — the shared entry every symbol-addressed read
  *  method funnels through, so SymbolId / file:line:col / name dispatch lives in one place. */
 export function resolveTarget(h: TsProjectHost, target: TsTargetInput): ResolvedTarget {
-  if (target.symbol !== undefined) return resolveSymbolId(h, target.symbol);
+  // `target` is the SymbolId alias of `symbol` — the single collapse point, so every
+  // symbol-addressed op (direct-args find_usages and the targetOf path alike) accepts either.
+  const symbol = target.symbol ?? target.target;
+  if (symbol !== undefined) return resolveSymbolId(h, symbol);
   if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
     const abs = h.absOf(target.file as RepoRelPath);
     // Across ALL loaded programs (spec Task G): a `test/**` file lives only in a sibling program,
@@ -81,6 +86,36 @@ function resolveByName(h: TsProjectHost, name: string): ResolvedTarget {
     sourceFile === undefined ? undefined : offsetOfLoc(sourceFile, sole.span.line, sole.span.col);
   if (offset === undefined) return { ok: false, message: `cannot locate '${name}'` };
   return { ok: true, abs, offset };
+}
+
+/** One resolved declaration in `mergeDeclarations` mode: a concrete `{abs, offset}` plus the
+ *  `SymbolView` that identifies it (the merge legend the per-site `decls` indices point into). */
+export type ResolvedDeclaration = { abs: string; offset: number; view: SymbolView };
+
+/** Resolve a name to ALL its distinct declarations (the interface-decl + host-decl + impl triplet
+ *  pattern), deduped by definition — the multi-declaration analogue of `resolveByName`, which
+ *  fails on that ambiguity. Each entry carries the SymbolView (id/name/kind/span) so the caller can
+ *  list what it merged (`UsagesView.mergedDeclarations`). Returns a message when nothing matches or
+ *  a declaration can't be located. */
+export function resolveAllByName(h: TsProjectHost, name: string): ResolvedDeclaration[] | string {
+  // The navto cap is comfortably above any realistic count of DISTINCT declarations of one exact
+  // name (the interface + host + impl pattern is 3; a same-named-everywhere method a handful) — far
+  // more than 50 would be a degenerate name, not a merge an agent reasons over. Same silent-bound
+  // class as `resolveByName`'s navto cap; raising it never un-truncates a smaller real answer.
+  const matches = searchSymbols(h, name, 50).matches.filter((m) => m.name === name);
+  if (matches.length === 0) return `no symbol named '${name}'`;
+  const distinct = matches.length === 1 ? matches : dedupeByDefinition(h, matches);
+  const out: ResolvedDeclaration[] = [];
+  for (const m of distinct) {
+    const abs = h.absOf(m.span.file);
+    const sourceFile = h.sourceFileAcross(abs)?.sf;
+    const offset =
+      sourceFile === undefined ? undefined : offsetOfLoc(sourceFile, m.span.line, m.span.col);
+    if (offset === undefined) continue; // a declaration we can't locate is dropped, never guessed
+    out.push({ abs, offset, view: m });
+  }
+  if (out.length === 0) return `cannot locate any declaration of '${name}'`;
+  return out;
 }
 
 function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {

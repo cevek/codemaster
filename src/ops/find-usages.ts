@@ -79,6 +79,10 @@ const argsSchema = z
     /** Add textual occurrences (comments/strings/docs) of the name, deduped against the
      *  semantic refs, identity unproven (§ text-overlay). */
     text: z.boolean().optional(),
+    /** Union usages across ALL same-named declarations (the interface-decl + host-decl + impl
+     *  triplet), instead of failing on the ambiguity. Per-site provenance kept (`usages[].decls`
+     *  index into `mergedDeclarations`). Only for a `name` target. */
+    mergeDeclarations: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
     filter: z
       .strictObject({
@@ -102,7 +106,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
   example: {
     args: {
       symbols: ['DialogContent', 'SheetContent'],
@@ -120,6 +124,8 @@ export const findUsagesOp = defineOp({
     'symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.',
     "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
     "reference sites span ALL the repo's loaded TS programs — a usage in a `test/**` file under a sibling tsconfig (tsconfig.test.json), a build script, or Vite's app/node split is found and counted, not just main-program refs (deduped where programs overlap).",
+    'multi-program: each usage carries the `program` that surfaced it (sql column `program`). HONEST ASYMMETRY — a sibling label (tsconfig.test.json) means present ONLY there; the primary label means present in primary, POSSIBLY elsewhere too. Emitted only when >1 program is loaded.',
+    "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated).",
   ],
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
@@ -138,6 +144,7 @@ export const findUsagesOp = defineOp({
       role: args.role,
       collapseImports: sqlMode ? false : (args.collapseImports ?? true),
       groupBy: args.groupBy,
+      mergeDeclarations: args.mergeDeclarations,
       pathExclude: args.filter?.pathExclude,
       pathInclude: args.filter?.pathInclude,
       enclosingKind: args.filter?.kind,
@@ -171,6 +178,9 @@ export const findUsagesOp = defineOp({
           targets.push({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
+            ...(view.mergedDeclarations !== undefined
+              ? { mergedDeclarations: view.mergedDeclarations }
+              : {}),
             ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
             ...(view.usages !== undefined ? { usages: view.usages } : {}),
             total: view.total,
@@ -220,6 +230,9 @@ export const findUsagesOp = defineOp({
       const notes = usageNotes(view, args.role, verbosity);
       const data: Record<string, JsonValue> = {
         ...(view.definition !== undefined ? { definition: view.definition } : {}),
+        ...(view.mergedDeclarations !== undefined
+          ? { mergedDeclarations: view.mergedDeclarations }
+          : {}),
         ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
         ...(view.usages !== undefined ? { usages: view.usages } : {}),
         total: view.total,

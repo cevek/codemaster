@@ -159,6 +159,31 @@ export function coldFindReferences(
   return [...files].sort();
 }
 
+/** Line-level reference sites (`file:line`, sorted) a cold LS finds for the symbol whose
+ *  declaration is the first word-boundary occurrence of `symbolName` in `fileRel`. The independent
+ *  oracle for `mergeDeclarations`: union this over each same-named declaration's file and compare to
+ *  the merged op output — proves the merge is exactly the union of the per-declaration reference
+ *  sets, computed by a DIFFERENT (cold, whole-program) LS than the warm daemon's. */
+export function coldReferenceSites(
+  root: string,
+  fileRel: string,
+  symbolName: string,
+  configRel = 'tsconfig.json',
+): string[] {
+  const { service } = coldLanguageService(root, configRel);
+  const abs = path.join(root, fileRel);
+  const source = readFileSync(abs, 'utf8');
+  const at = new RegExp(`\\b${symbolName}\\b`).exec(source);
+  assert.ok(at !== null, `oracle could not find ${symbolName} in ${fileRel}`);
+  const refs = service.getReferencesAtPosition(abs, at.index) ?? [];
+  return refs.map((r) => {
+    const rel = path.relative(root, r.fileName).split(path.sep).join('/');
+    const sf = service.getProgram()?.getSourceFile(r.fileName);
+    const line = sf === undefined ? 0 : sf.getLineAndCharacterOfPosition(r.textSpan.start).line + 1;
+    return `${rel}:${line}`;
+  });
+}
+
 /** The declaration site (repo-relative file + 1-based line) the identifier at the `nth` (0-based)
  *  word-boundary occurrence of `needle` in `fileRel` resolves to, via a cold checker — the
  *  independent oracle for capture-safety (§ spec): proof that a (post-edit) reference binds to a

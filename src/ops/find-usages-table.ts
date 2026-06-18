@@ -43,6 +43,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       null, // ref_file — a flat row's file/line/col already IS the ref site
       null,
       null,
+      u.program ?? null, // surfacing program (multi-program only; NULL single-program)
+      u.decls !== undefined ? u.decls.join(',') : null, // merged-decl indices (merge mode only)
     ]);
   }
   for (const g of s.enclosers ?? []) {
@@ -65,6 +67,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       g.site?.file ?? null,
       g.site?.line ?? null,
       g.site?.col ?? null,
+      g.programs ?? null, // joined set of surfacing programs (multi-program only)
+      g.decls ?? null, // joined set of merged-decl indices (merge mode only)
     ]);
   }
   // Text-only rows: same text, identity unproven — no AST role/encloser to claim.
@@ -86,6 +90,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       null,
       null,
       null,
+      null, // program — a textual hit has no program provenance
+      null, // decls
     ]);
   }
   return rows;
@@ -138,6 +144,14 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     { name: 'ref_file', type: 'text' },
     { name: 'ref_line', type: 'int' },
     { name: 'ref_col', type: 'int' },
+    // The surfacing TS program (Task G). NULL when a single program is loaded. HONEST ASYMMETRY:
+    // a sibling label (`tsconfig.test.json`) means the ref is present ONLY there; the primary label
+    // means present in primary, POSSIBLY elsewhere too — the primary-preferred dedup keeps one label
+    // and cannot enumerate every containing program (full enumeration would need cross-program.ts).
+    { name: 'program', type: 'text' },
+    // mergeDeclarations mode: comma-joined indices into `mergedDeclarations` whose ref set surfaced
+    // this site — per-site provenance, so unrelated same-named symbols are never conflated. NULL otherwise.
+    { name: 'decls', type: 'text' },
   ],
   rows(data) {
     return sectionsOf(data).flatMap(sectionRows);

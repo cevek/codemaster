@@ -10,6 +10,7 @@ import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
 import { findDefinitions } from './definitions.ts';
 import { findUsages, referenceSpans } from './usages.ts';
+import { findUsagesMerged } from './usages-merge.ts';
 import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
 import type { UnresolvedTarget } from './query-types.ts';
@@ -26,7 +27,12 @@ import { rewriteExtractedCss } from './refactor/extract/css-usage.ts';
 import { planChangeSignature } from './refactor/change-signature/plan.ts';
 import { loadTreeFromGit } from './refactor/tree/build.ts';
 import { isOk } from '../../common/result/narrow.ts';
-import { resolveTarget, type ResolvedTarget, type TsTargetInput } from './resolve-target.ts';
+import {
+  resolveTarget,
+  resolveAllByName,
+  type ResolvedTarget,
+  type TsTargetInput,
+} from './resolve-target.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createLiteralCallsMemo, createPlanningHelpers } from './plugin-helpers.ts';
 import type { TsPluginApi } from './api.ts';
@@ -128,6 +134,18 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
 
     findUsages(target, options) {
+      // mergeDeclarations: union usages across ALL same-named declarations (only meaningful for a
+      // NAME target — a SymbolId/position already addresses one declaration). Per-site provenance is
+      // preserved (`UsageView.decls`), so unrelated same-named symbols are never conflated (§3.3).
+      const byName =
+        target.name !== undefined && target.symbol === undefined && target.target === undefined;
+      if (options.mergeDeclarations === true && byName && target.name !== undefined) {
+        const decls = resolveAllByName(warm(), target.name);
+        if (typeof decls === 'string') return decls;
+        const view = findUsagesMerged(warm(), decls, options);
+        if (view === undefined) return 'no references for any declaration of this name';
+        return { view };
+      }
       const resolved = resolve(target);
       if (!resolved.ok) return missOf(resolved);
       const view = findUsages(warm(), resolved.abs, resolved.offset, options);

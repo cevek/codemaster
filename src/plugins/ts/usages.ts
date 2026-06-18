@@ -5,25 +5,31 @@
 
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { Confidence, Span } from '../../core/span.ts';
+import type { Span } from '../../core/span.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { spanFromRange } from './spans.ts';
-import { mintSymbolId, moduleName } from './symbol-id.ts';
-import { mintEncloserId } from './encloser-id.ts';
-import { classifyRole, findEncloser, type UsageRole } from './usage-roles.ts';
-import type { SymbolView, GroupRow, UsageView, UsageOptions, UsagesView } from './query-types.ts';
+import { mintSymbolId } from './symbol-id.ts';
+import { classifyRole, type UsageRole } from './usage-roles.ts';
+import type { SymbolView, UsageView, UsageOptions, UsagesView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
+import { rollupGroups, type Ref } from './usages-rollup.ts';
 
-/** One in-scope reference site, collected in pass 1 before role filtering / collapse so
- *  the role distribution (§2.3) and the per-file collapse decision (§2.2) can both see
- *  the whole picture. */
-type Ref = {
+/** A reference site fed to `assembleView` — the cross-program ref shape plus, in
+ *  `mergeDeclarations` mode, the indices of the merged declarations whose reference set
+ *  surfaced this site (per-site provenance, §3.3 — never collapse unrelated symbols silently). */
+export type SourceRef = {
   rel: RepoRelPath;
   sourceFile: ts.SourceFile;
   start: number;
   length: number;
-  role: UsageRole;
+  isDefinition: boolean;
+  isWriteAccess: boolean;
+  /** The program that surfaced this ref (`tsconfig.json` / `tsconfig.test.json`), primary
+   *  preferred — surfaced as per-ref provenance when more than one program is loaded (Task G). */
+  program: string;
+  /** Merge mode only: which `mergedDeclarations` entries reference this exact site. */
+  declIndices?: number[];
 };
 
 export function findUsages(
@@ -36,9 +42,24 @@ export function findUsages(
   // under a sibling tsconfig counts, deduped against the src refs the primary already sees.
   const cross = findReferencesAcross(host, abs, offset);
   if (cross === undefined) return undefined;
-
-  const definition: SymbolView | undefined =
+  const definition =
     cross.definition !== undefined ? buildDefinition(host, cross.definition) : undefined;
+  return assembleView(host, cross.refs, options, definition !== undefined ? { definition } : {});
+}
+
+/** Build a `UsagesView` from a set of (already cross-program-deduped) reference sites — the shared
+ *  pipeline for both the single-symbol `findUsages` and the multi-declaration merge (usages-merge).
+ *  Pass-1 classification + path filter + import collapse + flat/grouped projection live here so the
+ *  two entries never drift. `meta` carries the definition (single) or merged declaration list. */
+export function assembleView(
+  host: TsProjectHost,
+  sourceRefs: readonly SourceRef[],
+  options: UsageOptions,
+  meta: { definition?: SymbolView; mergedDeclarations?: SymbolView[] },
+): UsagesView {
+  // Per-ref program provenance is only meaningful when several programs are loaded — a
+  // single-program repo (the common case) emits no `program`, so its view shape is unchanged.
+  const multiProgram = host.programs().length > 1;
   const refs: Ref[] = [];
   const breakdown = new Map<UsageRole, number>();
   let excluded = 0;
@@ -47,7 +68,7 @@ export function findUsages(
   // Pass 1: classify every in-scope ref. Path filter applies here; the role filter does
   // NOT yet (it is the question, not an exclusion) — so the role breakdown and the
   // collapse decision both see the full, role-unfiltered picture.
-  for (const ref of cross.refs) {
+  for (const ref of sourceRefs) {
     const { sourceFile, rel } = ref;
     const role = classifyRole(sourceFile, ref.start, {
       isDefinition: ref.isDefinition,
@@ -66,7 +87,15 @@ export function findUsages(
       excluded++; // a question-matching ref dropped by YOUR path filter (§3.4)
       continue;
     }
-    refs.push({ rel, sourceFile, start: ref.start, length: ref.length, role });
+    refs.push({
+      rel,
+      sourceFile,
+      start: ref.start,
+      length: ref.length,
+      role,
+      program: ref.program,
+      ...(ref.declIndices !== undefined ? { declIndices: ref.declIndices } : {}),
+    });
   }
 
   // Conditional import collapse (§2.2): an import is bookkeeping for the usages that
@@ -88,7 +117,10 @@ export function findUsages(
   const collapseField = importsCollapsed > 0 ? { importsCollapsed } : {};
   const breakdownField = roleActive ? { roleBreakdown: Object.fromEntries(breakdown) } : {};
   const base = {
-    ...(definition !== undefined ? { definition } : {}),
+    ...(meta.definition !== undefined ? { definition: meta.definition } : {}),
+    ...(meta.mergedDeclarations !== undefined
+      ? { mergedDeclarations: meta.mergedDeclarations }
+      : {}),
     total: refs.length, // counts everything matched — collapse is display-only (§2.2)
     excluded,
     ...collapseField,
@@ -96,7 +128,11 @@ export function findUsages(
   };
 
   if (options.groupBy === 'enclosing') {
-    const { groups, groupTotal, excluded: rollupExcluded } = rollupGroups(host, displayed, options);
+    const {
+      groups,
+      groupTotal,
+      excluded: rollupExcluded,
+    } = rollupGroups(host, displayed, options, multiProgram);
     // Combine path-filter exclusions (pass 1) with kind/exported rollup exclusions.
     return { ...base, groups, groupTotal, excluded: excluded + rollupExcluded };
   }
@@ -104,6 +140,8 @@ export function findUsages(
     span: spanFromRange(r.sourceFile, r.rel, r.start, r.start + r.length),
     role: r.role,
     confidence: 'certain',
+    ...(multiProgram ? { program: r.program } : {}),
+    ...(r.declIndices !== undefined ? { decls: r.declIndices } : {}),
   }));
   return { ...base, usages };
 }
@@ -169,128 +207,5 @@ function buildDefinition(
     kind: def.kind,
     span,
     callable: isCallableAt(program, defFile, def.textSpan.start),
-  };
-}
-
-/** Roll displayed refs up to their nearest enclosing named declaration. Collapse is
- *  already applied to `displayed`, so the synthetic `(top-level X)` module rows for
- *  collapsed import-only refs simply never form (§2.2). `groupTotal` is the distinct
- *  encloser count BEFORE the limit cap; refs failing the kind/exported filter go to
- *  `excluded` via the returned count. */
-function rollupGroups(
-  host: TsProjectHost,
-  displayed: readonly Ref[],
-  options: UsageOptions,
-): { groups: GroupRow[]; groupTotal: number; excluded: number } {
-  const rollup = new Map<
-    string,
-    {
-      id: string;
-      name: string;
-      file: RepoRelPath;
-      line: number;
-      col: number;
-      kind: string;
-      count: number;
-      roles: Set<string>;
-      exported: boolean;
-      /** Span of the FIRST reference rolled up here — a representative site inside the
-       *  encloser (impact points its value-flow boundary at it). */
-      site: Span;
-    }
-  >();
-  let excluded = 0;
-  for (const r of displayed) {
-    const row = rollupRow(host, r.sourceFile, r.rel, r.start, options);
-    if (row === undefined) {
-      excluded++;
-      continue;
-    }
-    const existing = rollup.get(row.key);
-    if (existing === undefined) {
-      rollup.set(row.key, {
-        id: row.id,
-        name: row.name,
-        file: r.rel,
-        line: row.line,
-        col: row.col,
-        kind: row.kind,
-        count: 1,
-        roles: new Set([r.role]),
-        exported: row.exported,
-        site: spanFromRange(r.sourceFile, r.rel, r.start, r.start + r.length),
-      });
-    } else {
-      existing.count++;
-      existing.roles.add(r.role);
-    }
-  }
-  const groups = [...rollup.values()]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, options.limit)
-    .map((g) => ({
-      id: g.id,
-      name: g.name,
-      file: g.file,
-      line: g.line,
-      col: g.col,
-      kind: g.kind,
-      count: g.count,
-      roles: [...g.roles].join(','),
-      exported: g.exported,
-      // LS structural references are certain; flat usages carry the same value.
-      confidence: 'certain' as Confidence,
-      site: g.site,
-    }));
-  return { groups, groupTotal: rollup.size, excluded };
-}
-
-function rollupRow(
-  host: TsProjectHost,
-  sourceFile: ts.SourceFile,
-  rel: RepoRelPath,
-  position: number,
-  options: UsageOptions,
-):
-  | {
-      key: string;
-      id: string;
-      name: string;
-      line: number;
-      col: number;
-      kind: string;
-      exported: boolean;
-    }
-  | undefined {
-  const enc = findEncloser(sourceFile, position);
-  const kind = enc?.kind ?? 'module';
-  if (options.enclosingKind !== undefined && kind !== options.enclosingKind) return undefined;
-  if (options.exportedOnly === true && enc !== undefined && !enc.exported) return undefined;
-  if (enc === undefined) {
-    const name = moduleName(rel);
-    // A module-level rollup is not an exported symbol — `exported: false` lets SQL drop
-    // the synthetic `(top-level X)` nodes without a name LIKE-heuristic.
-    return {
-      key: `${rel}#<module>`,
-      id: mintSymbolId(name, rel, 1, 1, host.rootTag),
-      name,
-      line: 1,
-      col: 1,
-      kind,
-      exported: false,
-    };
-  }
-  // Mint the handle on the BARE name token (`enc.idName`, anchored at `enc.start`) so a
-  // class-member encloser's id chains instead of resolving `gone` — the display `name`
-  // (`Class.method`) is never the id (§6 / `encloser-id.ts`).
-  const { id, line, col } = mintEncloserId(sourceFile, rel, enc.idName, enc.start, host.rootTag);
-  return {
-    key: `${rel}#${enc.name}#${enc.start}`,
-    id,
-    name: enc.name,
-    line,
-    col,
-    kind,
-    exported: enc.exported,
   };
 }
