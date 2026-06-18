@@ -96,6 +96,15 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
+- [ ] **`transport.connect()` has no explicit timeout** (`support/transport/unix-socket.ts` /
+      `connect-or-spawn.ts`) — it relies on a fast kernel resolve of a unix socket (a connect to a
+      live or absent socket settles immediately; carried from the daemon-singleton {2a+2b} review).
+      The management verbs and the bridge bound their REPLY/spawn-wait, not the connect itself, so a
+      pathological connect that neither resolves nor rejects would sit unbounded. Add a bounded
+      connect (deadline → reject) if it ever hangs in the field. `perf`·`low`·`cx:S`
+- [ ] **`daemon/manage.ts` is ~284 lines — near the 300 line-cap** (like `imports.ts`). No issue today,
+      but the next verb / wording change is the split signal: factor the wire helpers (`awaitReply` /
+      `awaitClose` / envelope builders / `fmtUptime`) into a sibling file. `dx`·`low`·`cx:S`
 - [ ] **`codemaster.config.ts` is not watched/reloaded — a config edit is silently stale until engine
       respawn** — `loadConfig(root)` runs ONCE at engine creation (`orchestrator.ts` / `bin.ts`), and
       `builtinPlugins(config, root)` bakes the plugin SET (i18n/schema config-gated; framework autodetect),

@@ -17,5 +17,11 @@ export function spawnDaemon(binPath: string, sockDir: string | undefined): void 
     stdio: 'ignore',
     env: { ...process.env, ...(sockDir !== undefined ? { CODEMASTER_SOCK_DIR: sockDir } : {}) },
   });
+  // Swallow a spawn failure (ENOMEM/EAGAIN/ENOENT) — an unhandled 'error' event would crash the
+  // PARENT (the bridge), defeating the §1/D1 design where a failed spawn must DEGRADE: no daemon
+  // binds → connectOrSpawn's bounded poll-connect exhausts → it returns undefined → the bridge
+  // falls back to in-process serving. The crash must become that honest fallback, never take the
+  // front door down (§1 never-crash).
+  child.on('error', () => undefined);
   child.unref();
 }
