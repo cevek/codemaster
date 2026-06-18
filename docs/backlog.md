@@ -210,6 +210,11 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       scan loop / target-description / encloser-view helpers into a sibling module (sibling to the
       already-extracted `construction-encloser.ts` / `construction-confidence.ts`). `dx`·`low`·`cx:S`
 
+- [ ] **`capture/imports.ts` at the 300-line cap** (297 after the E-g overlay-aware resolver) — the
+      next addition trips the cap → split-signal. Lift `postMoveResolutionHost` (the
+      `ModuleResolutionHost` builder + `emptiedByMove` walk, ~80 lines) into a sibling module; the
+      forward/reverse detectors + `mergedFileSet` stay. `dx`·`low`·`cx:S`
+
 - [ ] **codemod: full ast-grep RULE object** — [spec-codemod-ast-grep-rule.md](spec-codemod-ast-grep-rule.md).
       Accept relational constraints (`inside`/`has`/`follows`/`not`) alongside the string `pattern`;
       engine already supports it. Additive; the metavar guard must walk the whole rule tree.
@@ -270,12 +275,16 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ### transaction (Task E follow-ups)
 
-- [ ] **E-g — import-capture for a step ≥2 is not overlay-aware** — `capture/imports.ts` resolves a
-      rewritten specifier against pre-transaction disk, not prior steps' edits, so a same-named
-      type-compatible export reachable only via a prior step's move could slip the capture gate (the
-      whole-program typecheck backstops a dangle, but is BLIND to a type-compatible re-bind). Fix:
-      seed the resolver from the cumulative overlay/listing. The headline transaction trust-gap.
-      `bug`·`med`·`cx:M`
+- [ ] **E-g residual — in-transaction REVERSE import-capture is not overlay-aware** — the FORWARD
+      pass now seeds its resolver from the cumulative prior-step overlay (`PriorStepState` via
+      `mergedFileSet`), closing the headline trust-gap. The REVERSE pass (`detectReverseImportCaptures`)
+      stays symmetric on this-step content + pre-transaction disk (both its POST and PRE resolutions),
+      so a reverse shadow that only manifests through a PRIOR step's move is under-detected. Left
+      deliberately: E-g is forward-only, an overlay-aware reverse has no red→green yet, and the §7-safe
+      direction is a missed rare same-typed shadow over a fabricated refusal (§1; §2.8 backstops a
+      resulting dangle). Close with a positive reverse-shadow-via-prior-step repro, then make the
+      reverse POST overlay-aware (and decide PRE: prior-only host vs pre-tx disk) under that test.
+      `bug`·`low`·`cx:M`
 - [ ] **E-h — dry-run doesn't preview the capture/collision/dirty REFUSAL verdict** — the shared
       dry-run branch emits `captures` rows but not `applied:false`+`reason` (apply-only). Pre-existing
       across all mutating ops; a predictive `wouldApply:false`+reason would close it uniformly.

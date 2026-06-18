@@ -9,8 +9,12 @@ import type ts from 'typescript';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { computeCommitPlan } from '../tree/commit-plan.ts';
-import type { RefactorPlan } from '../plan.ts';
-import { detectImportCaptures, detectReverseImportCaptures } from '../capture/imports.ts';
+import type { RefactorPlan, PlanningOverlay } from '../plan.ts';
+import {
+  detectImportCaptures,
+  detectReverseImportCaptures,
+  type PriorStepState,
+} from '../capture/imports.ts';
 import { rewriteImports } from './rewrite.ts';
 
 const TS_RE = /\.(tsx?|mts|cts)$/;
@@ -29,6 +33,10 @@ export function assemblePlan(
   host: TsProjectHost,
   tree: VFSTree,
   options: ts.CompilerOptions,
+  // Cumulative prior-step state when this plan is one step ≥2 of a `transaction` — the
+  // import-capture re-resolution must see prior steps' moves/edits, not pre-transaction disk
+  // (the headline E-g trust-gap, spec-transactional-mutation §2.4). Absent for the standalone op.
+  overlay?: PlanningOverlay,
 ): RefactorPlan | string {
   const { rewrites } = rewriteImports(host, tree, options);
   const commit = computeCommitPlan(tree);
@@ -92,9 +100,17 @@ export function assemblePlan(
   // Import-path capture gate (§ capture-safety): confirm every rewritten specifier still resolves
   // to its intended target over the POST-MOVE file set — a same-named, type-compatible export the
   // §2.8 typecheck would wave through is caught here. Bounded to the rewritten specifiers, not a
-  // whole-repo scan.
-  const captures = detectImportCaptures(options, rewrites, overlayFiles, removed, (rel) =>
-    host.absOf(rel),
+  // whole-repo scan. `prior` seeds the resolver with the cumulative prior-step overlay so a step ≥2
+  // re-resolves against prior moves/edits, never pre-transaction disk (E-g).
+  const prior: PriorStepState | undefined =
+    overlay !== undefined ? { files: overlay.files, removed: overlay.removed } : undefined;
+  const captures = detectImportCaptures(
+    options,
+    rewrites,
+    overlayFiles,
+    removed,
+    (rel) => host.absOf(rel),
+    prior,
   );
 
   // Reverse capture (§ capture-safety): a pre-existing, non-rewritten import the move now SHADOWS
@@ -104,6 +120,8 @@ export function assemblePlan(
     ...commit.moves.map((m) => m.to),
     ...commit.newFiles.map((f) => f.path),
   ] as RepoRelPath[];
+  // Reverse capture is NOT prior-overlay-aware (the forward fix's E-g scope is forward-only); it
+  // resolves over this-step content + disk. The in-transaction reverse residual is in backlog.
   captures.push(
     ...detectReverseImportCaptures(host, options, rewrites, overlayFiles, removed, newArrivals),
   );

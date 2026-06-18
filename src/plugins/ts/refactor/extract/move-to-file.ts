@@ -16,7 +16,7 @@ import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import { messageOfThrown } from '../../../../common/result/construct.ts';
-import type { RefactorPlan, CssExtractAnalysis } from '../plan.ts';
+import type { RefactorPlan, CssExtractAnalysis, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { analyzeCssExtractUsage } from './css-usage.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
@@ -37,6 +37,9 @@ export function planExtractTo(
   offset: number,
   destArg: RepoRelPath,
   css = false,
+  // The cumulative prior-step overlay when this is a `transaction` step ≥2 — forwarded to the
+  // import-capture gate so it re-resolves against prior moves/edits, not pre-transaction disk (E-g).
+  overlay?: PlanningOverlay,
 ): RefactorPlan | string {
   const program = host.service.getProgram();
   const sf = program?.getSourceFile(sourceAbs);
@@ -123,7 +126,7 @@ export function planExtractTo(
     tree.rekeyByInitialPath(createdNode, dest);
   }
 
-  const plan = assemblePlan(host, tree, options);
+  const plan = assemblePlan(host, tree, options, overlay);
   if (typeof plan === 'string') return plan;
   if (rescued) plan.rescued = true;
   if (css) {

@@ -216,7 +216,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       const t = await planTree(overlay);
       if ('error' in t) return t.error;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      return runWithOverlay(overlay, () => planMove(h, t.tree, options, source, dest));
+      return runWithOverlay(overlay, () => planMove(h, t.tree, options, source, dest, overlay));
     },
 
     async planExtract(target, dest, opts, overlay) {
@@ -228,7 +228,16 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return runWithOverlay(overlay, () => {
         const resolved = resolve(target);
         if (!resolved.ok) return resolved.message;
-        const plan = planExtractTo(h, t.tree, options, resolved.abs, resolved.offset, dest, css);
+        const plan = planExtractTo(
+          h,
+          t.tree,
+          options,
+          resolved.abs,
+          resolved.offset,
+          dest,
+          css,
+          overlay,
+        );
         if (typeof plan !== 'string' && resolved.rebind !== undefined)
           plan.rebind = resolved.rebind;
         return plan;

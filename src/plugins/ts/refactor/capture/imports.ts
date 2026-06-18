@@ -21,6 +21,43 @@ import { toPosix } from '../../../../support/fs/canonicalize.ts';
 import { moduleSpecifierOf } from '../ast/specifier.ts';
 import type { Capture } from './types.ts';
 
+/** The cumulative state of PRIOR transaction steps (a `PlanningOverlay`'s `files`/`removed`,
+ *  spec-transactional-mutation §2.4): post-edit content at each file's CURRENT path plus the
+ *  origin paths those steps tombstoned. A step ≥2's rewritten specifier must re-resolve against
+ *  THIS world, not pre-transaction disk — else a same-named, type-compatible export a prior step's
+ *  move places onto the resolution path is a silent re-bind the §2.8 typecheck waves through
+ *  (the headline E-g trust-gap). `undefined` for the standalone op (no prior steps → resolve disk). */
+export interface PriorStepState {
+  files: readonly { path: RepoRelPath; content: string }[];
+  removed: readonly RepoRelPath[];
+}
+
+/** Merge a step's own post-edit files/tombstones with the cumulative prior-step overlay into the
+ *  single (afterContent, removedAbs) view `postMoveResolutionHost` resolves against. Prior files
+ *  seed the map; the step's own files override (a re-edit wins); every removed path (prior or this
+ *  step) is tombstoned AND dropped from `afterContent`, so a file a prior step moved-then-this-step
+ *  removed can't linger as a phantom resolution target. */
+function mergedFileSet(
+  overlayFiles: readonly { path: RepoRelPath; content: string }[],
+  removed: readonly RepoRelPath[],
+  absOf: (rel: RepoRelPath) => string,
+  prior: PriorStepState | undefined,
+): { afterContent: Map<string, string>; removedAbs: Set<string> } {
+  const afterContent = new Map<string, string>();
+  if (prior !== undefined)
+    for (const f of prior.files) afterContent.set(toPosix(absOf(f.path)), f.content);
+  for (const f of overlayFiles) afterContent.set(toPosix(absOf(f.path)), f.content);
+  const removedAbs = new Set<string>(removed.map((r) => toPosix(absOf(r))));
+  if (prior !== undefined) for (const r of prior.removed) removedAbs.add(toPosix(absOf(r)));
+  // The delete only ever drops a PRIOR moved-then-this-step-removed phantom — it relies on the
+  // invariant that a step's own `removed` (INITIAL paths) and `overlayFiles` (CURRENT paths) are
+  // disjoint key sets (assemble.ts only pushes to `removed` on a move, where current !== initial).
+  // If a future assemble ever records an IN-PLACE removal (a path in BOTH `removed` and
+  // `overlayFiles`), this would silently drop that file's content — make the delete prior-only then.
+  for (const r of removedAbs) afterContent.delete(r);
+  return { afterContent, removedAbs };
+}
+
 /** One import specifier the rewrite changed, with the target it was meant to land on. */
 export interface RewrittenImport {
   /** Importer's CURRENT (post-move) absolute path — the `containingFile` resolution runs from. */
@@ -44,11 +81,10 @@ export function detectImportCaptures(
   overlayFiles: readonly { path: RepoRelPath; content: string }[],
   removed: readonly RepoRelPath[],
   absOf: (rel: RepoRelPath) => string,
+  prior?: PriorStepState,
 ): Capture[] {
   if (rewrites.length === 0) return [];
-  const afterContent = new Map<string, string>();
-  for (const f of overlayFiles) afterContent.set(toPosix(absOf(f.path)), f.content);
-  const removedAbs = new Set(removed.map((r) => toPosix(absOf(r))));
+  const { afterContent, removedAbs } = mergedFileSet(overlayFiles, removed, absOf, prior);
   const host = postMoveResolutionHost(removedAbs, afterContent);
 
   const out: Capture[] = [];
@@ -89,6 +125,11 @@ export function detectReverseImportCaptures(
   const program = host.service.getProgram();
   if (program === undefined || newArrivals.length === 0) return [];
 
+  // NOT prior-overlay-aware (unlike the FORWARD pass): both this resolution and the PRE one below
+  // resolve over this-step content + pre-transaction disk, so an in-transaction reverse shadow that
+  // only manifests through a PRIOR step's move is under-detected. Deliberately symmetric and
+  // conservative — the §7-safe direction (a missed rare same-typed shadow beats a fabricated
+  // refusal §1; the §2.8 gate still backstops a resulting dangle). Residual tracked in backlog.
   const afterContent = new Map<string, string>();
   for (const f of overlayFiles) afterContent.set(toPosix(host.absOf(f.path)), f.content);
   const removedAbs = new Set(removed.map((r) => toPosix(host.absOf(r))));

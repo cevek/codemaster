@@ -7,7 +7,7 @@ import type { VFSTree } from '../tree/tree.ts';
 import type { FsNode } from '../tree/node.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import { messageOfThrown } from '../../../../common/result/construct.ts';
-import type { RefactorPlan } from '../plan.ts';
+import type { RefactorPlan, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from './assemble.ts';
 
 const TS_RE = /\.(tsx?|mts|cts)$/;
@@ -40,6 +40,9 @@ export function planMove(
   options: ts.CompilerOptions,
   source: RepoRelPath,
   dest: RepoRelPath,
+  // The cumulative prior-step overlay when this is a `transaction` step ≥2 — forwarded to the
+  // import-capture gate so it re-resolves against prior moves/edits, not pre-transaction disk (E-g).
+  overlay?: PlanningOverlay,
 ): RefactorPlan | string {
   const node = tree.findByCurrentPath(source);
   if (node === null) return `source not in the workspace: ${source}`;
@@ -56,5 +59,5 @@ export function planMove(
   } catch (thrown) {
     return `cannot move ${source} → ${dest}: ${messageOfThrown(thrown)}`;
   }
-  return assemblePlan(host, tree, options);
+  return assemblePlan(host, tree, options, overlay);
 }
