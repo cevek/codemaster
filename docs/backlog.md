@@ -454,6 +454,11 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       `VariableStatement`; a declaration exported by a later `export { X }` / `export default X`
       statement reads `isExported:false` (under-reports). Fix: fold the file's export-specifier set into
       the scan. `bug`·`low`·`cx:M`
+- [ ] **W5-e — unary-plus / bigint number literals classify as `other`** — `value-shape` reads
+      `NumericLiteral` and a negative `-1` as `number`/`certain`, but a unary-plus `+1` and a bigint
+      `1n` (`BigIntLiteral`) fall through to `other`/`dynamic`. Honest under-report (never a
+      false-`certain`), rare in keys. Fix: extend the numeric branch to `+`-prefixed numerics and
+      `BigIntLiteral`. `bug`·`low`·`cx:S`
 
 ---
 
