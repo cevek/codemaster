@@ -160,6 +160,16 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       precise, not blunt. Risk: slurping hermetic fixture/sub-project configs as siblings (cost + the
       reason discovery is conservative today); needs a "shares the import graph" test the cheap blunt
       floor avoids. NOT the full monorepo project-reference redirect graph (still scoped OUT). `imp`·`med`·`cx:L`
+- [ ] **Discovered/undiscovered config caches aren't invalidated on a post-warm tsconfig add/remove** —
+      both `discover()` (the sibling set) and `undiscoveredProgramLabels()` (the unloaded set) are
+      host-lifetime memoized; `reindex` never resets them and §3.5 freshness fingerprints file CONTENT,
+      not the tsconfig SET. So a `git checkout` to a branch that ADDS a nested `tsconfig.json` importing
+      a `src` export reads that export `certain`-DEAD until an MCP reconnect — a silent false-dead in the
+      window. Same staleness class as the pre-existing `discover()` cache (the floor strictly improves
+      cold-boot, doesn't regress it); surfaced today only as an inline comment (`ls-host.ts`), and §3
+      "honest, never silent" wants it tracked. §19-safe fix: invalidate the caches ONLY when a `reindex`
+      changed-set contains an added/removed `tsconfig*.json` — never a re-walk per reindex (the `ls-host`
+      per-call-tree-scan hang class). `bug`·`med`·`cx:M`
 - [ ] **`find_usages` / `importers_of` under-report a usage living only in an UNDISCOVERED program** —
       the parallel gap to the `find_unused_exports` floor above: a `src` symbol referenced ONLY from a
       nested-package program codemaster doesn't load reads as having that usage MISSING (a completeness
