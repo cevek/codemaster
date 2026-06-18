@@ -1,10 +1,12 @@
-// spec-daemon-singleton §7 (the one REAL smoke) + Stage 1 headline oracle: a live `mcp` server
-// whose stdin stays open-but-silent (EOF never arrives — the exact orphan condition) must still
-// self-exit after the idle TTL. This is what the unit tests CAN'T prove: the production timer is
-// `unref`ed, yet the open stdin keeps the event loop alive, so the timer genuinely fires and the
-// process exits on its own. We drive a real `node src/bin.ts mcp` subprocess with a sub-second TTL
-// (the `CODEMASTER_MCP_IDLE_MS` test override — production uses whole minutes via config), hold its
-// stdin open, and assert exit(0) within a bounded time. A hang here = the orphan bug is back.
+// Stage-1 idle self-exit, real-process oracle. The in-process serve path (`mcp --in-process` — the
+// debug/self-dev escape hatch, spec §5) carries the Stage-1 idle deadline: a server whose stdin
+// stays open-but-silent (EOF never arrives — the orphan condition) must still self-exit after the
+// TTL. This is what the unit tests CAN'T prove: the production timer is `unref`ed, yet the open
+// stdin keeps the loop alive, so the timer genuinely fires and the process exits on its own. (Plain
+// `mcp` is the Stage-2 bridge, whose idle-exit lives in the DAEMON — see bridge-singleton-smoke.)
+// We drive a real subprocess with a sub-second TTL (`CODEMASTER_MCP_IDLE_MS` override — production
+// uses whole minutes via config), hold stdin open, and assert exit(0) within a bound. A hang =
+// the orphan bug is back.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,13 +17,13 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const BIN = path.join(repoRoot, 'src', 'bin.ts');
 
-test('live `mcp` server self-exits after the idle TTL with stdin held open (no EOF)', async () => {
+test('live `mcp --in-process` server self-exits after the idle TTL with stdin held open (no EOF)', async () => {
   const idleMs = 400;
   // Monotonic — measures the spawn→exit lifetime so we can assert the process lived AT LEAST the
   // TTL. Without a lower bound a hypothetical immediate clean exit (no timer ever firing) would
   // false-pass; this pins "lived ≥ TTL → the idle timer is what reaped it", not "exited somehow".
   const start = process.hrtime.bigint();
-  const child = spawn('node', [BIN, 'mcp'], {
+  const child = spawn('node', [BIN, 'mcp', '--in-process'], {
     cwd: repoRoot,
     // Fast + deterministic; stdin is piped and never ended, so EOF never arrives.
     env: { ...process.env, CODEMASTER_MCP_IDLE_MS: String(idleMs) },

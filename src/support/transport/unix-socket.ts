@@ -23,7 +23,13 @@ function wrapSocket(raw: net.Socket): TransportConnection {
   let onMessage: (m: JsonValue) => void = () => undefined;
   let onClose: () => void = () => undefined;
   let onError: (e: Error) => void = () => undefined;
-  let closed = false;
+  let closed = false; // send-guard + close() idempotency
+  let closeNotified = false; // onClose fires exactly once, whoever closed (local or peer)
+  const notifyClose = (): void => {
+    if (closeNotified) return;
+    closeNotified = true;
+    onClose();
+  };
 
   raw.setEncoding('utf8');
   raw.on('data', (chunk: string) => {
@@ -31,18 +37,20 @@ function wrapSocket(raw: net.Socket): TransportConnection {
     try {
       messages = decoder.push(chunk);
     } catch (thrown) {
-      // A malformed line is a non-fatal protocol error — report it, keep the link (§3.6: never
-      // crash the peer). The protocol layer's zod guard rejects structurally-wrong-but-valid JSON.
+      // A decode failure means the byte stream is corrupt or over-long (framing can't be trusted) —
+      // report it and CLOSE the link honestly, never crash the peer (§3.6) and never grow the
+      // buffer without bound (§1). A structurally-wrong-but-valid-JSON envelope parses fine here and
+      // is caught by the protocol's zod guard instead (an honest error reply, link kept).
       onError(thrown instanceof Error ? thrown : new Error(String(thrown)));
+      raw.destroy();
       return;
     }
     for (const message of messages) onMessage(message);
   });
   raw.on('error', (err) => onError(err)); // a 'close' event always follows
   raw.on('close', () => {
-    if (closed) return;
     closed = true;
-    onClose();
+    notifyClose();
   });
 
   return {
@@ -55,7 +63,12 @@ function wrapSocket(raw: net.Socket): TransportConnection {
     close() {
       if (closed) return Promise.resolve();
       closed = true;
-      return new Promise<void>((resolve) => raw.end(() => resolve()));
+      // Force a full close (not a half-close `end()`) so `onClose` fires promptly even if the peer
+      // doesn't reciprocate — the bridge's in-flight requests must fail at once, never hang (§1).
+      return new Promise<void>((resolve) => {
+        raw.once('close', () => resolve());
+        raw.destroy();
+      });
     },
   };
 }
@@ -81,9 +94,18 @@ function listen(socketPath: string): Promise<TransportServer> {
       else pending.push(connection);
     });
 
-    server.once('error', reject); // EADDRINUSE etc. during bind → reject with `.code` preserved
+    // Restrict the umask so the socket is CREATED 0600 (no bind→chmod window where another local
+    // user could connect); restored on bind success OR error. The daemon does no other file I/O
+    // during startup, so the brief process-global umask change is safe. chmod below is belt.
+    const prevUmask = process.umask(0o177);
+    const onListenError = (err: Error): void => {
+      process.umask(prevUmask);
+      reject(err); // EADDRINUSE etc. during bind → reject with `.code` preserved
+    };
+    server.once('error', onListenError);
     server.listen(socketPath, () => {
-      server.removeListener('error', reject);
+      process.umask(prevUmask);
+      server.removeListener('error', onListenError);
       // User-only perms: a local socket must not accept ops from another local user (§9 local-only).
       try {
         fs.chmodSync(socketPath, 0o600);

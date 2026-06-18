@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as net from 'node:net';
 import { mkdtempSync, rmSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -81,6 +82,21 @@ test('transport: serves concurrent connections; a slow peer does not block anoth
     assert.deepEqual(await nextMessage(b), { who: 'b' });
     releaseA();
     assert.deepEqual(await nextMessage(a), { who: 'a' });
+  });
+});
+
+test('transport: a corrupt (undecodable) line closes the link honestly (no crash, bounded)', async () => {
+  await withServer(async (server, sockPath) => {
+    const closed = new Promise<void>((resolve) =>
+      server.onConnection((conn) => conn.onClose(resolve)),
+    );
+    // Bypass the typed `send` to put raw non-JSON bytes on the wire — the decode failure must close
+    // the link (same path an over-cap unterminated blob takes), never crash the daemon.
+    const raw = net.connect(sockPath);
+    await new Promise<void>((resolve) => raw.once('connect', () => resolve()));
+    raw.write('{this is not json}\n');
+    await closed; // resolves → the server closed the link honestly
+    raw.destroy();
   });
 });
 

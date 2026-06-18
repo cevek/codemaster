@@ -62,13 +62,39 @@ const requestSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
+const replySchema = z.discriminatedUnion('kind', [
+  z.object({
+    id: z.number(),
+    kind: z.literal('request'),
+    sourceStale: z.boolean(),
+    outcome: z.union([
+      z.object({ ok: z.literal(true), results: z.array(z.unknown()) }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  }),
+  z.object({
+    id: z.number(),
+    kind: z.literal('status'),
+    sourceStale: z.boolean(),
+    view: z.unknown(),
+  }),
+  z.object({ id: z.number(), kind: z.literal('error'), message: z.string() }),
+]);
+
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
-/** Validate an inbound request envelope (daemon side). The bridge-side reply validator
- *  (`parseWireReply`) lands with the bridge in Stage 2c — the only consumer of inbound replies. */
+/** Validate an inbound request envelope (daemon side). */
 export function parseWireRequest(raw: JsonValue): Parsed<WireRequest> {
   const parsed = requestSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: parsed.error.message };
   // Inner op args are validated per-op downstream; the cast crosses only the trusted shape gap.
   return { ok: true, value: parsed.data as unknown as WireRequest };
+}
+
+/** Validate an inbound reply envelope (bridge side). A corrupt/truncated reply fails honestly
+ *  (→ the request's failure channel), never an unchecked cast that throws deep in the bridge. */
+export function parseWireReply(raw: JsonValue): Parsed<WireReply> {
+  const parsed = replySchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: parsed.error.message };
+  return { ok: true, value: parsed.data as unknown as WireReply };
 }

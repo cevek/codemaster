@@ -14,14 +14,19 @@ export function encodeLine(message: JsonValue): string {
 
 export interface LineDecoder {
   /** Feed a raw chunk; returns the messages completed by it (zero or more). A trailing partial
-   *  line is buffered until its terminator arrives. An undecodable line throws `SyntaxError` with
-   *  the offending text — the caller reports it via `onError` and keeps the link alive. */
+   *  line is buffered until its terminator arrives. Throws on an undecodable line (`SyntaxError`)
+   *  or an over-long unterminated line — the caller reports via `onError` and closes the link. */
   push(chunk: string): JsonValue[];
 }
 
+/** Default ceiling on a single unterminated line. A correct peer never approaches it; the cap
+ *  bounds memory against a peer (or a framing bug — the bridge is the 2nd producer) that streams a
+ *  huge blob with no '\n', which would otherwise grow the buffer without bound → OOM (§1). */
+const DEFAULT_MAX_LINE_BYTES = 8 * 1024 * 1024;
+
 /** A stateful line decoder: accumulates bytes across chunks and yields whole-line JSON values.
  *  One instance per connection (it holds that link's partial-line buffer). */
-export function createLineDecoder(): LineDecoder {
+export function createLineDecoder(maxLineBytes: number = DEFAULT_MAX_LINE_BYTES): LineDecoder {
   let buffer = '';
   return {
     push(chunk: string): JsonValue[] {
@@ -36,6 +41,14 @@ export function createLineDecoder(): LineDecoder {
           messages.push(JSON.parse(line) as JsonValue);
         }
         newlineIndex = buffer.indexOf('\n');
+      }
+      // The leftover is one partial (unterminated) line — cap it so an endless blob can't OOM us.
+      if (buffer.length > maxLineBytes) {
+        const size = buffer.length;
+        buffer = '';
+        throw new Error(
+          `NDJSON line exceeded ${maxLineBytes} bytes (${size}) without a terminator`,
+        );
       }
       return messages;
     },

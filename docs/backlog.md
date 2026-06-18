@@ -68,10 +68,18 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ## Platform / infra
 
-- [ ] **Daemon singleton + IPC server** — [spec-daemon-singleton.md](spec-daemon-singleton.md).
-      Today every MCP/CLI process hosts its own in-process orchestrator → each connection/worktree
-      spawns its own warm LS (no §2 amortization) and orphaned stdio servers pile up (observed: 26).
-      Stage 1 orphan-reaping → Stage 2 socket singleton + thin stdio bridge. Unblocks `process`-mode + the §19 kill-on-deadline backstop. `feat`·`high`·`cx:L`
+- [ ] **Wedged-daemon recovery** — the singleton (spec-daemon-singleton, shipped) reaps orphans via
+      the daemon's idle-exit + the bridge's per-request reply deadline, but a **permanently wedged
+      daemon** (accepts connections but never replies — a wedged synchronous loop holding the socket)
+      is not reaped: its own idle loop is wedged too. Bridges fail honestly (reply-deadline →
+      `ToolFailure`) and the agent falls back, but the daemon process lingers until killed. Needs
+      process-mode engine isolation + kill-on-deadline (below) — the supervising process kills a child
+      that overran. Optional cheaper interim: after N consecutive bridge reply-timeouts, trigger a
+      daemon liveness re-probe / SIGTERM. `bug`·`med`·`cx:L`
+- [ ] **`process`-mode engine isolation** — one child process per workspace (§2/§9): own heap +
+      `--max-old-space-size`, OS-reclaim-on-kill, real cross-workspace parallelism, and the
+      kill-on-deadline backstop that reaps a wedged engine/daemon (above). The daemon would own the
+      child engines. `feat`·`med`·`cx:L`
 - [ ] **No wall-time bound on synchronous TS ops** — `find_unused_exports` (`cap×O(import-graph)`)
       and a 10k-importer `find_usages` are bounded by DESIGN but don't degrade to honest
       `ToolFailure{timeout}` on a pathological whole-repo call. The hard guarantee is §19 engine

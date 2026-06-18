@@ -44,3 +44,16 @@ test('ndjson: a malformed line throws (caller reports via onError, link survives
   const decoder = createLineDecoder();
   assert.throws(() => decoder.push('{not json}\n'), SyntaxError);
 });
+
+test('ndjson: an unterminated line past the cap throws (bounds the buffer — no OOM)', () => {
+  const decoder = createLineDecoder(1024); // 1KB cap for the test
+  // A blob with no terminator must not grow the buffer without bound (§1 never-crash).
+  assert.throws(() => decoder.push('x'.repeat(2000)), /exceeded 1024 bytes/);
+});
+
+test('ndjson: the cap does not trip a long but PROPERLY-TERMINATED line', () => {
+  const decoder = createLineDecoder(1024);
+  // 900 chars + newline: under the cap once the terminator splits it off.
+  const msg = { s: 'y'.repeat(880) };
+  assert.deepEqual(decoder.push(encodeLine(msg)), [msg]);
+});

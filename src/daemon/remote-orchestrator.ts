@@ -1,0 +1,151 @@
+// The bridge's view of the daemon (spec-daemon-singleton §2). A thin `OrchestratorApi` forwarder:
+// it serializes each request to an NDJSON envelope over the socket connection, matches the reply by
+// id, and renders nothing itself (the bridge's `serveMcp` does). It holds NO project state.
+//
+// Never-hang (§1): every request is bounded by a reply deadline → an honest failure ("daemon did
+// not reply — fall back"), never an unbounded wait. A dropped connection fails all in-flight
+// requests at once. `sourceStale` rides the daemon's spawn fingerprint, cached from each reply
+// envelope (the banner reflects the DAEMON's code age, not the bridge's — §3.6 / spec §3).
+
+import type { Clock, CancelTimer } from '../common/async/clock.ts';
+import type { JsonValue } from '../core/json.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
+import type { StatusView } from '../format/render/render-status.ts';
+import type { TransportConnection } from '../support/transport/seam.ts';
+import type { OrchestratorApi } from './orchestrator-api.ts';
+import { parseWireReply, type WireReply } from './protocol.ts';
+
+type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
+
+export interface RemoteOrchestratorDeps {
+  connection: TransportConnection;
+  clock: Clock;
+  /** Per-request reply deadline (ms). On overrun the request fails honestly — the agent falls back. */
+  replyDeadlineMs: number;
+  /** The bridge's version — used to synthesize a degraded `status` view on a daemon failure. */
+  version: string;
+}
+
+export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): OrchestratorApi {
+  let nextId = 1;
+  let sourceStaleCache = false;
+  let closed = false;
+  const pending = new Map<number, (reply: WireReply) => void>();
+
+  deps.connection.onClose(() => {
+    closed = true;
+    for (const [id, resolve] of pending) {
+      resolve({ id, kind: 'error', message: 'daemon connection closed' });
+    }
+    pending.clear();
+  });
+  deps.connection.onMessage((raw) => {
+    const parsed = parseWireReply(raw);
+    if (!parsed.ok) {
+      // Corrupt reply — fail the correlated request if we can recover its id, else let the
+      // deadline catch it. Never throw into the transport.
+      const id = idOf(raw);
+      pending.get(id)?.({ id, kind: 'error', message: `corrupt reply: ${parsed.error}` });
+      pending.delete(id);
+      return;
+    }
+    const reply = parsed.value;
+    if (reply.kind !== 'error') sourceStaleCache = reply.sourceStale;
+    const resolve = pending.get(reply.id);
+    if (resolve !== undefined) {
+      pending.delete(reply.id);
+      resolve(reply);
+    }
+  });
+
+  function sendAndAwait(envelope: JsonValue, id: number): Promise<WireReply> {
+    if (closed) return Promise.resolve({ id, kind: 'error', message: 'daemon connection closed' });
+    return new Promise<WireReply>((resolve) => {
+      let cancelTimer: CancelTimer = () => undefined;
+      const settle = (reply: WireReply): void => {
+        cancelTimer();
+        pending.delete(id);
+        resolve(reply);
+      };
+      pending.set(id, settle);
+      cancelTimer = deps.clock.schedule(deps.replyDeadlineMs, () =>
+        settle({
+          id,
+          kind: 'error',
+          message: `daemon did not reply in ${deps.replyDeadlineMs}ms — fall back`,
+        }),
+      );
+      deps.connection.send(envelope);
+    });
+  }
+
+  return {
+    async request(cwd, root, reqs, batch) {
+      const id = nextId++;
+      const reply = await sendAndAwait(wireRequest(id, cwd, root, reqs, batch), id);
+      if (reply.kind === 'error') return { ok: false, message: reply.message };
+      if (reply.kind === 'request') return reply.outcome as RequestOutcome;
+      return { ok: false, message: 'unexpected reply kind for request' };
+    },
+    async status(cwd, root) {
+      const id = nextId++;
+      const reply = await sendAndAwait(statusRequest(id, cwd, root), id);
+      if (reply.kind === 'status') return reply.view;
+      const message = reply.kind === 'error' ? reply.message : 'unexpected reply kind for status';
+      return degradedStatus(deps.version, sourceStaleCache, message);
+    },
+    sourceStale: () => sourceStaleCache,
+    dispose: () => deps.connection.close(),
+  };
+}
+
+function wireRequest(
+  id: number,
+  cwd: string,
+  root: string | undefined,
+  reqs: readonly OpRequest[],
+  batch: BatchOptions | undefined,
+): JsonValue {
+  const env = {
+    id,
+    kind: 'request',
+    cwd,
+    reqs,
+    ...(root !== undefined ? { root } : {}),
+    ...(batch !== undefined ? { batch } : {}),
+  };
+  return env as unknown as JsonValue;
+}
+
+function statusRequest(id: number, cwd: string, root: string | undefined): JsonValue {
+  return {
+    id,
+    kind: 'status',
+    cwd,
+    ...(root !== undefined ? { root } : {}),
+  } as unknown as JsonValue;
+}
+
+/** A failed `status` still returns a StatusView — the failure surfaces in `workspaceError`, never a
+ *  thrown call (the OrchestratorApi.status contract has no failure channel). */
+function degradedStatus(version: string, sourceStale: boolean, error: string): StatusView {
+  return {
+    daemonVersion: version,
+    pid: process.pid,
+    isolation: 'in-process',
+    engines: 0,
+    engineRoots: [],
+    workspace: undefined,
+    workspaceError: `daemon unreachable: ${error}`,
+    debugTopics: [],
+    sourceStale,
+  };
+}
+
+function idOf(raw: JsonValue): number {
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    const id = (raw as { [k: string]: JsonValue })['id'];
+    if (typeof id === 'number') return id;
+  }
+  return -1;
+}

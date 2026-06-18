@@ -59,11 +59,18 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
   only routes — the one exception is a **cross-root `sql` join**, which evaluates the
   engines' already-projected, ephemeral rows (thin data, never project state) in a
   transient in-memory SQLite at the front door (§11).
-  **Roadmap, not yet implemented:** the machine-wide singleton (bind-or-connect on a
-  socket — §19) is not built; today each `mcp` connection hosts its **own** in-process
-  orchestrator (no amortization across connections). A Stage-1 idle self-exit hard deadline
-  bounds an orphan's lifetime to the idle TTL once the event loop is free — a permanently
-  wedged synchronous loop is out of scope until the daemon split (spec-daemon-singleton).
+  **Machine-wide singleton (spec-daemon-singleton).** One daemon per user serves every
+  `codemaster mcp` client: each `mcp` invocation is a thin **bridge** (a dumb stdio↔socket
+  proxy holding no project state) that connects to the daemon over a unix socket, or — finding
+  none — atomically spawns one and converges (bind-or-connect, §19). The warm LS(es) are thus
+  amortized across all connections, not duplicated per worktree. The daemon idle-self-exits
+  (zero open bridges, TTL) and unlinks its socket. **Honest scope:** a bridge's loop never
+  blocks (no heavy work), so its stdin-EOF is always processed and a per-request reply deadline
+  yields an honest `ToolFailure` if the daemon stalls — but a **permanently wedged daemon**
+  (accepts-but-never-replies / a wedged sync loop holding the socket) is _not_ reaped here; that
+  needs process-mode engine isolation + kill-on-deadline (§9, separate roadmap). The
+  `--in-process` flag bypasses the socket and serves a local orchestrator directly (debug /
+  self-dev), carrying its own idle self-exit.
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
   root): all registered **plugins** (`ts`, `scss`, `i18n`, `schema`, framework adapters)
   with their internal state, plus the **ops** that compose them. Everything for that
@@ -1108,16 +1115,19 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **SCSS analysis is syntactic** (`postcss-scss` — a CST, not a resolved module graph or
   computed values): cross-`@use`/`@forward` orphan checks are `partial`; computed-property
   work needs real `sass`/dart-sass. (§5-L2, wishlist)
-- **Daemon singleton** _(roadmap; not yet implemented — see spec-daemon-singleton)._ Two
-  concurrent launches converge on one daemon: atomic bind-or-connect (or a lockfile), unlink
-  a stale socket after a liveness probe on `EADDRINUSE`, loser connects to the winner. Today
-  each `mcp` connection hosts its own in-process orchestrator; a Stage-1 idle self-exit hard
-  deadline bounds an orphan's lifetime to the idle TTL once the event loop is free (a
-  permanently wedged sync loop waits on the daemon split). (§2)
+- **Daemon singleton** (spec-daemon-singleton). Two concurrent launches converge on one daemon:
+  a bridge tries to `connect`; on `ENOENT`/`ECONNREFUSED` it unlinks a stale socket and spawns a
+  detached daemon, then bounded-poll-connects; a launch race resolves at the daemon's bind
+  (`EADDRINUSE` → the loser daemon exits, both bridges connect to the winner). The daemon
+  idle-self-exits at zero open bridges and unlinks its socket; a stale socket from a SIGKILLed
+  daemon is recovered by the next bridge (unlink + rebind), never a hang. If the daemon can't be
+  reached within the budget the bridge falls back to in-process serving (worst case: Stage-1
+  behavior). (§2)
 - **IPC endpoint portability.** Socket at a short, hashed path (a long `$HOME` or macOS
   `/var/folders` `os.tmpdir()` can blow `sun_path`'s ~104/108-byte limit) with a length
-  assertion at bind. Add a `Transport` seam (mirroring `ProjectHost`) so a Windows named-pipe
-  impl drops in later. (§2, §18)
+  assertion at bind, and created user-only (0600). A `Transport` seam (mirroring `ProjectHost`,
+  built in `support/transport/`) carries the unix-socket impl now; a Windows named-pipe impl
+  drops in behind it later. (§2, §18)
 - **`process`-mode child bootstrap.** Specify the child entry script and how it loads the
   engine when codemaster is global / `npx` (its `__dirname` is not in the project); how
   the `ts` plugin resolves the **project's own TS** (resolve-from-project-root, passed as

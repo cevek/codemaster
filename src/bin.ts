@@ -7,6 +7,7 @@
 // the debug subsystem (§13).
 
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import type { CodemasterConfig } from './config/config.ts';
 import type { Plugin } from './core/plugin.ts';
 import { systemClock } from './common/async/clock.ts';
@@ -25,8 +26,16 @@ import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
 import { serveDaemon } from './daemon/daemon-server.ts';
+import { connectOrSpawnDaemon } from './daemon/connect-or-spawn.ts';
+import { spawnDaemon } from './daemon/spawn-daemon.ts';
+import { createRemoteOrchestrator } from './daemon/remote-orchestrator.ts';
 import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
+
+/** Per-request reply deadline for the bridge (§1 never-hang). Generous — a cold find_usages on a
+ *  huge repo can run tens of seconds (§1 latency budget) — but bounded so a wedged daemon yields an
+ *  honest failure and the agent falls back, never an unbounded wait. */
+const BRIDGE_REPLY_DEADLINE_MS = 120_000;
 
 const VERSION = '0.1.0';
 
@@ -119,28 +128,61 @@ async function main(): Promise<number> {
     case 'daemon': {
       // Internal: the long-lived singleton the bridge spawns (spec-daemon-singleton §2). Hosts one
       // in-process orchestrator behind the unix socket, shared across every bridge. Not a
-      // user-facing command — `codemaster mcp` (the bridge) spawns and converges on it (Stage 2c).
+      // user-facing command — `codemaster mcp` (the bridge) spawns and converges on it.
       const orchestrator = buildOrchestrator();
       const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
       const transport = createUnixSocketTransport(socket);
-      await serveDaemon({
-        orchestrator,
-        transport,
-        clock: systemClock,
-        idleMs: mcpIdleMs(process.cwd()),
-      });
+      try {
+        await serveDaemon({
+          orchestrator,
+          transport,
+          clock: systemClock,
+          idleMs: mcpIdleMs(process.cwd()),
+        });
+      } catch (err) {
+        // Lost the bind race (§19) — another daemon already holds the socket. Exit cleanly; the
+        // bridges converge on the winner. Any other bind error is a real failure.
+        await orchestrator.dispose().catch(() => undefined);
+        if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') return 0;
+        throw err;
+      }
       return -1; // long-lived
     }
     case 'mcp': {
-      const orchestrator = buildOrchestrator();
-      // Process-level idle self-exit (spec-daemon-singleton Stage 1): bound an orphan's life to
-      // the TTL even when stdin-EOF never arrives. No global config exists at start (config is
-      // per-repo, lazy), so the deadline reuses daemon.idleEvictionMinutes from the cwd's config
-      // (fallback = the shared engine default) — there's no reason to outlive every engine.
-      await serveMcp(orchestrator, VERSION, {
-        idle: { clock: systemClock, idleMs: mcpIdleMs(root ?? process.cwd()) },
+      const idleMs = mcpIdleMs(root ?? process.cwd());
+      // `--in-process` escape hatch (spec §5): serve a local orchestrator directly, no daemon —
+      // for debugging and the self-dev loop. Carries the Stage-1 idle self-exit.
+      if (hasFlag(args, '--in-process')) {
+        await serveMcp(buildOrchestrator(), VERSION, { idle: { clock: systemClock, idleMs } });
+        return -1;
+      }
+      // The bridge (spec-daemon-singleton §2): a dumb stdio↔socket proxy. Connect to (or spawn) the
+      // singleton daemon and forward MCP requests over the socket. It holds no project state and
+      // does no heavy work, so its loop never blocks → stdin-EOF is always processed promptly (the
+      // real orphan fix). The daemon owns idle-exit, so the bridge needs none.
+      const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
+      const transport = createUnixSocketTransport(socket);
+      const binPath = fileURLToPath(import.meta.url);
+      const connection = await connectOrSpawnDaemon({
+        transport,
+        socketPath: socket,
+        clock: systemClock,
+        spawnDaemon: () => spawnDaemon(binPath, process.env['CODEMASTER_SOCK_DIR']),
       });
-      return -1; // stays alive serving stdio
+      if (connection === undefined) {
+        // Daemon unreachable (spawn/connect failed within budget) — fall back to in-process serving
+        // (Stage-1 behavior). Worst case is "no amortization", never a hang or a hard failure (D1).
+        await serveMcp(buildOrchestrator(), VERSION, { idle: { clock: systemClock, idleMs } });
+        return -1;
+      }
+      const remote = createRemoteOrchestrator({
+        connection,
+        clock: systemClock,
+        replyDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
+        version: VERSION,
+      });
+      await serveMcp(remote, VERSION);
+      return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {
       const orchestrator = buildOrchestrator();

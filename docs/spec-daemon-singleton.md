@@ -1,11 +1,11 @@
 # Spec: one warm daemon — singleton orchestrator + orphan-free MCP servers
 
-Status: **proposed**. Formalizes the deferred [plan.md](plan.md) Phase-0 item
-_"`daemon/` IPC server (newline-delimited JSON) + daemon singleton (bind-or-connect)"_
-and the orphan-reaping it implies. Realizes the process topology ARCHITECTURE.md §2 and
-the §19 "daemon singleton" decision already describe as the design — but which the code
-does **not** yet implement. Touches `bin.ts` (`mcp` command), a new `daemon/transport/`
-seam, and `mcp/server.ts`. Independent of the plugin work; can land any time after Phase 0.
+Status: **implemented** (Stage 1 + Stage 2). Realizes the process topology ARCHITECTURE.md §2 and
+the §19 "daemon singleton" decision. The `Transport` seam lives in `support/transport/`
+(unix-socket impl + NDJSON framing); the daemon in `daemon/daemon-server.ts`, the bridge +
+convergence in `bin.ts` (`mcp` command) + `daemon/connect-or-spawn.ts` + `daemon/remote-orchestrator.ts`.
+The one residual — reaping a **permanently wedged** daemon — is tracked in `docs/backlog.md` and needs
+process-mode engine isolation (§9), out of scope here.
 
 ## 1. Problem & evidence
 
@@ -102,19 +102,20 @@ daemon without the socket. The socket daemon is a `mcp`-only concern.
 
 ## 6. Staging (each independently shippable)
 
-- **Stage 1 — stop the bleeding (orphan-reaping on today's model), small. ✅ shipped.** Without the
-  bridge/daemon split: an **idle self-exit hard deadline** in `serveMcp` (`src/mcp/idle-exit.ts` —
-  a deadline armed between requests; enter()/finally-leave() bracket every call so it never fires
-  mid-request; on idle with no in-flight request → dispose + `exit(0)`). TTL = `daemon.idleEvictionMinutes`
-  read at `mcp` start from the cwd's config (fallback = the shared engine default). This bounds orphan
-  lifetime to the TTL once the event loop is free — a missed/leaked/transiently-blocked-then-freed
-  EOF; a **permanently** wedged synchronous loop is out of scope (only Stage 2's process isolation +
-  kill reaps that). Does **not** fix amortization (still N warm LSes for N concurrent clients) — but
-  it ends the unbounded pile-up. The CLI one-shot path (§5) is untouched: it never calls `serveMcp`,
-  so no idle timer leaks into it.
-- **Stage 2 — the singleton (amortization + convergence), the real fix.** The §2–§4 daemon + bridge
-  split. Delivers the warm-state sharing §2 promises and subsumes Stage 1's idle-exit at the daemon
-  level.
+- **Stage 1 — stop the bleeding (orphan-reaping on the pre-singleton model). ✅ shipped.** An
+  **idle self-exit hard deadline** (`common/async/idle-exit.ts`, a generic Clock-based deadline: a
+  hold cancels it, the last release re-arms, it never fires while a hold is active). On the
+  `--in-process` serve path a hold = an in-flight request → the server can't be reaped mid-call;
+  TTL = `daemon.idleEvictionMinutes` (with the `CODEMASTER_MCP_IDLE_MS` test override). Bounds an
+  orphan's life to the TTL once the loop is free; a **permanently** wedged sync loop stays out of
+  scope. The CLI one-shot path (§5) never serves, so no timer leaks into it.
+- **Stage 2 — the singleton (amortization + convergence). ✅ shipped.** The §2–§4 daemon + bridge
+  split: `support/transport/` (seam + unix socket + NDJSON), `daemon/daemon-server.ts` (hosts one
+  in-process orchestrator, routes per-message async), `daemon/remote-orchestrator.ts` (the bridge's
+  forwarding `OrchestratorApi`, reply-deadline bounded), `daemon/connect-or-spawn.ts` (bind-or-connect
+  convergence + stale-socket recovery), `daemon/spawn-daemon.ts` (detached spawn). The daemon's
+  idle-exit reuses the Stage-1 deadline with hold = open bridge connection, subsuming Stage 1 at the
+  daemon level. `codemaster mcp` is now the bridge; `--in-process` is the escape hatch.
 
 Stage 1 is worth landing first: the 26 are dominated by orphans from sequential worktree churn, which
 Stage 1 alone collapses to at-most-one-per-active-client.
@@ -135,12 +136,10 @@ Stage 1 alone collapses to at-most-one-per-active-client.
 No `sleep` in any of these — drive the injected `Clock` and a socket-dir seam (mirroring the watcher
 seam, §16). One real-socket smoke test, like the chokidar smoke test.
 
-## 8. Doc reconciliation (do this WITH the code, never lie in the interim)
+## 8. Doc reconciliation (done with the code)
 
-- ARCHITECTURE.md §2 and §19 describe the singleton/bind-or-connect as the design. Until Stage 2
-  ships they overstate the present — add a one-line "**roadmap, not yet implemented; today each
-  `mcp` connection hosts its own in-process orchestrator (spec-daemon-singleton)**" to both, and
-  flip them to present-tense when it lands.
+- ARCHITECTURE.md §2 and §19 are present-tense: the singleton/bind-or-connect is built, with the
+  honest scope that a permanently wedged daemon is not reaped (process-mode, separate roadmap).
 - plan.md's deferred bullet (`daemon singleton (bind-or-connect)`) points here; check its box per
   stage.
 
