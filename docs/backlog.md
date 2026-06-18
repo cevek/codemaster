@@ -286,10 +286,17 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ### i18n
 
-- [ ] **I-b — within-file shadowing of a bound name can FABRICATE** — the identity scan is syntactic-
-      by-local-name with no scope resolution, so a local shadowing a bound `t` (e.g. a param `t`) is
-      matched → `find_missing` can emit a fabricated row, `find_unused` can mis-mark. Cheap closer:
-      gate a match on `scope-shadow.ts` (nearest binding IS the import/destructure). `bug`·`med`·`cx:M`
+- [ ] **I-b — within-file `const`/`let`/`var` REBIND of a bound name fabricates a missing row** —
+      param + catch-var shadowing is CLOSED (the by-identity scan gates the match through
+      `scope-shadow.ts` `extendShadow`). What remains: a `const`/`let`/`var` rebind of `t`
+      (`const t = (k) => k; t('absent.key')`) is NOT gated — `extendShadow` only introduces shadows
+      for params/catch vars, since a sound rebind skip needs block-POSITION-aware shadowing. The two
+      directions differ: `find_unused` UNDER-reports (counts the rebound call → false "used", safe),
+      but `find_missing` FABRICATES — a certain missing row with a proof-span on the local closure
+      for a key that is not an i18n usage. The same hole exists in the BY-NAME scan
+      (`scanByName`, `src/plugins/ts/literal-calls.ts`), which matches any same-named `t` with no
+      scope check at all (no binding pool to anchor `extendShadow` against). Rare.
+      `bug`·`fabrication`·`low`·`cx:M`
 - [ ] **I-c — a `tsconfig` `paths`/`baseUrl` edit leaves the identity scan on STALE compiler options**
       until a structural reindex re-globs (`ls-host` caches `parsed.options`; an in-place edit bumps
       `projectVersion` but resolves against the old `@/*` mapping). Niche. `bug`·`low`·`cx:M`

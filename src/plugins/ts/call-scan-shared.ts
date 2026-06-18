@@ -70,14 +70,18 @@ export function splitNames(fnNames: readonly string[]): {
   return { simpleLeaves, dotted };
 }
 
-/** Classify a call's first argument: a plain string literal is a static key (read verbatim);
- *  anything else (template, identifier, computed) is `dynamic`, never guessed (§18). */
+/** Classify a call's first argument: a string-literal-LIKE key is static (read verbatim);
+ *  anything else (interpolated template, identifier, computed) is `dynamic`, never guessed (§18).
+ *  `isStringLiteralLike` is exactly StringLiteral ∪ NoSubstitutionTemplateLiteral, so a backtick key
+ *  with NO interpolation (`t(`a.b`)`) is the static literal it provably is — not falsely dynamic
+ *  (which would drop a determinate use AND demote its namespace to partial). A `${…}` template is a
+ *  `TemplateExpression`, NOT string-literal-like → still dynamic. Both literal forms expose `.text`. */
 export function literalArgFields(
   sourceFile: ts.SourceFile,
   rel: Span['file'],
   arg0: ts.Expression,
 ): { arg?: string; span: Span; dynamic: boolean } {
   const span = spanFromRange(sourceFile, rel, arg0.getStart(sourceFile), arg0.getEnd());
-  if (ts.isStringLiteral(arg0)) return { arg: arg0.text, span, dynamic: false };
+  if (ts.isStringLiteralLike(arg0)) return { arg: arg0.text, span, dynamic: false };
   return { span, dynamic: true };
 }

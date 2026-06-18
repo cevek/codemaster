@@ -14,16 +14,22 @@
 // call sites against those local names.
 //
 // RESIDUALS (honest, documented):
-//  • WITHIN-FILE SHADOWING / REASSIGNMENT is the syntactic bound: a local that shadows a bound name
-//    (a parameter `t`, or a `const o = useHook()` base later reassigned / re-declared in an inner
-//    scope) is matched by name with no scope check — so it can FABRICATE or under-report depending
-//    on the shadow direction. Same class as the prior by-name model; closing it needs scope
-//    resolution (the checker), out of §19 budget here.
+//  • WITHIN-FILE SHADOWING by a function parameter or catch variable IS gated (a param `t` shadows
+//    the bound `t` inside its subtree, so its call is no longer matched — closes the param/catch
+//    case of backlog I-b). The remaining bound is a `const`/`let`/`var` REBIND of a bound name
+//    (`const t = (k) => k; t('x')`, or a `const o = useHook()` base re-declared in an inner scope)
+//    — NOT skipped, because a sound fix needs block-POSITION-aware shadowing (a subtree-wide skip
+//    would over-skip a real use earlier in the block). Same documented limitation as scope-shadow.ts;
+//    rare. The DIRECTIONS differ and only one is safe: `find_unused` UNDER-reports (the rebound call
+//    is counted as a use → a false "used", never a false "certain unused" — safe). But `find_missing`
+//    still FABRICATES — a rebound `t('absent.key')` emits a certain missing row with a proof-span on
+//    the local closure, a key that is not an i18n usage. So this residual is NOT uniformly "safe".
 //  • A `t` passed as a VALUE, a COMPUTED-index call (`i18n[expr]()`), and multi-hop re-export
 //    chains are not followed → under-report (never a fabricated usage).
 
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
+import { extendShadow } from './scope-shadow.ts';
 import {
   literalArgFields,
   splitNames,
@@ -102,9 +108,14 @@ export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): Litera
       const bindings = collectBindings(sourceFile, spec, ctx, specCache);
       if (bindings.idents.size === 0 && bindings.bases.size === 0) continue; // no binding here
 
-      const visit = (node: ts.Node): void => {
+      // Scope-shadow gate (backlog I-b): a local that shadows a bound name (a param `t`, a catch
+      // var) is NOT the module function — counting its call would FABRICATE a usage. Thread the
+      // shadowed set down the subtree (the css-modules precedent); the pool is every bound local.
+      const pool = new Set<string>([...bindings.idents.keys(), ...bindings.bases.keys()]);
+      const visit = (node: ts.Node, shadowed: ReadonlySet<string>): void => {
+        const inner = extendShadow(node, pool, shadowed);
         if (ts.isCallExpression(node)) {
-          const matched = matchCall(node.expression, bindings);
+          const matched = matchCall(node.expression, bindings, inner);
           if (matched !== undefined) {
             const arg0 = node.arguments[0];
             if (arg0 !== undefined) {
@@ -116,9 +127,9 @@ export function scanByIdentity(host: TsProjectHost, spec: CallMatchSpec): Litera
             }
           }
         }
-        ts.forEachChild(node, visit);
+        ts.forEachChild(node, (child) => visit(child, inner));
       };
-      visit(sourceFile);
+      visit(sourceFile, EMPTY_SHADOW);
     }
   }
   return { calls: out, mode: 'identity', moduleResolved: true };
@@ -261,12 +272,25 @@ function collectHookBindings(
   visit(sourceFile);
 }
 
+/** No shadowing at file scope — the root walk starts here. */
+const EMPTY_SHADOW: ReadonlySet<string> = new Set<string>();
+
 /** Match a call's callee against the file's bindings: an identifier `t`; a member access
  *  `base.leaf`; or an element access `base['leaf']` (a string-literal index) — all on a base
- *  PROVEN to bind the module, so resolving the literal leaf fabricates nothing. */
-function matchCall(expr: ts.Expression, bindings: FileBindings): IdentBinding | undefined {
-  if (ts.isIdentifier(expr)) return bindings.idents.get(expr.text);
+ *  PROVEN to bind the module, so resolving the literal leaf fabricates nothing. A callee whose
+ *  local NAME is `shadowed` (a param / catch var of that name introduced an enclosing scope) is
+ *  NOT the module binding → no match (backlog I-b). */
+function matchCall(
+  expr: ts.Expression,
+  bindings: FileBindings,
+  shadowed: ReadonlySet<string>,
+): IdentBinding | undefined {
+  if (ts.isIdentifier(expr)) {
+    if (shadowed.has(expr.text)) return undefined;
+    return bindings.idents.get(expr.text);
+  }
   if (ts.isPropertyAccessExpression(expr) && ts.isIdentifier(expr.expression)) {
+    if (shadowed.has(expr.expression.text)) return undefined;
     const fn = bindings.bases.get(expr.expression.text)?.get(expr.name.text);
     if (fn !== undefined) return { fn, provenance: 'namespace' };
   }
@@ -275,6 +299,7 @@ function matchCall(expr: ts.Expression, bindings: FileBindings): IdentBinding | 
     ts.isIdentifier(expr.expression) &&
     ts.isStringLiteral(expr.argumentExpression)
   ) {
+    if (shadowed.has(expr.expression.text)) return undefined;
     const fn = bindings.bases.get(expr.expression.text)?.get(expr.argumentExpression.text);
     if (fn !== undefined) return { fn, provenance: 'namespace' };
   }

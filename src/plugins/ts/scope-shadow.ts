@@ -13,8 +13,11 @@
 // class use. A correct fix needs block-POSITION-aware shadowing (a `const s` shadows only from
 // its declaration onward in its block — a subtree-wide skip would over-skip a real `s.x` earlier
 // in the same block, a worse, false-"unused" lie), so it is deferred rather than naively patched.
-// Low-frequency (rebinding a css-import default name with a local const is rare) and the safe
-// direction (a false "used", never a false "certain unused").
+// Low-frequency (rebinding a css-import default name with a local const is rare). For the
+// find-UNUSED direction this rebind residual is safe (a false "used", never a false "certain
+// unused"). It is NOT uniformly safe across consumers: the i18n identity scan (call-identity-scan.ts)
+// reuses this gate, and there a const/let/var rebind of `t` (`const t = …; t('absent.key')`) still
+// FABRICATES a find_missing row — a fabrication, not an under-report. Don't claim a blanket §3 win.
 
 import ts from 'typescript';
 
