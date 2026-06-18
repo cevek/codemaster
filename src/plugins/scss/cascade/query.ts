@@ -3,10 +3,12 @@
 // filter — never extending the plugin's hot `warm`/`reindex` path), then resolves. Kept off
 // `plugin.ts` so that file stays a thin public surface (the §"≤300 lines" rule).
 
+import * as path from 'node:path';
 import type { RepoRelPath } from '../../../core/brands.ts';
 import { matchesAnyGlob } from '../../../common/glob/match.ts';
 import { readTextOrAbsent } from '../../../support/fs/read-or-absent.ts';
 import { parseStylesheetRoot } from '../parse-root.ts';
+import { scrubRoot } from '../scrub-root.ts';
 import { extractContributions, type CascadeContribution } from './rules.ts';
 import { resolveCascade, type CascadeResolution } from './resolve.ts';
 import { analyzeBranch, splitSelectorList } from './specificity.ts';
@@ -42,9 +44,10 @@ export function runCascadeQuery(
   if (!resolved.ok) return resolved;
   const { target, owningFile } = resolved;
 
-  // The candidate set: every indexed `.scss` plus, for class mode, the owning sheet even if
-  // the index filtered it (a `.module.css` named explicitly). The file LIST comes from the
-  // caller's cached state (no per-call FS walk); the sheets are RE-PARSED fresh on demand.
+  // The candidate set: every indexed stylesheet (`.scss`/`.sass`/`.css`) plus, for class mode,
+  // the owning sheet even if it isn't in the index yet (e.g. just created, not yet reindexed).
+  // The file LIST comes from the caller's cached state (no per-call FS walk); the sheets are
+  // RE-PARSED fresh on demand.
   const candidates = new Set<RepoRelPath>(indexedSheets);
   if (owningFile !== undefined) candidates.add(owningFile);
 
@@ -56,12 +59,12 @@ export function runCascadeQuery(
     const read = readTextOrAbsent(root, rel);
     if (read.kind === 'absent') continue;
     if (read.kind === 'error') {
-      parseFailures.push({ file: rel, message: read.message });
+      parseFailures.push({ file: rel, message: scrubRoot(root, read.message) });
       continue;
     }
-    const parsed = parseStylesheetRoot(read.text, rel);
+    const parsed = parseStylesheetRoot(read.text, rel, path.join(root, rel));
     if (!parsed.ok) {
-      parseFailures.push({ file: rel, message: parsed.message });
+      parseFailures.push({ file: rel, message: scrubRoot(root, parsed.message) });
       continue;
     }
     scannedSheets++;
@@ -69,10 +72,8 @@ export function runCascadeQuery(
       contributions.push(...extractContributions(parsed.root, rel, read.text, target));
     } catch (thrown) {
       // A pathological selector must never throw out of a read op (§3.6).
-      parseFailures.push({
-        file: rel,
-        message: thrown instanceof Error ? thrown.message : String(thrown),
-      });
+      const message = thrown instanceof Error ? thrown.message : String(thrown);
+      parseFailures.push({ file: rel, message: scrubRoot(root, message) });
     }
   }
 

@@ -1,6 +1,7 @@
-// trap S7 (.sass indented syntax) — UNSUPPORTED everywhere: the scss plugin parses only
-// .scss and the css-module detector accepts only .scss/.css. Must be detected by NOTHING;
-// scss_classes must never list its classes. Imported as a bare side-effect from Table.tsx.
+// trap S7 (.sass INDENTED syntax) — the scss plugin indexes `.sass` (its extension is in the
+// index gate, matching the usage scanner), but postcss-scss parses brace SCSS, not indented
+// Sass, so this file surfaces an HONEST parse failure (no classes extracted, never silently
+// skipped, never guessed). Imported as a bare side-effect from Table.tsx.
 .legacy-row
   display: block
 .legacy-cell

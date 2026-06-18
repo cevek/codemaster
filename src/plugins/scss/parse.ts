@@ -11,10 +11,11 @@
 //   - `:global(...)` break-out: a selector inside `:global` is NOT a module-local class, so
 //     its classes are excluded from the module-local set.
 
+import postcss, { type Rule } from 'postcss';
 import postcssScss from 'postcss-scss';
-import type { Rule } from 'postcss';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
+import { isSassFile } from './parse-root.ts';
 import {
   selectorIsOwnedBy,
   composesLocalTargets,
@@ -58,10 +59,19 @@ const CLASS_TOKEN = /\.(-?[_a-zA-Z][\w-]*)/g;
 // carry their own `.class` token (or none) and are handled by CLASS_TOKEN.
 const AMP_CONCAT = /&([\w-]+)/g;
 
-export function parseScssClasses(rel: RepoRelPath, source: string): ScssParseOutcome {
+// `from` is the path postcss embeds in error messages — pass an absolute `<root>/<rel>` so a
+// parse failure carries an accurate, scrubbable path (a relative `from` resolves against cwd —
+// §scrub-root). Defaults to `rel` for tests. `.css` parses through plain postcss (it has no Sass
+// syntax); `.scss`/`.sass` through postcss-scss — matching the index gate's extension set.
+export function parseScssClasses(
+  rel: RepoRelPath,
+  source: string,
+  from: string = rel,
+): ScssParseOutcome {
   let root;
   try {
-    root = postcssScss.parse(source, { from: rel });
+    const syntax = isSassFile(rel) ? postcssScss : postcss;
+    root = syntax.parse(source, { from });
   } catch (thrown) {
     return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
   }

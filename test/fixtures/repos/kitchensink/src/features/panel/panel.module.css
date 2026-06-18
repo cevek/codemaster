@@ -1,6 +1,6 @@
-/* trap S6 (*.module.css CSS module): the partial trap — usage IS detected by the ts tier,
-   but the scss plugin parses only .scss, so these class DECLARATIONS are not parsed. Pin the
-   gap: scss_classes must not list `panelBox`/`panelHead`, yet they are imported + accessed. */
+/* trap S6 (*.module.css CSS module): a CSS-module sheet in plain-CSS syntax. The scss plugin
+   indexes it (plain postcss) and the ts tier detects the `s.panelBox` usage — index and usage
+   scanner agree, so scss_classes lists `panelBox`/`panelHead` and a used one is matched. */
 .panelBox {
   border: 1px solid;
 }

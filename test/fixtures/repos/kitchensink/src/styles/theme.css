@@ -1,5 +1,7 @@
-/* trap S8 (plain global .css side-effect import) — handled as a side-effect; not parsed for
-   module classes. Imported bare from App.tsx. */
+/* trap S8 (plain global .css side-effect import) — the scss plugin indexes it, so `theme-root`
+   is a listed class DECLARATION. But it's a flat (non-.module) global sheet referenced via
+   string classNames codemaster can't resolve, so find_unused demotes it to partial, never a
+   false `certain` dead. Imported bare from App.tsx. */
 .theme-root {
   color: black;
 }

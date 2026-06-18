@@ -34,18 +34,27 @@ const findUnusedScssClassesTable: TableSpec<JsonValue> = {
     ]);
   },
   notes(data) {
+    const out: string[] = [];
     const dynamicModules = (data as { dynamicModules?: string[] }).dynamicModules ?? [];
-    if (dynamicModules.length === 0) return [];
-    return [
-      `${dynamicModules.length} module(s) excluded from unused-analysis (computed class access — cannot prove unused): ${dynamicModules.join(', ')}`,
-    ];
+    if (dynamicModules.length > 0) {
+      out.push(
+        `${dynamicModules.length} module(s) with computed class access — their classes cannot be proven unused: ${dynamicModules.join(', ')}`,
+      );
+    }
+    const globalModules = (data as { globalModules?: string[] }).globalModules ?? [];
+    if (globalModules.length > 0) {
+      out.push(
+        `${globalModules.length} global (non-.module.*) stylesheet(s) — string classNames are unchecked, so their classes cannot be proven unused: ${globalModules.join(', ')}`,
+      );
+    }
+    return out;
   },
 };
 
 export const findUnusedScssClassesOp = defineOp({
   name: 'find_unused_scss_classes',
   summary:
-    'SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial',
+    'SCSS/CSS classes with no usage observed in TS/TSX (css-modules); dynamic access + global (non-.module.*) sheets demote to partial',
   mutating: false,
   requires: ['ts', 'scss'],
   argsSchema: z.strictObject({
@@ -56,6 +65,7 @@ export const findUnusedScssClassesOp = defineOp({
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
     'a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
+    'only css-MODULE sheets (`.module.scss`/`.module.css`/`.module.sass`, accessed as `s.foo`) can read `certain` unused. A flat/global `.scss`/`.css`/`.sass` is referenced via string `className="foo"` codemaster cannot resolve, so its classes demote to partial ("global stylesheet — string classNames unchecked").',
     'pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.',
   ],
   table: findUnusedScssClassesTable,
@@ -71,6 +81,7 @@ export const findUnusedScssClassesOp = defineOp({
         unused: view.unused,
         scanned: { modules: view.scannedModules, classes: view.scannedClasses },
         ...(view.dynamicModules.length > 0 ? { dynamicModules: view.dynamicModules } : {}),
+        ...(view.globalModules.length > 0 ? { globalModules: view.globalModules } : {}),
         ...(failures.length > 0 ? { parseFailures: failures } : {}),
       });
     } catch (thrown) {

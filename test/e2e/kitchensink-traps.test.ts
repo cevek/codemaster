@@ -107,27 +107,27 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
     );
   });
 
-  test('S1/S6/S7 — scss_classes lists .scss module classes, excludes .module.css and .sass', async () => {
+  test('S1/S6 — scss_classes lists .scss AND .module.css classes (index ⟷ usage scanner agree)', async () => {
     const r = await p.op('scss_classes', {});
     const data = okData(r);
-    const classes = data['classes'] as { name: string; file: string }[];
-    const names = new Set(classes.map((c) => c.name));
+    const names = new Set((data['classes'] as { name: string }[]).map((c) => c.name));
     assert.ok(names.has('card') && names.has('container'), 'simple module classes must be listed');
-    // S6 — .module.css declarations are NOT parsed by the scss tier (the pinned gap).
-    assert.ok(!names.has('panelBox'), '.module.css classes must not be listed by scss');
-    // S7 — .sass is unsupported everywhere.
-    assert.ok(!names.has('legacy-row'), '.sass classes must not be listed');
-    const files = new Set(classes.map((c) => c.file));
-    assert.ok(![...files].some((f) => f.endsWith('.css') || f.endsWith('.sass')));
+    // S6 — .module.css IS parsed now (plain postcss), so a used class can be matched.
+    assert.ok(names.has('panelBox'), '.module.css classes are listed by scss');
     assertSpansValid(p.root, r); // every scss class span must equal the source on disk
   });
 
-  test('S10 — the malformed .scss surfaces a per-file parse failure (TS program unaffected)', async () => {
+  test('S7/S10 — broken .scss AND indented .sass each surface an honest per-file parse failure', async () => {
     const data = okData(await p.op('scss_classes', {}));
     const failures = data['parseFailures'] as { file: string; message: string }[];
     assert.ok(
       failures.some((f) => f.file === 'src/styles/broken.scss' && /[Uu]nclosed/.test(f.message)),
       'broken.scss must surface a parse failure honestly',
+    );
+    // S7 — indented .sass isn't postcss-scss (brace) syntax → parseFailure, never a silent skip.
+    assert.ok(
+      failures.some((f) => f.file.endsWith('legacy.sass')),
+      'indented .sass → parseFailure',
     );
   });
 
@@ -143,7 +143,8 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
     // S5/S13 — a class in a module with computed access cannot be proven dead → partial.
     assert.equal(conf('variant-a', 'table.module.scss'), 'partial');
     assert.equal(conf('variant-b', 'table.module.scss'), 'partial');
-    // S9 — an interpolated-selector class is never guessed → partial.
+    // S9 — `icon-` is in the FLAT global `base.scss` → partial (interpolation→partial in a MODULE
+    // context is covered by scss-confidence.ts).
     assert.equal(conf('icon-', 'base.scss'), 'partial');
   });
 
@@ -309,7 +310,7 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
 
   // ---- §4.3 style rows (presence) + KNOWN-GAP pins (filed via feedback) ----
 
-  test('S2/S3/S8 — side-effect scss is class-listed; ≥3 dashboard modules; .css excluded', async () => {
+  test('S2/S3/S8 — side-effect scss is class-listed; ≥3 dashboard modules; global .css indexed', async () => {
     const classes = okData(await p.op('scss_classes', {}))['classes'] as {
       name: string;
       file: string;
@@ -322,8 +323,14 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
       classes.filter((c) => c.file.includes('dashboard/')).map((c) => c.file),
     );
     assert.ok(dashFiles.size >= 3, 'Dashboard pulls ≥3 css modules');
-    // S8 — the plain global .css is not parsed by the scss tier.
-    assert.ok(!names.has('theme-root'), 'theme.css classes must not be listed');
+    // S8 — the global .css IS indexed, but referenced via string classNames → demoted to partial,
+    // never a false certain dead (global .scss demotion is pinned in scss-css-sass-index.ts).
+    const unused = okData(await p.op('find_unused_scss_classes', {}))['unused'] as {
+      name: string;
+      confidence: string;
+    }[];
+    const themeRoot = unused.find((u) => u.name === 'theme-root');
+    assert.equal(themeRoot?.confidence, 'partial', 'a global .css class is never certain unused');
   });
 
   test('S12/S13 — composes class listed; static indirection-map classes counted USED', async () => {

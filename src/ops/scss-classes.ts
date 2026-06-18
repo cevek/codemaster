@@ -41,7 +41,7 @@ export const scssClassesOp = defineOp({
   argsHint: '{ file?: string }',
   example: { args: { file: 'src/button.module.scss' } },
   notes: [
-    'syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.',
+    'syntactic (postcss CST — postcss-scss for `.scss`/`.sass`, plain postcss for `.css`), not a resolved cascade; interpolated selectors carry partial confidence.',
   ],
   table: scssClassesTable,
   async run(ctx, args) {

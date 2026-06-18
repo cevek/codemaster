@@ -15,7 +15,8 @@ import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
 import { parseScssClasses, type ScssClass, type SheetReachability } from './parse.ts';
-import { parseStylesheetRoot } from './parse-root.ts';
+import { parseStylesheetRoot, isStylesheetFile, isCssModuleFile } from './parse-root.ts';
+import { scrubRoot } from './scrub-root.ts';
 import { classifyForExtract, type ClassVerdict } from './extract-classify.ts';
 import { extractRules, type ExtractedRules } from './extract-rules.ts';
 import {
@@ -55,6 +56,9 @@ export type UnusedScssView = {
   /** Modules whose importers use computed access — their classes can't be proven
    *  unused (§3.3: dynamic is flagged, never bridged). */
   dynamicModules: string[];
+  /** Flat (non-`.module.*`) stylesheets — referenced via string `className="…"` codemaster
+   *  can't resolve, so their classes are never provably dead (demoted `partial`, §3.3). */
+  globalModules: string[];
   scannedModules: number;
   scannedClasses: number;
 };
@@ -118,12 +122,12 @@ export function createScssPlugin(root: string): ScssPluginApi {
       return EMPTY_SHEET;
     }
     if (read.kind === 'error') {
-      failures.set(rel, read.message);
+      failures.set(rel, scrubRoot(root, read.message));
       return EMPTY_SHEET;
     }
-    const parsed = parseScssClasses(rel, read.text);
+    const parsed = parseScssClasses(rel, read.text, path.join(root, rel));
     if (!parsed.ok) {
-      failures.set(rel, parsed.message);
+      failures.set(rel, scrubRoot(root, parsed.message));
       return EMPTY_SHEET;
     }
     failures.delete(rel);
@@ -136,7 +140,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
       const walked = walkFiles(root);
       const files = walked.ok ? walked.data : (walked.data ?? []);
       for (const f of files) {
-        if (!f.path.endsWith('.scss')) continue;
+        if (!isStylesheetFile(f.path)) continue;
         state.set(f.path, parseOne(f.path));
       }
       version++;
@@ -171,7 +175,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
       if (state === undefined) return Promise.resolve();
       let touched = false;
       for (const rel of changed) {
-        if (!rel.endsWith('.scss')) continue;
+        if (!isStylesheetFile(rel)) continue;
         touched = true;
         const sheet = parseOne(rel);
         if (sheet.classes.length === 0 && !fileExists(root, rel)) state.delete(rel);
@@ -234,6 +238,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
 
       const unused: UnusedClassView[] = [];
       const dynamicModules: string[] = [];
+      const globalModules: string[] = [];
       let scannedModules = 0;
       let scannedClasses = 0;
       for (const [rel, sheet] of all) {
@@ -243,6 +248,10 @@ export function createScssPlugin(root: string): ScssPluginApi {
         const accesses = usages.byModule.get(rel) ?? [];
         const hasDynamic = accesses.some((a) => a.confidence === 'dynamic');
         if (hasDynamic) dynamicModules.push(rel);
+        // A flat (non-`.module.*`) sheet is a GLOBAL stylesheet: classes are referenced via
+        // string `className="…"` codemaster can't resolve, so none is provably dead (§3.3).
+        const isGlobal = !isCssModuleFile(rel);
+        if (isGlobal && sheet.classes.length > 0) globalModules.push(rel);
         const used = new Set(accesses.filter((a) => a.className !== '').map((a) => a.className));
         const { entangledOnly } = sheet.reachability;
         const crossReach = crossSheetReachable.get(rel);
@@ -268,7 +277,14 @@ export function createScssPlugin(root: string): ScssPluginApi {
 
         for (const [name, { rep, partial }] of collapsed) {
           if (used.has(name)) continue;
-          const demoted = demote(name, partial, hasDynamic, entangledOnly, linkedReachable);
+          const demoted = demote(
+            name,
+            partial,
+            hasDynamic,
+            isGlobal,
+            entangledOnly,
+            linkedReachable,
+          );
           unused.push({
             ...toView(rel, rep),
             confidence: demoted.confidence,
@@ -276,7 +292,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
           });
         }
       }
-      return { unused, dynamicModules, scannedModules, scannedClasses };
+      return { unused, dynamicModules, globalModules, scannedModules, scannedClasses };
     },
 
     parseFailures: () => failures,
@@ -289,7 +305,8 @@ export function createScssPlugin(root: string): ScssPluginApi {
       try {
         return { ok: true, verdicts: classifyForExtract(parsed.root, classNames, usedInRemaining) };
       } catch (thrown) {
-        return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        return { ok: false, message: scrubRoot(root, message) };
       }
     },
 
@@ -300,7 +317,8 @@ export function createScssPlugin(root: string): ScssPluginApi {
       try {
         return { ok: true, sheets: extractRules(parsed.root, safeClassNames, file) };
       } catch (thrown) {
-        return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        return { ok: false, message: scrubRoot(root, message) };
       }
     },
 
@@ -311,18 +329,26 @@ export function createScssPlugin(root: string): ScssPluginApi {
 }
 
 /** Decide an unused class's honest confidence + reason. "Could not prove dead" is `partial`,
- *  never `certain` unused (§3.3/§3.4). A computed access anywhere in the module (`hasDynamic`)
- *  demotes the whole module; a class reachable via `composes:`/`@extend`, or one living only in
- *  an entangled contextual/compound/nested selector, or declared via interpolation, is likewise
- *  not provably dead. Only a genuinely simple, cleanly-owned, statically-unreferenced class
- *  stays `certain`. */
+ *  never `certain` unused (§3.3/§3.4). A flat (non-`.module.*`) GLOBAL sheet's classes are
+ *  referenced via string `className` codemaster can't see (`isGlobal`); a computed access
+ *  anywhere in the module (`hasDynamic`) demotes the whole module; a class reachable via
+ *  `composes:`/`@extend`, or one living only in an entangled contextual/compound/nested
+ *  selector, or declared via interpolation, is likewise not provably dead. Only a genuinely
+ *  simple, cleanly-owned, statically-unreferenced css-MODULE class stays `certain`. */
 function demote(
   name: string,
   partial: boolean,
   hasDynamic: boolean,
+  isGlobal: boolean,
   entangledOnly: ReadonlySet<string>,
   linkedReachable: ReadonlySet<string>,
 ): { confidence: Confidence; note?: string } {
+  if (isGlobal) {
+    return {
+      confidence: 'partial',
+      note: 'global stylesheet — string classNames unchecked, cannot prove unused',
+    };
+  }
   if (hasDynamic) {
     return { confidence: 'partial', note: 'importer uses computed access — cannot prove unused' };
   }
@@ -345,11 +371,14 @@ function demote(
 /** Read a stylesheet from disk and parse it to a CST `Root`. A read OR parse failure is
  *  returned, never thrown (§3.6) — the co-extract op leaves every class behind on failure. */
 function readAndParse(root: string, file: RepoRelPath): ReturnType<typeof parseStylesheetRoot> {
+  const abs = path.join(root, file);
   let source: string;
   try {
-    source = readFileSync(path.join(root, file), 'utf8');
+    source = readFileSync(abs, 'utf8');
   } catch (thrown) {
-    return { ok: false, message: thrown instanceof Error ? thrown.message : String(thrown) };
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    return { ok: false, message: scrubRoot(root, message) };
   }
-  return parseStylesheetRoot(source, file);
+  const parsed = parseStylesheetRoot(source, file, abs);
+  return parsed.ok ? parsed : { ok: false, message: scrubRoot(root, parsed.message) };
 }

@@ -286,14 +286,27 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ### scss
 
-- [ ] **scss plugin indexes `.scss` only** — `warm`/`reindex` gate on `.endsWith('.scss')`, so the
-      cross-sheet search misses `.module.css`/`.sass` unless named directly. `cssModuleUsages` already
-      accepts them → index and usage scanner disagree. Fix: index `.css`/`.sass` (one walk-filter +
-      parser pick). `bug`·`med`·`cx:S`
-- [ ] **scss `parseFailures` leaks an ABSOLUTE path** — every scss parse-failure path reports a
-      message embedding the machine path (postcss resolves `from` to absolute `Input.file`). Leaks
-      the path into agent output + breaks path-scrub/golden stability across machines. Fix: strip the
-      leading `${root}/` when recording the failure. `bug`·`med`·`cx:S`
+- [ ] **indented `.sass` → parse failure (half-support)** — the index gate accepts `.sass` (to match
+      the css-module usage scanner's `/\.(scss|sass|css)$/`), but postcss-scss parses brace SCSS, not
+      indented Sass — so an indented `.sass` sheet surfaces an honest `parseFailure` (no classes
+      extracted), never a silent skip. Its `s.foo` usages are still seen by the ts tier, so its
+      classes are invisible to `scss_classes`/`find_unused` while usages are counted — an honest
+      half-support. Full indented-sass support needs a real indented-sass parser (dart-sass /
+      `sass`). `bug`·`low`·`cx:M`
+- [ ] **co-extract path-scrub is untested** — the `classifyForExtract`/`extractRules` catch blocks
+      now `scrubRoot` their thrown message (defensive: keeps "scrub on every failure exit" true by
+      construction), but there is no test repro of a co-extract throw that EMBEDS a path (the
+      taxonomy walk / CST clone don't surface `input.file` today). Add a scrub assertion when a
+      pathological throwing-with-path co-extract case surfaces. `bug`·`low`·`cx:S`
+- [ ] **stylesheet-extension matching is case-sensitive** — `isStylesheetFile`/`isCssModuleFile`
+      (scss plugin) and the TS `cssModuleUsages` scanner (`css-modules.ts` `/\.(scss|sass|css)$/`)
+      are all case-sensitive, so `foo.MODULE.css` over-demotes to `partial` (treated global) and
+      `x.module.CSS` isn't indexed at all. CONSISTENT between gate and scanner (conservative — a
+      `partial` is never a false `certain`), so not a lie; fix only if an uppercase-extension repo is
+      in scope. `bug`·`low`
+- [ ] **`scss/plugin.ts` near the 300-line cap** — ~290 real lines after the index/demotion/scrub
+      work; the next scss change should split it by responsibility (e.g. lift `unusedClasses`/`demote`
+      into their own module) rather than grow it. `dx`·`low`
 - [ ] **`:local(.foo)` subject form not matched as a module class** — `:global(.x)` paren classes are
       extracted but `:local(.x)` (the explicit form of the default) is missed → a rule written
       `:local(.foo){…}` is invisible for target `foo`. Rare false-NEGATIVE. Fix: pull `:local(...)`

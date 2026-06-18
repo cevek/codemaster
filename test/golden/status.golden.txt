@@ -54,18 +54,19 @@ ops (20):
     columns: name,kind,file,line,col,confidence,symbol,note
     e.g. op {"name":"find_unused_exports","args":{"pathInclude":["src/features/**"]}}
   scss_classes { file?: string } — SCSS class declarations across the workspace (or one stylesheet)
-    · syntactic (postcss-scss CST), not a resolved cascade; interpolated selectors carry partial confidence.
+    · syntactic (postcss CST — postcss-scss for `.scss`/`.sass`, plain postcss for `.css`), not a resolved cascade; interpolated selectors carry partial confidence.
     columns: name,file,line,col,confidence
     e.g. op {"name":"scss_classes","args":{"file":"src/button.module.scss"}}
   css_cascade { file+class: string, OR selector: string, pathInclude?: string[], pathExclude?: string[] } — Resolved cascade for a CSS-module class: rules targeting it across sheets, ordered by specificity, winner per property
     · a rule TARGETS the class when its rightmost compound (the subject) carries it — `.parent .foo` and `.foo[aria-x]` target `foo`; `.foo .bar` does NOT (foo is only an ancestor there).
     · cross-module is syntactic only: CSS-module class names are per-file scoped, so a same-named class in ANOTHER sheet is a different runtime class unless composed/:global/applied to the same element — such a winner is named & ordered but stays `partial` (§19).
     · a winner is `certain` only when same-module, unconditional (no descendant/state/attribute/:not context), statically valued, and untied; state/attribute/@media/interpolated/computed/cross-module → `partial` with the reason, never a false resolved winner.
-    · scopeable by pathInclude/pathExclude (globs over the .scss path); the owning sheet is always searched. Searches the currently-INDEXED .scss set (a just-created sheet may be missed until reindex; a `.css`/`.sass` sheet only when named directly as {file}). A no-match answer is `partial`, not a proven absence.
+    · scopeable by pathInclude/pathExclude (globs over the .scss path); the owning sheet is always searched. Searches the currently-INDEXED stylesheet set (`.scss`/`.sass`/`.css`); a just-created sheet may be missed until reindex, but the owning sheet named in {file} is always read fresh. A no-match answer is `partial`, not a proven absence.
     columns: prop,value,specificity,winner_file,winner_selector,important,confidence,note
     e.g. op {"name":"css_cascade","args":{"file":"src/button.module.scss","class":"button"}}
-  find_unused_scss_classes { pathInclude?: string[], pathExclude?: string[] } — SCSS classes with no usage observed in TS/TSX (css-modules); dynamic access demotes to partial
+  find_unused_scss_classes { pathInclude?: string[], pathExclude?: string[] } — SCSS/CSS classes with no usage observed in TS/TSX (css-modules); dynamic access + global (non-.module.*) sheets demote to partial
     · a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.
+    · only css-MODULE sheets (`.module.scss`/`.module.css`/`.module.sass`, accessed as `s.foo`) can read `certain` unused. A flat/global `.scss`/`.css`/`.sass` is referenced via string `className="foo"` codemaster cannot resolve, so its classes demote to partial ("global stylesheet — string classNames unchecked").
     · pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.
     columns: name,file,line,col,confidence,note
     e.g. op {"name":"find_unused_scss_classes","args":{"pathInclude":["src/features/**"]}}
