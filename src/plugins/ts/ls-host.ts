@@ -20,6 +20,7 @@ import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import {
   discoverSiblingConfigs,
   findRepoTsconfigs,
+  isTsconfigBasename,
   relLabel,
   type DiscoveredConfig,
 } from './program/discover.ts';
@@ -175,6 +176,25 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     relOf,
     isTracked: (rel) => primary.isTracked(toPosix(path.join(root, rel))),
     reindex(changed) {
+      // A tsconfig add/remove/edit in the changed set may change the discovered-sibling SET and the
+      // undiscovered SET — both host-lifetime memos that §3.5 content-fingerprint freshness can NOT
+      // see (it fingerprints file CONTENT, not the tsconfig set). Left stale, a `git checkout` that
+      // ADDS a nested tsconfig importing a `src` export would read that export `certain`-DEAD until
+      // an MCP reconnect (a silent false-dead). So invalidate the memos here — but ONLY on a cheap
+      // basename scan of the (small) changed set, NEVER a repo re-walk per reindex (the §19 ls-host
+      // per-call-tree-scan hang class). The actual re-walk (findRepoTsconfigs) then happens LAZILY
+      // on the next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed.
+      if (changed.some(isTsconfigChange)) {
+        discovered = undefined;
+        undiscovered = undefined;
+        // Dispose already-built siblings before dropping them: the set they were built from may no
+        // longer match discover(), and an undisposed sibling LS would leak. They rebuild lazily
+        // from the current tree on the next cross-program read.
+        if (siblings !== undefined) {
+          for (const sibling of siblings) sibling.dispose();
+          siblings = undefined;
+        }
+      }
       // Propagate to every BUILT program (each decides structural-ness against its OWN glob — a
       // new test file is structural for the test program, not the primary). Unbuilt siblings are
       // untouched; they read the current tree when first warmed.
@@ -226,6 +246,13 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       for (const program of builtSoFar()) program.dispose();
     },
   };
+}
+
+/** Does a reindex changed path point at a tsconfig (add/remove/edit)? `RepoRelPath` is posix, so a
+ *  trailing-segment basename is all we need — the shared predicate keeps this in lockstep with
+ *  sibling discovery and the undiscovered scan. */
+function isTsconfigChange(rel: RepoRelPath): boolean {
+  return isTsconfigBasename(rel.slice(rel.lastIndexOf('/') + 1));
 }
 
 function resolveConfigPath(root: string, override?: string): string | undefined {

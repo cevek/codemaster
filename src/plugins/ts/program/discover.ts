@@ -49,7 +49,7 @@ export function discoverSiblingConfigs(
   const dir = path.dirname(primaryConfigPath);
   try {
     for (const entry of readdirSync(dir)) {
-      if (/^tsconfig\..+\.json$/.test(entry) || entry === 'tsconfig.json') {
+      if (isTsconfigBasename(entry)) {
         add(path.join(dir, entry));
       }
     }
@@ -91,6 +91,14 @@ function referencePaths(configPath: string): string[] {
   return out;
 }
 
+/** True for a tsconfig basename — `tsconfig.json` or `tsconfig.<name>.json`. The single predicate
+ *  behind sibling discovery (source 1), the repo-wide undiscovered scan (`findRepoTsconfigs`), AND
+ *  the `ls-host` reindex cache-invalidation trigger (a tsconfig add/remove in the changed set), so
+ *  the three can never drift apart. */
+export function isTsconfigBasename(base: string): boolean {
+  return base === 'tsconfig.json' || /^tsconfig\..+\.json$/.test(base);
+}
+
 export function relLabel(root: string, abs: string): string {
   const rel = path.relative(root, abs);
   return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
@@ -111,7 +119,7 @@ export function findRepoTsconfigs(root: string): string[] {
   const out: string[] = [];
   for (const f of walked.data ?? []) {
     const base = f.path.slice(f.path.lastIndexOf('/') + 1);
-    if (base === 'tsconfig.json' || /^tsconfig\..+\.json$/.test(base)) {
+    if (isTsconfigBasename(base)) {
       out.push(`${rootPosix}/${f.path}`);
     }
   }
