@@ -102,11 +102,16 @@ daemon without the socket. The socket daemon is a `mcp`-only concern.
 
 ## 6. Staging (each independently shippable)
 
-- **Stage 1 — stop the bleeding (orphan-reaping on today's model), small.** Without the
-  bridge/daemon split: add the **idle self-exit hard deadline** to `serveMcp` (a timer armed
-  between requests; on idle with no in-flight request → dispose + `exit(0)`). This bounds orphan
-  lifetime to the TTL even when stdin-EOF is missed. Does **not** fix amortization (still N warm
-  LSes for N concurrent clients) — but it ends the unbounded pile-up immediately and is a few lines.
+- **Stage 1 — stop the bleeding (orphan-reaping on today's model), small. ✅ shipped.** Without the
+  bridge/daemon split: an **idle self-exit hard deadline** in `serveMcp` (`src/mcp/idle-exit.ts` —
+  a deadline armed between requests; enter()/finally-leave() bracket every call so it never fires
+  mid-request; on idle with no in-flight request → dispose + `exit(0)`). TTL = `daemon.idleEvictionMinutes`
+  read at `mcp` start from the cwd's config (fallback = the shared engine default). This bounds orphan
+  lifetime to the TTL once the event loop is free — a missed/leaked/transiently-blocked-then-freed
+  EOF; a **permanently** wedged synchronous loop is out of scope (only Stage 2's process isolation +
+  kill reaps that). Does **not** fix amortization (still N warm LSes for N concurrent clients) — but
+  it ends the unbounded pile-up. The CLI one-shot path (§5) is untouched: it never calls `serveMcp`,
+  so no idle timer leaks into it.
 - **Stage 2 — the singleton (amortization + convergence), the real fix.** The §2–§4 daemon + bridge
   split. Delivers the warm-state sharing §2 promises and subsumes Stage 1's idle-exit at the daemon
   level.

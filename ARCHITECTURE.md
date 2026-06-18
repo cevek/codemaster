@@ -59,6 +59,11 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
   only routes — the one exception is a **cross-root `sql` join**, which evaluates the
   engines' already-projected, ephemeral rows (thin data, never project state) in a
   transient in-memory SQLite at the front door (§11).
+  **Roadmap, not yet implemented:** the machine-wide singleton (bind-or-connect on a
+  socket — §19) is not built; today each `mcp` connection hosts its **own** in-process
+  orchestrator (no amortization across connections). A Stage-1 idle self-exit hard deadline
+  bounds an orphan's lifetime to the idle TTL once the event loop is free — a permanently
+  wedged synchronous loop is out of scope until the daemon split (spec-daemon-singleton).
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
   root): all registered **plugins** (`ts`, `scss`, `i18n`, `schema`, framework adapters)
   with their internal state, plus the **ops** that compose them. Everything for that
@@ -1103,9 +1108,12 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **SCSS analysis is syntactic** (`postcss-scss` — a CST, not a resolved module graph or
   computed values): cross-`@use`/`@forward` orphan checks are `partial`; computed-property
   work needs real `sass`/dart-sass. (§5-L2, wishlist)
-- **Daemon singleton.** Two concurrent launches converge on one daemon: atomic
-  bind-or-connect (or a lockfile), unlink a stale socket after a liveness probe on
-  `EADDRINUSE`, loser connects to the winner. (§2)
+- **Daemon singleton** _(roadmap; not yet implemented — see spec-daemon-singleton)._ Two
+  concurrent launches converge on one daemon: atomic bind-or-connect (or a lockfile), unlink
+  a stale socket after a liveness probe on `EADDRINUSE`, loser connects to the winner. Today
+  each `mcp` connection hosts its own in-process orchestrator; a Stage-1 idle self-exit hard
+  deadline bounds an orphan's lifetime to the idle TTL once the event loop is free (a
+  permanently wedged sync loop waits on the daemon split). (§2)
 - **IPC endpoint portability.** Socket at a short, hashed path (a long `$HOME` or macOS
   `/var/folders` `os.tmpdir()` can blow `sun_path`'s ~104/108-byte limit) with a length
   assertion at bind. Add a `Transport` seam (mirroring `ProjectHost`) so a Windows named-pipe

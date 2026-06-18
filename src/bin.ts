@@ -13,7 +13,9 @@ import { systemClock } from './common/async/clock.ts';
 import { createDebugSystem } from './support/debug/system.ts';
 import { createStderrSink } from './support/debug/stderr-sink.ts';
 import { createChokidarWatcher } from './support/watch/chokidar.ts';
-import { Orchestrator } from './daemon/orchestrator.ts';
+import { Orchestrator, DEFAULT_IDLE_EVICTION_MIN } from './daemon/orchestrator.ts';
+import { loadConfig } from './support/config-load/load.ts';
+import { isOk } from './common/result/narrow.ts';
 import { createTsPlugin } from './plugins/ts/plugin.ts';
 import { createScssPlugin } from './plugins/scss/plugin.ts';
 import { createI18nPlugin } from './plugins/i18n/plugin.ts';
@@ -63,6 +65,17 @@ function buildOrchestrator(): Orchestrator {
   });
 }
 
+/** The `mcp` server's idle self-exit TTL in ms, from `daemon.idleEvictionMinutes` at `cwd`
+ *  (fallback = the shared engine default). A missing/unreadable config is the default — never a
+ *  crash on the serve path. */
+function mcpIdleMs(cwd: string): number {
+  const loaded = loadConfig(cwd);
+  const minutes = isOk(loaded)
+    ? (loaded.data.config.daemon?.idleEvictionMinutes ?? DEFAULT_IDLE_EVICTION_MIN)
+    : DEFAULT_IDLE_EVICTION_MIN;
+  return minutes * 60_000;
+}
+
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
@@ -98,7 +111,13 @@ async function main(): Promise<number> {
   switch (command) {
     case 'mcp': {
       const orchestrator = buildOrchestrator();
-      await serveMcp(orchestrator, VERSION);
+      // Process-level idle self-exit (spec-daemon-singleton Stage 1): bound an orphan's life to
+      // the TTL even when stdin-EOF never arrives. No global config exists at start (config is
+      // per-repo, lazy), so the deadline reuses daemon.idleEvictionMinutes from the cwd's config
+      // (fallback = the shared engine default) — there's no reason to outlive every engine.
+      await serveMcp(orchestrator, VERSION, {
+        idle: { clock: systemClock, idleMs: mcpIdleMs(root ?? process.cwd()) },
+      });
       return -1; // stays alive serving stdio
     }
     case 'status': {

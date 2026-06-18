@@ -72,7 +72,9 @@ interface EngineSlot {
   idleEvictionMs: number;
 }
 
-const DEFAULT_IDLE_EVICTION_MIN = 30;
+/** Default idle TTL (minutes) — shared by per-engine eviction (§9) and the `mcp` server's
+ *  process-level idle self-exit (spec-daemon-singleton Stage 1). */
+export const DEFAULT_IDLE_EVICTION_MIN = 30;
 const DEFAULT_SWEEP_SECONDS = 60;
 const DEFAULT_MAX_ENGINES = 8;
 

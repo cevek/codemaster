@@ -5,11 +5,14 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
+import type { Clock } from '../common/async/clock.ts';
+import { createIdleExit, type IdleExit } from './idle-exit.ts';
 import type { Orchestrator } from '../daemon/orchestrator.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
 import { renderResult } from '../format/render/render-result.ts';
@@ -23,7 +26,28 @@ import {
   statusToolSchema,
 } from './schema.ts';
 
-export async function serveMcp(orchestrator: Orchestrator, version: string): Promise<void> {
+/** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
+ *  `exit` is injectable so tests assert the exit code without killing the runner. */
+interface IdleExitOptions {
+  clock: Clock;
+  idleMs: number;
+  exit?: (code: number) => void;
+}
+
+export interface ServeMcpOptions {
+  /** Bound the process's life to the idle TTL even when stdin-EOF never arrives. Omitted →
+   *  no idle deadline (EOF/signal shutdown only). The `mcp` CLI path always supplies it. */
+  idle?: IdleExitOptions;
+  /** Transport seam (§16 determinism): defaults to stdio; tests inject an in-memory pair to
+   *  drive the real handler. */
+  transport?: Transport;
+}
+
+export async function serveMcp(
+  orchestrator: Orchestrator,
+  version: string,
+  options?: ServeMcpOptions,
+): Promise<void> {
   const server = new Server(
     { name: 'codemaster', version },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
@@ -32,15 +56,29 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
   // Self-staleness banner is ONE-SHOT per session (spec-stresstest §6): see `createOnceBanner`.
   const sessionBanner = createOnceBanner(() => orchestrator.sourceStale());
 
+  // The idle deadline is created (and the timer armed) only when `idle` is supplied — i.e.
+  // the `mcp` serve path. The CLI one-shot path (`status`/`op`) never calls serveMcp, so no
+  // timer can leak into it (spec-daemon-singleton §5).
+  let idleExit: IdleExit | undefined;
+
   // The MCP client owns our lifetime: when it closes stdin (session over), dispose
   // engines (watchers would otherwise keep the event loop alive — a zombie per
-  // session) and exit.
+  // session) and exit. The idle deadline is the belt-and-suspenders for a missed EOF.
+  const exit = options?.idle?.exit ?? ((code: number): void => process.exit(code));
   const shutdown = (): void => {
+    idleExit?.stop();
     void orchestrator
       .dispose()
       .catch(() => undefined)
-      .finally(() => process.exit(0));
+      .finally(() => exit(0));
   };
+  if (options?.idle !== undefined) {
+    idleExit = createIdleExit({
+      clock: options.idle.clock,
+      idleMs: options.idle.idleMs,
+      onIdle: shutdown,
+    });
+  }
   server.onclose = shutdown;
   process.stdin.on('end', shutdown);
   process.on('SIGTERM', shutdown);
@@ -52,6 +90,10 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
+    // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
+    // stay >0 and the server could never idle-exit — the orphan would persist).
+    idleExit?.enter();
     const cwd = process.cwd();
     try {
       switch (request.params.name) {
@@ -120,11 +162,16 @@ export async function serveMcp(orchestrator: Orchestrator, version: string): Pro
       // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
       const message = thrown instanceof Error ? thrown.message : String(thrown);
       return errorText(`codemaster internal error: ${message} (daemon still up; please report)`);
+    } finally {
+      idleExit?.leave();
     }
   });
 
-  const transport = new StdioServerTransport();
+  const transport = options?.transport ?? new StdioServerTransport();
   await server.connect(transport);
+  // Arm the initial deadline only after connect — a server that never receives a request still
+  // self-exits after the TTL.
+  idleExit?.start();
 }
 
 export function opResultText(
