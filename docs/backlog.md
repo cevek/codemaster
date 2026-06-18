@@ -28,8 +28,20 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 - [ ] **`plugins/react`** (`deps:['ts']`) — component detection, hook identification, dialog/sheet
       conventions. `feat`·`med`·`cx:L`
-- [ ] **`plugins/react-query`** (`deps:['ts']`) — mutations, queries, queryKeys, `invalidates`
-      relations. `feat`·`med`·`cx:L`
+- [x] **`plugins/react-query`** (`deps:['ts']`) — mutations, queries, queryKeys, `invalidates`
+      relations via the `ts.callArgShapes` seam; `invalidations_for` op + `list` registries.
+      Residuals (out of v1 scope):
+  - [ ] **react-query v4 positional hook signatures** — `useQuery(key, fn)` / `useMutation(fn, opts)`
+        positional forms are NOT detected (v5 object-form only); positional `invalidateQueries(['a'])`
+        IS handled via the generic arg-shape. `feat`·`low`·`cx:S`
+  - [ ] **`new QueryClient()` receiver** — the invalidate-family methods match a `useQueryClient()`
+        binding only; a `const qc = new QueryClient()` receiver is not matched (deferred to W5-a). `feat`·`low`·`cx:S`
+  - [ ] **`queryKeys` registry = query keys only** — lists each query's key (one entry per query site,
+        no dedup; invalidation-only keys are not included). `feat`·`low`·`cx:S`
+  - [ ] **`dynamicKeyedQueries` note wording** — for a BROAD edge (`invalidateQueries()` with no key)
+        the opaque-keyed queries DO appear in `affects` as `dynamic` (matchKey's opaque-check follows
+        the broad-check), so the op note "not listed under affects" is imprecise. Cosmetic — no false
+        `certain`; tighten to "not listed under a CONCRETE invalidation's affects". `bug`·`low`·`cx:S`
 - [ ] **`plugins/tanstack-router`** (`deps:['ts']`) — route declarations. `feat`·`low`·`cx:M`
 - [ ] **`plugins/zustand`** (`deps:['ts']`) — stores. `feat`·`low`·`cx:S`
 - [ ] **autodetection** — presence of dep in `package.json` + config gate. `feat`·`low`·`cx:S`

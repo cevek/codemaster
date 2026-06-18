@@ -9,6 +9,7 @@ import type { Plugin } from '../core/plugin.ts';
 import type { CodemasterConfig } from '../config/config.ts';
 import { installedDependencies } from '../support/framework-detect/installed.ts';
 import { createReactPlugin } from '../plugins/react/plugin.ts';
+import { createReactQueryPlugin } from '../plugins/react-query/plugin.ts';
 
 /** A framework plugin + the npm dependency that autodetects it. */
 interface FrameworkSpec {
@@ -18,7 +19,7 @@ interface FrameworkSpec {
 
 const FRAMEWORK_PLUGINS: Record<string, FrameworkSpec> = {
   react: { dep: 'react', create: () => createReactPlugin() },
-  // 'react-query': { dep: '@tanstack/react-query', create: () => createReactQueryPlugin() },
+  'react-query': { dep: '@tanstack/react-query', create: () => createReactQueryPlugin() },
 };
 
 /** The framework plugins to load for `root`: dep-present OR config-named. */
