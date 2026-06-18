@@ -95,6 +95,12 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       MCP session reconnects (catalogue loaded at spawn), so new-op validation falls back to the e2e
       harness. Read ops already hot-reload via the read-time freshness backstop. Relates to
       daemon-singleton. `dx`·`med`·`cx:M`
+- [ ] **idle-exit brackets only `CallTool`, not `ListTools`** — the Stage-1 idle deadline
+      (`src/mcp/idle-exit.ts`) is reset by `op`/`status`/`batch` calls but NOT by `tools/list`.
+      Harmless and arguably correct (listTools is instant; an orphan that only ever lists tools
+      should still reap, and a tool-active client resets the deadline on its next real call), but
+      formally one request type sits outside the enter()/leave() bracketing. Note for when the
+      Stage-2 daemon owns the lifetime. `dx`·`low`·`cx:S`
 
 ---
 

@@ -67,8 +67,12 @@ function buildOrchestrator(): Orchestrator {
 
 /** The `mcp` server's idle self-exit TTL in ms, from `daemon.idleEvictionMinutes` at `cwd`
  *  (fallback = the shared engine default). A missing/unreadable config is the default — never a
- *  crash on the serve path. */
+ *  crash on the serve path. `CODEMASTER_MCP_IDLE_MS` is a test/debug override (sub-second TTL for
+ *  the real-process smoke; production uses whole minutes via config) — it wins when a positive
+ *  finite number, else ignored. */
 function mcpIdleMs(cwd: string): number {
+  const envMs = Number(process.env['CODEMASTER_MCP_IDLE_MS']);
+  if (Number.isFinite(envMs) && envMs > 0) return envMs;
   const loaded = loadConfig(cwd);
   const minutes = isOk(loaded)
     ? (loaded.data.config.daemon?.idleEvictionMinutes ?? DEFAULT_IDLE_EVICTION_MIN)

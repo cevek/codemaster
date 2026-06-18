@@ -64,8 +64,14 @@ export async function serveMcp(
   // The MCP client owns our lifetime: when it closes stdin (session over), dispose
   // engines (watchers would otherwise keep the event loop alive — a zombie per
   // session) and exit. The idle deadline is the belt-and-suspenders for a missed EOF.
+  // Five triggers can call shutdown (onclose / stdin 'end' / SIGTERM / SIGINT / idle), so a
+  // re-entry guard keeps it to one dispose+exit (dispose is idempotent anyway — this just
+  // avoids the redundant calls).
   const exit = options?.idle?.exit ?? ((code: number): void => process.exit(code));
+  let shuttingDown = false;
   const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     idleExit?.stop();
     void orchestrator
       .dispose()
