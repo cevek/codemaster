@@ -121,6 +121,13 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       cheap, untracked files keep old mtimes → no hash escalation). Scope `statDirty` to
       tracked-modified paths (untracked can't be the porcelain-insensitive re-dirty case). `perf`·`low`·`cx:S`
 - [ ] **`ts` public API gaps** — `assignability`, `imports(file)`, deep `expandType`. `feat`·`low`·`cx:M`
+- [ ] **re-export `callArgShapes` result types on the `ts` public surface** (feedback) — `plugins/ts/plugin.ts`
+      re-exports `CallMatchSpec` but not the result types (`ValueShape` / `ValueProp` / `ShapedCall` /
+      `CallArgShapesResult`, in `call-scan-shared.ts`). A framework-plugin consumer derives them via
+      `ReturnType<TsPluginApi['callArgShapes']>` + indexed-access (works, keeps the public-method contract —
+      the idiom i18n uses for `literalCalls`). A one-line `export type { … } from './call-scan-shared.ts'`
+      lets authors name the discriminated union directly. Hit building `react-query`; future framework
+      plugins (zustand / tanstack-router) hit the same. `dx`·`low`·`cx:S`
 - [ ] **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`
 - [ ] **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into
       every plugin's `reindex` (same effect); revisit when plugins multiply. `dx`·`low`·`cx:S`
