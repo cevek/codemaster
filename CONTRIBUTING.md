@@ -4,8 +4,45 @@ You are most likely an agent building codemaster. Read **[ARCHITECTURE.md](ARCHI
 §1 (north star) and §3 (trust contract), plus **[src/README.md](src/README.md)** (layering),
 before editing. ARCHITECTURE.md is the source of truth; this file is the working rulebook.
 
-**One command:** `npm run fix-and-check` — `eslint --fix` → `prettier --write` → `tsc` →
-`knip`. Green before anything is "done".
+**One command:** `npm run fix-and-check` — `eslint --fix` → `knip --fix-type exports --fix-type
+types` → `prettier --write` → `tsc` → `knip`. Green before anything is "done".
+
+**It auto-removes the mechanical dead code — don't hand-edit it.** Two whole classes of
+"unused" failure fix themselves, so an agent never spends tokens (or a round-trip) deleting
+them by hand:
+
+- **Unused imports** — `eslint --fix` strips them via `unused-imports/no-unused-imports`
+  (autofixable). The base `@typescript-eslint/no-unused-vars` is off so the plugin owns
+  imports; `unused-imports/no-unused-vars` keeps the _non-import_ dead-binding an **error**
+  (same `^_` escape hatch) — deliberately **not** autofixable, since deleting a dead value can
+  change behavior, so you stay in the loop on those.
+- **Truly-dead exports** — `knip --fix-type exports --fix-type types` strips the `export`
+  keyword off a value/type that is **used nowhere** (it stays as a private declaration; tsc
+  then nets any consumer the strip would break). It touches **only** the export keyword — never
+  files, declarations, or `package.json` deps (the dangerous `--fix-type files`/`dependencies`
+  are not enabled). The two `--fix-type` flags are **repeated, not comma-joined**:
+  `knip@6.15` silently no-ops on the `exports,types` comma form — use the repeated flag.
+
+The autofix is safe to run blind because of one knip setting: **`ignoreExportsUsedInFile: true`**
+(`knip.jsonc`). It makes knip flag — and therefore strip — only exports that are dead
+_everywhere_. An export that is **referenced within its own file** (the common
+build-the-API-then-add-the-consumer pattern, e.g. a public type that ships one commit ahead of
+its first importer) is treated as used and is **never** stripped. So the autofix can't quietly
+remove an intended-but-not-yet-consumed contract. The repo's public surface is doubly safe:
+`src/index.ts` and `src/bin.ts` are knip **entry points** (resolved from `package.json`
+`main`/`bin`), so everything they re-export is "used" and out of the strip's reach.
+
+> **Forward-footgun — the one case the autofix _will_ silently bite.** `ignoreExportsUsedInFile`
+> only spares an export that is **used in its own file**. So if you add a **cross-module export
+> ahead of its first importer** — the build-the-contract-first pattern — _and_ that export is
+> **not referenced anywhere in its own file**, and its file is **not** an entry point
+> (`index.ts`/`bin.ts`), then the next `fix-and-check` will **silently strip its `export`
+> keyword**. `tsc` does **not** catch this — the symbol simply becomes file-local and still
+> compiles; you only notice when the consumer you add next can't import it. To keep such an
+> export, in the **same change** either: (a) reference it within its own file, (b) add (or
+> re-export through `index.ts`) the consumer, or (c) if it must sit truly unconsumed for now,
+> add it to a `knip.jsonc` `ignore`/`ignoreExportsUsedInFile`-exempt entry with a one-line note.
+> The default — strip what nothing uses — is the honest behavior; this is the footgun it implies.
 
 ## The gate (CI is authoritative)
 

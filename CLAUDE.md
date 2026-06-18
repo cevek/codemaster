@@ -33,8 +33,12 @@ Cross-reference these by `§`; keep this file a pointer, not a copy.
 - **Built for the long run.** Maintainability beats shortcuts — small, single-responsibility,
   strictly layered (imports flow downward; `ops/` import only `plugins/`/`support/`/`common/`/`format/`/`core/`;
   `plugins/` form a strict DAG; `common/` imports only `core/`; `core/` imports nothing internal).
-- **Quality is enforced, not hoped for.** `npm run fix-and-check` (eslint --fix → prettier →
-  tsc → knip) must be green before anything is "done".
+- **Quality is enforced, not hoped for.** `npm run fix-and-check` (eslint --fix → knip
+  --fix-type exports/types → prettier → tsc → knip) must be green before anything is "done".
+  It **auto-removes** the mechanical dead code — unused imports (eslint) and truly-dead
+  exports (knip strips just the `export` keyword) — so don't hand-delete those; only
+  declarations dead _everywhere_ are touched (`ignoreExportsUsedInFile` keeps an
+  awaiting-its-consumer export safe). See CONTRIBUTING "One command".
 - **Tests need an independent oracle** — a fixture is only input.
 - **Docs describe the present**, never the past — git holds history.
 - **Tokens are scarce** — dense, coded output; no noise.

@@ -1,5 +1,6 @@
 // @ts-check
 import tseslint from 'typescript-eslint';
+import unusedImports from 'eslint-plugin-unused-imports';
 
 // Minimal, high-signal ESLint for an agent-built, long-lived codebase.
 // Rule of admission: a rule earns its place only if it prevents real damage or
@@ -19,7 +20,7 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
-    plugins: { '@typescript-eslint': tseslint.plugin },
+    plugins: { '@typescript-eslint': tseslint.plugin, 'unused-imports': unusedImports },
     rules: {
       // ── File size — agents love growing a file to thousands of lines ─────────
       // 300 lines of real code; comments and blank lines do not count.
@@ -45,9 +46,19 @@ export default tseslint.config(
       // assert it away. This is the "never lie" north star applied to the code
       // itself: be honest about absence.
       '@typescript-eslint/no-non-null-assertion': 'error',
-      '@typescript-eslint/no-unused-vars': [
+      // Unused-vars is split so the mechanical, fully-autofixable case is removed for free:
+      //   • `unused-imports/no-unused-imports` (autofixable) strips an unused import on
+      //     `eslint --fix`, so an agent never burns tokens hand-deleting a dead import.
+      //   • `unused-imports/no-unused-vars` keeps the *non-import* dead-binding error (same
+      //     `^_` escape hatch as before) — it is NOT autofixable, by design: deleting a dead
+      //     value can change behavior, so the agent stays in the loop on those.
+      // The base `@typescript-eslint/no-unused-vars` must be off, or it double-reports the
+      // imports the plugin already owns (the plugin's documented setup).
+      '@typescript-eslint/no-unused-vars': 'off',
+      'unused-imports/no-unused-imports': 'error',
+      'unused-imports/no-unused-vars': [
         'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+        { vars: 'all', varsIgnorePattern: '^_', args: 'after-used', argsIgnorePattern: '^_' },
       ],
 
       // ── stdout is the agent-facing payload ───────────────────────────────────

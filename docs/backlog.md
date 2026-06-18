@@ -80,6 +80,13 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ## Platform / infra
 
+- [ ] **`knip --fix-type` comma form silently no-ops (knip@6.15).** `fix-and-check` strips dead
+      exports with **two repeated** flags (`--fix-type exports --fix-type types`) **on purpose** —
+      the documented comma form (`--fix-type exports,types`, or `=exports,types`) parses but fixes
+      nothing in knip 6.15.0 (the gate still reports the dead export, autofix never fires). Don't
+      "simplify" the script back to the comma form. Re-check on a knip bump; collapse to the comma
+      form (or upstream a fix) once it actually applies. `dx`·`low`·`cx:S`
+
 - [ ] **Wedged-daemon recovery** — the singleton (spec-daemon-singleton, shipped) reaps orphans via
       the daemon's idle-exit + the bridge's per-request reply deadline, but a **permanently wedged
       daemon** (accepts connections but never replies — a wedged synchronous loop holding the socket)
