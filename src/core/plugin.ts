@@ -10,6 +10,7 @@
 // plugin provides through TypeScript types; no runtime feature probing.
 
 import type { RepoRelPath } from './brands.ts';
+import type { ListView } from './list.ts';
 
 /** An opaque per-plugin freshness fingerprint. Plugins compute their own (e.g. a hash
  *  of `(path, size, mtime)` tuples; a counter incremented on internal commit; etc.); the
@@ -67,6 +68,20 @@ export interface Plugin {
    *  lists the tsconfigs whose programs it spans for cross-program usages, §11 / Task G). Cheap and
    *  side-effect-free; `undefined` when there is nothing extra to report. */
   statusDetail?(): string | undefined;
+
+  /** OPTIONAL: the named registries this plugin owns and can `list` (e.g. the `react` plugin's
+   *  `['components','hooks','dialogs']`, the `react-query` plugin's `['queries','mutations',
+   *  'queryKeys']`). The generic `list` op (§11) enumerates these across the active plugins to
+   *  route a `list {registry}` call to its owner — so a new framework plugin contributes
+   *  registries by implementing this, with no edit to the op. Typed-optional, like
+   *  `statusDetail` — never reflection on the plugin shape. Cheap and side-effect-free. */
+  listRegistries?(): readonly string[];
+
+  /** OPTIONAL: list one of this plugin's registries (a name from `listRegistries`). Proof-carrying
+   *  (each entry ships its span + confidence + provenance — §3.2/§3.3). Called only for a registry
+   *  this plugin claimed via `listRegistries`; an unclaimed name is the op's concern, not the
+   *  plugin's. */
+  list?(registry: string): ListView;
 }
 
 /** The plugin registry — composition root for one engine. Built at engine spin-up,

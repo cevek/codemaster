@@ -15,6 +15,7 @@ import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
 import { createI18nPlugin } from '../../src/plugins/i18n/plugin.ts';
 import { createSchemaPlugin } from '../../src/plugins/schema/plugin.ts';
+import { frameworkPlugins } from '../../src/daemon/framework-plugins.ts';
 import { builtinOps } from '../../src/ops/builtins.ts';
 import { renderStatus, type RenderStatusOptions } from '../../src/format/render/render-status.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
@@ -168,6 +169,7 @@ export async function project(
       ...(config.schema !== undefined
         ? [createSchemaPlugin(repoRoot, [config.schema.entrypoint])]
         : []),
+      ...frameworkPlugins(config, repoRoot),
     ],
     opsFor: () => builtinOps(),
   });

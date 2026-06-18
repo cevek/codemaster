@@ -19,6 +19,7 @@ import { i18nLookupOp } from './i18n-lookup.ts';
 import { findUnusedI18nKeysOp } from './find-unused-i18n-keys.ts';
 import { findMissingI18nKeysOp } from './find-missing-i18n-keys.ts';
 import { listEndpointsOp } from './list-endpoints.ts';
+import { listOp } from './list.ts';
 import { renameSymbolOp } from './rename-symbol.ts';
 import { moveFileOp } from './move-file.ts';
 import { moveSymbolOp } from './move-symbol.ts';
@@ -46,6 +47,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     findUnusedI18nKeysOp,
     findMissingI18nKeysOp,
     listEndpointsOp,
+    listOp,
     renameSymbolOp,
     moveFileOp,
     moveSymbolOp,

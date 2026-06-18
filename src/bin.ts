@@ -21,6 +21,7 @@ import { createTsPlugin } from './plugins/ts/plugin.ts';
 import { createScssPlugin } from './plugins/scss/plugin.ts';
 import { createI18nPlugin } from './plugins/i18n/plugin.ts';
 import { createSchemaPlugin } from './plugins/schema/plugin.ts';
+import { frameworkPlugins } from './daemon/framework-plugins.ts';
 import { builtinOps } from './ops/builtins.ts';
 import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
@@ -62,6 +63,7 @@ function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin
     ...(config.schema !== undefined && config.schema.generator !== 'custom'
       ? [createSchemaPlugin(root, [config.schema.entrypoint])]
       : []),
+    ...frameworkPlugins(config, root),
   ];
 }
 

@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (20):
+ops (21):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -72,6 +72,12 @@ ops (20):
     · pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.
     columns: name,file,line,col,confidence,note
     e.g. op {"name":"find_unused_scss_classes","args":{"pathInclude":["src/features/**"]}}
+  list { registry: string } — List a named registry (components, hooks, dialogs, routes, queries, …) — routed to the owning plugin
+    · GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.
+    · an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).
+    · entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).
+    columns: key,kind,name,file,line,col,confidence,provenance,detail
+    e.g. op {"name":"list","args":{"registry":"components"}}
   rename_symbol [mutating] { symbol?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)
     · dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.
     · apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.

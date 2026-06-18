@@ -90,6 +90,7 @@ const EXCLUSIONS: Record<string, string> = {
   impact:
     'emits encloser rollups (file:line:col + chainable SymbolIds), like find_usages grouped mode — no verbatim Spans; closure correctness is oracle-tested in impact.test.ts',
   feedback: 'writes the global inbox; carries no source Spans',
+  list: 'generic registry dispatcher — emits Spans only when a registry-owning framework plugin is active (none in this fixture); span validity is exercised in react-detect.test.ts',
   rename_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_file: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
