@@ -10,4 +10,10 @@
   // its module wires it in — knip will then verify the real import and flag this entry as
   // redundant, so the list prunes itself.
   "ignoreDependencies": [],
+  // Only flag an export that is used NOWHERE (not even in its own file) — so the knip
+  // export-autofix (fix-and-check) strips only truly-dead exports. An export used within
+  // its own file is intentional: it carries a cross-module contract awaiting a consumer
+  // landing in a later change (e.g. a core/list type a not-yet-merged framework plugin
+  // imports). Auto-stripping those would break the build-the-API-then-the-consumer flow.
+  "ignoreExportsUsedInFile": true,
 }
