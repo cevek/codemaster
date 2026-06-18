@@ -12,8 +12,8 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Clock } from '../common/async/clock.ts';
-import { createIdleExit, type IdleExit } from './idle-exit.ts';
-import type { Orchestrator } from '../daemon/orchestrator.ts';
+import { createIdleExit, type IdleExit } from '../common/async/idle-exit.ts';
+import type { OrchestratorApi } from '../daemon/orchestrator-api.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
 import { renderResult } from '../format/render/render-result.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
@@ -44,7 +44,7 @@ export interface ServeMcpOptions {
 }
 
 export async function serveMcp(
-  orchestrator: Orchestrator,
+  orchestrator: OrchestratorApi,
   version: string,
   options?: ServeMcpOptions,
 ): Promise<void> {

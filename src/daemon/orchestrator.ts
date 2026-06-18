@@ -39,6 +39,7 @@ import { createEngine } from './engine.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
+import type { OrchestratorApi } from './orchestrator-api.ts';
 
 export interface OrchestratorDeps {
   clock: Clock;
@@ -78,7 +79,7 @@ export const DEFAULT_IDLE_EVICTION_MIN = 30;
 const DEFAULT_SWEEP_SECONDS = 60;
 const DEFAULT_MAX_ENGINES = 8;
 
-export class Orchestrator {
+export class Orchestrator implements OrchestratorApi {
   private readonly deps: OrchestratorDeps;
   private readonly engines = new Map<RepoId, EngineSlot>();
   private readonly trace;

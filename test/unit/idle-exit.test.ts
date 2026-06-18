@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { createIdleExit } from '../../src/mcp/idle-exit.ts';
+import { createIdleExit } from '../../src/common/async/idle-exit.ts';
 import { serveMcp } from '../../src/mcp/server.ts';
 import type { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import type { Clock } from '../../src/common/async/clock.ts';

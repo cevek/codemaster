@@ -24,6 +24,9 @@ import { builtinOps } from './ops/builtins.ts';
 import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
+import { serveDaemon } from './daemon/daemon-server.ts';
+import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
+import { socketPath } from './support/transport/socket-path.ts';
 
 const VERSION = '0.1.0';
 
@@ -113,6 +116,21 @@ async function main(): Promise<number> {
   const root = argValue(args, '--root');
 
   switch (command) {
+    case 'daemon': {
+      // Internal: the long-lived singleton the bridge spawns (spec-daemon-singleton §2). Hosts one
+      // in-process orchestrator behind the unix socket, shared across every bridge. Not a
+      // user-facing command — `codemaster mcp` (the bridge) spawns and converges on it (Stage 2c).
+      const orchestrator = buildOrchestrator();
+      const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
+      const transport = createUnixSocketTransport(socket);
+      await serveDaemon({
+        orchestrator,
+        transport,
+        clock: systemClock,
+        idleMs: mcpIdleMs(process.cwd()),
+      });
+      return -1; // long-lived
+    }
     case 'mcp': {
       const orchestrator = buildOrchestrator();
       // Process-level idle self-exit (spec-daemon-singleton Stage 1): bound an orphan's life to
