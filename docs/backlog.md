@@ -105,9 +105,7 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       re-probe could be unlinked → a transient split-brain (two daemons). It self-heals (the orphan
       idle-exits by TTL). A bind-first scheme (the spawned daemon owns the unlink+bind atomically, the
       bridge never unlinks) would close it fully. `bug`·`low`·`cx:S`
-- [ ] **`degradedStatus` reports `isolation:'in-process'` for an unreachable REMOTE bridge**
-      (`remote-orchestrator.ts`) — cosmetic mislabel on a daemon-unreachable `status` (the failure is
-      surfaced honestly in `workspaceError`; only the isolation tag is imprecise). `dx`·`low`·`cx:S`
+- [ ] **`StatusView.isolation` репортит engine-host-mode, бессмысленный на degraded remote-пути** — поле = режим транспорта движка (`config.daemon.isolation`), форвардится от daemon; healthy-путь хардкодит `'in-process'` (orchestrator.ts:187), `'process'` не реализован (отклоняется на спавне, orchestrator.ts:254-260). На недостижимом daemon (`degradedStatus`) спросить некого, любой конкретный тег произволен: `'process'` — over-claim несуществующего режима + флип от достижимости; `'in-process'` просто совпадает с единственным реализованным режимом и healthy-путём (выбран). Честный "unknown" потребовал бы редефайна поля сквозь healthy-path + докстринг + render — кросс-каттинг, вне скоупа. Косметика; `engines:0` + `workspaceError` уже несут факт сбоя. `infra`·`low`·`cx:M`
 - [ ] **daemon bind sets `process.umask(0o177)` process-globally** for the bind window
       (`support/transport/unix-socket.ts`) — safe today (no other startup I/O; plugins are lazy), but
       a future concurrent startup file-write would inherit 0600. Prefer a per-socket mode at create if
