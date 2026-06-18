@@ -80,6 +80,22 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       `--max-old-space-size`, OS-reclaim-on-kill, real cross-workspace parallelism, and the
       kill-on-deadline backstop that reaps a wedged engine/daemon (above). The daemon would own the
       child engines. `feat`·`med`·`cx:L`
+- [ ] **convergence hardening — liveness-probe-before-unlink / bind-first** (`connect-or-spawn.ts`).
+      The bridge re-probes before unlinking a socket (§19), so it only clears a stale file — but a
+      narrow residual race remains: a daemon another bridge binds in the microsecond after the
+      re-probe could be unlinked → a transient split-brain (two daemons). It self-heals (the orphan
+      idle-exits by TTL). A bind-first scheme (the spawned daemon owns the unlink+bind atomically, the
+      bridge never unlinks) would close it fully. `bug`·`low`·`cx:S`
+- [ ] **`degradedStatus` reports `isolation:'in-process'` for an unreachable REMOTE bridge**
+      (`remote-orchestrator.ts`) — cosmetic mislabel on a daemon-unreachable `status` (the failure is
+      surfaced honestly in `workspaceError`; only the isolation tag is imprecise). `dx`·`low`·`cx:S`
+- [ ] **daemon bind sets `process.umask(0o177)` process-globally** for the bind window
+      (`support/transport/unix-socket.ts`) — safe today (no other startup I/O; plugins are lazy), but
+      a future concurrent startup file-write would inherit 0600. Prefer a per-socket mode at create if
+      a portable API appears. `bug`·`low`·`cx:S`
+- [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
+      makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
+      amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
 - [ ] **No wall-time bound on synchronous TS ops** — `find_unused_exports` (`cap×O(import-graph)`)
       and a 10k-importer `find_usages` are bounded by DESIGN but don't degrade to honest
       `ToolFailure{timeout}` on a pathological whole-repo call. The hard guarantee is §19 engine

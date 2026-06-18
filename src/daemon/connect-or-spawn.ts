@@ -1,8 +1,11 @@
-// Bind-or-connect convergence (spec-daemon-singleton §2/§19): every `codemaster mcp` bridge ends up
-// talking to exactly ONE daemon. Try to connect; if there's no live daemon (ENOENT = no socket;
-// ECONNREFUSED = a stale socket from a SIGKILLed daemon), unlink any stale file, spawn a daemon, and
-// poll-connect within a bounded budget. A launch race resolves at the daemon's bind: the loser
-// daemon gets EADDRINUSE and exits, both bridges poll-connect onto the winner.
+// Bind-or-connect convergence (spec-daemon-singleton §2/§19): every `codemaster mcp` bridge
+// converges on one daemon. Try to connect; if none answers, RE-PROBE (a second connect — the §19
+// liveness probe) right before clearing the socket, so we only unlink a genuinely STALE file
+// (ENOENT = none; ECONNREFUSED = a SIGKILLed daemon's leftover), never a daemon another bridge just
+// bound; then spawn and poll-connect within a bounded budget. A launch race resolves at the daemon's
+// bind (the loser gets EADDRINUSE and exits, both bridges connect to the winner). A narrow residual
+// race remains — the re-probe can miss a daemon that binds in the microsecond after it — but it
+// self-heals: the orphaned daemon idle-exits by TTL (convergence hardening tracked in backlog).
 //
 // Never-hang (§1): connect attempts and the spawn-wait are bounded by a deadline → return
 // `undefined` so the caller falls back to in-process serving (Stage-1 behavior), never a spin.
@@ -35,8 +38,13 @@ export async function connectOrSpawnDaemon(
   const existing = await tryConnect(deps.transport);
   if (existing !== undefined) return existing;
 
-  // No live daemon. Remove a stale socket file (ECONNREFUSED left it behind) so the spawned daemon
-  // can bind a fresh endpoint, then spawn and wait — bounded.
+  // Re-probe before clearing the socket (§19 liveness probe): between the first probe and now,
+  // another bridge may have bound a LIVE daemon. If it answers, use it — never unlink a live socket.
+  const reprobe = await tryConnect(deps.transport);
+  if (reprobe !== undefined) return reprobe;
+
+  // Confirmed no live daemon. Remove a stale socket file (a SIGKILLed daemon's leftover) so the
+  // spawned daemon can bind a fresh endpoint, then spawn and wait — bounded.
   unlinkIfExists(deps.socketPath, trace);
   trace('spawning daemon', () => ({ socket: deps.socketPath }));
   deps.spawnDaemon();
