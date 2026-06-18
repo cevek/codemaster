@@ -159,17 +159,25 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       import-graph proxy) so usages are SEEN and only genuinely-undiscovered-reachable exports demote —
       precise, not blunt. Risk: slurping hermetic fixture/sub-project configs as siblings (cost + the
       reason discovery is conservative today); needs a "shares the import graph" test the cheap blunt
-      floor avoids. NOT the full monorepo project-reference redirect graph (still scoped OUT). `imp`·`med`·`cx:L`
-- [ ] **Discovered/undiscovered config caches aren't invalidated on a post-warm tsconfig add/remove** —
-      both `discover()` (the sibling set) and `undiscoveredProgramLabels()` (the unloaded set) are
-      host-lifetime memoized; `reindex` never resets them and §3.5 freshness fingerprints file CONTENT,
-      not the tsconfig SET. So a `git checkout` to a branch that ADDS a nested `tsconfig.json` importing
-      a `src` export reads that export `certain`-DEAD until an MCP reconnect — a silent false-dead in the
-      window. Same staleness class as the pre-existing `discover()` cache (the floor strictly improves
-      cold-boot, doesn't regress it); surfaced today only as an inline comment (`ls-host.ts`), and §3
-      "honest, never silent" wants it tracked. §19-safe fix: invalidate the caches ONLY when a `reindex`
-      changed-set contains an added/removed `tsconfig*.json` — never a re-walk per reindex (the `ls-host`
-      per-call-tree-scan hang class). `bug`·`med`·`cx:M`
+      floor avoids. NOT the full monorepo project-reference redirect graph (still scoped OUT). `imp`·`med`·`cx:L` - **Sub-note (post-warm invalidation under-reach, `bug`·`low`).** `ls-host` reindex now invalidates
+      the discovered/undiscovered memos when a `tsconfig*.json` appears in the changed set, BUT a
+      `references:[{path:"./base.json"}]` chain through a NON-`tsconfig*.json`-named config is missed:
+      an edit to `base.json`'s own `references` has basename `base.json`, so `isTsconfigChange` (a
+      basename match) doesn't fire and a newly-chained config isn't picked up until reconnect. This is
+      CONSISTENT with — not worse than — the pre-existing discovery blind zone: `findRepoTsconfigs`
+      (the undiscovered floor) and source-1 sibling discovery already only see `tsconfig*.json` names,
+      so an arbitrarily-named referenced config was never discovered either. Closed wholesale by the
+      real-nested-discovery stretch above (which would key invalidation off the resolved config graph,
+      not basenames). Orthogonally, the trigger OVER-invalidates on any tsconfig EDIT (not just
+      add/remove) — the safe direction (a redundant lazy recompute, never a stale read), not a bug.
+- [ ] **The `ls-host` reindex sibling-dispose branch is uncovered by tests** — `reindex`'s tsconfig-change
+      path disposes + drops ALREADY-BUILT sibling programs (`if (siblings !== undefined)`) so they
+      re-warm from the current tree on the next cross-program read. Correct by design (§8 tear-free: a
+      reindex is between serialized requests), but the existing invalidation test never builds siblings
+      before the tsconfig change ((b) is host-level + sibling-free; (a) asserts the undiscovered memo,
+      not a sibling re-warm), so the dispose branch runs only in production. Add a scenario that forces a
+      cross-program build (a cross-program `find_usages`/dead-code read), THEN a post-warm tsconfig change,
+      and asserts the rebuilt sibling reflects the new tree. `dx`·`low`·`cx:S`
 - [ ] **`find_usages` / `importers_of` under-report a usage living only in an UNDISCOVERED program** —
       the parallel gap to the `find_unused_exports` floor above: a `src` symbol referenced ONLY from a
       nested-package program codemaster doesn't load reads as having that usage MISSING (a completeness

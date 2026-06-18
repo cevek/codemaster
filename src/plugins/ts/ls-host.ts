@@ -101,8 +101,9 @@ export interface TsProjectHost {
    *  program's files could reference an export every LOADED program reads as dead, so
    *  `find_unused_exports` demotes its otherwise-`certain` verdicts to `partial` against this set
    *  (never a silent false-dead, §3.4). Empty on the common repo (all tsconfigs adjacent/
-   *  referenced). Cached once — never per query (§19). Like `discover()`, a config ADDED post-warm
-   *  is not picked up (consistent with sibling discovery; reconnect to re-scan). */
+   *  referenced). Cached once — never per query (§19); the memo is invalidated by `reindex` when a
+   *  `tsconfig*.json` lands in the changed set, so a config ADDED post-warm IS picked up (no
+   *  reconnect needed) without a per-reindex re-walk. */
   undiscoveredProgramLabels(): readonly string[];
   dispose(): void;
 }
