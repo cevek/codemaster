@@ -43,6 +43,10 @@ export interface TestProject {
    *  `-c user.email/-c user.name` incantation is needed). */
   commit(message: string): void;
   clock: Clock & { advance(ms: number): void };
+  /** Recorded engine-eviction reasons (the `eviction` debug namespace, captured via a
+   *  test sink). Lets a config-reload test prove an edit DID evict (`'config changed'`)
+   *  and a no-op did NOT — a real oracle, not just a behavioral proxy. */
+  evictions(): readonly string[];
   dispose(): Promise<void>;
 }
 
@@ -140,6 +144,12 @@ export async function project(
 
   const clock = manualClock();
   const debug = createDebugSystem(clock);
+  // Record engine evictions so config-reload tests can assert eviction happened (or didn't)
+  // — the `eviction` namespace routed to an in-memory sink. Harmless for other tests (no
+  // other suite reads it); the matcher only governs which lines reach this recorder.
+  const evictionLog: string[] = [];
+  debug.configure('eviction');
+  debug.addSink({ write: (line) => evictionLog.push(line), dispose: () => undefined });
   const orchestrator = new Orchestrator({
     clock,
     debug,
@@ -181,6 +191,7 @@ export async function project(
     commit,
     write,
     remove: (rel) => rmSync(path.join(root, rel)),
+    evictions: () => [...evictionLog],
     async op(name, args) {
       const outcome = await orchestrator.request(root, root, [{ name, args }]);
       if (!outcome.ok) throw new Error(`dispatch failed: ${outcome.message}`);

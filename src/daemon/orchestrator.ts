@@ -13,7 +13,6 @@ import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { Clock, CancelTimer } from '../common/async/clock.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
-import { fnv1a64Hex } from '../common/hash/fnv.ts';
 import type { SqlBounds } from './sql-batch.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
@@ -33,7 +32,8 @@ import { canonicalizeRoot } from '../support/fs/canonicalize.ts';
 import { gitRepoRoot } from '../support/git/repo-root.ts';
 import { tsProjectRefusal } from './ts-project-check.ts';
 import { loadConfig } from '../support/config-load/load.ts';
-import { createRotatingFileSink } from '../support/debug/file-sink.ts';
+import { configChanged, configFingerprint } from '../support/config-load/fingerprint.ts';
+import { attachRepoLogSink } from './repo-log-sink.ts';
 import type { CodemasterConfig } from '../config/config.ts';
 import { createEngine } from './engine.ts';
 import { createInProcessHost } from './in-process-host.ts';
@@ -71,6 +71,10 @@ interface EngineSlot {
   root: string;
   lastUsedMs: number;
   idleEvictionMs: number;
+  /** Content fingerprint of the config the engine was spawned from (config-reload). On
+   *  request entry the orchestrator re-fingerprints the on-disk config and evicts on
+   *  drift, so the next request re-spawns with the fresh plugin set / config options. */
+  configFp: string;
 }
 
 /** Default idle TTL (minutes) — shared by per-engine eviction (§9) and the `mcp` server's
@@ -228,11 +232,16 @@ export class Orchestrator implements ServingOrchestrator {
       await this.evict(repoId, 'root vanished');
       return { ok: false, message: `workspace root no longer exists: ${root}` };
     }
+    // config-reload (§3.5: read-path is the guarantee, not the watcher): the warm engine
+    // baked its plugin set / config options at spawn. Reuse it only while the config file is
+    // byte-identical; on drift evict so the fall-through re-spawns fresh. An `'unknown'` read
+    // (a delete racing the resolve) is inconclusive and never evicts.
     const existing = this.engines.get(repoId);
-    if (existing !== undefined) {
+    if (existing !== undefined && !configChanged(existing.configFp, configFingerprint(root))) {
       existing.lastUsedMs = this.deps.clock.now();
       return { ok: true, slot: existing };
     }
+    if (existing !== undefined) await this.evict(repoId, 'config changed');
 
     const loaded = loadConfig(root);
     if (!isOk(loaded)) {
@@ -256,13 +265,7 @@ export class Orchestrator implements ServingOrchestrator {
     // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.
     const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
     const stateDir = this.deps.stateDir ?? path.join(home, '.codemaster');
-    const repoKey = `${path.basename(root)}-${fnv1a64Hex(repoId).slice(0, 8)}`;
-    const logMaxBytes =
-      config.debug?.logMaxMB !== undefined ? config.debug.logMaxMB * 1024 * 1024 : undefined;
-    this.deps.debug.addRoutedSink(
-      repoId,
-      createRotatingFileSink(path.join(stateDir, repoKey, 'debug.log'), logMaxBytes),
-    );
+    attachRepoLogSink(this.deps.debug, stateDir, repoId, root, config.debug?.logMaxMB);
 
     const created = await createEngine({
       repoId,
@@ -291,6 +294,9 @@ export class Orchestrator implements ServingOrchestrator {
       root,
       lastUsedMs: this.deps.clock.now(),
       idleEvictionMs: (config.daemon?.idleEvictionMinutes ?? DEFAULT_IDLE_EVICTION_MIN) * 60_000,
+      // The hash of the EXACT bytes loadConfig evaluated — airtight against a config write
+      // racing this spawn (a post-load re-read could store newer bytes than the engine ran).
+      configFp: loaded.data.fingerprint,
     };
     this.engines.set(repoId, slot);
     this.trace('engine spawned', () => ({ repo: repoId, engines: this.engines.size }));

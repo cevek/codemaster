@@ -679,6 +679,18 @@ tool/agent state dirs (`.idea`/`.vscode`/`.claude`/…), and files > 1 MB — no
 honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
 [`src/config/config.ts`](src/config/config.ts).
 
+**Config changes apply automatically (not just at cold start).** The engine bakes its
+plugin set + config-derived options from the config at spawn, so a config edit must
+re-spawn it to take effect. The orchestrator takes a content fingerprint of the resolved
+`codemaster.config.*` (the exact bytes `loadConfig` evaluated, stored at spawn) and, on
+every request entry — the read path is the guarantee, not the watcher (§3.5) — compares
+it against the current file; on drift it evicts the engine (§9) so the next request lazily
+re-spawns from the fresh config. Edit, add-where-none, and remove are all covered. An
+edit that breaks the config (syntax / zod) fails the re-spawn honestly — the prior engine
+is already evicted, so the next request returns the actionable load error, never a
+silently-stale plugin set; fixing the file recovers on the next request. An unreadable
+fingerprint (a delete racing the read) is inconclusive and never evicts.
+
 ---
 
 ## 11. MCP surface (lean by design)

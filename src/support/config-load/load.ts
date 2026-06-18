@@ -7,7 +7,7 @@
 //
 // No config at all is a valid, working state (defaults honor .gitignore etc.).
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
 import ts from 'typescript';
@@ -15,34 +15,33 @@ import type { Result } from '../../core/result.ts';
 import type { CodemasterConfig } from '../../config/config.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 import { asConfig, configSchema } from './schema.ts';
-
-const CONFIG_BASENAMES = [
-  'codemaster.config.ts',
-  'codemaster.config.mts',
-  'codemaster.config.cts',
-  'codemaster.config.js',
-  'codemaster.config.cjs',
-  'codemaster.config.mjs',
-] as const;
+import { findConfigFile } from './resolve.ts';
+import { fingerprintConfigContent, NO_CONFIG_FINGERPRINT } from './fingerprint.ts';
 
 export interface LoadedConfig {
   config: CodemasterConfig;
   /** Absolute path of the file used, or undefined when running on pure defaults. */
   source: string | undefined;
+  /** Content fingerprint of the EXACT bytes evaluated here (`'none'` on defaults). The
+   *  orchestrator stores this at spawn so a config write that races the spawn is caught
+   *  on the next request-entry check — never silently served stale (config-reload). */
+  fingerprint: string;
 }
 
 export function loadConfig(canonRoot: string): Result<LoadedConfig> {
   const file = findConfigFile(canonRoot);
-  if (file === undefined) return ok({ config: {}, source: undefined });
+  if (file === undefined) {
+    return ok({ config: {}, source: undefined, fingerprint: NO_CONFIG_FINGERPRINT });
+  }
 
-  let sourceText: string;
+  let source: Buffer;
   try {
-    sourceText = readFileSync(file, 'utf8');
+    source = readFileSync(file);
   } catch (thrown) {
     return fail({ tool: 'fs', message: `cannot read ${file}: ${describe(thrown)}` });
   }
 
-  const evaluated = evaluateConfigModule(file, sourceText);
+  const evaluated = evaluateConfigModule(file, source.toString('utf8'));
   if (!evaluated.ok) return fail({ tool: 'config', message: evaluated.message });
 
   const parsed = configSchema.safeParse(evaluated.value);
@@ -52,15 +51,11 @@ export function loadConfig(canonRoot: string): Result<LoadedConfig> {
       .join('; ');
     return fail({ tool: 'config', message: `${path.basename(file)} invalid — ${issues}` });
   }
-  return ok({ config: asConfig(parsed.data), source: file });
-}
-
-function findConfigFile(canonRoot: string): string | undefined {
-  for (const basename of CONFIG_BASENAMES) {
-    const candidate = path.join(canonRoot, basename);
-    if (existsSync(candidate)) return candidate;
-  }
-  return undefined;
+  return ok({
+    config: asConfig(parsed.data),
+    source: file,
+    fingerprint: fingerprintConfigContent(path.basename(file), source),
+  });
 }
 
 function evaluateConfigModule(
