@@ -8,3 +8,8 @@ dist/
 
 # personal Claude Code settings (permission allowlists); .claude/agents/ stays shared
 .claude/settings.local.json
+
+# grep-analysis: generated dumps contain private transcript command text — never commit
+tools/grep-analysis/commands.jsonl
+tools/grep-analysis/classified.jsonl
+tools/grep-analysis/samples/
