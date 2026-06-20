@@ -530,7 +530,7 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 - [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
       JSON parse error, `i18n_lookup` (key/prefix/value) returns `defs:0 · usages:0 · matched:0 ·
-    parseFailures:1` — unusable even for keys in the well-formed portion — while
+  parseFailures:1` — unusable even for keys in the well-formed portion — while
       `find_unused_i18n_keys` / `find_missing_i18n_keys` parse the SAME file error-tolerantly (still
       indexed `keys=2331` on the same repo). Cross-op inconsistency in the i18n plugin; `i18n_lookup`
       should degrade-and-continue like its siblings (honest `partial` + the parse failure noted), not
@@ -555,6 +555,25 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       response appends the same feedback-CTA footer; in an agent loop hitting repeated FAILs it is
       per-call noise. Consider emitting it once per session, or only on an internal-error FAIL (not a
       conservative-refusal FAIL the agent expects). `dx`·`low`·`cx:S`
+- [ ] **`expand_type` drops overload signatures everywhere** — for an overloaded function `expand_type`
+      shows `(+1 overload)`, `source` shows only the impl signature, and even `verbosity:full` never
+      lists the overload sigs. An agent can't see the call shapes. Surface all signatures (the LS has
+      them via `getSignaturesOfType`). `feat`·`med`·`cx:M`
+- [ ] **`expand_type` name+file resolution misses type aliases** — `expand_type {name:"Span",
+    file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
+      resolves it. The name+file resolver doesn't find a type-alias symbol it should. `bug`·`med`·`cx:M`
+- [ ] **`expand_type` truncates a function return type after the colon** — a fn/namespace merge renders
+      `about=function box(label: string):` — the return type (`{label:string}`) is cut off after `:`.
+      `bug`·`med`·`cx:S`
+- [ ] **`expand_type` enum members echo the member name and omit the value** — enum/const-enum members
+      render `Low: Severity.Low` (a name echo) while the actual value (`Low=0`, `High='high'`) is not
+      shown; the column should carry the value, not re-echo the name. `bug`·`low`·`cx:S`
+- [ ] **`find_unused_exports.undiscoveredPrograms` lists ABSOLUTE paths** — `/Users/…/tsconfig.json`
+      while every other path in every op is repo-relative — inconsistent, and leaks the absolute FS
+      layout. Make it repo-relative. `bug`·`low`·`cx:S`
+- [ ] **namespace/function-merge members flagged `inherited=true`** — `isInherited` (type-expand.ts:155)
+      = "decl in a different node", which is technically true for a fn+namespace merge but reads as
+      misleading. Verify the label is wanted for merges before acting. `bug`·`low`·`cx:S`
 
 ---
 
