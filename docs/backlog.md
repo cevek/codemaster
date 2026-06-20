@@ -526,11 +526,52 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 ---
 
+## Tagged-dispatch render contract — residuals (post-foundation, from review)
+
+> The central render seam (`~shape` tag-in-data → `format/render/shapes/` registry; `condense` = thin
+> dispatcher) landed. Compile-time `Record<ShapeTag, renderer>` makes "forget a renderer" impossible.
+> These are the review-surfaced follow-ups, none a current lie.
+
+- [ ] **live forgot-to-`tag()` guard covers only ts+scss ops** — the coverage guard's live op-pipeline
+      (`output-density.test.ts` CASES) runs only ts+scss ops; the config-gated ops (i18n ×3 /
+      react-query / list / list_endpoints / find_usages text / mutating) rely on hand-written
+      `TAG_SAMPLES` that exercise the RENDERER, not the op's `tag()` call. So a future op that forgets
+      to call `tag()` on its rows would explode and CI would NOT catch it (compile-time closes "forgot
+      a renderer", not "forgot to tag a row"). All ops currently tag (verified). Fix: add the
+      config-gated ops to the live CASES via a configured fixture (kitchensink/react-query repos).
+      `dx`·`med`·`cx:M`
+- [ ] **`COLLAPSE_AT_FULL` drops verbatim span text for `bare-span`/`list-entry` at full** — at
+      `verbosity:full` (meant to be verbatim) the `bare-span` form (`find_missing_i18n_keys`
+      `dynamicUsages`, whose span text is the `t(\`…\`)`dynamic-key expression) and`list-entry`    (proof span text) collapse to`file:line:col`. The text is arguably re-fetchable / loc-identified,
+    but for `dynamicUsages`the`t()`expression IS the evidence of the dynamic call — reconsider
+    whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
+- [ ] **shape renderers are not wrapped in try/catch** — `condense`'s tag-dispatch calls the renderer
+      directly; a throwing renderer would escape to the agent (the "never crash" §3.6 contract formally
+      relies on renderers being throw-free by construction — they are today: only `String()`/asArray
+      guards). Wrap the dispatch so a throwing renderer yields a loud `!! renderer error ~shape=X`
+      marker (mirroring the unknown-tag marker), never a stack trace. `dx`·`low`·`cx:S`
+- [ ] **`looksLikeSpan` short-circuits before tag-dispatch** — `condenseSpans` renders a top-level
+      span-shaped object (`file`+`line`+`col`+`endLine`+`text`) as a loc string BEFORE checking
+      `~shape`; so if a future op tagged a raw span-shaped row, its `~shape` would leak into the output
+      at `full`. No op does this today (usage/group-row/list-entry carry no top-level `endLine`+`text`).
+      Latent footgun: check `~shape` before `looksLikeSpan`. `bug`·`low`·`cx:S`
+- [ ] **no-op `codemod` bypasses the dirty-tree gate** — a pattern that matches nothing reports a
+      compact zero-change verdict (`changed:0`, `typecheck:{clean:true}` without running tsc — honest,
+      the edit introduced nothing) but no longer hits the dirty-tree refusal a non-empty codemod would.
+      Harmless (writes nothing), but a behavior change vs main — confirm intended. `dx`·`low`·`cx:S`
+- [ ] **unit byte-identity assertions use `assert.match` (contains), not exact** — the hermetic
+      render-compact suite pins outputs with `match`/`doesNotMatch` (pre-existing style), so a trailing
+      append would slip a strict byte check; the renderer ports were verified by reading. New multi-line
+      forms (`name-survives`/`target-ref`/`css-coextract`) are pinned only structurally (they were
+      explosions — no prior bytes). Tighten to exact-string where it matters. `dx`·`low`·`cx:S`
+
+---
+
 ## Correctness bugs surfaced by the density audit (not density — parked here so they don't vanish)
 
 - [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
       JSON parse error, `i18n_lookup` (key/prefix/value) returns `defs:0 · usages:0 · matched:0 ·
-  parseFailures:1` — unusable even for keys in the well-formed portion — while
+parseFailures:1` — unusable even for keys in the well-formed portion — while
       `find_unused_i18n_keys` / `find_missing_i18n_keys` parse the SAME file error-tolerantly (still
       indexed `keys=2331` on the same repo). Cross-op inconsistency in the i18n plugin; `i18n_lookup`
       should degrade-and-continue like its siblings (honest `partial` + the parse failure noted), not
@@ -560,7 +601,7 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       lists the overload sigs. An agent can't see the call shapes. Surface all signatures (the LS has
       them via `getSignaturesOfType`). `feat`·`med`·`cx:M`
 - [ ] **`expand_type` name+file resolution misses type aliases** — `expand_type {name:"Span",
-    file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
+  file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
       resolves it. The name+file resolver doesn't find a type-alias symbol it should. `bug`·`med`·`cx:M`
 - [ ] **`expand_type` truncates a function return type after the colon** — a fn/namespace merge renders
       `about=function box(label: string):` — the return type (`{label:string}`) is cut off after `:`.
