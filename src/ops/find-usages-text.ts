@@ -105,13 +105,20 @@ export function attachOverlay(
   overlay: NameOverlay | undefined,
 ): { shown: number; total: number } {
   if (overlay === undefined) return { shown: 0, total: 0 };
-  section['textTotal'] = overlay.textTotal;
+  const existing = Array.isArray(section['notes']) ? (section['notes'] as JsonValue[]) : [];
+  // The count rides the section NOTE (the `textOnly (N):` header carries the shown count; the note
+  // carries the pre-cap total) — a separate `textTotal` field would just repeat it. The note is
+  // emitted even at zero so "no textOnly" never reads as "text scan skipped" (§3.6 capability).
   if (overlay.textOnly.length > 0) {
     section['textOnly'] = overlay.textOnly.map((h) => tag('text-hit', h)) as unknown as JsonValue;
-    const existing = Array.isArray(section['notes']) ? (section['notes'] as JsonValue[]) : [];
     section['notes'] = [
       ...existing,
       `text-only (same text — identity NOT proven): ${overlay.textTotal} occurrence(s) in comments/strings/docs`,
+    ];
+  } else {
+    section['notes'] = [
+      ...existing,
+      'text-only: 0 occurrence(s) (scan ran; no comment/string/doc mentions beyond the semantic refs)',
     ];
   }
   return { shown: overlay.textOnly.length, total: overlay.textTotal };

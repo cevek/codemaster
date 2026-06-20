@@ -30,30 +30,35 @@ const FILES = {
     "import { nullWatcher } from '../src/seam';\n" + 'export const t = nullWatcher.tick + 1;\n',
 };
 
-function usagesOf(r: OpResult): Usage[] {
+function dataOf(r: OpResult): { usages?: Usage[]; allProgram?: string } {
   assert.ok('result' in r && r.result.ok, JSON.stringify(r));
-  return (r.result.data as { usages?: Usage[] }).usages ?? [];
+  return r.result.data as { usages?: Usage[]; allProgram?: string };
 }
 
-test('a test-only ref is labeled tsconfig.test.json; a src ref is labeled the primary program', async () => {
+test('the dominant (primary) program is hoisted to allProgram; a test-only ref keeps its sibling label', async () => {
   const p: TestProject = await project(FILES);
   try {
-    const u = usagesOf(await p.op('find_usages', { name: 'nullWatcher', collapseImports: false }));
+    const data = dataOf(await p.op('find_usages', { name: 'nullWatcher', collapseImports: false }));
+    const u = data.usages ?? [];
 
     // Independent oracle: the cross-program ground truth (the test file is in tsconfig.test.json).
     const oracle = coldFindReferences(p.root, 'src/seam.ts', 'nullWatcher', 'tsconfig.test.json');
     assert.ok(oracle.includes('test/seam.test.ts'), 'oracle: the test usage exists');
 
-    // The test-file ref carries the SIBLING program label — and a sibling label is unambiguous:
-    // present ONLY in that program (the cardinal "test-only?" answer made self-serve).
-    const testRef = u.find((x) => x.span.file === 'test/seam.test.ts');
-    assert.ok(testRef !== undefined, 'the test-program usage is present');
-    assert.equal(testRef.program, 'tsconfig.test.json', 'tagged with its surfacing program');
+    // Item 6 density: the dominant program (primary, surfaced first) is lifted ONCE into a header
+    // field and dropped from each primary row — not repeated `· prog tsconfig.json` on every line.
+    assert.equal(data.allProgram, 'tsconfig.json', 'the primary program is hoisted');
 
-    // A src ref carries the primary label (primary-preferred dedup).
+    // A primary src ref is now BARE (its program rides allProgram) — present in primary, possibly
+    // elsewhere; honest asymmetry preserved by the note.
     const srcRef = u.find((x) => x.span.file === 'src/seam.ts' && x.role !== 'decl');
     assert.ok(srcRef !== undefined, 'a src usage is present');
-    assert.equal(srcRef.program, 'tsconfig.json', 'src ref tagged with the primary program');
+    assert.equal(srcRef.program, undefined, 'a primary row is bare (hoisted to allProgram)');
+
+    // The test-file ref keeps the SIBLING label — unambiguous: present ONLY in that program.
+    const testRef = u.find((x) => x.span.file === 'test/seam.test.ts');
+    assert.ok(testRef !== undefined, 'the test-program usage is present');
+    assert.equal(testRef.program, 'tsconfig.test.json', 'a sibling ref stays tagged (only-there)');
   } finally {
     await p.dispose();
   }
@@ -65,7 +70,7 @@ test('single-program repo: no program field is emitted (row shape unchanged)', a
     'src/x.ts': 'export const x = 1;\nexport const y = (): number => x + 1;\n',
   });
   try {
-    const u = usagesOf(await p.op('find_usages', { name: 'x', collapseImports: false }));
+    const u = dataOf(await p.op('find_usages', { name: 'x', collapseImports: false })).usages ?? [];
     assert.ok(u.length > 0, 'has usages');
     assert.ok(
       u.every((r) => r.program === undefined),

@@ -70,9 +70,22 @@ export function expandTypeAt(
   // Dispatch union / intersection BEFORE object-like: a union of objects HAS apparent
   // properties, so a getProperties-first path would merge them instead of listing arms.
   if (type.isUnion() || type.isIntersection()) {
-    return { ...base, constituents: type.types.map((t) => typeStr(checker, t)) };
+    const constituents = type.types.map((t) => typeStr(checker, t));
+    // `about`/`type` (mutually exclusive) already carries the head; for a small union it shows
+    // every arm VERBATIM, so `constituents` would repeat them (`ShapeTag`: 33 arms twice). Drop
+    // it ONLY when the head is complete (not TS-truncated) AND literally contains each arm — a
+    // big/elided union keeps `constituents` (the NoTruncation, load-bearing list). (§3.4 / density.)
+    const head = base.type ?? base.about ?? '';
+    const truncated = head.includes('...') || head.includes('…');
+    const covered = constituents.every((c) => head.includes(c));
+    return !truncated && covered ? base : { ...base, constituents };
   }
 
+  // Optional members inject ` | undefined` into their type — but `?` already implies it, so the
+  // pair `id?: number | undefined` prints the undefined twice. Strip it on optional members,
+  // EXCEPT under exactOptionalPropertyTypes, where an explicit `| undefined` is a DISTINCT type
+  // (assignable `undefined` vs merely absent) and dropping it would be a lie (§3 / density audit).
+  const stripOptUndefined = program.getCompilerOptions().exactOptionalPropertyTypes !== true;
   const members = expandMembers(
     checker,
     type,
@@ -81,6 +94,7 @@ export function expandTypeAt(
     options.memberLimit,
     new Set(),
     notes,
+    stripOptUndefined,
   );
   if (members === undefined) return notes.length > 0 ? { ...base, notes } : base;
   // An object type's `members` list IS its field set — for a `type X = {…}` alias the LS quick-info
@@ -108,6 +122,7 @@ function expandMembers(
   memberLimit: number,
   seen: Set<ts.Type>,
   notes: string[],
+  stripOptUndefined: boolean,
 ): MemberView[] | undefined {
   const apparent = checker.getApparentType(type);
   const props = apparent.getProperties();
@@ -119,15 +134,26 @@ function expandMembers(
   }
   return shown.map((prop) => {
     const propType = checker.getTypeOfSymbolAtLocation(prop, node);
+    const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
     const member: MemberView = {
       name: prop.getName(),
-      optional: (prop.flags & ts.SymbolFlags.Optional) !== 0,
-      type: typeStr(checker, propType),
+      optional,
+      // `?` already implies undefined — strip the redundant arm (non-EOPT only; see caller).
+      type: stripOptionalUndefined(typeStr(checker, propType), optional && stripOptUndefined),
     };
     if (isInherited(prop, ownDecls)) member.inherited = true;
     if (depth > 1 && isAnonymousObject(propType) && !seen.has(propType)) {
       seen.add(propType);
-      const nested = expandMembers(checker, propType, node, depth - 1, memberLimit, seen, notes);
+      const nested = expandMembers(
+        checker,
+        propType,
+        node,
+        depth - 1,
+        memberLimit,
+        seen,
+        notes,
+        stripOptUndefined,
+      );
       if (nested !== undefined) member.members = nested;
     } else if (depth === 1 && isAnonymousObject(propType)) {
       notes.push(`${member.name}: nested object — expand with depth:2`);
@@ -164,6 +190,14 @@ function isAnonymousObject(type: ts.Type): boolean {
     (symbol.flags & ts.SymbolFlags.TypeLiteral) !== 0 &&
     type.getProperties().length > 0
   );
+}
+
+/** Drop the trailing ` | undefined` an optional member injects (the checker always appends it
+ *  last). Only when `enabled` (optional member, non-EOPT — see caller). A no-op when the type
+ *  was capped (`… (type elided)`) since the suffix is already gone. */
+function stripOptionalUndefined(type: string, enabled: boolean): string {
+  const suffix = ' | undefined';
+  return enabled && type.endsWith(suffix) ? type.slice(0, -suffix.length) : type;
 }
 
 /** `typeToString` with NoTruncation, then OUR own explicit cap — the checker's silent

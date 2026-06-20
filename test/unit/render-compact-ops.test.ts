@@ -95,6 +95,48 @@ test('find_usages unresolved row collapses to name · reason', () => {
   assert.doesNotMatch(out, /\n\s*reason=/, 'no exploded reason= line');
 });
 
+test('find_usages text-only rows render as bare locations; `unresolved` stated once in the note', () => {
+  const out = renderResult(
+    ok({
+      usages: [
+        tag('usage', { span: span('src/a.ts', 2, 5, 'foo'), role: 'read', confidence: 'certain' }),
+      ],
+      total: 1,
+      textOnly: [
+        tag('text-hit', { span: span('src/a.ts', 1, 4, 'foo'), confidence: 'unresolved' }),
+        tag('text-hit', { span: span('README.md', 3, 1, 'foo'), confidence: 'unresolved' }),
+      ],
+      notes: [
+        'text-only (same text — identity NOT proven): 2 occurrence(s) in comments/strings/docs',
+      ],
+    }),
+  );
+  // Each text-only row is just its clickable location — no per-row `· unresolved` repeat (the whole
+  // section is identity-unproven by definition; the caveat + count ride the section note ONCE).
+  assert.match(out, /src\/a\.ts:1:4/, 'text-only row is a bare loc');
+  assert.match(out, /README\.md:3:1/, 'second text-only row present');
+  assert.doesNotMatch(out, /· unresolved/, 'no per-row unresolved confidence');
+  assert.match(out, /identity NOT proven\): 2 occurrence\(s\)/, 'count + caveat in the note, once');
+});
+
+test('a single-role-filtered usage row drops its role (it rides the hoisted header)', () => {
+  // The op hoists `role` to a top-level field and strips it per-row; the renderer must then NOT
+  // print a trailing `· undefined`. (Mirror of the find_usages role-hoist data change.)
+  const out = renderResult(
+    ok({
+      role: 'jsx',
+      usages: [
+        tag('usage', { span: span('src/a.tsx', 5, 7, 'X'), confidence: 'certain' }),
+        tag('usage', { span: span('src/b.tsx', 9, 3, 'X'), confidence: 'certain' }),
+      ],
+      total: 2,
+    }),
+  );
+  assert.match(out, /role=jsx/, 'the pinned role is a header field');
+  assert.match(out, /src\/a\.tsx:5:7$/m, 'a row with no role renders as just its location');
+  assert.doesNotMatch(out, /· undefined/, 'never a `· undefined` from a missing role');
+});
+
 test('extract cssCoExtract leftBehind row collapses to one line', () => {
   const out = renderResult(
     ok({

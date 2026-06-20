@@ -50,8 +50,10 @@ export function renderSource(
   let used = 0;
   let elided = 0;
   data.sources.forEach((s, i) => {
-    const loc = `${s.decl.file}:${s.decl.line}:${s.decl.col}`;
-    const header = `${s.id} · ${s.kind} @ ${loc}`;
+    // The id already encodes the file (`name@file:line:col`); the decl span's line:col is the
+    // DECLARATION START (distinct from the id's name-token col), so keep just `:line:col` and drop
+    // the repeated file (§12 density). Leading `:` signals "same file as the id".
+    const header = `${s.id} · ${s.kind} @ :${s.decl.line}:${s.decl.col}`;
     // Always show the FIRST body (the explore-one-big-thing case must not collapse to a
     // header). After that, render bodies until the budget is spent; then every remaining
     // target collapses to a header line so a big body can't starve which symbols followed.

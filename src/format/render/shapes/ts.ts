@@ -21,13 +21,18 @@ export const symbol: ShapeRenderer = (v) => {
   return `${String(v['id'])} · ${String(v['kind'])}${container}${header}`;
 };
 
-/** UsageView: { span, role, confidence } (+ optional program/decls decorations). */
-export const usage: ShapeRenderer = (v) =>
-  `${String(v['span'])} · ${String(v['role'])}${confTail(v['confidence'])}${usageDeco(v)}`;
+/** UsageView: { span, role, confidence } (+ optional program/decls decorations). `role` is
+ *  rendered only when present — a single-role filter HOISTS it to a `role=` header and drops it
+ *  per-row (find_usages), so the line would otherwise end in `· undefined`. */
+export const usage: ShapeRenderer = (v) => {
+  const role = v['role'] !== undefined ? ` · ${String(v['role'])}` : '';
+  return `${String(v['span'])}${role}${confTail(v['confidence'])}${usageDeco(v)}`;
+};
 
-/** Text-only hit (§ text-overlay): { span, confidence:'unresolved' } — no role (the text
- *  scanner can't claim an AST concept). */
-export const textHit: ShapeRenderer = (v) => `${String(v['span'])} · ${String(v['confidence'])}`;
+/** Text-only hit (§ text-overlay): { span, confidence:'unresolved' } — no role (the text scanner
+ *  can't claim an AST concept). The `unresolved` confidence is stated ONCE in the section note
+ *  (the whole section is identity-unproven by definition), so the row is just its location. */
+export const textHit: ShapeRenderer = (v) => String(v['span']);
 
 /** GroupRow (enclosing rollup): the id carries name + file:line:col, so terse collapses to
  *  one line; the explicit columns exist for relational projection. `site` (a representative

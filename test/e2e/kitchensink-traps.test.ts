@@ -26,10 +26,10 @@ function okData(r: OpResult): Record<string, unknown> {
   return r.result.data as Record<string, unknown>;
 }
 
-// `file:role` set over a find_usages payload — the presence net for the import/tangle rows.
+// `file:role` set — a single-role filter HOISTS role to a header (item 4), so read `u.role ?? all`.
 function usageSet(r: OpResult): Set<string> {
-  const usages = okData(r)['usages'] as { span: { file: string }; role: string }[];
-  return new Set(usages.map((u) => `${u.span.file}:${u.role}`));
+  const d = okData(r) as { usages: { span: { file: string }; role?: string }[]; role?: string };
+  return new Set(d.usages.map((u) => `${u.span.file}:${u.role ?? d.role}`));
 }
 
 void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
@@ -87,11 +87,10 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
     assert.deepEqual(members, ['Low', 'Medium', 'High']);
 
     const status = okData(await p.op('expand_type', { name: 'Status' }));
-    const arms = status['constituents'] as string[];
-    assert.deepEqual(
-      arms.map((a) => a.replaceAll('"', '')),
-      ['idle', 'loading', 'ready', 'error'],
-    );
+    // Small union: the head lists every arm verbatim, so `constituents` is suppressed (density).
+    const head = (status['type'] ?? status['about']) as string;
+    assert.match(head, /"idle".*"loading".*"ready".*"error"/, 'arms in head');
+    assert.equal(status['constituents'], undefined, 'constituents suppressed');
   });
 
   test('M11 — dual-spelling import resolves both spellings to ONE importer set', async () => {

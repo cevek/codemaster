@@ -146,7 +146,12 @@ test('find_definition at full reuses the source body renderer (header + body, no
     }),
     'full',
   );
-  assert.match(out, /^ts:Foo@a\.ts:1:17 · function @ a\.ts:1:1/, 'source-style header line');
+  // Item 7: the header drops the redundant file (it's in the id) — `@ :line:col`, decl-start loc.
+  assert.match(
+    out,
+    /^ts:Foo@a\.ts:1:17 · function @ :1:1/,
+    'source-style header line, file dropped',
+  );
   assert.match(out, /export function Foo\(\) \{/, 'the verbatim body is shown');
   assert.doesNotMatch(out, /endLine=|endCol=/, 'no exploded span fields');
   assert.doesNotMatch(

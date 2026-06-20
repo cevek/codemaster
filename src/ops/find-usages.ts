@@ -13,7 +13,7 @@ import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
-import type { UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
+import type { GroupRow, UsageOptions, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
 import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
@@ -39,10 +39,85 @@ function rowsTotal(view: UsagesView): number {
 
 /** `{ listable }` ties the raw `total` to the listed `usages (M):`/`shown` counts when imports are
  *  collapsed (total = listable + importsCollapsed). FLAT mode only: in groupBy the listed rows are
- *  ENCLOSERS (a different axis), so a usages-based `listable` would tie to nothing — omit it there. */
+ *  ENCLOSERS (a different axis), so a usages-based `listable` would tie to nothing — omit it there.
+ *  Emitted ONLY when the listed rows are TRUNCATED (listable > shown): without truncation listable
+ *  equals the `usages (N):` header count, so it just repeats N — the gap is already explained by
+ *  `total` + `importsCollapsed` (density audit). */
 function listableField(view: UsagesView): Record<string, JsonValue> {
   const collapsed = view.importsCollapsed ?? 0;
-  return view.usages !== undefined && collapsed > 0 ? { listable: view.total - collapsed } : {};
+  if (view.usages === undefined || collapsed <= 0) return {};
+  const listable = view.total - collapsed;
+  return listable > view.usages.length ? { listable } : {};
+}
+
+/** A copy of `row` without key `k` — used to lift a constant column into a header without mutating
+ *  the plugin's cached row (tear-free reads, §19). */
+function omitKey<T extends object, K extends keyof T>(row: T, k: K): T {
+  const { [k]: _drop, ...rest } = row;
+  return rest as T;
+}
+
+/** The most common single-program label across a view's rows (flat `program`, or a grouped row
+ *  whose `programs` is a single program — a comma-joined multi-program set is never a candidate).
+ *  `undefined` when no row carries a program (a single-program repo — the plugin omits the field). */
+function dominantProgram(view: UsagesView): string | undefined {
+  const counts = new Map<string, number>();
+  const bump = (p: string): void => {
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+  };
+  for (const u of view.usages ?? []) if (u.program !== undefined) bump(u.program);
+  for (const g of view.groups ?? [])
+    if (g.programs !== undefined && !g.programs.includes(',')) bump(g.programs);
+  let best: string | undefined;
+  let bestN = 0;
+  for (const [p, n] of counts)
+    if (n > bestN) {
+      best = p;
+      bestN = n;
+    }
+  return best;
+}
+
+type Hoisted = {
+  usages?: UsageView[] | undefined;
+  groups?: GroupRow[] | undefined;
+  role?: string;
+  allProgram?: string;
+  progNote?: string;
+};
+
+/** Lift columns that are CONSTANT across the listed rows into header fields (mirrors `list`'s
+ *  `hoistUniform`), so a 86-row answer doesn't repeat `· call` / `· prog tsconfig.json` on every
+ *  line. TEXT/JSON path only — sql-mode keeps every per-row value (the table projects `role` /
+ *  `program` per row, and a header-hoisted column there would lie under a NOT IN). */
+function hoistView(view: UsagesView, role: string | undefined, sqlMode: boolean): Hoisted {
+  if (sqlMode) return { usages: view.usages, groups: view.groups };
+  let usages = view.usages;
+  let groups = view.groups;
+  const out: Hoisted = {};
+  // Item 4: a single `role` filter pins every flat row's role — state it once, drop it per-row.
+  if (role !== undefined && usages !== undefined) {
+    usages = usages.map((u) => omitKey(u, 'role'));
+    out.role = role;
+  }
+  // Item 6: most rows carry the SAME program (the primary, since refs are surfaced primary-first) —
+  // hoist the dominant into `allProgram`, drop it per-row, leave the rest tagged. The note carries
+  // the full by-NAME asymmetry so a bare row is unambiguous regardless of which program was hoisted:
+  // a sibling label (tsconfig.test.json) = present ONLY there; the primary label = present there,
+  // POSSIBLY elsewhere too (primary-preferred dedup keeps one label). Ties resolve to the
+  // first-surfaced program (primary), so allProgram is the primary in the common case.
+  const dominant = dominantProgram(view);
+  if (dominant !== undefined) {
+    if (usages !== undefined)
+      usages = usages.map((u) => (u.program === dominant ? omitKey(u, 'program') : u));
+    if (groups !== undefined)
+      groups = groups.map((g) => (g.programs === dominant ? omitKey(g, 'programs') : g));
+    out.allProgram = dominant;
+    out.progNote = `allProgram=${dominant}: a row without a \`prog …\` tag was surfaced by it; a tagged row by the named program. A sibling label (e.g. tsconfig.test.json) means present ONLY there; the primary (tsconfig.json) means present there, POSSIBLY elsewhere.`;
+  }
+  out.usages = usages;
+  out.groups = groups;
+  return out;
 }
 
 /** Compose the advisory microtext for a usages view (§2.2/§2.3): the import-collapse
@@ -134,6 +209,7 @@ export const findUsagesOp = defineOp({
     "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
     "reference sites span ALL the repo's loaded TS programs — a usage in a `test/**` file under a sibling tsconfig (tsconfig.test.json), a build script, or Vite's app/node split is found and counted, not just main-program refs (deduped where programs overlap).",
     'multi-program: each usage carries the `program` that surfaced it (sql column `program`). HONEST ASYMMETRY — a sibling label (tsconfig.test.json) means present ONLY there; the primary label means present in primary, POSSIBLY elsewhere too. Emitted only when >1 program is loaded.',
+    'density (text/json, NOT sql): a column CONSTANT across the listed rows is hoisted to a header and dropped per-row — a single `role` filter → `role=<r>` (read effective role as `row.role ?? role`); the dominant program → `allProgram=<p>` (read `row.program ?? allProgram`). `listable` (collapsed-import count tie) appears ONLY when the rows are truncated. sql-mode keeps every value per row.',
     "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated).",
   ],
   table: findUsagesTable,
@@ -184,17 +260,21 @@ export const findUsagesOp = defineOp({
           shownRows += rowsShown(view);
           totalRows += rowsTotal(view);
           const notes = usageNotes(view, args.role, verbosity);
+          const hoisted = hoistView(view, args.role, sqlMode);
+          if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
           targets.push({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
             ...(view.mergedDeclarations !== undefined
               ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
               : {}),
-            ...(view.groups !== undefined
-              ? { enclosers: view.groups.map((g) => tag('group-row', g)) }
+            ...(hoisted.role !== undefined ? { role: hoisted.role } : {}),
+            ...(hoisted.allProgram !== undefined ? { allProgram: hoisted.allProgram } : {}),
+            ...(hoisted.groups !== undefined
+              ? { enclosers: hoisted.groups.map((g) => tag('group-row', g)) }
               : {}),
-            ...(view.usages !== undefined
-              ? { usages: view.usages.map((u) => tag('usage', u)) }
+            ...(hoisted.usages !== undefined
+              ? { usages: hoisted.usages.map((u) => tag('usage', u)) }
               : {}),
             total: view.total,
             ...listableField(view),
@@ -250,15 +330,22 @@ export const findUsagesOp = defineOp({
           'mergeDeclarations ignored — a symbol/position target addresses ONE declaration; pass a `name` to union all same-named declarations',
         );
       }
+      const hoisted = hoistView(view, args.role, sqlMode);
+      if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
       const data: Record<string, JsonValue> = {
         ...(view.definition !== undefined ? { definition: tag('symbol', view.definition) } : {}),
         ...(view.mergedDeclarations !== undefined
           ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
           : {}),
-        ...(view.groups !== undefined
-          ? { enclosers: view.groups.map((g) => tag('group-row', g)) }
+        // Hoisted header columns (role / allProgram) precede the row bulk so the verdict reads first.
+        ...(hoisted.role !== undefined ? { role: hoisted.role } : {}),
+        ...(hoisted.allProgram !== undefined ? { allProgram: hoisted.allProgram } : {}),
+        ...(hoisted.groups !== undefined
+          ? { enclosers: hoisted.groups.map((g) => tag('group-row', g)) }
           : {}),
-        ...(view.usages !== undefined ? { usages: view.usages.map((u) => tag('usage', u)) } : {}),
+        ...(hoisted.usages !== undefined
+          ? { usages: hoisted.usages.map((u) => tag('usage', u)) }
+          : {}),
         total: view.total,
         // When imports are collapsed in a FLAT usages list, `total` (raw) exceeds the listed set by
         // exactly `importsCollapsed` — surface `listable` so `total=N` ties to the `usages (M):`

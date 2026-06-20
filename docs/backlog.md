@@ -615,6 +615,12 @@ file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col
 - [ ] **namespace/function-merge members flagged `inherited=true`** — `isInherited` (type-expand.ts:155)
       = "decl in a different node", which is technically true for a fn+namespace merge but reads as
       misleading. Verify the label is wanted for merges before acting. `bug`·`low`·`cx:S`
+- [ ] **`importers_of` doesn't hoist a dominant imported name** — each row trails `· <imports>`, which
+      for a SINGLE-export module is a constant (= the main export) repeated on every importer. A
+      `hoistUniform`-style lift would densify it. NOT done: dogfood shows `imports` is a VARYING set
+      per file for multi-export/barrel modules (`partial,ok` / `ok` / `fail,messageOfThrown,ok` …), so
+      no dominant constant exists there — a hoist is fragile and rarely applies. Revisit only with a
+      "single dominant covers ≥X% of rows" guard. `dx`·`low`·`cx:S`
 
 ---
 

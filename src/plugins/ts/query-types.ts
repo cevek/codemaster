@@ -163,9 +163,13 @@ export type TypeView = {
   type?: string;
   doc?: string;
   span?: Span;
-  /** Object-like members (§3.3). */
+  /** Object-like members (§3.3). An optional member's ` | undefined` is stripped (the `?` already
+   *  implies it) — except under exactOptionalPropertyTypes, where an explicit `| undefined` is a
+   *  distinct type and is kept (type-expand.ts). */
   members?: MemberView[];
-  /** Union / intersection constituents — one entry per arm (§3.3). */
+  /** Union / intersection constituents — one entry per arm (§3.3). SUPPRESSED when the head
+   *  (`about`/`type`) already lists every arm verbatim and isn't LS-truncated (it would just repeat
+   *  them); a wide/elided union keeps it as the load-bearing complete list (density audit). */
   constituents?: string[];
   /** Honest caveats: member list capped (`… N more`), depth cap reached, type string
    *  elided — never a silent `…` (§3.4). */

@@ -113,6 +113,68 @@ test('grouped: the synthetic module row vanishes only when its file has real ref
   }
 });
 
+test('listable is emitted only when the listed rows are truncated (density)', async () => {
+  const p = await project(FILES);
+  try {
+    // Not truncated: an import IS collapsed, but every listable row is shown → `listable` is omitted
+    // (it would just repeat the `usages (N):` count; `total` + `importsCollapsed` explain the gap).
+    const full = await p.op('find_usages', { name: 'Widget' });
+    assert.ok('result' in full && full.result.ok, JSON.stringify(full));
+    const fv = full.result.data as View & { listable?: number };
+    assert.ok((fv.importsCollapsed ?? 0) > 0, 'precondition: an import was collapsed');
+    assert.equal(fv.listable, undefined, 'no listable when nothing is truncated');
+
+    // Truncated: a small limit cuts the listed rows below `listable` → it now carries the real Y
+    // (the `… shown X/Y` denominator) that the header count no longer does.
+    const capped = await p.op('find_usages', { name: 'Widget', limit: 2 });
+    assert.ok('result' in capped && capped.result.ok);
+    const cv = capped.result.data as View & { listable?: number };
+    assert.equal(
+      cv.listable,
+      cv.total - (cv.importsCollapsed ?? 0),
+      'listable = total − collapsed',
+    );
+    assert.ok((cv.usages ?? []).length < (cv.listable ?? 0), 'fewer rows shown than listable');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a single role filter hoists role to a header (text/json) but sql keeps it per-row', async () => {
+  const p = await project(FILES);
+  try {
+    const r = await p.op('find_usages', { name: 'Widget', role: 'import', collapseImports: false });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const view = r.result.data as View & { role?: string };
+    assert.equal(view.role, 'import', 'the pinned role is stated once in a header field');
+    const usages = (view.usages ?? []) as { role?: string }[];
+    assert.ok(usages.length > 0, 'has import usages');
+    assert.ok(
+      usages.every((u) => u.role === undefined),
+      'role dropped from every row (rides header)',
+    );
+
+    // sql-mode must NOT hoist — the table projects `role` per row, else a NOT IN would lie (§2.3).
+    const [sql] = await p.request(
+      [
+        {
+          as: 't',
+          name: 'find_usages',
+          args: { name: 'Widget', role: 'import', collapseImports: false },
+        },
+      ],
+      { sql: "SELECT count(*) AS n FROM t WHERE role = 'import'" },
+    );
+    assert.ok(sql !== undefined && 'result' in sql && sql.result.ok);
+    assert.ok(
+      ((sql.result.data as { rows: number[][] }).rows[0]?.[0] ?? 0) > 0,
+      'sql keeps per-row role (no hoist in sql-mode)',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('role-filtered empty result shows the role breakdown + a suggestion; counts correct', async () => {
   const p = await project(FILES);
   try {
