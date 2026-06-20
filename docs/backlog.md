@@ -567,6 +567,52 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 
 ---
 
+## Wave-2 density — review residuals (post-merge, none a current lie)
+
+> The 3 density tracks (mutating/ts-read/analyzers) landed. These are the review-surfaced follow-ups.
+
+- [ ] **`css_cascade` `rules (N):` section still duplicates the selector** — a contributing rule row
+      renders `[spec] loc · <span-text=.sel> · <selector=.sel> · …` — the span text equals the
+      `selector` field. The analyzer track de-duped the winner/loser/property views but the `rules`
+      section's `cssRule` renderer was out of scope. Apply the same span-loc-only dedup there.
+      `dx`·`low`·`cx:S`
+- [ ] **`find_missing_i18n_keys` op-note doesn't document the uniform `missing in [..] on all N` hoist**
+      — the analyzer track added an envelope `notes` header when every usage misses the same locale set,
+      but (unlike `list`'s `allConfidence` note) didn't add the op-note line. Additive + self-describing,
+      not a lie — add the 1-line present-state note for symmetry. `doc`·`low`·`cx:S`
+- [ ] **no dedicated sql-mode test for `list` `allConfidence` backfill** — `listTable.rows` fills
+      `confidence` from `allConfidence` when hoisted (verified by reading); mirrors `allKind`/
+      `allProvenance` which also lack a dedicated sql test. Add one. `dx`·`low`·`cx:S`
+- [ ] **mutating envelope: `DiffstatEntry` type name + "for the diffstat" comment are stale** — the
+      field is now `touched` (merged per-file counts), but an internal type name/comment still says
+      diffstat (mutation-support.ts:158-159). Not user-facing; rename for clarity. `dx`·`low`·`cx:S`
+- [ ] **mutating `touched` key is overloaded** — `string[]` in full mode, structured
+      `{path,added,removed}[]` in summaryOnly. Documented + typed, but an agent must branch on `mode`.
+      Design wart; consider distinct keys (`touched` vs `touchedStat`). `dx`·`low`·`cx:M`
+- [ ] **`find-usages.ts` is at exactly 300 real lines (the cap, no headroom)** — passes eslint
+      `max-lines`, but any further edit busts it. Pre-emptive extraction (e.g. the hoist helpers to a
+      sibling) before the next change. `dx`·`low`·`cx:S`
+- [ ] **misc density test-coverage gaps** — `dominant=sibling` prog-hoist case (symbol mostly in
+      `test/**`) has no dedicated test (only primary-dominant fixture); `find_usages text:true` 0-hit
+      note + truncated-text `… N more` hint untested; `expand_type` `constituents` `covered()`
+      substring-match has a theoretical false-positive (arm a substring of arm AB, head drops standalone
+      a without `...`) needing a TS-format bug to trigger. `dx`·`low`·`cx:S`
+- [ ] **real-spawn smoke tests are timing-flaky** — `test/e2e/*-smoke.test.ts` (daemon idle-exit /
+      socket lifetime) occasionally fail one run then pass on re-run, with a changing test count
+      (726→725). Pure render changes can't affect them; it's pre-existing timing flakiness. Stabilize
+      (deterministic clock/socket seam) so CI doesn't catch the flake. `dx`·`med`·`cx:M`
+- [ ] **CLI `op --root <dir>` doesn't scope config / plugin-activation to the root** — `bin.ts` appears
+      to load config from `cwd`, not the resolved `--root`, so on a cross-dir CLI run i18n reads
+      inactive and scss reads the wrong root (MCP per-request `root` is fine). Dogfood friction; the CLI
+      self-dev loop is misleading on a non-cwd repo. `bug`·`med`·`cx:M`
+- [ ] **self-staleness banner missed after `daemon restart` (uncertain)** — after editing `src` +
+      `codemaster daemon restart` ('no daemon running' → started), an MCP call still returned pre-edit
+      output WITHOUT the `!! daemon code behind source` banner (§3.6/§11); fresh CLI was current.
+      Possibly the bridge was attached to a different socket/daemon than the restart targeted — a
+      potential honesty gap in the restart→bridge convergence. Investigate. `bug`·`med`·`cx:M`
+
+---
+
 ## Correctness bugs surfaced by the density audit (not density — parked here so they don't vanish)
 
 - [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
