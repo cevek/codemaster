@@ -150,3 +150,47 @@ test('§3a: the typecheck/touched verdict survives the output cap; only the diff
     'the touched summary must survive the cap too',
   );
 });
+
+test('list registry entries collapse to one clickable line each (key · kind · loc · confidence · provenance)', () => {
+  const entry = (name: string, file: string, line: number, confidence: string): JsonValue => ({
+    key: name,
+    kind: 'component',
+    confidence,
+    provenance: 'heuristic:react',
+    file,
+    line,
+    col: 17,
+    name,
+    proof: span(file, line, 17, name),
+  });
+  const out = renderResult(
+    ok({
+      registry: 'components',
+      found: true,
+      owner: 'react',
+      entries: [
+        entry(
+          'ToolButton',
+          'dev-recorder/src/RecorderPanel/ToolButton/ToolButton.tsx',
+          17,
+          'certain',
+        ),
+        entry('DevRecorder', 'src/DevRecorder.tsx', 43, 'partial'),
+      ],
+    }),
+  );
+  // Each entry is ONE line; no exploded key=value fields, no redundant proof= / name= repetition.
+  assert.match(
+    out,
+    /ToolButton · component · dev-recorder\/src\/RecorderPanel\/ToolButton\/ToolButton\.tsx:17:17 · heuristic:react/,
+    'a certain entry renders as one line, confidence implicit',
+  );
+  assert.match(
+    out,
+    /DevRecorder · component · src\/DevRecorder\.tsx:43:17 · partial · heuristic:react/,
+    'a partial entry surfaces its confidence inline',
+  );
+  assert.doesNotMatch(out, /\n\s+proof=/, 'no redundant proof= line (file:line:col already shown)');
+  assert.doesNotMatch(out, /\n\s+name=ToolButton/, 'no redundant name= line (key already shown)');
+  assert.doesNotMatch(out, /\n\s+col=17/, 'no exploded col= field line');
+});

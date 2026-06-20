@@ -478,6 +478,14 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       `1n` (`BigIntLiteral`) fall through to `other`/`dynamic`. Honest under-report (never a
       false-`certain`), rare in keys. Fix: extend the numeric branch to `+`-prefixed numerics and
       `BigIntLiteral`. `bug`·`low`·`cx:S`
+- [ ] **`list` has no `limit` / `pathInclude` / pagination** — `list {registry}` returns the WHOLE
+      registry (e.g. `components` = 652 entries on amiro). Each entry now condenses to one clickable
+      line (`condense.ts` ListEntry branch), but 652 lines still bust the 20KB `RENDER_CHAR_CAP` →
+      honest `!! OUTPUT CAPPED`, and the only way to narrow is `sql` (the op exposes a table). Other
+      list-shaped ops (`find_usages`, `find_unused_exports`) take `limit` + `pathInclude`/`pathExclude`;
+      `list` takes neither, so an agent can't scope by dir or page through. Fix: add `limit` +
+      `pathInclude`/`pathExclude` (globs over the entry's decl file) to `list`'s args, mirroring
+      find_usages' filter, and report the cap as truncation. `feat`·`low`·`cx:S`
 
 ---
 

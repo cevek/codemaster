@@ -166,6 +166,18 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'name,reason') {
     return `${String(v['name'])} · ${flat(v['reason'])}`;
   }
+  // ListEntry (the `list` registry op): { key, kind, confidence, provenance, file, line, col,
+  // name?, segments?, detail?, proof }. The registry row has no `id` to fold name+loc into, so it
+  // exploded into one key=value line per field — collapse to a single clickable line. `proof` just
+  // repeats file:line:col and `name` repeats `key`; both are dropped. provenance + a non-certain
+  // confidence + detail decorate the tail (provenance is a per-row honesty signal — kept, §3.3).
+  // Matched by the key+kind+provenance signature, unique to this shape (id-bearing rows carry `id`).
+  if ('key' in v && 'kind' in v && 'provenance' in v && 'file' in v && 'line' in v && 'col' in v) {
+    const loc = `${String(v['file'])}:${String(v['line'])}:${String(v['col'])}`;
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const detail = v['detail'] !== undefined ? ` · ${flat(v['detail'])}` : '';
+    return `${String(v['key'])} · ${String(v['kind'])} · ${loc}${conf} · ${String(v['provenance'])}${detail}`;
+  }
   // EndpointCard (list_endpoints) — variadic (optional query/body/response/status/note), matched by
   // presence. query/body/response are TypeRefs already collapsed to `loc · type`; show just the type.
   if ('method' in v && 'path' in v && 'pathParams' in v) {
