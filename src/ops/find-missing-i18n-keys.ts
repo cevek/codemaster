@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { HIDE_MISSING_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { I18nPluginApi, MissingKeyView } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -63,8 +64,26 @@ export const findMissingI18nKeysOp = defineOp({
     try {
       const view = i18n.missingKeys();
       const failures = [...i18n.parseFailures()].map(([file, message]) => ({ file, message }));
+      // When every usage misses the SAME locale set, the per-row `· missing in […]` is pure
+      // repetition — hoist it to a header note and mark each row `~hideMissing` (the locale list
+      // stays on every row, so json/sql are unchanged). Single-row answers keep it inline.
+      const missing = view.missing;
+      const allLocales = (m: { missingLocales: readonly string[] }): string =>
+        [...m.missingLocales].sort().join(',');
+      const first = missing[0];
+      const uniform =
+        missing.length >= 2 &&
+        first !== undefined &&
+        missing.every((m) => allLocales(m) === allLocales(first));
+      const header =
+        uniform && first !== undefined
+          ? `missing in [${first.missingLocales.join(',')}] on all ${missing.length} usage(s)`
+          : undefined;
       return ok({
-        missing: view.missing.map((m) => tag('i18n-missing-usage', m)),
+        ...(header !== undefined ? { notes: [header] } : {}),
+        missing: missing.map((m) =>
+          tag('i18n-missing-usage', uniform ? { ...m, [HIDE_MISSING_KEY]: true } : m),
+        ),
         locales: view.locales,
         ...(view.degradedReason !== undefined ? { degradedReason: view.degradedReason } : {}),
         ...(view.dynamicUsages.length > 0

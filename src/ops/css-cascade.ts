@@ -11,6 +11,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import type { Confidence } from '../core/span.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { SUBJECT_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { CascadeInput, CascadeProperty, ScssPluginApi } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -107,16 +108,25 @@ export const cssCascadeOp = defineOp({
       // ('css-decl-ref') are condensed before the property renderer reads them; the contributing
       // rules are 'css-rule'. The decl-ref tag is what keeps winner and loser apart now that the
       // dispatch is by tag, not by the old branch ORDER (both share value+specificity+selector).
+      // The cascade subject (the target class/selector) rides every winner/loser/ambiguous decl-ref
+      // as `~subject` (render-only meta) so the renderer prints a selector SUFFIX only when it
+      // differs from the target — never the redundant `.target =` on every line (stripped from json).
+      const subject = outcome.target;
       const properties = capped.map((p) =>
         tag('css-property', {
           ...p,
           winner: tag('css-winner', {
             ...p.winner,
+            [SUBJECT_KEY]: subject,
             ...(p.winner.ambiguousWith !== undefined
-              ? { ambiguousWith: p.winner.ambiguousWith.map((a) => tag('css-decl-ref', a)) }
+              ? {
+                  ambiguousWith: p.winner.ambiguousWith.map((a) =>
+                    tag('css-decl-ref', { ...a, [SUBJECT_KEY]: subject }),
+                  ),
+                }
               : {}),
           }),
-          losers: p.losers.map((l) => tag('css-decl-ref', l)),
+          losers: p.losers.map((l) => tag('css-decl-ref', { ...l, [SUBJECT_KEY]: subject })),
         }),
       );
       const notes = [

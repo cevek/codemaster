@@ -63,7 +63,7 @@ interface ListRow {
   file: string;
   line: number;
   col: number;
-  confidence: string;
+  confidence?: string;
   provenance?: string;
   detail?: string;
 }
@@ -74,13 +74,17 @@ function isRecord(v: JsonValue): v is Record<string, JsonValue> {
 
 /** Hoist a column that is CONSTANT across every entry into a header field, dropping it from each row
  *  — `list components` otherwise repeats `· component · heuristic:react` on all 652 rows, pure noise.
- *  Only `kind` and `provenance` are hoisted (often uniform within one registry); `confidence` is NOT
- *  (it varies per entry). The hoisted value still fills the sql table via `allKind`/`allProvenance`
- *  fallback (listTable.rows). Single-entry answers keep everything inline (nothing to dedupe). */
+ *  `kind`, `provenance`, and `confidence` are hoisted when uniform; `confidence` only when its
+ *  uniform value is non-`certain` (a `certain` tail is already invisible, so hoisting it would add
+ *  envelope noise for nothing — e.g. ~100 dynamic queryKeys collapse one `allConfidence=unresolved`
+ *  instead of `· unresolved` per row). The hoisted value still fills the sql table via the
+ *  `allKind`/`allProvenance`/`allConfidence` fallback (listTable.rows). Single-entry answers keep
+ *  everything inline (nothing to dedupe). A mixed column stays per-row. */
 function hoistUniform(serialized: readonly JsonValue[]): {
   entries: JsonValue[];
   allKind?: string;
   allProvenance?: string;
+  allConfidence?: string;
 } {
   const rows = serialized.filter(isRecord);
   if (rows.length < 2) return { entries: [...serialized] };
@@ -90,17 +94,23 @@ function hoistUniform(serialized: readonly JsonValue[]): {
   };
   const allKind = uniform('kind');
   const allProvenance = uniform('provenance');
-  if (allKind === undefined && allProvenance === undefined) return { entries: [...serialized] };
+  const uniformConf = uniform('confidence');
+  const allConfidence =
+    uniformConf !== undefined && uniformConf !== 'certain' ? uniformConf : undefined;
+  if (allKind === undefined && allProvenance === undefined && allConfidence === undefined)
+    return { entries: [...serialized] };
   const entries = rows.map((r) => {
     const o = { ...r };
     if (allKind !== undefined) delete o['kind'];
     if (allProvenance !== undefined) delete o['provenance'];
+    if (allConfidence !== undefined) delete o['confidence'];
     return o;
   });
   return {
     entries,
     ...(allKind !== undefined ? { allKind } : {}),
     ...(allProvenance !== undefined ? { allProvenance } : {}),
+    ...(allConfidence !== undefined ? { allConfidence } : {}),
   };
 }
 
@@ -117,10 +127,15 @@ const listTable: TableSpec<JsonValue> = {
     { name: 'detail', type: 'text' },
   ],
   rows(data) {
-    const d = data as { entries?: ListRow[]; allKind?: string; allProvenance?: string };
+    const d = data as {
+      entries?: ListRow[];
+      allKind?: string;
+      allProvenance?: string;
+      allConfidence?: string;
+    };
     const entries = d.entries ?? [];
-    // kind/provenance may have been hoisted off the rows (hoistUniform) — fall back to the header
-    // value so the sql projection stays complete.
+    // kind/provenance/confidence may have been hoisted off the rows (hoistUniform) — fall back to
+    // the header value so the sql projection stays complete.
     return entries.map((e): readonly Cell[] => [
       e.key,
       e.kind ?? d.allKind ?? null,
@@ -128,7 +143,7 @@ const listTable: TableSpec<JsonValue> = {
       e.file,
       e.line,
       e.col,
-      e.confidence,
+      e.confidence ?? d.allConfidence ?? null,
       e.provenance ?? d.allProvenance ?? null,
       e.detail ?? null,
     ]);
@@ -183,7 +198,7 @@ export const listOp = defineOp({
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',
     'an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).',
     'entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).',
-    'density: a column CONSTANT across every entry (kind, provenance) is stated ONCE as `allKind`/`allProvenance` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is never hoisted (it varies per entry). A mixed answer keeps the column per-row.',
+    'density: a column CONSTANT across every entry (kind, provenance, confidence) is stated ONCE as `allKind`/`allProvenance`/`allConfidence` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is hoisted only when its uniform value is non-`certain` (a `certain` tail is invisible anyway). A mixed answer keeps the column per-row. `available` is shown only when the registry is NOT found (the did-you-mean list).',
   ],
   table: listTable,
   async run(ctx, args) {
@@ -207,11 +222,13 @@ export const listOp = defineOp({
           registry: args.registry,
           found: true,
           owner: owner.id,
-          available,
+          // `available` is the did-you-mean list for an UNKNOWN registry (found:false) — it just
+          // restates `status` when the registry WAS found, so it is omitted here (density).
           // Constant-across-all columns stated once here, dropped from every row (a header before
           // the bulk — §12 verdict-before-bulk; the cap can only ever truncate the row tail).
           ...(hoisted.allKind !== undefined ? { allKind: hoisted.allKind } : {}),
           ...(hoisted.allProvenance !== undefined ? { allProvenance: hoisted.allProvenance } : {}),
+          ...(hoisted.allConfidence !== undefined ? { allConfidence: hoisted.allConfidence } : {}),
           entries: hoisted.entries.map((e) => tag('list-entry', e as Record<string, JsonValue>)),
           ...(view.note !== undefined ? { note: view.note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),

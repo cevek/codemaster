@@ -47,12 +47,18 @@ export function fallThrough(text: string): string | undefined {
   return undefined;
 }
 
-/** Leaked-tag guard (verbosity-agnostic): every renderable row carries a `~shape` tag a renderer
- *  CONSUMES (or the dispatcher strips on passthrough), so the tag must NEVER reach rendered text —
- *  if it does, a row was tagged with no renderer (the loud `!! no renderer for ~shape=` marker) or
- *  a passthrough leaked it. Catches forgot-to-register / unknown-tag uniformly. */
+/** Leaked-meta guard (verbosity-agnostic): every `~`-prefixed key is render-only META — the `~shape`
+ *  tag a renderer CONSUMES, plus per-row render hints (`~subject`, `~sectioned`, …). The dispatcher
+ *  strips them (renderer path discards `out`; full-passthrough deletes every `~`-key), so NONE may
+ *  reach rendered text. render-dense emits a leaked key at a FIELD position — at line start (after
+ *  indent, optionally a `- ` bullet) as `~word=value` (scalar), `~word:` (map), or `~word (N):`
+ *  (array). Anchoring to that position is deliberate: it excludes a `~`-token that is part of a VALUE
+ *  — the SymbolId `~rootTag` suffix (`…:2:14~18f5c50e (variable…`) and the CSS general-sibling
+ *  combinator (`.a ~ .b`) — neither of which is a leaked key. */
+const META_FIELD = /^\s*(?:- )?~\w+(?:=|:| \()/;
+
 export function leakedTag(text: string): string | undefined {
-  return text.includes(SHAPE_KEY) ? text.split('\n').find((l) => l.includes(SHAPE_KEY)) : undefined;
+  return text.split('\n').find((l) => META_FIELD.test(l) || l.includes(SHAPE_KEY));
 }
 
 /** Envelope MAPS that legitimately render as a `key:` header + scalar `k=v` children — NOT rows, so

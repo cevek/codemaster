@@ -77,7 +77,7 @@ ops (21):
     · GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.
     · an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).
     · entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).
-    · density: a column CONSTANT across every entry (kind, provenance) is stated ONCE as `allKind`/`allProvenance` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is never hoisted (it varies per entry). A mixed answer keeps the column per-row.
+    · density: a column CONSTANT across every entry (kind, provenance, confidence) is stated ONCE as `allKind`/`allProvenance`/`allConfidence` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is hoisted only when its uniform value is non-`certain` (a `certain` tail is invisible anyway). A mixed answer keeps the column per-row. `available` is shown only when the registry is NOT found (the did-you-mean list).
     columns: key,kind,name,file,line,col,confidence,provenance,detail
     e.g. op {"name":"list","args":{"registry":"components"}}
   rename_symbol [mutating] { symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)

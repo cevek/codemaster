@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { HIDE_CONF_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { I18nPluginApi, UnusedKeyView } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -76,6 +77,12 @@ export const findUnusedI18nKeysOp = defineOp({
         ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
       });
       const failures = [...i18n.parseFailures()].map(([file, message]) => ({ file, message }));
+      // A GLOBAL demote already states every claim is partial (the envelope note below), so the
+      // per-row `· partial` is repetition — `~hideConf` drops the tail in text (confidence stays on
+      // every row, so json/sql are unchanged). A namespace-only demote keeps the per-row tail (the
+      // confidence varies: certain vs partial rows are the signal).
+      const tagKey = (u: UnusedKeyView): JsonValue =>
+        tag('i18n-unused-key', view.globalDemote ? { ...u, [HIDE_CONF_KEY]: true } : u);
       // Verdict-before-bulk (§12): the small load-bearing fields render FIRST so the hard
       // char-cap can only ever truncate the (truncation-reported) `unused` tail, never the verdict.
       const head = {
@@ -93,7 +100,7 @@ export const findUnusedI18nKeysOp = defineOp({
       if (ctx.tableRowBound !== undefined) {
         const rows = view.unused.slice(0, ctx.tableRowBound);
         return ok(
-          { ...head, unused: rows.map((u) => tag('i18n-unused-key', u)) },
+          { ...head, unused: rows.map(tagKey) },
           rows.length < view.unused.length
             ? { truncated: { shown: rows.length, total: view.unused.length, hint: ROW_CAP_HINT } }
             : undefined,
@@ -126,7 +133,7 @@ export const findUnusedI18nKeysOp = defineOp({
                     },
             }
           : {}),
-        unused: shown.map((u) => tag('i18n-unused-key', u)),
+        unused: shown.map(tagKey),
       };
       return ok(
         data,

@@ -11,6 +11,7 @@ import type { Plugin, PluginRegistry } from '../../src/core/plugin.ts';
 import type { ListView } from '../../src/core/list.ts';
 import type { Span } from '../../src/core/span.ts';
 import { isOk } from '../../src/common/result/narrow.ts';
+import { renderResult } from '../../src/format/render/render-result.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 
 const span = (file: string): Span => ({
@@ -101,7 +102,9 @@ test('routes to the owning plugin and projects entries + note', async () => {
   const data = dataOf(await listOp.run(ctxOf([plainPlugin, demo]), { registry: 'widgets' }));
   assert.equal(data['found'], true);
   assert.equal(data['owner'], 'demo');
-  assert.deepEqual([...(data['available'] as string[])].sort(), ['keys', 'widgets']);
+  // `available` is the did-you-mean list for an UNKNOWN registry — omitted when found (it would
+  // just restate `status`); the found:false tests below assert it IS present there.
+  assert.equal(data['available'], undefined);
   assert.equal(data['note'], 'a caveat');
   const entries = data['entries'] as Array<Record<string, JsonValue>>;
   assert.equal(entries.length, 1);
@@ -131,6 +134,80 @@ test('no registry-owning plugin active → empty available, found:false', async 
   const data = dataOf(await listOp.run(ctxOf([plainPlugin]), { registry: 'widgets' }));
   assert.equal(data['found'], false);
   assert.deepEqual(data['available'], []);
+});
+
+/** A registry of N entries all sharing one confidence (the ~100 dynamic-queryKeys shape). */
+function uniformConfRegistry(
+  conf: 'certain' | 'partial' | 'dynamic' | 'unresolved',
+  n: number,
+): ListView {
+  return {
+    registry: 'qk',
+    entries: Array.from({ length: n }, (_, i) => ({
+      name: `K${i}`,
+      kind: 'queryKey',
+      span: span(`src/q${i}.ts`),
+      confidence: conf,
+      provenance: { kind: 'heuristic' as const, by: 'demo' },
+    })),
+  };
+}
+
+test('#6 list: a uniform non-`certain` confidence is hoisted to allConfidence, dropped per row', async () => {
+  const reg = fakePlugin('demo', { qk: uniformConfRegistry('unresolved', 3) });
+  const result = await listOp.run(ctxOf([reg]), { registry: 'qk' });
+  assert.ok(isOk(result));
+  const data = result.data as Record<string, JsonValue>;
+  assert.equal(data['allConfidence'], 'unresolved', 'hoisted to the header');
+  const entries = data['entries'] as Array<Record<string, JsonValue>>;
+  assert.ok(
+    entries.every((e) => e['confidence'] === undefined),
+    'confidence dropped from every row (sql refills via allConfidence)',
+  );
+  const out = renderResult(result, 'terse');
+  assert.equal((out.match(/· unresolved/g) ?? []).length, 0, 'no per-row `· unresolved`');
+  assert.match(out, /allConfidence=unresolved/, 'stated once in the header');
+});
+
+test('#6 list: a `certain` uniform is NOT hoisted (the tail is already invisible — no header noise)', async () => {
+  const reg = fakePlugin('demo', { qk: uniformConfRegistry('certain', 3) });
+  const result = await listOp.run(ctxOf([reg]), { registry: 'qk' });
+  assert.ok(isOk(result));
+  const data = result.data as Record<string, JsonValue>;
+  assert.equal(data['allConfidence'], undefined, 'certain is not hoisted');
+  assert.doesNotMatch(renderResult(result, 'terse'), /allConfidence/, 'no certain header noise');
+});
+
+test('#6 list: a MIXED confidence stays per-row (the variation is the signal)', async () => {
+  const reg = fakePlugin('demo', {
+    qk: {
+      registry: 'qk',
+      entries: [
+        {
+          name: 'A',
+          kind: 'queryKey',
+          span: span('src/a.ts'),
+          confidence: 'certain',
+          provenance: { kind: 'heuristic', by: 'demo' },
+        },
+        {
+          name: 'B',
+          kind: 'queryKey',
+          span: span('src/b.ts'),
+          confidence: 'unresolved',
+          provenance: { kind: 'heuristic', by: 'demo' },
+        },
+      ],
+    },
+  });
+  const result = await listOp.run(ctxOf([reg]), { registry: 'qk' });
+  assert.ok(isOk(result));
+  assert.equal(
+    (result.data as Record<string, JsonValue>)['allConfidence'],
+    undefined,
+    'mixed → not hoisted',
+  );
+  assert.match(renderResult(result, 'terse'), /· unresolved/, 'the non-certain row keeps its tail');
 });
 
 test('registry name collision across plugins → reported, first-wins, never silent', async () => {

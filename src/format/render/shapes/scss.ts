@@ -6,17 +6,48 @@
 import type { JsonValue } from '../../../core/json.ts';
 import type { ShapeRenderer } from './types.ts';
 import { asArray, confTail, flat, isObject } from './helpers.ts';
+import { spanLocOnly, spanTextOf } from './span-text.ts';
+import { SECTIONED_KEY, SUBJECT_KEY } from './meta-keys.ts';
 
-/** ScssClassView / UnusedClassView: { name, file, span, confidence, note? }. */
+/** ScssClassView / UnusedClassView: { name, file, span, confidence, note? }. The span's proof text
+ *  (normal/full) is the selector `.name`, so the bare `name` echo is dropped there (the span carries
+ *  it); terse has no text, so `name` stays — it is then the only identifier. A class whose module is
+ *  named in the dynamicModules/globalModules envelope section drops its per-row note (`~sectioned`). */
 export const scssClass: ShapeRenderer = (v) => {
-  const note = v['note'] !== undefined ? ` · ${String(v['note'])}` : '';
-  return `${String(v['span'])} · ${String(v['name'])}${confTail(v['confidence'])}${note}`;
+  const nameEchoed = spanTextOf(v['span']) === `.${String(v['name'])}`;
+  const name = nameEchoed ? '' : ` · ${String(v['name'])}`;
+  const note =
+    v[SECTIONED_KEY] === true || v['note'] === undefined ? '' : ` · ${String(v['note'])}`;
+  return `${String(v['span'])}${name}${confTail(v['confidence'])}${note}`;
 };
 
-/** `[spec] span · selector = value [!important]` — the shared line for a cascade decl ref. */
+/** A selector token ends at one of these (or end-of-string); anything else (`-`, `_`, alnum) is part
+ *  of the SAME class name — so `.btn` is NOT a prefix of `.btn-group`. */
+const TOKEN_BOUNDARY = new Set([':', '.', '[', ' ', '>', '+', '~', ',']);
+
+/** The cascade SUBJECT-relative selector suffix: '' when the selector IS `.${subject}` (the line's
+ *  subject is the cascade target — no need to repeat it), the trailing `:hover` / `.active` /
+ *  ` .child` when it extends the target AT A TOKEN BOUNDARY, else the full selector (cross-module, a
+ *  different subject, or a name that merely shares the prefix like `.btn-group` vs `.btn`). */
+function subjectSuffix(selector: string, subject: JsonValue | undefined): string {
+  if (typeof subject !== 'string') return selector;
+  const base = `.${subject}`;
+  if (selector === base) return '';
+  if (selector.startsWith(base)) {
+    const next = selector.charAt(base.length);
+    if (TOKEN_BOUNDARY.has(next)) return selector.slice(base.length);
+  }
+  return selector;
+}
+
+/** `[spec] loc [· suffix] = value [!important]` — the shared line for a cascade decl ref. The span
+ *  renders loc-only (its verbatim `prop: value;` text would echo the `= value`); the subject selector
+ *  is shown only as the suffix that differs from the target (`~subject`). */
 function declRefLine(v: Record<string, JsonValue>): string {
   const imp = v['important'] === true ? ' !important' : '';
-  return `[${String(v['specificity'])}] ${String(v['span'])} · ${String(v['selector'])} = ${flat(v['value'])}${imp}`;
+  const suffix = subjectSuffix(String(v['selector']), v[SUBJECT_KEY]);
+  const sel = suffix.length > 0 ? ` · ${suffix}` : '';
+  return `[${String(v['specificity'])}] ${spanLocOnly(v['span'])}${sel} = ${flat(v['value'])}${imp}`;
 }
 
 /** `prop:value [!important]; …` for a rule's declaration list (plain {prop,value} objects). */

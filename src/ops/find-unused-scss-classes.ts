@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { SECTIONED_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { ScssPluginApi, UnusedClassView } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -78,8 +79,14 @@ export const findUnusedScssClassesOp = defineOp({
         ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
       });
       const failures = [...scss.parseFailures()].map(([file, message]) => ({ file, message }));
+      // A class whose module is named in the dynamicModules/globalModules section carries a per-row
+      // note that merely restates that section — mark it `~sectioned` so the renderer drops the echo
+      // (the note stays in data: json/sql unchanged).
+      const sectioned = new Set<string>([...view.dynamicModules, ...view.globalModules]);
       return ok({
-        unused: view.unused.map((c) => tag('scss-class', c)),
+        unused: view.unused.map((c) =>
+          tag('scss-class', sectioned.has(c.file) ? { ...c, [SECTIONED_KEY]: true } : c),
+        ),
         scanned: { modules: view.scannedModules, classes: view.scannedClasses },
         ...(view.dynamicModules.length > 0 ? { dynamicModules: view.dynamicModules } : {}),
         ...(view.globalModules.length > 0 ? { globalModules: view.globalModules } : {}),

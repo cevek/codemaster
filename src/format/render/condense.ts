@@ -33,10 +33,17 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
     for (const [key, child] of Object.entries(value)) out[key] = condenseSpans(child, verbosity);
     const tagVal = out[SHAPE_KEY];
     if (typeof tagVal === 'string') {
-      delete out[SHAPE_KEY]; // META, never rendered — stripped for every branch
       // At full, a proof-bearing row passes through verbatim (the pre-tag behavior); only the
       // non-proof structural forms collapse (members/spans/list rows carry no verbatim body).
-      if (verbosity === 'full' && !COLLAPSE_AT_FULL.has(tagVal as ShapeTag)) return out;
+      if (verbosity === 'full' && !COLLAPSE_AT_FULL.has(tagVal as ShapeTag)) {
+        // The renderer does NOT run here to consume them, so strip EVERY `~`-meta key — the
+        // shape tag AND render-only hints (~subject/~sectioned/…) — so none reaches render-dense
+        // as a `~key=value` field. (Recursion already condensed nested rows, which stripped
+        // their own.) META keys are never rendered, on this branch or the renderer branch.
+        for (const k of Object.keys(out)) if (k.startsWith('~')) delete out[k];
+        return out;
+      }
+      delete out[SHAPE_KEY]; // META — stripped before the renderer (which reads other `~`-hints).
       const renderer = SHAPE_RENDERERS[tagVal as ShapeTag];
       // Unrecognized tag — LOUD, never a silent explode. The `~shape=` token trips the coverage
       // guard. (Compile-time `Record<ShapeTag,…>` makes this practically unreachable.)
