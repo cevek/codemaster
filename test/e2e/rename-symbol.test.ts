@@ -129,7 +129,7 @@ test('rename_symbol: CAPTURE guard — a shadowing rename surfaces captures on t
 
     // Apply: refused, mode/applied reflect it, nothing written.
     const ap = await rename(p, { name: 'slugify', newName: 'upper' }, true);
-    assert.equal(ap.applied, false, 'a capturing rename must refuse apply');
+    assert.notEqual(ap.applied, true, 'a capturing rename must refuse apply');
     assert.match(String(ap.reason), /CAPTURE|capture/);
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
@@ -235,7 +235,7 @@ test('rename_symbol: §2.8 gate — a colliding rename is refused, every file by
     // add -> sum collides with the existing `sum`; the post-edit typecheck must catch it.
     const r = await rename(p, { name: 'add', newName: 'sum' }, true);
     assert.equal(r.typecheck.clean, false); // duplicate-identifier diagnostic
-    assert.equal(r.applied, false); // apply refused (§2.8) — never wrote
+    assert.notEqual(r.applied, true); // apply refused (§2.8) — never wrote
     assert.notEqual(r.mode, 'applied');
     assert.equal(p.git('status', '--porcelain'), ''); // zero writes
     assert.equal(readFileSync(path.join(p.root, 'src/math.ts'), 'utf8'), before.math);

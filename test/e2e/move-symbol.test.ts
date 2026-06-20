@@ -96,7 +96,7 @@ test('move_symbol: §2.8 gate — a move that INTRODUCES a typecheck error is re
       `expected an introduced error, got ${JSON.stringify(r)}`,
     );
     assert.notEqual(r.mode, 'applied');
-    assert.equal(r.applied, false);
+    assert.notEqual(r.applied, true);
     assert.equal(p.git('status', '--porcelain'), ''); // zero writes
     assert.equal(readFileSync(path.join(p.root, 'src/source.ts'), 'utf8'), before.source);
     assert.equal(readFileSync(path.join(p.root, 'src/dest.ts'), 'utf8'), before.dest);
@@ -285,7 +285,7 @@ test('move_symbol: a re-export barrel of the moved symbol → honest refusal (LS
   });
   try {
     const r = await move(p, { name: 'helper', dest: 'src/dest.ts' }, true);
-    assert.equal(r.applied, false, `barrel re-export must refuse, got ${JSON.stringify(r)}`);
+    assert.notEqual(r.applied, true, `barrel re-export must refuse, got ${JSON.stringify(r)}`);
     assert.equal(r.typecheck.clean, false);
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
     assert.equal(readFileSync(path.join(p.root, 'src/index.ts'), 'utf8'), before.barrel);

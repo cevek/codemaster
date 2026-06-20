@@ -92,7 +92,7 @@ test('transaction: a LAST step that introduces an error rolls back the WHOLE seq
       true,
     );
     assert.ok(r.ok, `expected an applied-but-rolled-back envelope: ${JSON.stringify(r)}`);
-    assert.equal(r.env.applied, false); // refused: the cumulative gate is unclean
+    assert.notEqual(r.env.applied, true); // refused: the cumulative gate is unclean
     assert.equal(r.env.typecheck.clean, false);
     // Byte-exact rollback of the WHOLE sequence: nothing moved, nothing edited, index clean.
     assert.equal(p.git('status', '--porcelain'), '');
@@ -150,7 +150,7 @@ test('transaction: a chain whose step would CAPTURE an in-scope binding is REFUS
       true,
     );
     assert.ok(r.ok, `capture surfaces on the envelope (not a hard fail): ${JSON.stringify(r)}`);
-    assert.equal(r.env.applied, false);
+    assert.notEqual(r.env.applied, true);
     assert.ok(r.env.captures !== undefined, 'capture sites are listed');
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
@@ -295,7 +295,7 @@ test('transaction: a step-≥2 rename of a CROSS-PROGRAM symbol is gated — the
       true,
     );
     assert.ok(r.ok, `expected a gated envelope, not a hard fail: ${JSON.stringify(r)}`);
-    assert.equal(r.env.applied, false, 'the cross-program dangle must refuse the transaction');
+    assert.notEqual(r.env.applied, true, 'the cross-program dangle must refuse the transaction');
     assert.equal(r.env.typecheck.clean, false, 'the gate caught the dangling test import');
     assert.equal(p.git('status', '--porcelain'), ''); // byte-exact — nothing written
     assert.equal(read(p, 'test/seam.test.ts'), tst);

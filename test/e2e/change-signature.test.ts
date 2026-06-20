@@ -109,7 +109,7 @@ test('change_signature: removing a parameter still used in the body is REFUSED (
   try {
     const r = await change(p, { name: 'greet', removeParam: 1 }, true);
     assert.equal(r.typecheck.clean, false); // body still references `loud`
-    assert.equal(r.applied, false); // refused — nothing written
+    assert.notEqual(r.applied, true); // refused (mode=dry-run) — nothing written
     assert.equal(p.git('status', '--porcelain'), '');
   } finally {
     await p.dispose();

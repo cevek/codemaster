@@ -187,7 +187,7 @@ test('extract_symbol: refuses to overwrite a gitignored file at dest, even with 
     ]);
     assert.ok(r !== undefined && 'result' in r && r.result.ok);
     const data = r.result.data as unknown as Envelope & { reason?: string };
-    assert.equal(data.applied, false);
+    assert.notEqual(data.applied, true);
     assert.match(String(data.reason), /refusing to overwrite/);
     assert.equal(
       readFileSync(path.join(p.root, 'src/gen/helper.ts'), 'utf8'),

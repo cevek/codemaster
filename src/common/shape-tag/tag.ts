@@ -41,6 +41,8 @@ export type ShapeTag =
   // mutating
   | 'capture'
   | 'name-survives'
+  | 'typecheck-clean'
+  | 'touched-stat'
   // i18n
   | 'i18n-unused-key'
   | 'i18n-def'

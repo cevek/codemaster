@@ -176,6 +176,37 @@ function listEdit(
   return { start: list.pos, end: list.end, text };
 }
 
+/** A structured per-site refusal reason: its KIND + a `file:line:col` site (+ a per-site detail
+ *  for arg-count). Collected across every unrewritable use, then grouped into ONE message. */
+interface SigBlocker {
+  kind: 'non-call' | 'outside-tree' | 'spread' | 'arg-count';
+  site: string;
+}
+
+const SIG_BLOCKER_LABEL: Record<SigBlocker['kind'], string> = {
+  'non-call': 'non-call use(s) (value/new/JSX)',
+  'outside-tree': 'call(s) in a file outside the tracked tree',
+  spread: 'spread-argument call(s)',
+  'arg-count': 'call(s) whose argument count ≠ parameter count (reorder not representable)',
+};
+
+/** Group the blockers by kind — the shared reason stated ONCE, the bare `file:line:col` sites
+ *  listed under it (mirroring the capture-refusal model) — instead of repeating the sentence per
+ *  site. Keeps the substrings the op contract documents ("non-call use", "argument count", "cannot
+ *  safely") so the refusal stays self-explaining. */
+function formatSigRefusal(blockers: readonly SigBlocker[]): string {
+  const byKind = new Map<SigBlocker['kind'], string[]>();
+  for (const b of blockers) {
+    const list = byKind.get(b.kind) ?? [];
+    list.push(b.site);
+    byKind.set(b.kind, list);
+  }
+  const groups = [...byKind].map(
+    ([kind, sites]) => `${sites.length} ${SIG_BLOCKER_LABEL[kind]}: ${sites.join(', ')}`,
+  );
+  return `change_signature cannot safely rewrite every use — refusing: ${groups.join('; ')}`;
+}
+
 export function planChangeSignature(
   host: TsProjectHost,
   tree: VFSTree,
@@ -250,7 +281,10 @@ export function planChangeSignature(
   };
   push(sourceAbs, listEdit(sf, decl.parameters, order));
 
-  const blockers: string[] = [];
+  // Structured per-site blockers: each carries its KIND + a `file:line:col` site, grouped into ONE
+  // dense refusal at the end (the shared reason stated ONCE, the sites listed bare beneath it —
+  // mirroring the capture-refusal model) rather than repeating the same sentence per site.
+  const blockers: SigBlocker[] = [];
   // removeParam can drop a side-effecting argument expression that compiles clean (gate-blind) —
   // we don't refuse (the removal IS the request), but we surface a proof-carrying warning per site.
   const sideEffectNotes: string[] = [];
@@ -260,7 +294,8 @@ export function planChangeSignature(
     const refSf = ref.sourceFile;
     sfByFile.set(ref.fileName, refSf);
     const node = tokenAt(refSf, ref.start);
-    const at = `${host.relOf(ref.fileName)}`;
+    const { line, character } = refSf.getLineAndCharacterOfPosition(node.getStart(refSf));
+    const at = `${host.relOf(ref.fileName)}:${line + 1}:${character + 1}`;
     const parent = node.parent;
     if (
       parent !== undefined &&
@@ -273,26 +308,25 @@ export function planChangeSignature(
     }
     const call = callOf(node);
     if (call === undefined) {
-      blockers.push(
-        `${at}: a non-call use of the symbol (passed as a value / new / JSX) — cannot rewrite`,
-      );
+      blockers.push({ kind: 'non-call', site: at });
       continue;
     }
     if (tree.findByCurrentPath(host.relOf(ref.fileName)) === null) {
-      blockers.push(`${at}: a call in a file outside the tracked tree — cannot verify`);
+      blockers.push({ kind: 'outside-tree', site: at });
       continue;
     }
     if (call.arguments.some((a) => ts.isSpreadElement(a))) {
-      blockers.push(`${at}: a spread argument — positions are unknown`);
+      blockers.push({ kind: 'spread', site: at });
       continue;
     }
     if (isReorder && call.arguments.length !== paramCount) {
       // Fewer args (omitted trailing optionals) OR more (a rest parameter) → the permutation
       // isn't representable as a flat arg-list reorder; the extra/missing slots would
       // silently mis-bind or drop. Refuse rather than corrupt (the typecheck is type-blind).
-      blockers.push(
-        `${at}: argument count (${call.arguments.length}) ≠ parameter count (${paramCount}) — reorder cannot be represented`,
-      );
+      blockers.push({
+        kind: 'arg-count',
+        site: `${at} (got ${call.arguments.length}, want ${paramCount})`,
+      });
       continue;
     }
     if (change.removeParam !== undefined) {
@@ -309,7 +343,7 @@ export function planChangeSignature(
     push(ref.fileName, listEdit(refSf, call.arguments, order));
   }
   if (blockers.length > 0) {
-    return `change_signature cannot safely rewrite every use — refusing: ${blockers.join('; ')}`;
+    return formatSigRefusal(blockers);
   }
 
   // Apply per-file edits as content overrides on the tree.

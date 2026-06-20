@@ -69,7 +69,7 @@ test('transaction CAPTURE: a step-2 extract import re-binds to a decoy a prior s
 
     const ap = await txn(p, steps, true);
     assert.ok(ap.ok, `expected a gated envelope, not a hard fail: ${JSON.stringify(ap)}`);
-    assert.equal(ap.env.applied, false, 'a capturing transaction must refuse apply');
+    assert.notEqual(ap.env.applied, true, 'a capturing transaction must refuse apply');
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();

@@ -159,7 +159,7 @@ test('move_file: a file moved into a disjoint dest program errors under THAT pro
     );
     // And apply is refused — nothing written.
     const applied = await op(p, 'move_file', { source: 'src/a.ts', dest: 'scripts/a.ts' }, true);
-    assert.equal(applied.applied, false, `apply must be refused: ${JSON.stringify(applied)}`);
+    assert.notEqual(applied.applied, true, `apply must be refused: ${JSON.stringify(applied)}`);
     assert.equal(p.git('status', '--porcelain'), '', 'nothing written on a refused move');
   } finally {
     await p.dispose();
@@ -256,10 +256,14 @@ test('change_signature: the call-site search reaches the test program — a non-
     ]);
     if (r === undefined || 'error' in r) assert.fail(`dispatch error: ${JSON.stringify(r)}`);
     assert.equal(r.result.ok, false, 'a non-call use in the test program must refuse the op');
+    const refusal = String(r.result.ok ? '' : r.result.failure.message);
+    // The grouped refusal states the reason once then lists the bare site (reason precedes the
+    // file:line:col), so assert both parts are present rather than a fixed order.
+    assert.match(refusal, /non-call use/, 'the refusal states the non-call-use reason');
     assert.match(
-      String(r.result.ok ? '' : r.result.failure.message),
-      /test\/api\.test\.ts.*non-call use/,
-      'the refusal names the test-program use (cross-program search reached it)',
+      refusal,
+      /test\/api\.test\.ts:\d+:\d+/,
+      'the refusal names the test-program use with file:line:col (cross-program search reached it)',
     );
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
     assert.equal(readFileSync(path.join(p.root, 'test/api.test.ts'), 'utf8'), tst);

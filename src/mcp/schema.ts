@@ -10,7 +10,8 @@ const opRequestSchema = z.object({
   name: z.string().min(1),
   args: jsonValue.default({}),
   apply: z.boolean().optional(),
-  /** Mutating ops: return only the verdict + a per-file diffstat, omitting the unified diff. */
+  /** Mutating ops: return only the verdict + a merged per-file `touched` list (counts +
+   *  `(removed)` markers), omitting the unified diff. */
   summaryOnly: z.boolean().optional(),
   verbosity: z.enum(['terse', 'normal', 'full']).optional(),
   format: z.enum(['text', 'json']).optional(),
@@ -75,7 +76,8 @@ export const TOOL_DESCRIPTORS = [
         apply: { type: 'boolean', description: 'Mutating ops: actually write (default dry-run)' },
         summaryOnly: {
           type: 'boolean',
-          description: 'Mutating ops: verdict + diffstat only, omit the unified diff',
+          description:
+            'Mutating ops: verdict + merged per-file touched list, omit the unified diff',
         },
         verbosity: { type: 'string', enum: ['terse', 'normal', 'full'] },
         format: { type: 'string', enum: ['text', 'json'] },

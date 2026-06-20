@@ -94,7 +94,7 @@ test('rename_symbol: the §2.8 gate fans across programs — a test-program-only
   const p = await project({ ...TWO_PROGRAMS, 'src/seam.ts': src, 'test/seam.test.ts': tst });
   try {
     const r = await rename(p, { name: 'target', newName: 'taken' }, true);
-    assert.equal(r.applied, false, 'a cross-program-breaking rename must refuse apply');
+    assert.notEqual(r.applied, true, 'a cross-program-breaking rename must refuse apply');
     assert.equal(r.typecheck.clean, false, 'the gate is unclean (caught on the test program)');
     assert.equal(r.captures, undefined, 'this is a typecheck error, not a capture');
     assert.match(String(r.reason), /typecheck|§2\.8/);

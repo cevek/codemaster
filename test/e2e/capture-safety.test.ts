@@ -69,7 +69,7 @@ test('codemod CAPTURE: a metavar identifier landing in a new lambda re-binds to 
       { pattern: 'identity($X)', rewrite: 'pick((tag) => $X)' },
       { apply: true },
     );
-    assert.equal(ap.applied, false, 'a capturing codemod must refuse apply');
+    assert.notEqual(ap.applied, true, 'a capturing codemod must refuse apply');
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();
@@ -208,7 +208,7 @@ test('move_file CAPTURE: a relinked import resolves to a same-named decoy module
       { source: 'src/feat/widget.tsx', dest: 'src/widget.tsx' },
       { apply: true },
     );
-    assert.equal(ap.applied, false, 'a capturing move must refuse apply');
+    assert.notEqual(ap.applied, true, 'a capturing move must refuse apply');
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();
@@ -289,7 +289,7 @@ test('extract_symbol CAPTURE: the source import lands on a same-named decoy modu
       { ...target, dest: 'src/widget.tsx' },
       { apply: true },
     );
-    assert.equal(ap.applied, false, 'a capturing extract must refuse apply');
+    assert.notEqual(ap.applied, true, 'a capturing extract must refuse apply');
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();

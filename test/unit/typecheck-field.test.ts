@@ -19,7 +19,9 @@ const d = (file: string, line: number, message: string): TsDiagnostic => ({
 test('clean when the edit introduces nothing; pre-existing errors ride as a count', () => {
   const r = buildTypecheckField([d('a.ts', 1, 'X')], [d('a.ts', 1, 'X')]);
   assert.equal(r.clean, true);
-  assert.deepEqual(r.field, { clean: true, preExisting: 1 });
+  // The clean verdict is tagged `typecheck-clean` so the text renderer collapses it to a single
+  // `typecheck=clean preExisting=N` token; json strips the `~shape` tag → the pre-tag {clean:…} shape.
+  assert.deepEqual(r.field, { clean: true, preExisting: 1, '~shape': 'typecheck-clean' });
 });
 
 test('an introduced error is surfaced; pre-existing stays a separate count', () => {
@@ -66,7 +68,7 @@ test('§1b: a moved file’s own pre-existing error is NOT counted as introduced
 
   const r = buildTypecheckField(baseline, after, remap);
   assert.equal(r.clean, true, 'a relocated-but-identical error must not block the move');
-  assert.deepEqual(r.field, { clean: true, preExisting: 1 });
+  assert.deepEqual(r.field, { clean: true, preExisting: 1, '~shape': 'typecheck-clean' });
 });
 
 test('§1b: a folder move re-keys errors under the moved prefix; an unrelated new error still surfaces', () => {

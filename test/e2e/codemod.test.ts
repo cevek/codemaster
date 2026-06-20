@@ -106,7 +106,7 @@ test('codemod: a rewrite that breaks an UN-MATCHED importer is caught (whole-pro
       true,
     );
     assert.equal(env.typecheck.clean, false); // use.ts's `import { oldName }` now dangles
-    assert.equal((env as { applied?: boolean }).applied, false); // refused — not applied
+    assert.notEqual((env as { applied?: boolean }).applied, true); // refused (mode=dry-run) — not applied
     assert.equal(p.git('status', '--porcelain'), ''); // nothing written
   } finally {
     await p.dispose();

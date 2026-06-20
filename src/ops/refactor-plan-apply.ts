@@ -17,7 +17,7 @@ import {
   buildTypecheckField,
   capturesField,
   captureRefusal,
-  diffstat,
+  touchedStat,
   formatOne,
   gateCoverageNotes,
   resolvePrettier,
@@ -74,26 +74,36 @@ export async function applyRefactorPlan(
   ];
   const captures = plan.captures;
   const captureRows = capturesField(captures);
-  // Verdict-first tail (§3a): `summaryOnly` swaps the unified diff for a per-file diffstat; either
-  // way it is the LAST envelope key, so the render cap truncates only the re-fetchable bytes.
-  const tail: Record<string, JsonValue> =
-    ctx.flags.summaryOnly === true
-      ? {
-          diffstat: diffstat(
-            plan.diff.map((d) => ({
-              label: String(d.to),
-              before: d.before,
-              after: contentOf(d.to, d.after),
-            })),
-          ),
-        }
-      : {
-          diff: plan.diff
-            .map((d) =>
-              createTwoFilesPatch(d.from, d.to, d.before, contentOf(d.to, d.after), '', ''),
-            )
-            .join(''),
-        };
+  // Verdict-first tail (§3a): the diff/per-file list is the LAST envelope key, so the render cap
+  // truncates only the re-fetchable bytes, never the verdict. `summaryOnly` swaps the unified diff
+  // for ONE merged `touched` list — written files carry `+A -R` counts, and a moved-away source
+  // (in `touched` but written nowhere) is marked `(removed)` so a move's moved-away sources stay
+  // visible, not silently dropped (§3.4) — replacing the redundant bare `touched` + keyed
+  // `diffstat`. non-summary is byte-identical: bare `touched` in the verdict zone + the `diff` tail.
+  const summaryOnly = ctx.flags.summaryOnly === true;
+  const verdictTouched: Record<string, JsonValue> = summaryOnly ? {} : { touched };
+  const contentMap = new Map<string, { before: string; after: string }>();
+  for (const d of plan.diff) {
+    contentMap.set(String(d.to), { before: d.before, after: contentOf(d.to, d.after) });
+  }
+  for (const nf of plan.newFiles) {
+    const p = String(nf.path);
+    if (!contentMap.has(p))
+      contentMap.set(p, { before: '', after: contentOf(nf.path, nf.content) });
+  }
+  const goneEntries = plan.removed.map(String).filter((p) => !contentMap.has(p));
+  const tail: Record<string, JsonValue> = summaryOnly
+    ? {
+        touched: touchedStat(
+          [...contentMap].map(([label, ba]) => ({ label, before: ba.before, after: ba.after })),
+          goneEntries,
+        ),
+      }
+    : {
+        diff: plan.diff
+          .map((d) => createTwoFilesPatch(d.from, d.to, d.before, contentOf(d.to, d.after), '', ''))
+          .join(''),
+      };
   // §2.8 gate — typecheck the post-edit content; tombstone removed paths, scope to the whole
   // program so a missed rewrite surfaces as a dangling import rather than a silent clean.
   const overlayFiles = plan.overlayFiles.map((o) => ({
@@ -153,11 +163,11 @@ export async function applyRefactorPlan(
   };
 
   if (ctx.flags.apply !== true) {
-    // The diff/diffstat tail is ALWAYS the last key: it can be tens of KB and the render self-caps
-    // (§12), so the verdict (typecheck + captures + touched) must lead or it falls past the cap on a
-    // big move (§3a).
+    // The diff/touched-stat tail is ALWAYS the last key: it can be tens of KB and the render
+    // self-caps (§12), so the verdict (typecheck + captures + touched) must lead or it falls past
+    // the cap on a big move (§3a).
     return ok<JsonValue>(
-      { mode: 'dry-run', typecheck, touched, ...captureRows, ...baseNotes, ...tail },
+      { mode: 'dry-run', typecheck, ...verdictTouched, ...captureRows, ...baseNotes, ...tail },
       handleExtra,
     );
   }
@@ -168,14 +178,13 @@ export async function applyRefactorPlan(
     return ok<JsonValue>(
       {
         mode: 'dry-run',
-        applied: false,
         reason: captureRefusal(
           captures,
           opts.captureAction ??
             `the ${opts.refusalLabel} relinks an import onto a different export — choose a different destination or relink manually`,
         ),
         typecheck,
-        touched,
+        ...verdictTouched,
         ...captureRows,
         ...baseNotes,
         ...tail,
@@ -196,10 +205,9 @@ export async function applyRefactorPlan(
     return ok<JsonValue>(
       {
         mode: 'dry-run',
-        applied: false,
         reason,
         typecheck,
-        touched,
+        ...verdictTouched,
         ...captureRows,
         ...baseNotes,
         ...tail,
@@ -223,10 +231,9 @@ export async function applyRefactorPlan(
     return ok<JsonValue>(
       {
         mode: 'dry-run',
-        applied: false,
         reason: `a path already exists at the destination(s) ${collidingDests.join(', ')} — refusing to overwrite`,
         typecheck,
-        touched,
+        ...verdictTouched,
         ...captureRows,
         ...baseNotes,
         ...tail,
@@ -241,10 +248,9 @@ export async function applyRefactorPlan(
     return ok<JsonValue>(
       {
         mode: 'dry-run',
-        applied: false,
         reason: `touched files have uncommitted changes (${dirty.data.join(', ')}); commit/stash or pass dirtyOk`,
         typecheck,
-        touched,
+        ...verdictTouched,
         ...captureRows,
         ...baseNotes,
         ...tail,
@@ -284,7 +290,7 @@ export async function applyRefactorPlan(
         mode: 'applied',
         applied: false,
         typecheck: tc,
-        touched,
+        ...verdictTouched,
         rollback: { performed: reverted.complete, reason },
         ...captureRows,
         ...baseNotes,
@@ -320,10 +326,10 @@ export async function applyRefactorPlan(
       // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
       // error count rides along on success too — honest, and consistent with the dry-run field.
       typecheck: postGate.field,
-      touched,
+      ...verdictTouched,
       rollback: { performed: false },
       ...baseNotes,
-      ...tail, // last — the cap can only ever truncate the diff/diffstat, never the verdict (§3a).
+      ...tail, // last — the cap can only ever truncate the diff/touched-stat, never the verdict (§3a).
     },
     handleExtra,
   );

@@ -72,7 +72,7 @@ void describe('kitchensink extract_symbol (Stage 3 — scope analysis + CSS co-e
       );
 
       // Honest refusal: the §2.8 gate caught a non-clean post-extract typecheck — nothing written.
-      assert.equal(env.applied, false);
+      assert.notEqual(env.applied, true);
       assert.equal(env.typecheck.clean, false);
       assert.match(String(env.reason), /apply refused/);
       assert.equal(p.git('status', '--porcelain'), ''); // zero writes
@@ -162,7 +162,7 @@ void describe('kitchensink extract_symbol (Stage 3 — scope analysis + CSS co-e
       assert.equal(codes['block__el'], 'NO-RULE'); // BEM concat not synthesized — no flat rule
 
       // KS-3 — the TS side is honestly refused (sole-export extract dangles its importers).
-      assert.equal(env.applied, false);
+      assert.notEqual(env.applied, true);
       assert.equal(env.typecheck.clean, false);
       assert.match(diagText(env), /no exported member 'Widget'/);
       assert.equal(p.git('status', '--porcelain'), ''); // zero writes

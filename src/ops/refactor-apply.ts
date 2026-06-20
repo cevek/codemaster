@@ -30,7 +30,7 @@ import {
   buildTypecheckField,
   capturesField,
   captureRefusal,
-  diffstat,
+  touchedStat,
   formatOne,
   gateCoverageNotes,
   resolvePrettier,
@@ -144,21 +144,25 @@ export async function applyMutation(
   const touched = changes.map((c) => c.path);
   const captures = options.captures ?? [];
   const captureRows = capturesField(captures);
-  // Verdict-first envelope tail (§3a): `summaryOnly` swaps the (tens-of-KB) unified diff for a
-  // compact per-file `+added/-removed` diffstat — the safety verdict stays, the bytes don't. Either
-  // way it is the LAST key, so the render cap can only ever truncate it, never the verdict.
-  const tail: Record<string, JsonValue> =
-    ctx.flags.summaryOnly === true
-      ? {
-          diffstat: diffstat(
-            changes.map((c) => ({ label: String(c.path), before: c.before, after: c.after })),
-          ),
-        }
-      : {
-          diff: changes
-            .map((c) => createTwoFilesPatch(c.path, c.path, c.before, c.after, '', ''))
-            .join(''),
-        };
+  // Verdict-first envelope tail (§3a): the diff/per-file list is the LAST key, so the render cap can
+  // only ever truncate it, never the verdict. `summaryOnly` swaps the (tens-of-KB) unified diff for
+  // ONE merged `touched` list (path + `+A -R` counts) — the safety verdict stays, the bytes don't —
+  // replacing the redundant bare `touched` (verdict zone) + keyed `diffstat`. In-place ops have no
+  // moved-away source, so `gone` is empty. non-summary is byte-identical: bare `touched` in the
+  // verdict zone + the unified `diff` tail.
+  const summaryOnly = ctx.flags.summaryOnly === true;
+  const verdictTouched: Record<string, JsonValue> = summaryOnly ? {} : { touched };
+  const tail: Record<string, JsonValue> = summaryOnly
+    ? {
+        touched: touchedStat(
+          changes.map((c) => ({ label: String(c.path), before: c.before, after: c.after })),
+        ),
+      }
+    : {
+        diff: changes
+          .map((c) => createTwoFilesPatch(c.path, c.path, c.before, c.after, '', ''))
+          .join(''),
+      };
 
   // §2.8 gate — typecheck the post-edit content over the overlay. Scope depends on whether the
   // changeset is COMPLETE: a symbol-anchored rename (LS findRenameLocations) touches every ref
@@ -213,14 +217,15 @@ export async function applyMutation(
   // whether the edit is safe (spec-stresstest §3a). So the verdict summary (typecheck, captures)
   // leads and the diff/diffstat is ALWAYS the last key — the cap can only truncate the re-fetchable
   // bytes, never the verdict.
+  // A refused dry-run carries no `applied` field — `mode:'dry-run'` + a `reason` already say it was
+  // not written (the redundant `applied:false` is dropped; `applied` rides ONLY on `mode:'applied'`).
   const refused = (reason: string): Result<JsonValue> =>
     ok<JsonValue>(
       {
         mode: 'dry-run',
-        applied: false,
         reason,
         typecheck,
-        touched,
+        ...verdictTouched,
         ...captureRows,
         ...baseNotes,
         ...tail,
@@ -230,7 +235,7 @@ export async function applyMutation(
 
   if (ctx.flags.apply !== true) {
     return ok<JsonValue>(
-      { mode: 'dry-run', typecheck, touched, ...captureRows, ...baseNotes, ...tail },
+      { mode: 'dry-run', typecheck, ...verdictTouched, ...captureRows, ...baseNotes, ...tail },
       handleExtra,
     );
   }
@@ -272,7 +277,7 @@ export async function applyMutation(
         mode: 'applied',
         applied: false,
         typecheck: tc,
-        touched,
+        ...verdictTouched,
         rollback: { performed: reverted.complete, reason },
         ...captureRows,
         ...baseNotes,
@@ -315,12 +320,12 @@ export async function applyMutation(
       // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
       // error count rides along on success too — honest, and consistent with the dry-run field.
       typecheck: postGate.field,
-      touched,
+      ...verdictTouched,
       rollback: { performed: false },
       ...baseNotes,
       // Proof spans valid only now that the post-edit content is on disk (§3.2).
       ...appliedFields,
-      ...tail, // last — the cap can only ever truncate the diff/diffstat, never the verdict (§3a).
+      ...tail, // last — the cap can only ever truncate the diff/touched-stat, never the verdict (§3a).
     },
     handleExtra,
   );

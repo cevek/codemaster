@@ -242,7 +242,7 @@ test('move_file: REFUSED when the destination is a gitignored existing path (no 
     writeFileSync(path.join(p.root, 'dist/old.ts'), 'export const artifact = 42;\n'); // gitignored
 
     const env = await move(p, { source: 'src/old.ts', dest: 'dist/old.ts' }, true);
-    assert.equal(env.applied, false); // refused before any disk mutation
+    assert.notEqual(env.applied, true); // refused (mode=dry-run) before any disk mutation
     assert.equal(
       readFileSync(path.join(p.root, 'dist/old.ts'), 'utf8'),
       'export const artifact = 42;\n', // survived — rollback never ran to delete it

@@ -15,9 +15,11 @@ export interface OpFlags {
   /** Mutating ops only: `false` (default) → dry-run preview; `true` → apply writes. */
   apply?: boolean;
   /** Mutating ops only: omit the (potentially huge) unified `diff` from the envelope and return
-   *  only the verdict (`mode`/`applied`/`typecheck`/`captures`/`touched`) + a per-file `diffstat`
-   *  (+added/-removed line counts). For when the agent wants the safety verdict, not the bytes —
-   *  re-run without the flag for the full diff. */
+   *  only the verdict (`mode`/`typecheck`/`captures`) + ONE merged `touched` list — each written
+   *  file with its `+added/-removed` line counts, a moved-away/deleted source marked `(removed)`.
+   *  (Replaces the bare `touched` + separate `diffstat`; non-summary keeps bare `touched` + `diff`.)
+   *  For when the agent wants the safety verdict, not the bytes — re-run without the flag for the
+   *  full diff. */
   summaryOnly?: boolean;
   /** Output density (§12). */
   verbosity?: Verbosity;

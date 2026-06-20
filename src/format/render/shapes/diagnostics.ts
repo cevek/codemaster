@@ -11,3 +11,13 @@ export const tsDiagnostic: ShapeRenderer = (v) =>
 
 /** ParseFailure (scss/i18n): { file, message }. */
 export const parseFailure: ShapeRenderer = (v) => `${String(v['file'])} · ${flat(v['message'])}`;
+
+/** A CLEAN mutating-op typecheck verdict: { clean:true, preExisting? }. Collapses the
+ *  `typecheck:` header + lone `clean=true` line (emitted on EVERY mutating call — the common
+ *  case) to one token: `clean` / `clean preExisting=N`. The dirty case stays an untagged object
+ *  block so its `introduced` ts-diagnostic rows ride beneath. The `clean:true` field is kept in
+ *  the data (json strips the tag → the pre-tag `{clean:true,…}` shape), only text collapses. */
+export const typecheckClean: ShapeRenderer = (v) => {
+  const pre = v['preExisting'];
+  return typeof pre === 'number' && pre > 0 ? `clean preExisting=${pre}` : 'clean';
+};

@@ -20,3 +20,12 @@ export const nameSurvives: ShapeRenderer = (v) => {
   if (consumers.length > 0) lines.push(`  via export*: ${consumers.join(' | ')}`);
   return lines.join('\n');
 };
+
+/** One `summaryOnly` touched-file stat row — the single list that replaces the redundant
+ *  bare-`touched` + keyed-`diffstat` pair. A written file is `{ path, added, removed }` →
+ *  `path · +A -R`; a moved-away / deleted source is `{ path, gone:true }` → `path · (removed)`
+ *  (the marker that keeps move_file's moved-away sources visible — §3.4 completeness). */
+export const touchedStat: ShapeRenderer = (v) =>
+  v['gone'] === true
+    ? `${String(v['path'])} · (removed)`
+    : `${String(v['path'])} · +${String(v['added'])} -${String(v['removed'])}`;

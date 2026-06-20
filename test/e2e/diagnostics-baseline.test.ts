@@ -70,7 +70,7 @@ test('codemod: an edit that introduces an error is refused; introduced vs pre-ex
     // Rewrite to a 2-arg call of a 1-arg function → a NEW type error the edit caused.
     const env = await codemod(p, { pattern: 'oldApi($A)', rewrite: 'newApi($A, $A)' }, true);
     assert.equal(env.typecheck.clean, false);
-    assert.equal(env.applied, false);
+    assert.notEqual(env.applied, true);
     assert.match(String(env.reason), /apply refused/);
     const introduced = env.typecheck.introduced ?? [];
     assert.ok(

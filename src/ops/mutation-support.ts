@@ -91,7 +91,16 @@ export function buildTypecheckField(
   const introduced = introducedDiagnostics(baseline, after, remapBaselineFile);
   const preExisting = after.length - introduced.length;
   if (introduced.length === 0) {
-    return { clean: true, field: preExisting > 0 ? { clean: true, preExisting } : { clean: true } };
+    // Tag the clean verdict so the text renderer collapses the `typecheck:`/`clean=true` block to
+    // one token (`typecheck=clean` / `typecheck=clean preExisting=N`). json strips the tag → the
+    // pre-tag `{clean:true,…}` shape is byte-identical, so every data consumer is unaffected.
+    return {
+      clean: true,
+      field: tag(
+        'typecheck-clean',
+        preExisting > 0 ? { clean: true, preExisting } : { clean: true },
+      ),
+    };
   }
   const shown = introduced.slice(0, INTRODUCED_DIAG_CAP);
   return {
@@ -154,21 +163,35 @@ export interface DiffstatEntry {
   after: string;
 }
 
-/** Per-file `+added/-removed` line counts — the compact verdict `summaryOnly` returns instead of
- *  the (potentially tens-of-KB) unified diff. Keyed by display path so the dense renderer prints
- *  one `path=+A -R` line each. */
-export function diffstat(entries: readonly DiffstatEntry[]): JsonValue {
-  const out: Record<string, JsonValue> = {};
-  for (const e of entries) {
-    let added = 0;
-    let removed = 0;
-    for (const part of diffLines(e.before, e.after)) {
-      if (part.added === true) added += part.count ?? 0;
-      else if (part.removed === true) removed += part.count ?? 0;
-    }
-    out[e.label] = `+${added} -${removed}`;
+/** `+added/-removed` line counts for one before/after. */
+function lineDelta(before: string, after: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const part of diffLines(before, after)) {
+    if (part.added === true) added += part.count ?? 0;
+    else if (part.removed === true) removed += part.count ?? 0;
   }
-  return out;
+  return { added, removed };
+}
+
+/** The single `summaryOnly` touched list (replaces the redundant bare-`touched` + keyed-`diffstat`
+ *  pair). Each WRITTEN file is `{ path, added, removed }` (line counts); each moved-away / deleted
+ *  source — a path in `touched` that the diffstat never covered — is `{ path, gone:true }`, so a
+ *  move's moved-away sources stay visible rather than silently dropped (§3.4). Every row is tagged
+ *  so the text renderer prints one `path · +A -R` / `path · (removed)` line; json keeps the
+ *  structured fields. The list is the verdict's bulk tail — placed LAST so the cap (§3a) can only
+ *  truncate it, never the typecheck/captures verdict. */
+export function touchedStat(
+  entries: readonly DiffstatEntry[],
+  gone: readonly string[] = [],
+): JsonValue[] {
+  const rows: JsonValue[] = [];
+  for (const e of entries) {
+    const { added, removed } = lineDelta(e.before, e.after);
+    rows.push(tag('touched-stat', { path: e.label, added, removed }));
+  }
+  for (const p of gone) rows.push(tag('touched-stat', { path: p, gone: true }));
+  return rows;
 }
 
 /** The envelope `captures` field (the §-capture-safety verdict), empty object when none — so it
