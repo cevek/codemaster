@@ -57,14 +57,50 @@ function serializeEntry(e: ListEntry): JsonValue {
 
 interface ListRow {
   key: string;
-  kind: string;
+  kind?: string;
   name?: string;
   file: string;
   line: number;
   col: number;
   confidence: string;
-  provenance: string;
+  provenance?: string;
   detail?: string;
+}
+
+function isRecord(v: JsonValue): v is Record<string, JsonValue> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Hoist a column that is CONSTANT across every entry into a header field, dropping it from each row
+ *  — `list components` otherwise repeats `· component · heuristic:react` on all 652 rows, pure noise.
+ *  Only `kind` and `provenance` are hoisted (often uniform within one registry); `confidence` is NOT
+ *  (it varies per entry). The hoisted value still fills the sql table via `allKind`/`allProvenance`
+ *  fallback (listTable.rows). Single-entry answers keep everything inline (nothing to dedupe). */
+function hoistUniform(serialized: readonly JsonValue[]): {
+  entries: JsonValue[];
+  allKind?: string;
+  allProvenance?: string;
+} {
+  const rows = serialized.filter(isRecord);
+  if (rows.length < 2) return { entries: [...serialized] };
+  const uniform = (k: string): string | undefined => {
+    const vals = new Set(rows.map((r) => JSON.stringify(r[k])));
+    return vals.size === 1 && rows[0]?.[k] !== undefined ? String(rows[0][k]) : undefined;
+  };
+  const allKind = uniform('kind');
+  const allProvenance = uniform('provenance');
+  if (allKind === undefined && allProvenance === undefined) return { entries: [...serialized] };
+  const entries = rows.map((r) => {
+    const o = { ...r };
+    if (allKind !== undefined) delete o['kind'];
+    if (allProvenance !== undefined) delete o['provenance'];
+    return o;
+  });
+  return {
+    entries,
+    ...(allKind !== undefined ? { allKind } : {}),
+    ...(allProvenance !== undefined ? { allProvenance } : {}),
+  };
 }
 
 const listTable: TableSpec<JsonValue> = {
@@ -80,16 +116,19 @@ const listTable: TableSpec<JsonValue> = {
     { name: 'detail', type: 'text' },
   ],
   rows(data) {
-    const entries = (data as { entries?: ListRow[] }).entries ?? [];
+    const d = data as { entries?: ListRow[]; allKind?: string; allProvenance?: string };
+    const entries = d.entries ?? [];
+    // kind/provenance may have been hoisted off the rows (hoistUniform) — fall back to the header
+    // value so the sql projection stays complete.
     return entries.map((e): readonly Cell[] => [
       e.key,
-      e.kind,
+      e.kind ?? d.allKind ?? null,
       e.name ?? null,
       e.file,
       e.line,
       e.col,
       e.confidence,
-      e.provenance,
+      e.provenance ?? d.allProvenance ?? null,
       e.detail ?? null,
     ]);
   },
@@ -143,6 +182,7 @@ export const listOp = defineOp({
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',
     'an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).',
     'entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).',
+    'density: a column CONSTANT across every entry (kind, provenance) is stated ONCE as `allKind`/`allProvenance` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is never hoisted (it varies per entry). A mixed answer keeps the column per-row.',
   ],
   table: listTable,
   async run(ctx, args) {
@@ -160,13 +200,18 @@ export const listOp = defineOp({
         });
       }
       const view: ListView = owner.list(args.registry);
+      const hoisted = hoistUniform(view.entries.map(serializeEntry));
       return ok(
         {
           registry: args.registry,
           found: true,
           owner: owner.id,
           available,
-          entries: view.entries.map(serializeEntry),
+          // Constant-across-all columns stated once here, dropped from every row (a header before
+          // the bulk — §12 verdict-before-bulk; the cap can only ever truncate the row tail).
+          ...(hoisted.allKind !== undefined ? { allKind: hoisted.allKind } : {}),
+          ...(hoisted.allProvenance !== undefined ? { allProvenance: hoisted.allProvenance } : {}),
+          entries: hoisted.entries,
           ...(view.note !== undefined ? { note: view.note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),
         },

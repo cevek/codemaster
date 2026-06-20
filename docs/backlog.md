@@ -499,7 +499,9 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 > at-risk ops on a fixture and fails CI if any result row renders as a bulleted/deeper `key=value`
 > block, so a future op that lacks a case is caught before it ships. `expand_type` (the type is no
 > longer printed twice), `importers_of` (now `limit`-capped + truncation), and `find_usages` (a
-> `listable` field ties the raw `total` to the listed/`shown` counts) are also fixed. Open residuals:
+> `listable` field ties the raw `total` to the listed/`shown` counts) are fixed; `list` hoists a
+> constant kind/provenance column to a header (`allKind`/`allProvenance`); and `css_cascade` states
+> the cross-module explanation once in the header instead of per row. Open residuals:
 
 - [ ] **`~<rootTag>` printed on every SymbolId** — the workspace tag (`~d19d0f20`) is identical on
       every id of a single-root answer (it exists only to refuse a cross-root rebind, §6), so it is
@@ -509,18 +511,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       safe needs a resolution-semantics change (untagged ⇒ current-root-only) first, OR stating the
       tag once in a header and rendering ids tag-less only in text. Affects every id-bearing op.
       `dx`·`med`·`cx:M`
-- [ ] **`list` repeats constant columns per row** — every entry carries `· <kind>` (= the registry,
-      constant) and `· heuristic:<plugin>` (constant provenance); on amiro `components` that is 652
-      identical decorations. Hoist the constant kind/provenance to the header and print per-row only
-      the exceptions (`partial`/`dynamic`/`wrapped`). Coordinated change: the op must detect
-      answer-level uniformity and strip the constant fields into a header (a stripped row is a new
-      key-set → needs its own `collapseKnownShape` case). Complements the `list`-limit item above.
-      `dx`·`low`·`cx:M`
-- [ ] **`css_cascade` repeats the same boilerplate note per property and per loser** — the ~20-word
-      "cross-module — CSS-module classes are per-file scoped; cannot prove it cascades…" sentence is
-      re-emitted on every property line and every `loses:`/`ambiguous-with:` entry. Dedupe to a single
-      footnote keyed by a short code (`xmod`, `state`, `tie`) and tag each row with the code.
-      `dx`·`low`·`cx:M`
 - [ ] **`expand_type verbosity:full` bloats the span block** — `full` renders the one-line span as a
       multi-line `file=/line=/col=/endLine=/endCol=/text=` block (the condense span-collapse is
       skipped at `full`). Minor; collapse the span even at `full` for a single-symbol answer.

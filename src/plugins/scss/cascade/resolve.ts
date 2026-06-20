@@ -194,9 +194,10 @@ function winnerConfidence(
     reasons.push('cross-module specificity tie — source order across modules is unknown');
   if (top.c.global) reasons.push('reached via :global — not module-scoped');
   else if (owner === undefined || top.c.file !== owner) {
-    reasons.push(
-      'cross-module — CSS-module classes are per-file scoped; cannot prove it cascades with the target',
-    );
+    // Just the tag per winner — the full "per-file scoped; cannot prove it cascades" explanation is
+    // stated ONCE in the answer's header note (buildNotes), so repeating it per property/loser is
+    // pure boilerplate (output-density audit). The header note fires whenever any rule is crossModule.
+    reasons.push('cross-module');
   }
   for (const cond of top.c.conditions) reasons.push(CONDITION_TEXT[cond]);
   if (top.c.atContext.length > 0) reasons.push(`applies only under ${top.c.atContext.join(' / ')}`);

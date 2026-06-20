@@ -228,17 +228,29 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'name,reason') {
     return `${String(v['name'])} · ${flat(v['reason'])}`;
   }
-  // ListEntry (the `list` registry op): { key, kind, confidence, provenance, file, line, col,
+  // ListEntry (the `list` registry op): { key, confidence, file, line, col, kind?, provenance?,
   // name?, segments?, detail?, proof }. The registry row has no `id` to fold name+loc into, so it
   // exploded into one key=value line per field — collapse to a single clickable line. `proof` just
-  // repeats file:line:col and `name` repeats `key`; both are dropped. provenance + a non-certain
-  // confidence + detail decorate the tail (provenance is a per-row honesty signal — kept, §3.3).
-  // Matched by the key+kind+provenance signature, unique to this shape (id-bearing rows carry `id`).
-  if ('key' in v && 'kind' in v && 'provenance' in v && 'file' in v && 'line' in v && 'col' in v) {
+  // repeats file:line:col and `name` repeats `key`; both are dropped. kind/provenance decorate the
+  // tail BUT are omitted when constant across the answer (hoisted to the header by `list`'s
+  // `hoistUniform`) — so a uniform 652-row `components` listing prints `key · loc` rows, the
+  // `· component · heuristic:react` stated once above. Matched by key+confidence+file+line+col,
+  // unique to this shape (id-bearing rows carry `id`; i18n/scss rows carry a `span`, not raw file).
+  if (
+    'key' in v &&
+    'confidence' in v &&
+    'file' in v &&
+    'line' in v &&
+    'col' in v &&
+    !('span' in v) &&
+    !('id' in v)
+  ) {
     const loc = `${String(v['file'])}:${String(v['line'])}:${String(v['col'])}`;
+    const kind = v['kind'] !== undefined ? ` · ${String(v['kind'])}` : '';
     const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const prov = v['provenance'] !== undefined ? ` · ${String(v['provenance'])}` : '';
     const detail = v['detail'] !== undefined ? ` · ${flat(v['detail'])}` : '';
-    return `${String(v['key'])} · ${String(v['kind'])} · ${loc}${conf} · ${String(v['provenance'])}${detail}`;
+    return `${String(v['key'])}${kind} · ${loc}${conf}${prov}${detail}`;
   }
   // EndpointCard (list_endpoints) — variadic (optional query/body/response/status/note), matched by
   // presence. query/body/response are TypeRefs already collapsed to `loc · type`; show just the type.

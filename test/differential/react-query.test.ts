@@ -235,15 +235,19 @@ test('invalidations_for: a predicate filter caps an otherwise-certain match at p
 // ── list registries (the generic `list` op routes to react-query) ───────────────────────────
 interface ListEntryRow {
   key: string;
-  kind: string;
+  kind?: string;
   name?: string;
   confidence: string;
-  provenance: string;
+  // Omitted from a row when CONSTANT across the answer — hoisted to `ListData.allProvenance` by the
+  // `list` op's hoistUniform densification.
+  provenance?: string;
   segments?: { dynamic: boolean; value?: string }[];
 }
 interface ListData {
   found: boolean;
   owner?: string;
+  allKind?: string;
+  allProvenance?: string;
   entries: ListEntryRow[];
 }
 function listOf(r: OpResult): ListData {
@@ -265,7 +269,9 @@ test('list mutations / queries: detected by react-query, decoys excluded, proven
       'useTouchTodo',
       'useUpdateUser',
     ]);
-    assert.ok(mut.entries.every((e) => e.provenance === 'heuristic:react-query'));
+    assert.ok(
+      mut.entries.every((e) => (e.provenance ?? mut.allProvenance) === 'heuristic:react-query'),
+    );
     assert.ok(!mutNames.includes('notAMutation'), 'decoy must not be a mutation');
 
     const q = listOf(await p.op('list', { registry: 'queries' }));

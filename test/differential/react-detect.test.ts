@@ -85,11 +85,16 @@ function oracle(root: string): { components: Set<string>; hooks: Set<string> } {
 
 interface Entry {
   key: string;
-  kind: string;
+  kind?: string;
   confidence: string;
-  provenance: string;
+  // Omitted from a row when CONSTANT across the answer — stated once as `allProvenance` (the `list`
+  // hoistUniform densification). `provOf` resolves the effective value (row, else header).
+  provenance?: string;
   detail?: string;
 }
+
+const provOf = (e: Entry, data: Record<string, JsonValue>): string =>
+  e.provenance ?? (data['allProvenance'] as string | undefined) ?? '(none)';
 
 function listData(r: OpResult): Record<string, JsonValue> {
   if ('error' in r) throw new Error(`dispatch error: ${r.error.message}`);
@@ -151,7 +156,7 @@ test('components: warm list == independent cold-Program oracle (incl. call-wrapp
     assert.equal(byName.get('Card')?.confidence, 'certain');
     assert.equal(byName.get('Maybe')?.confidence, 'partial');
     assert.equal(byName.get('Wrapped')?.confidence, 'dynamic');
-    for (const e of entries) assert.equal(e.provenance, 'heuristic:react', e.key);
+    for (const e of entries) assert.equal(provOf(e, data), 'heuristic:react', e.key);
 
     // The syntactic under-report is disclosed, never silent.
     assert.match(String(data['note']), /indirectly/i);
@@ -165,14 +170,15 @@ test('hooks: warm list == oracle; use[A-Z] only', async () => {
   const p = await project(FILES);
   try {
     const r = await p.op('list', { registry: 'hooks' });
-    const entries = listData(r)['entries'] as unknown as Entry[];
+    const data = listData(r);
+    const entries = data['entries'] as unknown as Entry[];
     const names = new Set(entries.map((e) => e.key));
     const { hooks } = oracle(p.root);
     assert.deepEqual([...names].sort(), [...hooks].sort());
     assert.deepEqual([...names].sort(), ['useCounter', 'useThing']);
     for (const e of entries) {
       assert.equal(e.confidence, 'certain');
-      assert.equal(e.provenance, 'heuristic:react');
+      assert.equal(provOf(e, data), 'heuristic:react');
     }
   } finally {
     await p.dispose();
@@ -183,11 +189,12 @@ test('dialogs: a component rendering DialogContent is flagged; proof span valid'
   const p = await project(FILES);
   try {
     const r = await p.op('list', { registry: 'dialogs' });
-    const entries = listData(r)['entries'] as unknown as Entry[];
+    const data = listData(r);
+    const entries = data['entries'] as unknown as Entry[];
     const my = entries.find((e) => e.key === 'MyDialog');
     assert.ok(my !== undefined, 'MyDialog detected as a dialog');
     assert.match(my.detail ?? '', /DialogContent/);
-    assert.equal(my.provenance, 'heuristic:react');
+    assert.equal(provOf(my, data), 'heuristic:react');
     assert.ok(assertSpansValid(p.root, r) >= 1);
   } finally {
     await p.dispose();
