@@ -83,7 +83,18 @@ export function expandTypeAt(
     notes,
   );
   if (members === undefined) return notes.length > 0 ? { ...base, notes } : base;
-  return { ...base, members, ...(notes.length > 0 ? { notes } : {}) };
+  // An object type's `members` list IS its field set — for a `type X = {…}` alias the LS quick-info
+  // ALSO carries the whole body as `type`, so emitting both prints all N fields twice (the field
+  // feedback that started the density audit). Drop the body, keep a one-line `about` headline (the
+  // decl line, trimmed of a dangling `= {`). An interface already has a single-line `about` here, so
+  // this is a no-op for it; only the alias-with-inline-body case is de-duplicated. (§3.4 / density.)
+  const headline = about.replace(/\s*=?\s*\{$/, '');
+  const {
+    type: _body,
+    about: _head,
+    ...rest
+  } = base as TypeView & { type?: string; about?: string };
+  return { about: headline, ...rest, members, ...(notes.length > 0 ? { notes } : {}) };
 }
 
 /** Object-like members of `type`, or `undefined` when it has none to show (a function /
