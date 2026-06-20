@@ -13,8 +13,9 @@ import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
 /** Render a queryKey for the flat table: `['todos', <identifier>]`, `<call>` for an opaque key,
- *  `(all)` for a broad invalidation. */
-function renderKey(key: QueryKeyView | undefined, all: boolean): string {
+ *  `(all)` for a broad invalidation. Exported only so the render-contract guard can cross-pin it
+ *  against condense's `summarizeQueryKey` (its intentional structural twin — see that fn). */
+export function renderKey(key: QueryKeyView | undefined, all: boolean): string {
   if (all || key === undefined) return '(all)';
   if (key.opaque !== undefined) return `<${key.opaque}>`;
   const segs = key.segments.map((s) =>

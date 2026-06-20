@@ -69,7 +69,10 @@ export const importersOfOp = defineOp({
           note: 'no importers found — check the specifier (path or alias) against tsconfig',
         });
       }
-      const limit = args.limit ?? DEFAULT_LIMIT;
+      // sql-mode (§2.3/§11): a capped producer feeding a NOT IN / a positive WHERE lies. The engine
+      // threads MAX_TABLE_ROWS as `tableRowBound` so the op caps exactly where the engine would —
+      // uncapped for sql; `total > shown.length` below still reports truncation, marking it partial.
+      const limit = ctx.tableRowBound ?? args.limit ?? DEFAULT_LIMIT;
       const shown = view.importers.slice(0, limit);
       const truncated: Truncation | undefined =
         view.total > shown.length

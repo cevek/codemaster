@@ -271,6 +271,37 @@ test('grouped find_usages exposes is_exported + encloser_file: filter to exporte
   }
 });
 
+test('importers_of producer runs uncapped in sql-mode (honors tableRowBound, not its own limit)', async () => {
+  // Regression: importers_of grew a default-200 row `limit`. In sql-mode the engine threads
+  // MAX_TABLE_ROWS as tableRowBound so a producer runs uncapped (§2.3/§11) — the op must cap at
+  // THAT, not at its own 200, else a positive WHERE silently omits the tail. A module with 3
+  // importers under a bound of 2 must surface 2 rows + a `partial` naming the table (the op
+  // ignoring tableRowBound would return all 3 unflagged, since 3 < 200).
+  const p = await project(
+    {
+      'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+      'src/lib.ts': 'export const X = 1;\n',
+      'src/a.ts': "import { X } from './lib';\nexport const a = X;\n",
+      'src/b.ts': "import { X } from './lib';\nexport const b = X;\n",
+      'src/c.ts': "import { X } from './lib';\nexport const c = X;\n",
+    },
+    { sqlBounds: { maxTableRows: 2 } },
+  );
+  try {
+    const results = await p.request(
+      [{ name: 'importers_of', as: 't', args: { module: 'src/lib.ts' } }],
+      { sql: 'SELECT COUNT(*) AS n FROM t' },
+    );
+    const data = okData(results[0] as OpResult);
+    assert.equal(data.rows[0]?.[0], 2, 'producer capped at the engine bound (2), not its own 200');
+    const partial = data['partial'] as { boundedTables: string[] } | undefined;
+    assert.ok(partial !== undefined, 'hitting the bound must surface as partial');
+    assert.deepEqual(partial.boundedTables, ['t'], 'and names the bounded table');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('op-sql sugar: op({name, args, sql}) ≡ a batch of one aliased t', async () => {
   const p = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',

@@ -9,8 +9,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
 import { renderResult } from '../../src/format/render/render-result.ts';
-import { condenseSpans } from '../../src/format/render/condense.ts';
+import { condenseSpans, summarizeQueryKey } from '../../src/format/render/condense.ts';
 import { renderDense } from '../../src/format/render/render-dense.ts';
+import { renderKey } from '../../src/ops/react-query-invalidations-for.ts';
+import type { QueryKeyView } from '../../src/plugins/react-query/views.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Result } from '../../src/core/result.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
@@ -112,10 +114,35 @@ test('no op result row falls through condense into a watery key=value block', as
   }
 });
 
+// condense's `summarizeQueryKey` (text render) is an intentional structural twin of the op's
+// `renderKey` (sql-table render) — the format layer can't import the react-query op/type, so the
+// logic is duplicated. Cross-pin them so the duplication can never silently diverge (text and sql
+// showing a different key for the same queryKey). Covers static / dynamic-segment / opaque keys.
+test('summarizeQueryKey (text) == renderKey (sql) for every queryKey shape', () => {
+  const keys: QueryKeyView[] = [
+    { segments: [{ kind: 'static', value: 'todos' }], confidence: 'certain' },
+    {
+      segments: [
+        { kind: 'static', value: 'todo' },
+        { kind: 'dynamic', shape: 'identifier' },
+      ],
+      confidence: 'partial',
+    },
+    { segments: [], opaque: 'call', confidence: 'dynamic' },
+  ];
+  for (const k of keys) {
+    assert.equal(
+      summarizeQueryKey(k as unknown as JsonValue),
+      renderKey(k, false),
+      JSON.stringify(k),
+    );
+  }
+});
+
 // The shapes the pipeline fixture above can't reach without plugin config — a mutating-op `captures`
 // refusal and `invalidations_for`'s react-query leaves — fed as literal rows through the SAME
-// condense→dense path. Locks their collapse cases (incl. the `summarizeQueryKey`/`renderKey`
-// divergence the op flags) without needing a capture-triggering or react-query fixture.
+// condense→dense path. Locks their collapse cases without needing a capture-triggering or
+// react-query fixture.
 test('captures + invalidations_for leaf shapes collapse to dense lines', () => {
   // mutating-op capture row { at, kind, detail } — must be one line, not a 3-line block.
   const cap = renderRows([{ at: 'src/a.ts:1:1', kind: 'shadow', detail: 'rebinds to a local X' }]);

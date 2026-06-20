@@ -228,21 +228,23 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'name,reason') {
     return `${String(v['name'])} · ${flat(v['reason'])}`;
   }
-  // ListEntry (the `list` registry op): { key, confidence, file, line, col, kind?, provenance?,
-  // name?, segments?, detail?, proof }. The registry row has no `id` to fold name+loc into, so it
-  // exploded into one key=value line per field — collapse to a single clickable line. `proof` just
+  // ListEntry (the `list` registry op): { key, confidence, file, line, col, proof, kind?,
+  // provenance?, name?, segments?, detail? }. The registry row has no `id` to fold name+loc into, so
+  // it exploded into one key=value line per field — collapse to a single clickable line. `proof` just
   // repeats file:line:col and `name` repeats `key`; both are dropped. kind/provenance decorate the
   // tail BUT are omitted when constant across the answer (hoisted to the header by `list`'s
   // `hoistUniform`) — so a uniform 652-row `components` listing prints `key · loc` rows, the
-  // `· component · heuristic:react` stated once above. Matched by key+confidence+file+line+col,
-  // unique to this shape (id-bearing rows carry `id`; i18n/scss rows carry a `span`, not raw file).
+  // `· component · heuristic:react` stated once above. DISCRIMINANT: `proof` (every list entry
+  // carries one — serializeEntry) + `key` + raw file/line/col; kind/provenance are NOT in the guard
+  // (hoisted away), so `proof` is what keeps a future `{key,confidence,file,line,col}` row from
+  // mis-collapsing here (id-bearing rows carry `id`; i18n/scss rows carry a `span`, not raw file).
   if (
     'key' in v &&
+    'proof' in v &&
     'confidence' in v &&
     'file' in v &&
     'line' in v &&
     'col' in v &&
-    !('span' in v) &&
     !('id' in v)
   ) {
     const loc = `${String(v['file'])}:${String(v['line'])}:${String(v['col'])}`;
@@ -356,8 +358,9 @@ function flat(value: JsonValue | undefined): string {
 /** Summarize a (condensed) react-query QueryKeyView to its literal form — `['a', <id>]` for an
  *  array key, `<opaque>` for a non-array key, `(all)` when absent. Structural over JsonValue (the
  *  format layer must not import plugins/react-query); MIRRORS `ops/react-query-invalidations-for`'s
- *  `renderKey` (the sql-table renderer) — keep the two in sync if the QueryKey shape changes. */
-function summarizeQueryKey(key: JsonValue | undefined): string {
+ *  `renderKey` (the sql-table renderer). The render-contract guard cross-pins the two so they can
+ *  never silently diverge (text vs sql showing a different key) — hence the export. */
+export function summarizeQueryKey(key: JsonValue | undefined): string {
   if (!isObject(key)) return '(all)';
   if (key['opaque'] !== undefined) return `<${String(key['opaque'])}>`;
   const segs = asArray(key['segments']).map((s) =>
