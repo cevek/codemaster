@@ -109,7 +109,7 @@ test('enclosing-declaration SymbolId chains into another op', async () => {
     const site = view.sites.find((s) => s.encloser.name === 'declaredUser');
     assert.ok(site !== undefined);
 
-    const def = await p.op('find_definition', { symbol: site.encloser.id });
+    const def = await p.op('find_definition', { symbolId: site.encloser.id });
     assert.ok('result' in def && def.result.ok, JSON.stringify(def));
     const defs = (def.result.data as { definitions?: { name: string }[] }).definitions ?? [];
     assert.ok(

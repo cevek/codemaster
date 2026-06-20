@@ -28,7 +28,7 @@ export const expandTypeOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40) }`,
   example: {
-    args: { symbol: 'ts:Engine@src/daemon/engine.ts:70:7' },
+    args: { symbolId: 'ts:Engine@src/daemon/engine.ts:70:7' },
     flags: { verbosity: 'full' },
   },
   notes: [

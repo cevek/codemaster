@@ -95,7 +95,7 @@ export class Factory {
     const method = view.sites.find((s) => s.encloser.name === 'Factory.make');
     assert.ok(method !== undefined, 'class method encloser carries the qualified display name');
 
-    const def = await p.op('find_definition', { symbol: method.encloser.id });
+    const def = await p.op('find_definition', { symbolId: method.encloser.id });
     assert.ok('result' in def && def.result.ok, JSON.stringify(def));
     const defs = (def.result.data as { definitions?: { name: string }[] }).definitions ?? [];
     assert.ok(

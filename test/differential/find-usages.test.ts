@@ -269,7 +269,7 @@ test('a reference in a top-level value binding rolls up to that binding, not the
     );
 
     // The re-resolvable id chains straight back into another op (the dead-end is closed).
-    const chained = await p.op('find_usages', { symbol: b.id });
+    const chained = await p.op('find_usages', { symbolId: b.id });
     assert.ok('result' in chained && chained.result.ok, 'the binding id resolves on its own');
   } finally {
     await p.dispose();

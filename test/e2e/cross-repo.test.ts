@@ -191,7 +191,9 @@ test('a SymbolId from repo A fails honestly when its file is absent in repo B (n
     const symbol = okData<Matches>(search, 0).matches[0]?.id;
     assert.ok(symbol !== undefined);
     // alpha lives in A's src/a.ts; B has no src/a.ts → the B-rooted handle can't resolve.
-    const r = await m.request([{ name: 'find_definition', args: { symbol }, root: m.root('B') }]);
+    const r = await m.request([
+      { name: 'find_definition', args: { symbolId: symbol }, root: m.root('B') },
+    ]);
     const res = at(r, 0);
     assert.ok(
       'result' in res && !res.result.ok,
@@ -222,7 +224,9 @@ test('§4b: SymbolIds are origin-gated — a handle from A is NOT name-rebound o
     );
     const symbol = okData<Matches>(search, 0).matches[0]?.id;
     assert.ok(symbol !== undefined);
-    const r = await m.request([{ name: 'find_definition', args: { symbol }, root: m.root('B') }]);
+    const r = await m.request([
+      { name: 'find_definition', args: { symbolId: symbol }, root: m.root('B') },
+    ]);
     const res = at(r, 0);
     assert.ok(
       'result' in res && !res.result.ok,

@@ -38,7 +38,7 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
   requires: ['ts'],
   argsSchema: extractArgsSchema,
   argsHint:
-    "{ symbol?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' }",
+    "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' }",
   example: { args: { name: 'Helper', dest: 'src/lib/helper.ts' } },
   notes: [
     'dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.',

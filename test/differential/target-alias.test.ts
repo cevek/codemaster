@@ -1,8 +1,8 @@
-// `target` as the SymbolId alias of `symbol` (DX feedback): agents naturally address a held
+// `target` as the SymbolId alias of `symbolId` (DX feedback): agents naturally address a held
 // handle under `target`, and the old strictObject rejected it as bad_args. The alias is collapsed
-// to `symbol` at the one resolver chokepoint, so EVERY symbol-addressed op accepts either spelling.
+// to `symbolId` at the one resolver chokepoint, so EVERY symbol-addressed op accepts either spelling.
 //
-// Oracle: the alias must produce the SAME answer as the canonical `symbol` form AND match the
+// Oracle: the alias must produce the SAME answer as the canonical `symbolId` form AND match the
 // hand-curated semantic ground truth (the fixture is input; the expected set is written here, not
 // read back from a second LS — §16). An alias that silently changed the result would be the §3 lie
 // this guards.
@@ -36,17 +36,17 @@ function definitionId(r: OpResult): string {
 const projset = (u: Usage[]): string[] =>
   u.map((x) => `${x.span.file}:${x.span.line}:${x.role}`).sort();
 
-test('find_usages accepts target as the alias of symbol — identical to the symbol form and to ground truth', async () => {
+test('find_usages accepts target as the alias of symbolId — identical to the symbolId form and to ground truth', async () => {
   const p: TestProject = await project(FILES);
   try {
-    // Mint a real SymbolId via the canonical `symbol`-yielding path.
+    // Mint a real SymbolId via the canonical `symbolId`-yielding path.
     const id = definitionId(await p.op('find_usages', { name: 'Button', collapseImports: false }));
 
-    const bySymbol = usagesOf(await p.op('find_usages', { symbol: id, collapseImports: false }));
+    const bySymbol = usagesOf(await p.op('find_usages', { symbolId: id, collapseImports: false }));
     const byTarget = usagesOf(await p.op('find_usages', { target: id, collapseImports: false }));
 
     // Equivalence: the alias resolves to the same symbol, same answer.
-    assert.deepEqual(projset(byTarget), projset(bySymbol), 'target form == symbol form');
+    assert.deepEqual(projset(byTarget), projset(bySymbol), 'target form == symbolId form');
 
     // Independent oracle: the hand-read semantic set for Button under this fixture.
     assert.deepEqual(
@@ -92,15 +92,15 @@ test('the alias is honored across symbol-addressed ops (not just find_usages) an
 
 // H1 regression (BugReviewer-2, §3.6-self-contradiction): the MUTATING ops built a manual target
 // literal WITHOUT args.target, so the schema accepted `target` but resolveTarget saw all-undefined
-// and failed "target needs symbol, file+line+col, or name". They now route through `targetOf`. A
-// dry-run must RESOLVE the target identically to the `symbol` spelling, never the self-contradiction.
-test('mutating ops resolve `target` identically to `symbol` (H1: no manual-literal bypass)', async () => {
+// and failed "target needs symbolId, file+line+col, or name". They now route through `targetOf`. A
+// dry-run must RESOLVE the target identically to the `symbolId` spelling, never the self-contradiction.
+test('mutating ops resolve `target` identically to `symbolId` (H1: no manual-literal bypass)', async () => {
   const p: TestProject = await project(FILES);
   try {
     const id = definitionId(await p.op('find_usages', { name: 'Button', collapseImports: false }));
 
     // rename_symbol (run + the referenceSpans path) — dry-run, both spellings.
-    const bySymbol = await p.op('rename_symbol', { symbol: id, newName: 'Renamed' });
+    const bySymbol = await p.op('rename_symbol', { symbolId: id, newName: 'Renamed' });
     const byTarget = await p.op('rename_symbol', { target: id, newName: 'Renamed' });
     assert.ok('result' in bySymbol && bySymbol.result.ok, JSON.stringify(bySymbol));
     assert.ok(
@@ -111,7 +111,7 @@ test('mutating ops resolve `target` identically to `symbol` (H1: no manual-liter
     assert.deepEqual(
       (byTarget.result.data as { touched?: unknown }).touched,
       (bySymbol.result.data as { touched?: unknown }).touched,
-      'target and symbol produce the same rename plan',
+      'target and symbolId produce the same rename plan',
     );
 
     // A second mutating op proves the fix is not rename-specific.
@@ -123,8 +123,70 @@ test('mutating ops resolve `target` identically to `symbol` (H1: no manual-liter
     // Whatever the plan verdict, it must NOT be the "target needs …" resolution failure.
     assert.doesNotMatch(
       JSON.stringify(csTarget),
-      /target needs symbol, file\+line\+col, or name/,
+      /target needs symbolId, file\+line\+col, or name/,
       'change_signature resolved the target (no manual-literal bypass)',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// A bare name under `symbolId` (or its `target` alias) is the friction this hardening fixes: a
+// SymbolId has a clear shape (`ts:Name@file:line:col`), so a value with no plugin prefix is
+// unambiguously a misplaced name. The op must FAIL with a message that points the agent at `name`,
+// never an opaque "not a SymbolId" — and never silently coerce it (that would be input-guessing).
+test('a bare name under symbolId/target fails with a pointed "use name" message', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    for (const key of ['symbolId', 'target'] as const) {
+      const r = await p.op('find_usages', { [key]: 'Button' });
+      assert.ok(
+        'result' in r && !r.result.ok,
+        `bare name under ${key} must FAIL: ${JSON.stringify(r)}`,
+      );
+      const msg = JSON.stringify(r);
+      assert.match(msg, /not a SymbolId/, `${key}: states it is not a SymbolId`);
+      assert.match(msg, /pass it under 'name'/, `${key}: points the agent at the name field`);
+    }
+  } finally {
+    await p.dispose();
+  }
+});
+
+// A `file:line:col` position pasted into `symbolId` decodes to a phantom plugin prefix (split on the
+// first `:`), but its payload has no `@` — it is NOT a SymbolId. It must be steered to file+line+col,
+// never told it "belongs to plugin 'src/Button.tsx'" (a message that names a nonexistent plugin).
+test('a file:line:col position under symbolId is steered to file+line+col, not a phantom plugin', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const r = await p.op('find_usages', { symbolId: 'src/Button.tsx:14:8' });
+    assert.ok('result' in r && !r.result.ok, `a position string must FAIL: ${JSON.stringify(r)}`);
+    const msg = JSON.stringify(r);
+    assert.match(msg, /not a SymbolId/, 'states it is not a SymbolId');
+    assert.match(msg, /file\+line\+col/, 'points the agent at the position fields');
+    assert.doesNotMatch(
+      msg,
+      /belongs to plugin/,
+      'never names a phantom plugin for a position string',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// A real SymbolId of ANOTHER plugin (scss:/i18n:) DOES decode (its payload carries `@`), so it must
+// hit the foreign-plugin branch — named honestly, never confused with the bare-name path.
+test('a non-ts SymbolId is rejected as a foreign-plugin id, not as a bare name', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const r = await p.op('find_usages', { symbolId: 'scss:.btn@src/x.module.scss:3:1' });
+    assert.ok('result' in r && !r.result.ok, `a foreign-plugin id must FAIL: ${JSON.stringify(r)}`);
+    const msg = JSON.stringify(r);
+    assert.match(msg, /belongs to plugin 'scss'/, 'names the owning plugin');
+    assert.doesNotMatch(
+      msg,
+      /not a SymbolId/,
+      'a real foreign SymbolId is not mislabeled a bare name',
     );
   } finally {
     await p.dispose();

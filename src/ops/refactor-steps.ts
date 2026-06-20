@@ -32,7 +32,7 @@ export interface StepPlanner {
 }
 
 type TargetArgs = {
-  symbol?: string;
+  symbolId?: string;
   file?: string;
   line?: number;
   col?: number;

@@ -28,7 +28,7 @@ const argsSchema = z.strictObject({
 });
 
 function describeTarget(t: TsTargetInput): string {
-  if (t.symbol !== undefined) return t.symbol;
+  if (t.symbolId !== undefined) return t.symbolId;
   if (t.name !== undefined) return t.name;
   if (t.file !== undefined) return `${t.file}:${t.line ?? '?'}:${t.col ?? '?'}`;
   return '<target>';
@@ -40,9 +40,9 @@ export const sourceOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: '{ targets: [{ symbol? | name? | file+line+col }] } — up to 20',
+  argsHint: '{ targets: [{ symbolId? | name? | file+line+col }] } — up to 20',
   example: {
-    args: { targets: [{ name: 'createEngine' }, { symbol: 'ts:Button@src/Button.tsx:1:14' }] },
+    args: { targets: [{ name: 'createEngine' }, { symbolId: 'ts:Button@src/Button.tsx:1:14' }] },
   },
   notes: [
     'one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.',

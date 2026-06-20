@@ -32,7 +32,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
   requires: ['ts'],
   argsSchema: renameArgsSchema,
   argsHint:
-    "{ symbol?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean }",
+    "{ symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean }",
   example: { args: { file: 'src/app.ts', line: 12, col: 8, newName: 'renamed' } },
   notes: [
     'dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.',

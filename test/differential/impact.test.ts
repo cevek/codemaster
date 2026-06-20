@@ -63,7 +63,7 @@ test('known transitive closure: dependents land at their hand-curated depths', a
     const midId = (d.dependents?.['1'] ?? []).find((r) => r.name === 'mid')?.id;
     if (midId === undefined) throw new Error('mid dependent missing an id');
     assert.ok(midId.startsWith('ts:'), 'dependent carries a chainable ts: SymbolId');
-    const chained = await p.op('find_usages', { symbol: midId });
+    const chained = await p.op('find_usages', { symbolId: midId });
     assert.ok('result' in chained && chained.result.ok, 'the dependent id resolves on its own');
   } finally {
     await p.dispose();
@@ -264,7 +264,7 @@ test('impact expands THROUGH a top-level value binding to its own dependents (no
       bRow.id.startsWith('ts:') && bRow.id.includes('b@src/b.ts'),
       'b rolled up to a re-resolvable binding id, not the module node',
     );
-    const chained = await p.op('find_usages', { symbol: bRow.id });
+    const chained = await p.op('find_usages', { symbolId: bRow.id });
     assert.ok('result' in chained && chained.result.ok, 'b’s id resolves on its own');
   } finally {
     await p.dispose();

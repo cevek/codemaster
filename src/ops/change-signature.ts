@@ -32,7 +32,7 @@ export const changeSignatureOp = defineOp<ChangeArgs, JsonValue>({
   requires: ['ts'],
   argsSchema: changeArgsSchema,
   argsHint:
-    "{ symbol?: 'ts:…' | name?: string | file+line+col, removeParam?: number | reorder?: number[], dirtyOk?: boolean }",
+    "{ symbolId?: 'ts:…' | name?: string | file+line+col, removeParam?: number | reorder?: number[], dirtyOk?: boolean }",
   example: { args: { name: 'greet', removeParam: 1 } },
   notes: [
     'positional params only; pass removeParam (0-based index) OR reorder (a full permutation of param indices). Renaming a param is rename_symbol, not this.',

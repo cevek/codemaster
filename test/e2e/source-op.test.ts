@@ -59,7 +59,7 @@ test('source surfaces a per-target rebind when a held SymbolId moved (§6, never
     // Shift the declaration down — the handle's recorded position is now stale.
     p.write('src/u.ts', '// moved\n// down\nexport const twice = (n: number): number => n * 2;\n');
 
-    const r = await p.op('source', { targets: [{ symbol: id }] });
+    const r = await p.op('source', { targets: [{ symbolId: id }] });
     assert.ok('result' in r && r.result.ok, JSON.stringify(r));
     const entry = (r.result.data as SourceData).sources[0];
     assert.ok(entry?.rebound !== undefined, 'rebind must be stated on the source entry');

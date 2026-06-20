@@ -63,7 +63,7 @@ test('class-member encloser id re-resolves via find_definition/source/rename —
 
     // The whole point of the rollup: the handle CHAINS. find_definition resolves it to the
     // method decl (not gone), source returns its body, rename finds it.
-    const def = await p.op('find_definition', { symbol: member.id });
+    const def = await p.op('find_definition', { symbolId: member.id });
     assert.ok(
       'result' in def && def.result.ok,
       `def must resolve, not gone: ${JSON.stringify(def)}`,
@@ -74,7 +74,7 @@ test('class-member encloser id re-resolves via find_definition/source/rename —
       'encloser id resolves to the `render` method',
     );
 
-    const src = await p.op('source', { targets: [{ symbol: member.id }] });
+    const src = await p.op('source', { targets: [{ symbolId: member.id }] });
     assert.ok('result' in src && src.result.ok, JSON.stringify(src));
     const sources =
       (src.result.data as { sources?: { name: string; decl: { text: string } }[] }).sources ?? [];
@@ -86,7 +86,7 @@ test('class-member encloser id re-resolves via find_definition/source/rename —
     // rename via a full request so `apply` would ride at top level; dry-run (default) must
     // produce a real diff — a `gone` handle yields no edit.
     const [ren] = await p.request([
-      { name: 'rename_symbol', args: { symbol: member.id, newName: 'renderX' } },
+      { name: 'rename_symbol', args: { symbolId: member.id, newName: 'renderX' } },
     ]);
     assert.ok(ren !== undefined && 'result' in ren && ren.result.ok, JSON.stringify(ren));
     const env = ren.result.data as { diff: string; touched: string[] };
@@ -131,7 +131,7 @@ test('a function-valued class FIELD (arrow handler) rolls up to the member, not 
     );
 
     // Chains: the member id re-resolves (not gone).
-    const def = await p.op('find_definition', { symbol: member.id });
+    const def = await p.op('find_definition', { symbolId: member.id });
     assert.ok('result' in def && def.result.ok, JSON.stringify(def));
   } finally {
     await p.dispose();

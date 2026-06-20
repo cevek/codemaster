@@ -6,10 +6,12 @@
 import { z } from 'zod';
 
 export const tsTargetShape = {
-  symbol: z.string().optional(),
-  /** Alias for `symbol`: agents naturally pass the SymbolId under `target`. Normalized to
-   *  `symbol` at the one resolver chokepoint (`symbol ?? target`), so every symbol-addressed
-   *  op accepts either spelling. */
+  /** A `ts:`-prefixed SymbolId from a previous answer — NOT a bare name (that goes under
+   *  `name`). Named `symbolId`, not `symbol`, so a bare identifier has no field to land in. */
+  symbolId: z.string().optional(),
+  /** Alias for `symbolId`: agents naturally pass the SymbolId under `target`. Normalized to
+   *  `symbolId` at the one resolver chokepoint (`symbolId ?? target`), so every symbol-addressed
+   *  op accepts either spelling — and the same not-a-SymbolId detection guards both. */
   target: z.string().optional(),
   file: z.string().optional(),
   line: z.number().int().positive().optional(),
@@ -18,7 +20,7 @@ export const tsTargetShape = {
 };
 
 type TargetFields = {
-  symbol?: string | undefined;
+  symbolId?: string | undefined;
   target?: string | undefined;
   file?: string | undefined;
   line?: number | undefined;
@@ -28,11 +30,11 @@ type TargetFields = {
 
 export const requireTarget = {
   predicate: (t: TargetFields): boolean =>
-    t.symbol !== undefined ||
+    t.symbolId !== undefined ||
     t.target !== undefined ||
     t.name !== undefined ||
     (t.file !== undefined && t.line !== undefined && t.col !== undefined),
-  message: "pass 'symbol' (a ts: SymbolId; alias 'target'), or 'name', or all of file+line+col",
+  message: "pass 'symbolId' (a ts: SymbolId; alias 'target'), or 'name', or all of file+line+col",
 };
 
 export const tsTargetSchema = z
@@ -40,15 +42,15 @@ export const tsTargetSchema = z
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
 export const TS_TARGET_HINT =
-  "{ symbol?: 'ts:…' (alias: target), name?: string, file?: string, line?: number, col?: number }";
+  "{ symbolId?: 'ts:…' (alias: target), name?: string, file?: string, line?: number, col?: number }";
 
 /** Project the shared target fields off a validated args object into the `TsTargetInput` the
  *  plugin's resolver consumes — the one place the symbol/file/line/col/name mapping lives, so a
  *  symbol-anchored op and the `transaction` step that wraps it never drift (no parallel literal).
- *  `target` is the SymbolId alias of `symbol`; both forward, the resolver collapses them. */
+ *  `target` is the SymbolId alias of `symbolId`; both forward, the resolver collapses them. */
 export function targetOf(a: TargetFields): TargetFields {
   return {
-    symbol: a.symbol,
+    symbolId: a.symbolId,
     target: a.target,
     file: a.file,
     line: a.line,

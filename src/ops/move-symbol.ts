@@ -34,7 +34,7 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
   requires: ['ts'],
   argsSchema: moveSymbolArgsSchema,
   argsHint:
-    "{ symbol?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath (an existing file), dirtyOk?: boolean }",
+    "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath (an existing file), dirtyOk?: boolean }",
   example: { args: { name: 'helper', dest: 'src/lib/util.ts' } },
   notes: [
     'dest must be an EXISTING file in the project — the moved symbol is merged into it (its imports folded into dest’s, every importer repointed, the source keeps a back-import if it still uses the symbol). To move into a NEW file use extract_symbol.',

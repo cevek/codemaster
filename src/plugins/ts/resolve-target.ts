@@ -16,9 +16,9 @@ export type ResolvedTarget =
 /** The three ways an agent addresses a symbol (§6 targets): a held `ts:` SymbolId, an
  *  explicit `file+line+col`, or an unambiguous `name`. */
 export type TsTargetInput = {
-  /** A `ts:`-prefixed SymbolId from a previous answer. */
-  symbol?: string | undefined;
-  /** Alias for `symbol` — agents naturally address by `target`; collapsed to `symbol` here. */
+  /** A `ts:`-prefixed SymbolId from a previous answer (NOT a bare name — that is `name`). */
+  symbolId?: string | undefined;
+  /** Alias for `symbolId` — agents naturally address by `target`; collapsed to `symbolId` here. */
   target?: string | undefined;
   /** Or an explicit position. */
   file?: string | undefined;
@@ -32,10 +32,10 @@ export type TsTargetInput = {
  *  SymbolId's file moved). Pure over the host — the shared entry every symbol-addressed read
  *  method funnels through, so SymbolId / file:line:col / name dispatch lives in one place. */
 export function resolveTarget(h: TsProjectHost, target: TsTargetInput): ResolvedTarget {
-  // `target` is the SymbolId alias of `symbol` — the single collapse point, so every
+  // `target` is the SymbolId alias of `symbolId` — the single collapse point, so every
   // symbol-addressed op (direct-args find_usages and the targetOf path alike) accepts either.
-  const symbol = target.symbol ?? target.target;
-  if (symbol !== undefined) return resolveSymbolId(h, symbol);
+  const symbolId = target.symbolId ?? target.target;
+  if (symbolId !== undefined) return resolveSymbolId(h, symbolId);
   if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
     const abs = h.absOf(target.file as RepoRelPath);
     // Across ALL loaded programs (spec Task G): a `test/**` file lives only in a sibling program,
@@ -54,7 +54,7 @@ export function resolveTarget(h: TsProjectHost, target: TsTargetInput): Resolved
     return { ok: true, abs, offset };
   }
   if (target.name !== undefined) return resolveByName(h, target.name);
-  return { ok: false, message: 'target needs symbol, file+line+col, or name' };
+  return { ok: false, message: 'target needs symbolId, file+line+col, or name' };
 }
 
 /** Name → position, via the LS workspace-symbol provider. Multiple navto entries are often
@@ -120,8 +120,23 @@ export function resolveAllByName(h: TsProjectHost, name: string): ResolvedDeclar
 
 function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
   const decoded = decodeSymbolId(id);
-  if (decoded === undefined || decoded.plugin !== 'ts') {
-    return { ok: false, message: `not a ts SymbolId: '${id}'` };
+  // A real SymbolId's payload always carries the `@file` separator (`plugin:Name@rel:line:col`).
+  // A value with no usable prefix (a bare name) — OR one whose first `:` is incidental and leaves
+  // an `@`-less payload (a `file:line:col` position pasted into the field) — is not a SymbolId at
+  // all. Both are the misplaced-input friction this op hardened against, so point the agent at the
+  // RIGHT field (`name` / `file+line+col`), not at an opaque "not a SymbolId" or a phantom plugin.
+  const looksLikeSymbolId = decoded !== undefined && decoded.payload.includes('@');
+  if (decoded === undefined || (!looksLikeSymbolId && decoded.plugin !== 'ts')) {
+    return {
+      ok: false,
+      message: `'${id}' is not a SymbolId (those look like 'ts:Name@file:line:col') — to search by name pass it under 'name', or to address by position pass file+line+col`,
+    };
+  }
+  if (decoded.plugin !== 'ts') {
+    return {
+      ok: false,
+      message: `SymbolId '${id}' belongs to plugin '${decoded.plugin}', not 'ts' — this op resolves ts symbols`,
+    };
   }
   const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)(?:~([0-9a-f]+))?$/);
   if (m === null) return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };

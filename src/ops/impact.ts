@@ -256,7 +256,7 @@ export const impactOp = defineOp({
       const seedExpansion = outcomeFromView(seed.view);
       const expand: Expand = (id) => {
         if (id === def.id) return seedExpansion;
-        const outcome = ts.findUsages({ symbol: id }, options);
+        const outcome = ts.findUsages({ symbolId: id }, options);
         if (typeof outcome === 'string' || 'unresolved' in outcome) return { ok: false };
         return outcomeFromView(outcome.view);
       };

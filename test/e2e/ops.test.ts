@@ -63,7 +63,7 @@ test('a stale SymbolId rebinds with proof and stated confidence (§6)', async ()
     // Shift the definition down two lines — the handle's recorded position is stale.
     p.write('src/util.ts', '// moved\n// down\nexport const twice = (n: number) => n * 2;\n');
 
-    const r = await p.op('find_usages', { symbol: id });
+    const r = await p.op('find_usages', { symbolId: id });
     assert.ok('result' in r && r.result.ok, JSON.stringify(r));
     assert.ok(r.result.handle !== undefined, 'rebind must be stated, never silent');
     assert.equal(r.result.handle.status, 'rebound');
@@ -101,7 +101,7 @@ test('a stale handle whose symbol is deleted is GONE — empty data, never a fal
     // Every SymbolId-taking read op states the gone handle uniformly (one surfacing it and
     // the others flattening would be an inconsistent §6 signal).
     for (const op of ['find_usages', 'find_definition', 'expand_type'] as const) {
-      const r = await p.op(op, { symbol: id });
+      const r = await p.op(op, { symbolId: id });
       assert.ok('result' in r, `${op}: ${JSON.stringify(r)}`);
       assert.ok(!r.result.ok, `${op}: a gone symbol yields no answer`);
       assert.equal(r.result.data, undefined, `${op}: empty data — a guess would be the §6 lie`);
@@ -110,7 +110,7 @@ test('a stale handle whose symbol is deleted is GONE — empty data, never a fal
     }
 
     // `source` is multi-target — the gone handle is stated per target in `unresolved`.
-    const src = await p.op('source', { targets: [{ symbol: id }] });
+    const src = await p.op('source', { targets: [{ symbolId: id }] });
     assert.ok('result' in src && src.result.ok);
     const un = (src.result.data as { unresolved?: { handle?: { status: string } }[] }).unresolved;
     assert.equal(un?.[0]?.handle?.status, 'gone', 'source states the gone handle per target');
@@ -137,7 +137,7 @@ test('a deleted symbol with a same-named sibling rebinds at PARTIAL confidence, 
     // workspace-wide. That rebind is honest ONLY if it admits identity is unproven.
     p.write('src/util.ts', 'export const removed = 1;\n');
 
-    const r = await p.op('find_usages', { symbol: utilId });
+    const r = await p.op('find_usages', { symbolId: utilId });
     assert.ok('result' in r && r.result.ok, JSON.stringify(r));
     assert.ok(r.result.handle !== undefined, 'the workspace-wide rebind is stated, never silent');
     assert.equal(r.result.handle.status, 'rebound');
