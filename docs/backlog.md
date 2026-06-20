@@ -110,6 +110,13 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
       (`support/transport/unix-socket.ts`) — safe today (no other startup I/O; plugins are lazy), but
       a future concurrent startup file-write would inherit 0600. Prefer a per-socket mode at create if
       a portable API appears. `bug`·`low`·`cx:S`
+- [ ] **flaky e2e: `daemon-cli-smoke` restart-while-live** (`test/e2e/daemon-cli-smoke.test.ts:100`) —
+      the `restart`-while-live verb intermittently resolves with `code:0` but **empty stdout**, so the
+      `/daemon stopped[\s\S]*daemon started/` match fails. Observed once in CI (run 27886079761), green
+      on the immediate re-run; passes 3/3 locally. A real-spawn timing race in the restart verb's stdout
+      capture/flush under CI load (not a product bug — the lifecycle works). Harden: capture stderr too
+      in `runVerb` for diagnosis, and/or `waitFor` the new pid via `status` instead of asserting on the
+      restart verb's own stdout. `bug`·`low`·`cx:S`
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
