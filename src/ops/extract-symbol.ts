@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
@@ -88,11 +89,16 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
             },
           ]
         : [];
-    const reports = [...cssReports, ...cssNote];
+    const reports = [...cssReports, ...cssNote].map((r) =>
+      tag('css-coextract', {
+        ...r,
+        leftBehind: r.leftBehind.map((l) => tag('css-left-behind', l)),
+      }),
+    );
     return applyRefactorPlan(ctx, plan, {
       refusalLabel: 'extract',
       ...(args.dirtyOk !== undefined ? { dirtyOk: args.dirtyOk } : {}),
-      ...(reports.length > 0 ? { cssCoExtract: reports } : {}),
+      ...(reports.length > 0 ? { cssCoExtract: reports as unknown as JsonValue } : {}),
     });
   },
 });

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { ImporterRow } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
@@ -83,7 +84,7 @@ export const importersOfOp = defineOp({
             }
           : undefined;
       return ok(
-        { module: view.module, importers: shown, total: view.total },
+        { module: view.module, importers: shown.map((r) => tag('importer', r)), total: view.total },
         truncated !== undefined ? { truncated } : undefined,
       );
     } catch (thrown) {

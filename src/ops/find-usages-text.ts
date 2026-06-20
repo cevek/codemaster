@@ -7,6 +7,7 @@
 import { gitLsFiles } from '../support/git/ls-files.ts';
 import { walkFiles } from '../support/fs/walk.ts';
 import { isOk } from '../common/result/narrow.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import { intersects } from '../common/span/compare.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Span } from '../core/span.ts';
@@ -106,7 +107,7 @@ export function attachOverlay(
   if (overlay === undefined) return { shown: 0, total: 0 };
   section['textTotal'] = overlay.textTotal;
   if (overlay.textOnly.length > 0) {
-    section['textOnly'] = overlay.textOnly as unknown as JsonValue;
+    section['textOnly'] = overlay.textOnly.map((h) => tag('text-hit', h)) as unknown as JsonValue;
     const existing = Array.isArray(section['notes']) ? (section['notes'] as JsonValue[]) : [];
     section['notes'] = [
       ...existing,

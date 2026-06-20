@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { ScssClassView, ScssPluginApi } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -49,7 +50,12 @@ export const scssClassesOp = defineOp({
     try {
       const classes = scss.classes(args.file);
       const failures = [...scss.parseFailures()].map(([file, message]) => ({ file, message }));
-      return ok({ classes, ...(failures.length > 0 ? { parseFailures: failures } : {}) });
+      return ok({
+        classes: classes.map((c) => tag('scss-class', c)),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
+      });
     } catch (thrown) {
       return failFromThrown('postcss-scss', thrown);
     }

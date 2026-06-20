@@ -23,6 +23,7 @@
 import type { JsonValue } from '../core/json.ts';
 import type { Span } from '../core/span.ts';
 import type { RepoRelPath } from '../core/brands.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 
 interface OldNameSurvives {
   /** `export { <new> as <old> }` re-export aliases the rename introduced to keep the public
@@ -65,7 +66,12 @@ export function buildOldNameSurvives(
     exportStarConsumers: [...exportStarConsumers],
     summary,
   };
-  return { fields: { oldNameSurvives: survives as unknown as JsonValue }, notes: [summary] };
+  return {
+    fields: {
+      oldNameSurvives: tag('name-survives', survives as unknown as Record<string, JsonValue>),
+    },
+    notes: [summary],
+  };
 }
 
 /** A repo-relative path the rename touched / could-not-edit — the set the `export *` survivor

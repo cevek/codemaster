@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactQueryPluginApi } from '../plugins/react-query/plugin.ts';
 import type { QueryKeyView, ResolvedMutation } from '../plugins/react-query/views.ts';
 import { defineOp } from './registry.ts';
@@ -98,7 +99,14 @@ export const invalidationsForOp = defineOp({
         moduleResolved: view.moduleResolved,
         dynamicKeyedQueries: view.dynamicKeyedQueries,
         ...(notes.length > 0 ? { notes } : {}),
-        mutations: view.mutations,
+        mutations: view.mutations.map((m) =>
+          tag('rq-mutation', {
+            ...m,
+            edges: m.edges.map((e) =>
+              tag('rq-edge', { ...e, affects: e.affects.map((a) => tag('rq-affected', a)) }),
+            ),
+          }),
+        ),
       };
       return ok(data);
     } catch (thrown) {

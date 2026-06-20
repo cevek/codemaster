@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderResult } from '../../src/format/render/render-result.ts';
 import { ok } from '../../src/common/result/construct.ts';
+import { tag } from '../../src/common/shape-tag/tag.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 
 const span = (file: string, line: number, col: number, text: string): JsonValue => ({
@@ -25,12 +26,16 @@ test('mutating-op typecheck diagnostics collapse to one line each (file:line · 
       typecheck: {
         clean: false,
         introduced: [
-          {
+          tag('ts-diagnostic', {
             file: 'src/a.tsx',
             line: 101,
             message: "Parameter 'result' implicitly has an 'any' type.",
-          },
-          { file: 'src/b.tsx', line: 13, message: 'Type X is not assignable\n  to type Y.' },
+          }),
+          tag('ts-diagnostic', {
+            file: 'src/b.tsx',
+            line: 13,
+            message: 'Type X is not assignable\n  to type Y.',
+          }),
         ],
         preExisting: 600,
       },
@@ -50,24 +55,24 @@ test('schema EndpointCard + nested TypeRef collapse to one line each', () => {
   const out = renderResult(
     ok({
       endpoints: [
-        {
+        tag('endpoint-card', {
           method: 'GET',
           path: '/users/{id}',
           pathParams: ['id'],
-          query: {
+          query: tag('type-ref', {
             text: '{ q?: string }',
             span: span('openapi.d.ts', 10, 5, 'query'),
             confidence: 'certain',
-          },
-          response: {
+          }),
+          response: tag('type-ref', {
             text: 'User',
             span: span('openapi.d.ts', 12, 5, 'response'),
             confidence: 'certain',
-          },
+          }),
           status: 200,
           span: span('openapi.d.ts', 9, 3, 'get'),
           confidence: 'certain',
-        },
+        }),
       ],
       total: 1,
     }),
@@ -81,7 +86,10 @@ test('schema EndpointCard + nested TypeRef collapse to one line each', () => {
 
 test('find_usages unresolved row collapses to name · reason', () => {
   const out = renderResult(
-    ok({ targets: [], unresolved: [{ name: 'Nope', reason: 'no symbol named Nope' }] }),
+    ok({
+      targets: [],
+      unresolved: [tag('unresolved-name', { name: 'Nope', reason: 'no symbol named Nope' })],
+    }),
   );
   assert.match(out, /Nope · no symbol named Nope/, 'unresolved one-liner');
   assert.doesNotMatch(out, /\n\s*reason=/, 'no exploded reason= line');
@@ -91,19 +99,19 @@ test('extract cssCoExtract leftBehind row collapses to one line', () => {
   const out = renderResult(
     ok({
       cssCoExtract: [
-        {
+        tag('css-coextract', {
           sourceStylesheet: 'a.scss',
           targetStylesheet: 'b.scss',
           moved: ['x'],
           leftBehind: [
-            {
+            tag('css-left-behind', {
               class: 'card',
               code: 'NESTED',
               reason: 'appears in a nested selector',
               span: span('a.scss', 3, 1, '.card'),
-            },
+            }),
           ],
-        },
+        }),
       ],
     }),
   );
@@ -152,17 +160,18 @@ test('§3a: the typecheck/touched verdict survives the output cap; only the diff
 });
 
 test('list registry entries collapse to one clickable line each (key · kind · loc · confidence · provenance)', () => {
-  const entry = (name: string, file: string, line: number, confidence: string): JsonValue => ({
-    key: name,
-    kind: 'component',
-    confidence,
-    provenance: 'heuristic:react',
-    file,
-    line,
-    col: 17,
-    name,
-    proof: span(file, line, 17, name),
-  });
+  const entry = (name: string, file: string, line: number, confidence: string): JsonValue =>
+    tag('list-entry', {
+      key: name,
+      kind: 'component',
+      confidence,
+      provenance: 'heuristic:react',
+      file,
+      line,
+      col: 17,
+      name,
+      proof: span(file, line, 17, name),
+    });
   const out = renderResult(
     ok({
       registry: 'components',

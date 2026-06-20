@@ -774,6 +774,30 @@ one-line legend + sectioned summary). Rules:
 - **Size to the answer, not the file count:** when several results are interchangeable
   (near-duplicate implementations), show one in full and collapse the rest to signatures.
 
+**Shape-tagged dispatch (the `~shape` protocol).** Every renderable ROW the dense text mode
+collapses to one coded line carries a stable shape TAG — a reserved `~shape` key (the same
+`~`-is-meta idiom the SymbolId uses for `~rootTag`). The renderer dispatches tag → per-shape
+function; it does NOT guess the shape from the row's key-set (that silently leaked a new/changed
+shape into the multi-line `key=value` exploder). An unknown tag fails LOUD (a visible `~shape=`
+marker), never a silent fall-through.
+
+- **The tag is META, stripped from json/sql.** It must be a real ENUMERABLE field so it survives
+  the IPC/NDJSON hop to the renderer (`process` mode), so `format:'json'` strips every `~`-key from
+  a data COPY before serializing (the live data keeps its tags for the text path / sql projector —
+  §19 tear-free; non-meta key order is preserved, so json is byte-identical to the untagged shape),
+  and the sql projector — explicit columns — never reaches it. Text mode is the only consumer.
+- **The vocabulary + tag/strip helpers live in [`common/shape-tag`](src/common/shape-tag)**
+  (`ShapeTag`, `SHAPE_KEY`, `tag()`, `stripShapeTags()`); the renderers live in
+  [`format/render/shapes`](src/format/render/shapes), one file per domain, assembled into a
+  `Record<ShapeTag, renderer>` registry — so a NEW tag with no renderer is a COMPILE error
+  (the first half of the coverage guard; the runtime guard catches a forgotten `tag()` call).
+- **Ops own the tag.** Composing the answer, an op stamps `tag(<shape>, row)` on every renderable
+  row it emits (the shape is the op's contract; the renderer is the format layer's). A row reused
+  across ops (a `GroupRow` in `find_usages` and `impact`) is tagged at each op's assembly.
+- **`full` is per-tag.** A tag whose form carries no verbatim proof body (a name-token span, a type
+  member, a list row) collapses even at `full`; a proof-bearing form (a symbol + its decl body)
+  passes through verbatim. So `full` changes only the non-proof forms, never the proof.
+
 ---
 
 ## 13. Debug & observability (for the agents building this tool)

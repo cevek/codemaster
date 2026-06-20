@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import { matchesAnyGlob } from '../common/glob/match.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
@@ -185,7 +186,8 @@ function shape(
   if (args.summary !== true) {
     // Strip the internal `site` span (it only fed the precise boundary above) — a per-row
     // span across the whole closure would bloat the listing for no agent-facing gain.
-    for (const n of displayed) (dependents[String(n.depth)] ??= []).push(omitGroupSite(n.row));
+    for (const n of displayed)
+      (dependents[String(n.depth)] ??= []).push(tag('group-row', omitGroupSite(n.row)));
     // Sort each depth bucket by fan-in (count desc) — proximity across depths, fan-in within.
     for (const rows of Object.values(dependents)) rows.sort((a, b) => b.count - a.count);
   }
@@ -197,7 +199,7 @@ function shape(
     closure.unexpandable === 0;
 
   return {
-    target,
+    target: tag('target-ref', target),
     summary: {
       depth: reached,
       dependents: total,

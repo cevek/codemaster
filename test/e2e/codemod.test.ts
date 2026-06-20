@@ -228,8 +228,15 @@ test('codemod: a pattern that matches nothing writes nothing and stays clean', a
     'src/x.ts': 'export const x = 1;\n',
   });
   try {
-    const r = await codemod(p, { pattern: 'noSuchCall($A)', rewrite: 'other($A)' }, true);
-    assert.deepEqual(r.touched, []);
+    const r = (await codemod(p, { pattern: 'noSuchCall($A)', rewrite: 'other($A)' }, true)) as {
+      changed?: number;
+      touched?: unknown;
+      typecheck: { clean: boolean };
+    };
+    // A no-op collapses to a compact verdict (changed=0 + note), not the noisy empty
+    // `touched (0):` + `diff=` of a real edit (§12).
+    assert.equal(r.changed, 0);
+    assert.equal(r.touched, undefined, 'no-op drops the empty touched list');
     assert.equal(r.typecheck.clean, true);
     assert.equal(p.git('status', '--porcelain'), '');
   } finally {

@@ -6,6 +6,7 @@
 import type { Result, FreshnessNote, Truncation, Verbosity } from '../../core/result.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import type { JsonValue } from '../../core/json.ts';
+import { stripShapeTags } from '../../common/shape-tag/tag.ts';
 import { renderDense } from './render-dense.ts';
 import { condenseSpans } from './condense.ts';
 import { isSqlTableData, renderSqlTable } from './render-table.ts';
@@ -75,6 +76,16 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
     lines.push('--- debug trace ---', ...result.debug, '--- end debug ---');
   }
   return capOutput(lines.join('\n'));
+}
+
+/** The machine-composition (`format:'json'`) render: the envelope serialized verbatim EXCEPT
+ *  the render-only `~shape` tags are stripped from `data` (a deep copy — the live data still
+ *  carries them for the text path / sql projector; §19 tear-free). Non-meta key order is
+ *  preserved (tags were appended last), so the json payload is byte-identical to the pre-tag
+ *  shape — the strip is invisible to the agent. */
+export function renderResultJson(result: Result<JsonValue>): string {
+  if (result.data === undefined) return JSON.stringify(result);
+  return JSON.stringify({ ...result, data: stripShapeTags(result.data) });
 }
 
 function capOutput(rendered: string): string {

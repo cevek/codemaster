@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
@@ -170,13 +171,13 @@ export const findUsagesOp = defineOp({
         for (const name of args.symbols) {
           const outcome = ts.findUsages({ name }, options);
           if (typeof outcome === 'string') {
-            unresolved.push({ name, reason: outcome });
+            unresolved.push(tag('unresolved-name', { name, reason: outcome }));
             continue;
           }
           if ('unresolved' in outcome) {
             // By-name targets never carry a rebind (no handle was held), but the type admits
             // it; record the reason in the sectioned `unresolved` list either way.
-            unresolved.push({ name, reason: outcome.unresolved });
+            unresolved.push(tag('unresolved-name', { name, reason: outcome.unresolved }));
             continue;
           }
           const { view } = outcome;
@@ -187,10 +188,14 @@ export const findUsagesOp = defineOp({
             symbol: name,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
             ...(view.mergedDeclarations !== undefined
-              ? { mergedDeclarations: view.mergedDeclarations }
+              ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
               : {}),
-            ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
-            ...(view.usages !== undefined ? { usages: view.usages } : {}),
+            ...(view.groups !== undefined
+              ? { enclosers: view.groups.map((g) => tag('group-row', g)) }
+              : {}),
+            ...(view.usages !== undefined
+              ? { usages: view.usages.map((u) => tag('usage', u)) }
+              : {}),
             total: view.total,
             ...listableField(view),
             ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
@@ -246,12 +251,14 @@ export const findUsagesOp = defineOp({
         );
       }
       const data: Record<string, JsonValue> = {
-        ...(view.definition !== undefined ? { definition: view.definition } : {}),
+        ...(view.definition !== undefined ? { definition: tag('symbol', view.definition) } : {}),
         ...(view.mergedDeclarations !== undefined
-          ? { mergedDeclarations: view.mergedDeclarations }
+          ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
           : {}),
-        ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
-        ...(view.usages !== undefined ? { usages: view.usages } : {}),
+        ...(view.groups !== undefined
+          ? { enclosers: view.groups.map((g) => tag('group-row', g)) }
+          : {}),
+        ...(view.usages !== undefined ? { usages: view.usages.map((u) => tag('usage', u)) } : {}),
         total: view.total,
         // When imports are collapsed in a FLAT usages list, `total` (raw) exceeds the listed set by
         // exactly `importsCollapsed` — surface `listable` so `total=N` ties to the `usages (M):`

@@ -27,8 +27,8 @@ Top → bottom:
 | L3    | `ops/`          | named, parameterized operations — the public unit (`find_usages`, `rename_symbol`, `find_unused_scss_classes`, …). Compose plugins.                                                                                                                                                                                         | **plugins, support, common, format, core only**                      |
 | L2    | `plugins/<id>/` | one domain each — `ts`, `scss`, `i18n`, `schema`, `react`, `react-query`, `tanstack-router`, `zustand`, … Each owns its parser, state, and public API. Strict plugin DAG.                                                                                                                                                   | support, common, core (+ other plugins **only** per declared `deps`) |
 | L1    | `support/`      | external-tool wrappers — `git/`, `prettier/`, `text-edits/`, `fs/`, `sql/`, `transport/` (unix-socket + NDJSON, the daemon's wire) (I/O lives here, nowhere else)                                                                                                                                                           | common, core, config                                                 |
-| L0.5  | `common/`       | pure logic over core types — `result/`, `ids/`, `span/`, `confidence/`, `fingerprint/`, `plugin-registry/`, `async/`, `debug-spec/`, `lru/`. No I/O, no timers (Clock seam only)                                                                                                                                            | core                                                                 |
-| base  | `format/`       | dense, coded, proof-carrying rendering of `Result<T>`                                                                                                                                                                                                                                                                       | common, core                                                         |
+| L0.5  | `common/`       | pure logic over core types — `result/`, `ids/`, `span/`, `confidence/`, `fingerprint/`, `plugin-registry/`, `async/`, `debug-spec/`, `lru/`, `shape-tag/` (the `~shape` render-dispatch vocabulary). No I/O, no timers (Clock seam only)                                                                                    | core                                                                 |
+| base  | `format/`       | dense, coded, proof-carrying rendering of `Result<T>`; `render/shapes/` is the per-domain `~shape` renderer registry (§12)                                                                                                                                                                                                  | common, core                                                         |
 | base  | `core/`         | pure contracts: `Result`, `Fact`, ids, span, brands, `Plugin` interface, debug                                                                                                                                                                                                                                              | — (leaf)                                                             |
 | base  | `config/`       | `CodemasterConfig` + `defineConfig`                                                                                                                                                                                                                                                                                         | core                                                                 |
 
@@ -48,6 +48,15 @@ one concept per folder, one operation per file. **No `utils.ts` / `helpers.ts` /
 `misc.ts`**: files are named by their operation (`construct.ts`, `merge.ts`, `parse.ts`),
 not by the type of contents. When a subfolder reaches ~5 files, it gets split into
 sub-subfolders. This is what stops the "hundred-file junk drawer".
+
+**Render dispatch is tagged, and ops own the tag (§12).** The dense text renderer collapses each
+renderable ROW by a `~shape` tag, not by guessing its key-set. An op MUST `tag(<shape>, row)`
+(`common/shape-tag`) every renderable row it emits; the matching renderer lives in
+`format/render/shapes/<domain>.ts`, registered in `shapes/index.ts` as a `Record<ShapeTag, …>`
+(so a tag with no renderer is a compile error). The split is deliberately edit-disjoint:
+**modifying** how an existing shape renders touches only its one domain file (parallel-safe across
+tracks); **adding** a new shape contends on `common/shape-tag/tag.ts` (the `ShapeTag` union) and
+`shapes/index.ts` (the registry) — the two shared files a new tag must touch.
 
 **Enforcement.** Today the contract is reviewed (see the `architecture-reviewer`
 agent), not yet machine-checked; an ESLint import-boundary rule lands once the modules

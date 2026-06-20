@@ -11,7 +11,7 @@ import { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
-import { fail, failFromThrown } from '../common/result/construct.ts';
+import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
 import { gitLsFiles } from '../support/git/ls-files.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
@@ -244,6 +244,19 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
       }
     } catch (thrown) {
       return failFromThrown('ast-grep', thrown);
+    }
+
+    // No-op: the pattern matched nothing to rewrite → a compact verdict, not the noisy empty
+    // `touched (0):` + `diff=` of a real edit (§12). codemod-scoped (a shape-based scan legitimately
+    // matches nothing); the symbol-anchored ops always have a changeset, so applyMutation keeps its
+    // full envelope.
+    if (changes.length === 0) {
+      return ok<JsonValue>({
+        mode: ctx.flags.apply === true ? 'applied' : 'dry-run',
+        typecheck: { clean: true },
+        changed: 0,
+        note: 'no changes — the pattern matched nothing',
+      });
     }
 
     // Capture-safety (§): a metavar-preserved identifier inside a rewritten span can silently

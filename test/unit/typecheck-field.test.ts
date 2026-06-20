@@ -27,7 +27,11 @@ test('an introduced error is surfaced; pre-existing stays a separate count', () 
   assert.equal(r.clean, false);
   const f = r.field as { clean: boolean; introduced: { file: string }[]; preExisting?: number };
   assert.equal(f.clean, false);
-  assert.deepEqual(f.introduced, [{ file: 'b.ts', line: 9, message: 'Y' }]);
+  // `~shape` is the render dispatch tag stamped on every diagnostic row (stripped from json mode,
+  // consumed by the text renderer) — it rides on the live envelope data by design (gardrail a).
+  assert.deepEqual(f.introduced, [
+    { file: 'b.ts', line: 9, message: 'Y', '~shape': 'ts-diagnostic' },
+  ]);
   assert.equal(f.preExisting, 1);
 });
 
@@ -78,7 +82,9 @@ test('§1b: a folder move re-keys errors under the moved prefix; an unrelated ne
   const r = buildTypecheckField(baseline, after, remap);
   assert.equal(r.clean, false);
   const f = r.field as { introduced: { file: string }[]; preExisting?: number };
-  assert.deepEqual(f.introduced, [{ file: 'importer.ts', line: 9, message: 'NEW' }]);
+  assert.deepEqual(f.introduced, [
+    { file: 'importer.ts', line: 9, message: 'NEW', '~shape': 'ts-diagnostic' },
+  ]);
   assert.equal(f.preExisting, 2, 'both relocated errors ride as pre-existing, not introduced');
 });
 

@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
@@ -79,7 +80,7 @@ export const searchSymbolOp = defineOp({
         return ok({ matches: [], note: `no symbols matching '${args.query}'` });
       }
       return ok(
-        { matches },
+        { matches: matches.map((m) => tag('symbol', m)) },
         total > matches.length
           ? {
               truncated: {

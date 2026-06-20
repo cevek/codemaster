@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderResult } from '../../src/format/render/render-result.ts';
 import { ok } from '../../src/common/result/construct.ts';
+import { tag } from '../../src/common/shape-tag/tag.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 
 const span = (file: string, line: number, col: number, text: string): JsonValue => ({
@@ -22,12 +23,12 @@ test('scss class list collapses to one line per class (no duplicated file=)', ()
   const out = renderResult(
     ok({
       classes: [
-        {
+        tag('scss-class', {
           name: 'badge',
           file: 'a.module.scss',
           span: span('a.module.scss', 1, 1, '.badge'),
           confidence: 'certain',
-        },
+        }),
       ],
     }),
   );
@@ -40,13 +41,13 @@ test('unused scss class surfaces non-certain confidence + note on the same line'
   const out = renderResult(
     ok({
       unused: [
-        {
+        tag('scss-class', {
           name: 'card',
           file: 'a.module.scss',
           span: span('a.module.scss', 5, 1, '.card'),
           confidence: 'partial',
           note: 'appears only in a contextual/compound/nested selector — cannot prove dead',
-        },
+        }),
       ],
     }),
   );
@@ -63,7 +64,7 @@ test('unused scss class surfaces non-certain confidence + note on the same line'
 // invariant otherwise lacks — a future GroupRow emit path that leaks an unrecognized key set
 // would flip one of these (the condense renderer only matches the two exact key sets).
 test('grouped find_usages encloser row surfaces the reference `site` on the terse line', () => {
-  const groupRow: JsonValue = {
+  const groupRow: JsonValue = tag('group-row', {
     id: 'ts:render@src/c.ts:3:3',
     name: 'Widget.render',
     file: 'src/c.ts',
@@ -75,7 +76,7 @@ test('grouped find_usages encloser row surfaces the reference `site` on the ters
     exported: false,
     confidence: 'certain',
     site: span('src/c.ts', 4, 12, 'useX'),
-  };
+  });
   const out = renderResult(ok({ enclosers: [groupRow] }));
   assert.match(
     out,
@@ -87,7 +88,7 @@ test('grouped find_usages encloser row surfaces the reference `site` on the ters
 });
 
 test('impact-style encloser row (site stripped) still renders terse, with NO ref segment', () => {
-  const stripped: JsonValue = {
+  const stripped: JsonValue = tag('group-row', {
     id: 'ts:render@src/c.ts:3:3',
     name: 'Widget.render',
     file: 'src/c.ts',
@@ -98,7 +99,7 @@ test('impact-style encloser row (site stripped) still renders terse, with NO ref
     roles: 'call',
     exported: false,
     confidence: 'certain',
-  };
+  });
   const out = renderResult(ok({ dependents: { '1': [stripped] } }));
   assert.match(
     out,
@@ -119,8 +120,8 @@ test('expand_type union member stays one line (name?: type), no 3-line explosion
       about: 'interface X',
       span: span('t.ts', 1, 11, 'X'),
       members: [
-        { name: 'id', optional: false, type: 'string' },
-        { name: 'awaiting', optional: true, type: 'string | undefined' },
+        tag('type-member', { name: 'id', optional: false, type: 'string' }),
+        tag('type-member', { name: 'awaiting', optional: true, type: 'string | undefined' }),
       ],
     }),
   );
@@ -187,14 +188,14 @@ test('find_definition at NORMAL: one-liner + decl header, not a multi-line key=v
   const out = renderResult(
     ok({
       definitions: [
-        {
+        tag('symbol', {
           id: 'ts:useAppForm@src/lib/form.tsx:307:17',
           name: 'useAppForm',
           kind: 'function',
           span: span('src/lib/form.tsx', 307, 17, 'useAppForm'),
           decl: span('src/lib/form.tsx', 307, 1, 'export function useAppForm<T>(o: O): Form {'),
           container: '"./form"',
-        },
+        }),
       ],
     }),
     'normal',
@@ -219,12 +220,12 @@ test('i18n unused key is one line (span · key · conf); the demote reason is st
   const out = renderResult(
     ok({
       unused: [
-        {
+        tag('i18n-unused-key', {
           key: 'errors.x',
           file: 'locales/en.json',
           span: span('locales/en.json', 5, 9, '"X"'),
           confidence: 'partial',
-        },
+        }),
       ],
       degraded: true,
       degradedReason: 'cannot prove dead — a dynamic t(`…`) call exists',
@@ -242,16 +243,18 @@ test('i18n_lookup defs / usages / missing-per-key each collapse to one line', ()
   const out = renderResult(
     ok({
       defs: [
-        {
+        tag('i18n-def', {
           key: 'common.ok',
           locale: 'en',
           file: 'locales/en.json',
           span: span('locales/en.json', 12, 9, '"OK"'),
           value: 'OK',
-        },
+        }),
       ],
-      usages: [{ key: 'common.ok', span: span('src/a.ts', 3, 10, "t('common.ok')") }],
-      missingPerKey: [{ key: 'common.ok', missingLocales: ['ru'] }],
+      usages: [
+        tag('i18n-usage', { key: 'common.ok', span: span('src/a.ts', 3, 10, "t('common.ok')") }),
+      ],
+      missingPerKey: [tag('i18n-missing-per-key', { key: 'common.ok', missingLocales: ['ru'] })],
       locales: ['en', 'ru'],
       matched: 1,
     }),
@@ -266,14 +269,14 @@ test('find_missing folds the missing locales into ONE row; dynamicUsages are bar
   const out = renderResult(
     ok({
       missing: [
-        {
+        tag('i18n-missing-usage', {
           key: 'common.ghost',
           span: span('src/a.ts', 4, 24, "t('common.ghost')"),
           missingLocales: ['de', 'en', 'ru'],
-        },
+        }),
       ],
       locales: ['de', 'en', 'ru'],
-      dynamicUsages: [{ span: span('src/a.ts', 5, 22, 't(`x`)') }],
+      dynamicUsages: [tag('bare-span', { span: span('src/a.ts', 5, 22, 't(`x`)') })],
     }),
   );
   assert.match(

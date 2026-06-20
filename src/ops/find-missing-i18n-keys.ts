@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { I18nPluginApi, MissingKeyView } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -63,11 +64,15 @@ export const findMissingI18nKeysOp = defineOp({
       const view = i18n.missingKeys();
       const failures = [...i18n.parseFailures()].map(([file, message]) => ({ file, message }));
       return ok({
-        missing: view.missing,
+        missing: view.missing.map((m) => tag('i18n-missing-usage', m)),
         locales: view.locales,
         ...(view.degradedReason !== undefined ? { degradedReason: view.degradedReason } : {}),
-        ...(view.dynamicUsages.length > 0 ? { dynamicUsages: view.dynamicUsages } : {}),
-        ...(failures.length > 0 ? { parseFailures: failures } : {}),
+        ...(view.dynamicUsages.length > 0
+          ? { dynamicUsages: view.dynamicUsages.map((d) => tag('bare-span', d)) }
+          : {}),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
       });
     } catch (thrown) {
       return failFromThrown('i18n', thrown);

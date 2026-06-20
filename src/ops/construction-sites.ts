@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, ConstructionSite, ConstructionTarget } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -108,8 +109,8 @@ export const constructionSitesOp = defineOp({
       }
       const { view, rebind } = outcome;
       const data: ConstructionData = {
-        target: view.target,
-        sites: view.sites,
+        target: tag('target-ref', view.target),
+        sites: view.sites.map((s) => tag('construction-site', s)),
         scanned: { literals: view.scannedLiterals, files: view.scannedFiles },
         ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
         ...(view.notes !== undefined ? { notes: view.notes } : {}),

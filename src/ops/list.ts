@@ -11,6 +11,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { ListEntry, ListView } from '../core/list.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
@@ -211,7 +212,7 @@ export const listOp = defineOp({
           // the bulk — §12 verdict-before-bulk; the cap can only ever truncate the row tail).
           ...(hoisted.allKind !== undefined ? { allKind: hoisted.allKind } : {}),
           ...(hoisted.allProvenance !== undefined ? { allProvenance: hoisted.allProvenance } : {}),
-          entries: hoisted.entries,
+          entries: hoisted.entries.map((e) => tag('list-entry', e as Record<string, JsonValue>)),
           ...(view.note !== undefined ? { note: view.note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),
         },

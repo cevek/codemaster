@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { ScssPluginApi, UnusedClassView } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -78,11 +79,13 @@ export const findUnusedScssClassesOp = defineOp({
       });
       const failures = [...scss.parseFailures()].map(([file, message]) => ({ file, message }));
       return ok({
-        unused: view.unused,
+        unused: view.unused.map((c) => tag('scss-class', c)),
         scanned: { modules: view.scannedModules, classes: view.scannedClasses },
         ...(view.dynamicModules.length > 0 ? { dynamicModules: view.dynamicModules } : {}),
         ...(view.globalModules.length > 0 ? { globalModules: view.globalModules } : {}),
-        ...(failures.length > 0 ? { parseFailures: failures } : {}),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
       });
     } catch (thrown) {
       return failFromThrown('scss', thrown);

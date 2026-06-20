@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { Truncation } from '../core/result.ts';
 import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
@@ -102,7 +103,7 @@ export const findUnusedExportsOp = defineOp({
           : undefined;
       return ok(
         {
-          unused: view.unused,
+          unused: view.unused.map((u) => tag('unused-export', u)),
           scanned: { exports: view.scannedExports, files: view.scannedFiles },
           ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
           ...(view.undiscoveredPrograms !== undefined

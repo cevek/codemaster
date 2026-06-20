@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { I18nPluginApi, UnusedKeyView } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -82,7 +83,9 @@ export const findUnusedI18nKeysOp = defineOp({
         globalDemote: view.globalDemote,
         ...(view.degradedReason !== undefined ? { degradedReason: view.degradedReason } : {}),
         scanned: { keys: view.scannedKeys, usages: view.scannedUsages },
-        ...(failures.length > 0 ? { parseFailures: failures } : {}),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
       };
 
       // sql-mode (§2.3): emit EVERY row (each with its confidence) so a NOT IN never lies; cap
@@ -90,7 +93,7 @@ export const findUnusedI18nKeysOp = defineOp({
       if (ctx.tableRowBound !== undefined) {
         const rows = view.unused.slice(0, ctx.tableRowBound);
         return ok(
-          { ...head, unused: rows },
+          { ...head, unused: rows.map((u) => tag('i18n-unused-key', u)) },
           rows.length < view.unused.length
             ? { truncated: { shown: rows.length, total: view.unused.length, hint: ROW_CAP_HINT } }
             : undefined,
@@ -123,7 +126,7 @@ export const findUnusedI18nKeysOp = defineOp({
                     },
             }
           : {}),
-        unused: shown,
+        unused: shown.map((u) => tag('i18n-unused-key', u)),
       };
       return ok(
         data,

@@ -2,6 +2,7 @@
 // surfaces on `Result.handle`, never silently (§6).
 
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT, tsTargetSchema } from './ts-target.ts';
@@ -27,7 +28,7 @@ export const findDefinitionOp = defineOp({
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
       }
       return ok(
-        { definitions: outcome.views },
+        { definitions: outcome.views.map((v) => tag('symbol', v)) },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
       );
     } catch (thrown) {

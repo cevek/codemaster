@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { I18nPluginApi, KeyDef, KeyUsage } from '../plugins/i18n/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -86,12 +87,16 @@ export const i18nLookupOp = defineOp({
       return ok({
         // Verdict-before-bulk (§12): the incompleteness flag leads, so a cap can never bury it.
         ...(view.usagesIncomplete !== undefined ? { usagesIncomplete: view.usagesIncomplete } : {}),
-        defs: view.defs,
-        usages: view.usages,
+        defs: view.defs.map((d) => tag('i18n-def', d)),
+        usages: view.usages.map((u) => tag('i18n-usage', u)),
         locales: view.locales,
         matched: view.matched,
-        ...(view.missingPerKey.length > 0 ? { missingPerKey: view.missingPerKey } : {}),
-        ...(failures.length > 0 ? { parseFailures: failures } : {}),
+        ...(view.missingPerKey.length > 0
+          ? { missingPerKey: view.missingPerKey.map((m) => tag('i18n-missing-per-key', m)) }
+          : {}),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
       });
     } catch (thrown) {
       return failFromThrown('i18n', thrown);

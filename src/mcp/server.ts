@@ -15,7 +15,7 @@ import type { Clock } from '../common/async/clock.ts';
 import { createIdleExit, type IdleExit } from '../common/async/idle-exit.ts';
 import type { OrchestratorApi } from '../daemon/orchestrator-api.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
-import { renderResult } from '../format/render/render-result.ts';
+import { renderResult, renderResultJson } from '../format/render/render-result.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
 import {
   SERVER_INSTRUCTIONS,
@@ -200,7 +200,7 @@ function renderOne(
   verbosity: 'terse' | 'normal' | 'full' | undefined,
 ): string {
   if ('error' in result) return `DISPATCH ${result.error.kind}: ${result.error.message}`;
-  if (format === 'json') return JSON.stringify(result.result);
+  if (format === 'json') return renderResultJson(result.result);
   return renderResult(result.result, verbosity ?? 'terse');
 }
 

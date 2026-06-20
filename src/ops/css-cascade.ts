@@ -10,6 +10,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import type { Confidence } from '../core/span.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { CascadeInput, CascadeProperty, ScssPluginApi } from '../plugins/scss/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -95,13 +96,29 @@ export const cssCascadeOp = defineOp({
       const failed = outcome.parseFailures;
       const cap = (c: Confidence): Confidence =>
         failed.length > 0 && c === 'certain' ? 'partial' : c;
-      const properties =
+      const capped: CascadeProperty[] =
         failed.length > 0
           ? resolution.properties.map((p) => ({
               ...p,
               winner: { ...p.winner, confidence: cap(p.winner.confidence) },
             }))
           : resolution.properties;
+      // Tag the nested cascade rows: a property's winner ('css-winner') and losers / co-winners
+      // ('css-decl-ref') are condensed before the property renderer reads them; the contributing
+      // rules are 'css-rule'. The decl-ref tag is what keeps winner and loser apart now that the
+      // dispatch is by tag, not by the old branch ORDER (both share value+specificity+selector).
+      const properties = capped.map((p) =>
+        tag('css-property', {
+          ...p,
+          winner: tag('css-winner', {
+            ...p.winner,
+            ...(p.winner.ambiguousWith !== undefined
+              ? { ambiguousWith: p.winner.ambiguousWith.map((a) => tag('css-decl-ref', a)) }
+              : {}),
+          }),
+          losers: p.losers.map((l) => tag('css-decl-ref', l)),
+        }),
+      );
       const notes = [
         ...resolution.notes,
         ...(failed.length > 0
@@ -119,8 +136,8 @@ export const cssCascadeOp = defineOp({
         ...(notes.length > 0 ? { notes } : {}),
         properties,
         scanned: { sheets: outcome.scannedSheets },
-        rules: resolution.rules,
-        ...(failed.length > 0 ? { parseFailures: failed } : {}),
+        rules: resolution.rules.map((r) => tag('css-rule', r)),
+        ...(failed.length > 0 ? { parseFailures: failed.map((f) => tag('parse-failure', f)) } : {}),
       });
     } catch (thrown) {
       return failFromThrown('scss', thrown);

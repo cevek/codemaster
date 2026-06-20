@@ -3,11 +3,25 @@
 // expanding an interface returns its fields rather than just `interface X` (§3.3).
 
 import { z } from 'zod';
+import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import { tsTargetShape, requireTarget } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { MemberView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT } from './ts-target.ts';
+
+/** Tag each expanded member 'type-member', recursing into nested members (depth>1) so a member
+ *  WITH sub-members collapses too instead of exploding into a key=value block. */
+function tagMembers(members: readonly MemberView[]): JsonValue[] {
+  return members.map((m) =>
+    tag('type-member', {
+      ...m,
+      ...(m.members !== undefined ? { members: tagMembers(m.members) } : {}),
+    }),
+  );
+}
 
 const argsSchema = z
   .strictObject({
@@ -47,8 +61,12 @@ export const expandTypeOp = defineOp({
         // §6: the held handle's symbol is gone — state it structurally on `handle`.
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
       }
+      const view = outcome.view;
       return ok(
-        { ...outcome.view },
+        {
+          ...view,
+          ...(view.members !== undefined ? { members: tagMembers(view.members) } : {}),
+        },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
       );
     } catch (thrown) {

@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import type { EndpointCard, SchemaPluginApi } from '../plugins/schema/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -77,10 +78,19 @@ export const listEndpointsOp = defineOp({
       );
       const failures = [...schema.parseFailures()].map(([file, message]) => ({ file, message }));
       return ok({
-        endpoints,
+        endpoints: endpoints.map((c) =>
+          tag('endpoint-card', {
+            ...c,
+            ...(c.query !== undefined ? { query: tag('type-ref', c.query) } : {}),
+            ...(c.body !== undefined ? { body: tag('type-ref', c.body) } : {}),
+            ...(c.response !== undefined ? { response: tag('type-ref', c.response) } : {}),
+          }),
+        ),
         total: endpoints.length,
         ...(endpoints.length !== all.length ? { filteredFrom: all.length } : {}),
-        ...(failures.length > 0 ? { parseFailures: failures } : {}),
+        ...(failures.length > 0
+          ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
+          : {}),
       });
     } catch (thrown) {
       return failFromThrown('schema', thrown);

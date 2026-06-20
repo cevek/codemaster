@@ -9,54 +9,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
 import { renderResult } from '../../src/format/render/render-result.ts';
-import { condenseSpans, summarizeQueryKey } from '../../src/format/render/condense.ts';
-import { renderDense } from '../../src/format/render/render-dense.ts';
+import { summarizeQueryKey } from '../../src/format/render/condense.ts';
 import { renderKey } from '../../src/ops/react-query-invalidations-for.ts';
+import { tag } from '../../src/common/shape-tag/tag.ts';
+import { fallThrough, leakedTag, renderRows, span, topLevelExplosion } from '../helpers/density.ts';
 import type { QueryKeyView } from '../../src/plugins/react-query/views.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Result } from '../../src/core/result.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
-
-/** Render a literal row exactly as the text path does: condense (terse) then dense. */
-function renderRows(rows: JsonValue): string {
-  return renderDense(condenseSpans(rows, 'terse'));
-}
-const span = (line: number, text: string): JsonValue => ({
-  file: 'src/h.ts',
-  line,
-  col: 1,
-  endLine: line,
-  endCol: 1 + text.length,
-  text,
-});
-
-/** The fall-through signature. render-dense's array-of-objects path emits `${pad}- ${firstField}`
- *  then the object's remaining fields at indent+2. The watery tell is a deeper-indented SCALAR
- *  `key=value` line ANYWHERE in a `- ` bullet's block — that only happens when an object row failed
- *  to collapse and exploded into per-field lines. We scan the WHOLE block (not just the line after
- *  the bullet): an exploded object whose FIRST field is itself nested renders `- items (N):` as the
- *  bullet and pushes its scalar fields to i+2+, so an `i+1`-only check would miss it. We match scalar
- *  `key=value` ONLY (not a `key:` / `key (N):` header, nor a deeper `- ` bullet): a legitimately
- *  hierarchical row (e.g. `invalidations_for`'s `- id=…` then `edges (N):` then `affects` strings)
- *  carries nested ARRAYS, never a bare scalar pair, and must NOT be flagged; a nested-object
- *  explosion is caught by ITS own bullet. A collapsed leaf is a single line or a one-line inline. */
-function fallThrough(text: string): string | undefined {
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const bullet = /^(\s*)- /.exec(lines[i] ?? '');
-    if (bullet === null) continue;
-    const indent = bullet[1]?.length ?? 0;
-    for (let j = i + 1; j < lines.length; j++) {
-      const line = lines[j] ?? '';
-      if (line.trim() === '') break; // a blank line ends this object's block
-      const lead = (/^(\s*)/.exec(line)?.[1] ?? '').length;
-      if (lead <= indent) break; // an outdent to the bullet's level (or less) ends the block
-      // a deeper SCALAR `key=value` (not a `- ` sub-bullet, not a `key:`/`key (N):` header) = explosion
-      if (/^\s+\w+=/.test(line)) return `${lines[i]}\n${line}`;
-    }
-  }
-  return undefined;
-}
 
 function resultOf(r: OpResult): Result<JsonValue> {
   assert.ok('result' in r && r.result.ok, `op failed: ${JSON.stringify(r)}`);
@@ -72,25 +32,33 @@ function fixture() {
     'tsconfig.json':
       '{"compilerOptions":{"jsx":"react-jsx","strict":true,"module":"ESNext","moduleResolution":"Bundler"},"include":["src"]}',
     'src/types.ts':
-      'export type Cfg = { a?: string; b?: number };\nexport const built: Cfg = { a: "x" };\n',
+      'export type Cfg = { a?: string; b?: number; nested?: { x: number } };\nexport const built: Cfg = { a: "x" };\n',
     'src/dead.ts': 'export const unusedThing = 1;\nexport type DeadType = { x: number };\n',
+    'src/a.module.scss': '.used { color: red; }\n.dead { color: blue; }\n',
     'src/widget.tsx':
-      'export function Widget({label}: {label: string}) {\n  return <button>{label}</button>;\n}\n',
+      "import s from './a.module.scss';\nexport function Widget({label}: {label: string}) {\n  return <button className={s.used}>{label}</button>;\n}\n",
     'src/app.tsx':
       'import {Widget} from "./widget.tsx";\nexport function App() {\n  return <Widget label="a" />;\n}\n',
   });
 }
 
 // op name → args, and the result field whose array must be non-empty (so the guard can never pass
-// vacuously on an empty answer). Each of these previously fell through OR is a dense control.
+// vacuously on an empty answer). Covers EVERY reachable read op across ts + scss (the config-gated
+// i18n / react-query / schema / mutating shapes are exercised by TAG_SAMPLES below). Each row shape
+// previously either fell through OR is a dense control.
 const CASES: { name: string; args: JsonValue; rows: string }[] = [
   { name: 'construction_sites', args: { name: 'Cfg' }, rows: 'sites' },
   { name: 'find_unused_exports', args: {}, rows: 'unused' },
   { name: 'find_usages', args: { name: 'Widget' }, rows: 'usages' },
   { name: 'find_usages', args: { name: 'Widget', groupBy: 'enclosing' }, rows: 'enclosers' },
+  { name: 'find_definition', args: { name: 'Widget' }, rows: 'definitions' },
+  { name: 'expand_type', args: { name: 'Cfg', depth: 2 }, rows: 'members' },
   { name: 'search_symbol', args: { query: 'Widget' }, rows: 'matches' },
   { name: 'importers_of', args: { module: 'src/widget.tsx' }, rows: 'importers' },
   { name: 'impact', args: { name: 'Widget' }, rows: 'dependents' },
+  { name: 'scss_classes', args: {}, rows: 'classes' },
+  { name: 'find_unused_scss_classes', args: {}, rows: 'unused' },
+  { name: 'css_cascade', args: { file: 'src/a.module.scss', class: 'used' }, rows: 'rules' },
 ];
 
 test('no op result row falls through condense into a watery key=value block', async () => {
@@ -108,13 +76,29 @@ test('no op result row falls through condense into a watery key=value block', as
       assert.ok(count > 0, `${c.name}: expected ≥1 row in '${c.rows}', got ${count} (vacuous)`);
       for (const verbosity of ['terse', 'normal'] as const) {
         const text = renderResult(result, verbosity);
-        const hit = fallThrough(text);
         assert.equal(
-          hit,
+          fallThrough(text),
           undefined,
-          `${c.name} (${verbosity}) fell through condense → watery block:\n${hit}`,
+          `${c.name} (${verbosity}) fell through condense → watery block:\n${fallThrough(text)}`,
+        );
+        assert.equal(
+          topLevelExplosion(text),
+          undefined,
+          `${c.name} (${verbosity}) exploded a top-level nested object:\n${topLevelExplosion(text)}`,
+        );
+        assert.equal(
+          leakedTag(text),
+          undefined,
+          `${c.name} (${verbosity}) leaked a shape tag:\n${leakedTag(text)}`,
         );
       }
+      // The leaked-tag invariant holds at FULL too (a non-collapse row passes through with its tag
+      // STRIPPED; a collapse-at-full row is consumed) — a tag must never reach the agent's output.
+      assert.equal(
+        leakedTag(renderResult(result, 'full')),
+        undefined,
+        `${c.name} (full) leaked a shape tag`,
+      );
     }
   } finally {
     await p.dispose();
@@ -154,13 +138,15 @@ test('summarizeQueryKey (text) == renderKey (sql) for every queryKey shape', () 
 // react-query fixture.
 test('captures + invalidations_for leaf shapes collapse to dense lines', () => {
   // mutating-op capture row { at, kind, detail } — must be one line, not a 3-line block.
-  const cap = renderRows([{ at: 'src/a.ts:1:1', kind: 'shadow', detail: 'rebinds to a local X' }]);
+  const cap = renderRows([
+    tag('capture', { at: 'src/a.ts:1:1', kind: 'shadow', detail: 'rebinds to a local X' }),
+  ]);
   assert.equal(fallThrough(cap), undefined, `captures fell through:\n${cap}`);
   // A row that collapses to a STRING renders bulletless (only object items get a `- ` bullet).
   assert.match(cap, /^src\/a\.ts:1:1 · shadow · rebinds to a local X$/m);
 
   // invalidations_for AffectedQuery { id, name, queryKey, site, confidence } — one line, key summarized.
-  const affect = {
+  const affect = tag('rq-affected', {
     id: 'ts:useTodos@src/h.ts:1:1',
     name: 'useTodos',
     queryKey: {
@@ -170,13 +156,13 @@ test('captures + invalidations_for leaf shapes collapse to dense lines', () => {
     },
     site: span(2, 'todos'),
     confidence: 'certain',
-  };
+  });
   const aff = renderRows([affect]);
   assert.equal(fallThrough(aff), undefined, `affect fell through:\n${aff}`);
   assert.match(aff, /^ts:useTodos@src\/h\.ts:1:1 · \["todos"\]$/m);
 
   // invalidations_for edge — the scalar fan folds to one `edge=` line; affects stays a nested list.
-  const edge = {
+  const edge = tag('rq-edge', {
     method: 'invalidate',
     key: {
       segments: [{ kind: 'static', value: 'todos' }],
@@ -188,7 +174,7 @@ test('captures + invalidations_for leaf shapes collapse to dense lines', () => {
     narrowed: false,
     span: span(3, 'invalidateQueries'),
     affects: [affect],
-  };
+  });
   const e = renderRows([edge]);
   assert.equal(fallThrough(e), undefined, `edge fell through:\n${e}`);
   assert.match(e, /- edge=invalidate @src\/h\.ts:3:1 \["todos"\] · certain/);
@@ -207,10 +193,9 @@ test('fallThrough predicate fires on a real exploded block (anti-vacuity)', () =
   assert.notEqual(fallThrough(exploded), undefined, 'predicate failed to catch a known explosion');
 
   // …and catches the FIRST-FIELD-NESTED explosion (bullet is `- items (N):`, the exploded scalars
-  // land at i+2+, never i+1 — the blind spot an `i+1`-only check missed). Uses real renderDense.
-  const firstNested = renderDense(
-    condenseSpans([{ items: [{ a: 1 }], confidence: 'certain', kind: 'function' }], 'terse'),
-  );
+  // land at i+2+, never i+1 — the blind spot an `i+1`-only check missed). Uses the real render path
+  // on an UNTAGGED object (a forgot-to-tag row), which is exactly what must explode.
+  const firstNested = renderRows([{ items: [{ a: 1 }], confidence: 'certain', kind: 'function' }]);
   assert.notEqual(
     fallThrough(firstNested),
     undefined,

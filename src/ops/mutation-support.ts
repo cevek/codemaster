@@ -10,6 +10,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import { ok, fail } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
+import { tag } from '../common/shape-tag/tag.ts';
 import { gitStatus } from '../support/git/status.ts';
 import { resolvePrettier, type ResolvedPrettier } from '../support/prettier/resolve.ts';
 import { formatContent } from '../support/prettier/format.ts';
@@ -21,7 +22,8 @@ export const absOf = (root: string, rel: RepoRelPath): string => path.join(root,
 /** TS diagnostics → JSON rows (internal to `buildTypecheckField`). */
 function diagsToJson(ds: readonly TsDiagnostic[]): JsonValue[] {
   const out: JsonValue[] = [];
-  for (const d of ds) out.push({ file: String(d.file), line: d.line, message: d.message });
+  for (const d of ds)
+    out.push(tag('ts-diagnostic', { file: String(d.file), line: d.line, message: d.message }));
   return out;
 }
 
@@ -175,11 +177,9 @@ export function diffstat(entries: readonly DiffstatEntry[]): JsonValue {
 export function capturesField(captures: readonly Capture[]): Record<string, JsonValue> {
   if (captures.length === 0) return {};
   return {
-    captures: captures.map((c) => ({
-      at: `${c.file}:${c.line}:${c.col}`,
-      kind: c.kind,
-      detail: c.detail,
-    })),
+    captures: captures.map((c) =>
+      tag('capture', { at: `${c.file}:${c.line}:${c.col}`, kind: c.kind, detail: c.detail }),
+    ),
   };
 }
 
