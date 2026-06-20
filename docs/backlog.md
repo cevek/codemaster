@@ -543,8 +543,8 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 - [ ] **`COLLAPSE_AT_FULL` drops verbatim span text for `bare-span`/`list-entry` at full** — at
       `verbosity:full` (meant to be verbatim) the `bare-span` form (`find_missing_i18n_keys`
       `dynamicUsages`, whose span text is the `t(\`…\`)`dynamic-key expression) and`list-entry`    (proof span text) collapse to`file:line:col`. The text is arguably re-fetchable / loc-identified,
-    but for `dynamicUsages`the`t()`expression IS the evidence of the dynamic call — reconsider
-    whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
+but for `dynamicUsages`the`t()`expression IS the evidence of the dynamic call — reconsider
+whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 - [ ] **shape renderers are not wrapped in try/catch** — `condense`'s tag-dispatch calls the renderer
       directly; a throwing renderer would escape to the agent (the "never crash" §3.6 contract formally
       relies on renderers being throw-free by construction — they are today: only `String()`/asArray
@@ -601,7 +601,7 @@ parseFailures:1` — unusable even for keys in the well-formed portion — while
       lists the overload sigs. An agent can't see the call shapes. Surface all signatures (the LS has
       them via `getSignaturesOfType`). `feat`·`med`·`cx:M`
 - [ ] **`expand_type` name+file resolution misses type aliases** — `expand_type {name:"Span",
-  file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
+file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
       resolves it. The name+file resolver doesn't find a type-alias symbol it should. `bug`·`med`·`cx:M`
 - [ ] **`expand_type` truncates a function return type after the colon** — a fn/namespace merge renders
       `about=function box(label: string):` — the return type (`{label:string}`) is cut off after `:`.
