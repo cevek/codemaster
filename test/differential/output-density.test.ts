@@ -32,20 +32,27 @@ const span = (line: number, text: string): JsonValue => ({
 
 /** The fall-through signature. render-dense's array-of-objects path emits `${pad}- ${firstField}`
  *  then the object's remaining fields at indent+2. The watery tell is a deeper-indented SCALAR
- *  `key=value` continuation under a `- ` bullet — that only happens when an object row failed to
- *  collapse and exploded into per-field lines. We match `key=value` ONLY (not `key:` / `key (N):`
- *  headers): a legitimately hierarchical row (e.g. `invalidations_for`'s `- id=…` then `edges (N):`)
- *  carries a nested ARRAY, not a scalar pair, and must NOT be flagged; a collapsed leaf is a single
- *  `- <span/id…>` line or a one-line inline whose sibling bullet sits at the SAME indent. */
+ *  `key=value` line ANYWHERE in a `- ` bullet's block — that only happens when an object row failed
+ *  to collapse and exploded into per-field lines. We scan the WHOLE block (not just the line after
+ *  the bullet): an exploded object whose FIRST field is itself nested renders `- items (N):` as the
+ *  bullet and pushes its scalar fields to i+2+, so an `i+1`-only check would miss it. We match scalar
+ *  `key=value` ONLY (not a `key:` / `key (N):` header, nor a deeper `- ` bullet): a legitimately
+ *  hierarchical row (e.g. `invalidations_for`'s `- id=…` then `edges (N):` then `affects` strings)
+ *  carries nested ARRAYS, never a bare scalar pair, and must NOT be flagged; a nested-object
+ *  explosion is caught by ITS own bullet. A collapsed leaf is a single line or a one-line inline. */
 function fallThrough(text: string): string | undefined {
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const bullet = /^(\s*)- /.exec(lines[i] ?? '');
     if (bullet === null) continue;
     const indent = bullet[1]?.length ?? 0;
-    const cont = /^(\s*)\w+=/.exec(lines[i + 1] ?? '');
-    if (cont !== null && (cont[1]?.length ?? 0) > indent) {
-      return `${lines[i]}\n${lines[i + 1]}`;
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j] ?? '';
+      if (line.trim() === '') break; // a blank line ends this object's block
+      const lead = (/^(\s*)/.exec(line)?.[1] ?? '').length;
+      if (lead <= indent) break; // an outdent to the bullet's level (or less) ends the block
+      // a deeper SCALAR `key=value` (not a `- ` sub-bullet, not a `key:`/`key (N):` header) = explosion
+      if (/^\s+\w+=/.test(line)) return `${lines[i]}\n${line}`;
     }
   }
   return undefined;
@@ -119,7 +126,9 @@ test('no op result row falls through condense into a watery key=value block', as
 // logic is duplicated. Cross-pin them so the duplication can never silently diverge (text and sql
 // showing a different key for the same queryKey). Covers static / dynamic-segment / opaque keys.
 test('summarizeQueryKey (text) == renderKey (sql) for every queryKey shape', () => {
-  const keys: QueryKeyView[] = [
+  // Structural key literals — the per-segment/key `span` (a branded Span) is omitted and cast away:
+  // neither renderer reads it, the comparison is purely over kind/value/shape/opaque.
+  const keys = [
     { segments: [{ kind: 'static', value: 'todos' }], confidence: 'certain' },
     {
       segments: [
@@ -133,7 +142,7 @@ test('summarizeQueryKey (text) == renderKey (sql) for every queryKey shape', () 
   for (const k of keys) {
     assert.equal(
       summarizeQueryKey(k as unknown as JsonValue),
-      renderKey(k, false),
+      renderKey(k as unknown as QueryKeyView, false),
       JSON.stringify(k),
     );
   }
@@ -196,7 +205,29 @@ test('fallThrough predicate fires on a real exploded block (anti-vacuity)', () =
     '    kind=function',
   ].join('\n');
   assert.notEqual(fallThrough(exploded), undefined, 'predicate failed to catch a known explosion');
-  // …and does NOT fire on a collapsed one-liner list.
+
+  // …and catches the FIRST-FIELD-NESTED explosion (bullet is `- items (N):`, the exploded scalars
+  // land at i+2+, never i+1 — the blind spot an `i+1`-only check missed). Uses real renderDense.
+  const firstNested = renderDense(
+    condenseSpans([{ items: [{ a: 1 }], confidence: 'certain', kind: 'function' }], 'terse'),
+  );
+  assert.notEqual(
+    fallThrough(firstNested),
+    undefined,
+    `predicate missed a first-field-nested explosion:\n${firstNested}`,
+  );
+
+  // …and does NOT fire on a collapsed one-liner list, nor on a legit hierarchical row (nested arrays
+  // only, no scalar pair — the invalidations_for `- id=…` → `edges (N):` → `affects` strings shape).
   const collapsed = ['sites (1):', '  - src/a.ts:1:1 · in ts:f@src/a.ts:1:1 (function)'].join('\n');
   assert.equal(fallThrough(collapsed), undefined, 'predicate false-positived on a collapsed row');
+  const hierarchical = [
+    'mutations (1):',
+    '  - id=ts:useX@src/a.ts:1:1',
+    '    edges (1):',
+    '      - edge=invalidate @src/a.ts:2:1 ["x"] · certain',
+    '        affects (1):',
+    '          ts:useY@src/a.ts:3:1 · ["y"] · dynamic',
+  ].join('\n');
+  assert.equal(fallThrough(hierarchical), undefined, 'predicate false-positived on a legit tree');
 });
