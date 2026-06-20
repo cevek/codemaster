@@ -922,6 +922,7 @@ codemaster/
       async/                 # Clock seam; debounce / deferred / withTimeout over Clock
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
+      shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
       git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files, blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
@@ -951,6 +952,8 @@ codemaster/
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
     mcp/                     # L5 — MCP facade: op + status + batch dispatcher
     format/                  # dense formatter, codes, json mode
+      render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
+        shapes/              # per-domain ~shape renderers + Record<ShapeTag> registry (§12)
   test/
     README.md                # test layout (strategy in §16)
     helpers/                 # project() VFS mount, oracles (ripgrep, cold Program), scenario runner
