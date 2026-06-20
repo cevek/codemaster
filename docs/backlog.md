@@ -526,6 +526,38 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 ---
 
+## Correctness bugs surfaced by the density audit (not density — parked here so they don't vanish)
+
+- [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
+      JSON parse error, `i18n_lookup` (key/prefix/value) returns `defs:0 · usages:0 · matched:0 ·
+    parseFailures:1` — unusable even for keys in the well-formed portion — while
+      `find_unused_i18n_keys` / `find_missing_i18n_keys` parse the SAME file error-tolerantly (still
+      indexed `keys=2331` on the same repo). Cross-op inconsistency in the i18n plugin; `i18n_lookup`
+      should degrade-and-continue like its siblings (honest `partial` + the parse failure noted), not
+      zero out. Repro: any repo with a malformed locale (amiro `en.json` line ~2761). `bug`·`med`·`cx:M`
+- [ ] **`find_usages symbols:[…]` does not accept a SymbolId** — passing a full id
+      (`{"symbols":["ts:Button@…:54:10~d19d0f20"]}`) returns `no symbol named 'ts:Button@…'`, though
+      the single-target `symbolId`/`target` form accepts it. Undercuts the "ids are chainable" premise
+      that justifies trimming the `~rootTag` from displayed ids — fix the symbols[] resolver to accept
+      a SymbolId per entry (it currently treats each entry as a bare name). `bug`·`med`·`cx:S`
+- [ ] **A refused-on-`apply` mutating op reports `mode=dry-run`** — `move_symbol … apply:true` that the
+      typecheck gate refuses still renders `mode=dry-run` (+ `applied=false` + the reason). `mode` is
+      conflating "was apply requested" with "did anything get written"; a refused apply is neither a
+      dry-run nor an applied edit. Report `mode=refused` (or `requested=apply applied=false`) so the
+      agent isn't told it ran a dry-run it didn't ask for. `bug`·`low`·`cx:S`
+- [ ] **`typecheck.preExisting` count is non-deterministic across identical runs** — two back-to-back
+      identical `codemod` dry-runs reported `preExisting=3` then `preExisting=2`. A flapping baseline
+      error count means the gate's "introduced vs pre-existing" split can misclassify on the boundary
+      (a real introduced error could be absorbed as pre-existing, or vice versa) — a correctness risk,
+      not cosmetic. Investigate the baseline typecheck determinism (program reuse / diagnostic order).
+      `bug`·`med`·`cx:M`
+- [ ] **FAIL envelopes repeat the `file it: op({name:'feedback'…})` footer** — every `FAIL tool=…`
+      response appends the same feedback-CTA footer; in an agent loop hitting repeated FAILs it is
+      per-call noise. Consider emitting it once per session, or only on an internal-error FAIL (not a
+      conservative-refusal FAIL the agent expects). `dx`·`low`·`cx:S`
+
+---
+
 ## Wishes (new capabilities — no task yet)
 
 - [ ] **Outward-call / `depends_on` view** — the dual of `find_usages`/`impact`: "what does this
