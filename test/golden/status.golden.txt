@@ -40,7 +40,7 @@ ops (21):
     · one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.
     · unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.
     e.g. op {"name":"source","args":{"targets":[{"name":"createEngine"},{"symbolId":"ts:Button@src/Button.tsx:1:14"}]}}
-  importers_of { module: string } — a repo-relative path or an import specifier ('@/…') — Files that import or re-export from a module (tsconfig-paths aware)
+  importers_of { module: string, limit?: number } — a repo-relative path or an import specifier ('@/…') — Files that import or re-export from a module (tsconfig-paths aware)
     · module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.
     · spans ALL the repo's loaded TS programs — an importer in a `test/**` file under a sibling tsconfig (tsconfig.test.json) is found, not just main-program importers.
     columns: module,file,line,imports,confidence

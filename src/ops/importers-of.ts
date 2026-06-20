@@ -4,7 +4,7 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import type { Result } from '../core/result.ts';
+import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { ImporterRow } from '../plugins/ts/importers.ts';
@@ -34,10 +34,14 @@ const importersOfTable: TableSpec<JsonValue> = {
   },
 };
 
+const DEFAULT_LIMIT = 200;
+
 const argsSchema = z.strictObject({
   /** Repo-relative path ('src/components/ui/dialog.tsx') or any import specifier
    *  the project itself would use ('@/components/ui/dialog'). */
   module: z.string().min(1),
+  /** Max importer rows to list (default 200); overflow is reported as truncation, never silent. */
+  limit: z.number().int().positive().optional(),
 });
 
 export const importersOfOp = defineOp({
@@ -46,7 +50,8 @@ export const importersOfOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: "{ module: string } — a repo-relative path or an import specifier ('@/…')",
+  argsHint:
+    "{ module: string, limit?: number } — a repo-relative path or an import specifier ('@/…')",
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
@@ -64,7 +69,20 @@ export const importersOfOp = defineOp({
           note: 'no importers found — check the specifier (path or alias) against tsconfig',
         });
       }
-      return ok({ module: view.module, importers: view.importers, total: view.total });
+      const limit = args.limit ?? DEFAULT_LIMIT;
+      const shown = view.importers.slice(0, limit);
+      const truncated: Truncation | undefined =
+        view.total > shown.length
+          ? {
+              shown: shown.length,
+              total: view.total,
+              hint: 'raise limit, or scope by importing dir with sql (SELECT … WHERE file LIKE …)',
+            }
+          : undefined;
+      return ok(
+        { module: view.module, importers: shown, total: view.total },
+        truncated !== undefined ? { truncated } : undefined,
+      );
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

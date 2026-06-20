@@ -31,11 +31,11 @@ export function expandTypeAt(
   const full = (info.displayParts ?? []).map((p) => p.text).join('');
   const about = full.split('\n')[0] ?? '';
   const base: TypeView = {
-    about,
-    // `type` repeats `about` for single-line named declarations — omit it then (two
-    // identical lines are noise, not information; field feedback). Kept whenever the
-    // resolved text adds anything beyond the first line.
-    ...(full !== about ? { type: full } : {}),
+    // EITHER `about` (a single-line decl — the quick-info IS the whole type) OR the full multi-line
+    // `type`. They are mutually exclusive: `about` is `type`'s first line verbatim, so emitting both
+    // prints the same line twice (the head) — noise. The structural `constituents`/`members` below
+    // carry the breakdown, never repeating the head. (field feedback; output-density audit.)
+    ...(full !== about ? { type: full } : { about }),
     ...(doc.length > 0 ? { doc } : {}),
     ...(sourceFile !== undefined
       ? {

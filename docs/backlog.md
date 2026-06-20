@@ -489,6 +489,53 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 ---
 
+## Output-density audit (amiro dogfood) — residuals
+
+> Per-op output review against `/Users/cody/Dev/amiro`. The systemic root cause — row shapes that
+> fell through `format/render/condense.ts` `collapseKnownShape()` into `render-dense.ts`'s multi-line
+> `key=value` exploder — is closed: the four block-exploders (`construction_sites`,
+> `find_unused_exports`, `invalidations_for` leaves, mutating-op `captures`) now have collapse cases,
+> and `test/differential/output-density.test.ts` is the **render-contract guard** — it runs the
+> at-risk ops on a fixture and fails CI if any result row renders as a bulleted/deeper `key=value`
+> block, so a future op that lacks a case is caught before it ships. `expand_type` (the type is no
+> longer printed twice), `importers_of` (now `limit`-capped + truncation), and `find_usages` (a
+> `listable` field ties the raw `total` to the listed/`shown` counts) are also fixed. Open residuals:
+
+- [ ] **`~<rootTag>` printed on every SymbolId** — the workspace tag (`~d19d0f20`) is identical on
+      every id of a single-root answer (it exists only to refuse a cross-root rebind, §6), so it is
+      pure repeated noise within an answer — ~10ch × every id-bearing row (×200 in a busy
+      `find_usages`). NOT a simple strip: a tag-stripped id pasted into a different-root request can
+      mis-rebind to a same-named symbol there (the §6 cross-root lie the tag prevents) — making it
+      safe needs a resolution-semantics change (untagged ⇒ current-root-only) first, OR stating the
+      tag once in a header and rendering ids tag-less only in text. Affects every id-bearing op.
+      `dx`·`med`·`cx:M`
+- [ ] **`list` repeats constant columns per row** — every entry carries `· <kind>` (= the registry,
+      constant) and `· heuristic:<plugin>` (constant provenance); on amiro `components` that is 652
+      identical decorations. Hoist the constant kind/provenance to the header and print per-row only
+      the exceptions (`partial`/`dynamic`/`wrapped`). Coordinated change: the op must detect
+      answer-level uniformity and strip the constant fields into a header (a stripped row is a new
+      key-set → needs its own `collapseKnownShape` case). Complements the `list`-limit item above.
+      `dx`·`low`·`cx:M`
+- [ ] **`css_cascade` repeats the same boilerplate note per property and per loser** — the ~20-word
+      "cross-module — CSS-module classes are per-file scoped; cannot prove it cascades…" sentence is
+      re-emitted on every property line and every `loses:`/`ambiguous-with:` entry. Dedupe to a single
+      footnote keyed by a short code (`xmod`, `state`, `tie`) and tag each row with the code.
+      `dx`·`low`·`cx:M`
+- [ ] **`expand_type verbosity:full` bloats the span block** — `full` renders the one-line span as a
+      multi-line `file=/line=/col=/endLine=/endCol=/text=` block (the condense span-collapse is
+      skipped at `full`). Minor; collapse the span even at `full` for a single-symbol answer.
+      `dx`·`low`·`cx:S`
+
+- [ ] **`construction_sites` floods on all-optional target types** — `ButtonProps` (a big
+      intersection of `ButtonHTMLAttributes & ClassAttributes & VariantProps & {asChild?}`, every
+      field optional) matched 5739 candidate literals across unrelated `scripts/openapi-codegen/**`
+      and even `en.json`, all `confidence=certain` (an `{}`-ish literal IS assignable to an
+      all-optional type, so it is not strictly a lie — but it is noise). Consider a low-signal guard:
+      when the target type has zero required fields, demote to `partial` with a "target is all-optional
+      — matches are weak" note, or rank by field-overlap. `bug`·`low`·`cx:M`
+
+---
+
 ## Wishes (new capabilities — no task yet)
 
 - [ ] **Outward-call / `depends_on` view** — the dual of `find_usages`/`impact`: "what does this

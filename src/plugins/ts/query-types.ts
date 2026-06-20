@@ -154,10 +154,12 @@ export type MemberView = {
 };
 
 export type TypeView = {
-  about: string;
-  /** The full resolved type text. OMITTED when identical to `about` (single-line named
-   *  declarations) — two identical lines are noise, not information (field feedback);
-   *  present whenever the resolved type adds anything (multiline, aliases, literals). */
+  /** The quick-info one-liner. Present ONLY for a single-line declaration (where it IS the whole
+   *  resolved type); for a multi-line type it is omitted and `type` carries the head verbatim — the
+   *  two are mutually exclusive, never the same line twice (field feedback; output-density audit). */
+  about?: string;
+  /** The full resolved type text. Present whenever the resolved type is multi-line (adds anything
+   *  beyond the first line); omitted for single-line declarations, where `about` carries it. */
   type?: string;
   doc?: string;
   span?: Span;

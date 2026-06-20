@@ -97,6 +97,68 @@ function collapseKnownShape(v: Record<string, JsonValue>): JsonValue {
   if (keys === 'at,imports') {
     return `${String(v['at'])} · ${String(v['imports'])}`;
   }
+  // Capture row (a mutating-op capture-safety refusal — rename/move/extract/codemod): { at, kind,
+  // detail }. `at` is the clickable file:line:col; `detail` carries spaces (never inlines). One line
+  // instead of a 3-line key=value block. (typecheck.introduced is a DIFFERENT shape — file,line,message.)
+  if (keys === 'at,detail,kind') {
+    return `${String(v['at'])} · ${String(v['kind'])} · ${flat(v['detail'])}`;
+  }
+  // ConstructionSiteView (construction_sites): { span(condensed), confidence, encloser:{id,name,kind,
+  // file,line,col,exported}, note? }. The encloser sub-object re-prints what `encloser.id` already
+  // encodes (name + file:line:col) and the path repeats 3× — fold it to `in <id> (kind[, exported])`;
+  // `certain` stays implicit. Distinct key-set: no other view carries an `encloser` field.
+  if (
+    (keys === 'confidence,encloser,span' || keys === 'confidence,encloser,note,span') &&
+    isObject(v['encloser'])
+  ) {
+    const enc = v['encloser'];
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const exp = enc['exported'] === true ? ', exported' : '';
+    const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
+    return `${String(v['span'])} · in ${String(enc['id'])} (${String(enc['kind'])}${exp})${conf}${note}`;
+  }
+  // invalidations_for ResolvedMutation: { id, name, site, edges }. The data stays structured (raw
+  // QueryKeyView + Spans — proof + json-mode + tests intact); only the TEXT collapses. The id carries
+  // name + decl loc, so name/site drop here; the `edges (N):` tree header stays (hierarchy is real).
+  if (keys === 'edges,id,name,site') {
+    return { id: v['id'] ?? null, edges: v['edges'] ?? null };
+  }
+  // invalidations_for ResolvedInvalidation (edge): { method, key?, all, exact, narrowed, span, affects }.
+  // Fold the scalar fan into one `method @span <key> [flags] · conf` line; keep the affects child.
+  if (
+    keys === 'affects,all,exact,key,method,narrowed,span' ||
+    keys === 'affects,all,exact,method,narrowed,span'
+  ) {
+    const broad = v['all'] === true;
+    const flags =
+      (v['exact'] === true ? ' · exact' : '') + (v['narrowed'] === true ? ' · narrowed' : '');
+    const key = broad ? '(all)' : summarizeQueryKey(v['key']);
+    const conf = broad
+      ? 'dynamic'
+      : isObject(v['key'])
+        ? String(v['key']['confidence'])
+        : 'dynamic';
+    const edge = `${String(v['method'])} @${String(v['span'])} ${key}${flags} · ${conf}`;
+    return { edge, affects: v['affects'] ?? null };
+  }
+  // invalidations_for AffectedQuery (leaf — the row that exploded ×N): { id, name, queryKey, site,
+  // confidence }. The id carries the query hook's name + decl loc; the queryKey summarizes to its
+  // literal form. One line instead of a 5-line block.
+  if (keys === 'confidence,id,name,queryKey,site') {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    return `${String(v['id'])} · ${summarizeQueryKey(v['queryKey'])}${conf}`;
+  }
+  // UnusedExportView (find_unused_exports): { name, kind, file, span(condensed), symbol, confidence,
+  // note? }. The `symbol` id already carries name + file:line:col and `span` repeats the loc — keep
+  // just the chainable id + kind; `certain` implicit, the partial reason decorates the tail.
+  if (
+    keys === 'confidence,file,kind,name,span,symbol' ||
+    keys === 'confidence,file,kind,name,note,span,symbol'
+  ) {
+    const conf = v['confidence'] === 'certain' ? '' : ` · ${String(v['confidence'])}`;
+    const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
+    return `${String(v['symbol'])} · ${String(v['kind'])}${conf}${note}`;
+  }
   // ScssClassView: { name, file, span(condensed), confidence } and UnusedClassView (+ note?).
   // The condensed span already carries file:line:col, so the separate `file` key is pure
   // repetition — drop it. certain confidence is the default and stays implicit (like UsageView).
@@ -279,6 +341,23 @@ function flat(value: JsonValue | undefined): string {
   return String(value).replace(/\s+/g, ' ');
 }
 
+/** Summarize a (condensed) react-query QueryKeyView to its literal form — `['a', <id>]` for an
+ *  array key, `<opaque>` for a non-array key, `(all)` when absent. Structural over JsonValue (the
+ *  format layer must not import plugins/react-query); MIRRORS `ops/react-query-invalidations-for`'s
+ *  `renderKey` (the sql-table renderer) — keep the two in sync if the QueryKey shape changes. */
+function summarizeQueryKey(key: JsonValue | undefined): string {
+  if (!isObject(key)) return '(all)';
+  if (key['opaque'] !== undefined) return `<${String(key['opaque'])}>`;
+  const segs = asArray(key['segments']).map((s) =>
+    isObject(s) && s['kind'] === 'static'
+      ? JSON.stringify(s['value'])
+      : isObject(s)
+        ? `<${String(s['shape'])}>`
+        : String(s),
+  );
+  return `[${segs.join(', ')}]`;
+}
+
 function renderSpanLine(span: Record<string, JsonValue>, verbosity: Verbosity): string {
   const loc = `${String(span['file'])}:${String(span['line'])}:${String(span['col'])}`;
   if (verbosity === 'terse') return loc;
@@ -300,4 +379,8 @@ function looksLikeSpan(v: Record<string, JsonValue>): boolean {
 
 function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
   return Array.isArray(value);
+}
+
+function isObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

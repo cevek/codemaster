@@ -36,6 +36,14 @@ function rowsTotal(view: UsagesView): number {
   return view.total - (view.importsCollapsed ?? 0);
 }
 
+/** `{ listable }` ties the raw `total` to the listed `usages (M):`/`shown` counts when imports are
+ *  collapsed (total = listable + importsCollapsed). FLAT mode only: in groupBy the listed rows are
+ *  ENCLOSERS (a different axis), so a usages-based `listable` would tie to nothing — omit it there. */
+function listableField(view: UsagesView): Record<string, JsonValue> {
+  const collapsed = view.importsCollapsed ?? 0;
+  return view.usages !== undefined && collapsed > 0 ? { listable: view.total - collapsed } : {};
+}
+
 /** Compose the advisory microtext for a usages view (§2.2/§2.3): the import-collapse
  *  count, and — when a role filter is active — what the role-unfiltered answer looked
  *  like. The generalized principle: an empty filtered answer must show what the
@@ -184,6 +192,7 @@ export const findUsagesOp = defineOp({
             ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
             ...(view.usages !== undefined ? { usages: view.usages } : {}),
             total: view.total,
+            ...listableField(view),
             ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
             ...(view.importsCollapsed !== undefined
               ? { importsCollapsed: view.importsCollapsed }
@@ -244,6 +253,12 @@ export const findUsagesOp = defineOp({
         ...(view.groups !== undefined ? { enclosers: view.groups } : {}),
         ...(view.usages !== undefined ? { usages: view.usages } : {}),
         total: view.total,
+        // When imports are collapsed in a FLAT usages list, `total` (raw) exceeds the listed set by
+        // exactly `importsCollapsed` — surface `listable` so `total=N` ties to the `usages (M):`
+        // header and the truncation's `shown X/Y` (Y = listable), instead of two unexplained totals.
+        // Gated to flat mode: in groupBy the listed rows are ENCLOSERS (a different axis), so a
+        // usages-based `listable` would tie to nothing — omit it there.
+        ...listableField(view),
         ...(view.excluded > 0 ? { excludedByFilter: view.excluded } : {}),
         ...(view.importsCollapsed !== undefined ? { importsCollapsed: view.importsCollapsed } : {}),
         ...(view.roleBreakdown !== undefined ? { roleBreakdown: view.roleBreakdown } : {}),
