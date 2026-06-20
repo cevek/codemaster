@@ -844,6 +844,19 @@ richly, but compactly (debug output spends tokens too).
   no-ops after a single set-membership check and never builds its `k=v` strings — zero
   hot-path cost.
 
+**Usage telemetry (distinct from debug traces).** The MCP serve path records every
+agent call — request args + the rendered response — as one JSON line, routed by
+success/fail to `~/.codemaster/usage/{success,fail}.jsonl` (`support/usage-log/`,
+rotating + size-capped like the debug sink). It is for **later analysis of how the tool
+is actually used**, not for live debugging. Classification is from the **structured**
+result, never `isError`: a `Result` with `ok:false` (a `ToolFailure`) renders through a
+plain text response with no `isError`, so an isError-only check would mis-file it as
+success; a batch is a success only when every constituent op succeeded. The write is a
+single point around the dispatch, wrapped so a disk/serialize error never touches the
+request path. On by default on the `mcp` path (the composition root injects the logger;
+`serveMcp`'s library default is a no-op — no side effects in tests); opt out with
+`CODEMASTER_USAGE_LOG=0`, relocate with `CODEMASTER_USAGE_DIR`.
+
 See [`src/core/debug.ts`](src/core/debug.ts).
 
 ---
@@ -931,6 +944,7 @@ codemaster/
       watch/                 # watcher seam (tests inject a fake) + chokidar adapter
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
+      usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl (§13)
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer

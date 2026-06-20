@@ -26,6 +26,7 @@ import { builtinOps } from './ops/builtins.ts';
 import { renderResult } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
+import { defaultUsageLogger } from './support/usage-log/default.ts';
 import { serveDaemon } from './daemon/daemon-server.ts';
 import { connectOrSpawnDaemon } from './daemon/connect-or-spawn.ts';
 import { spawnDaemon } from './daemon/spawn-daemon.ts';
@@ -175,10 +176,16 @@ async function main(): Promise<number> {
     }
     case 'mcp': {
       const idleMs = mcpIdleMs(root ?? process.cwd());
+      // Usage telemetry on the agent-facing MCP path (spec usage-telemetry): records every
+      // request+response to ~/.codemaster/usage/{success,fail}.jsonl (opt out CODEMASTER_USAGE_LOG=0).
+      const usage = defaultUsageLogger();
       // `--in-process` escape hatch (spec §5): serve a local orchestrator directly, no daemon —
       // for debugging and the self-dev loop. Carries the Stage-1 idle self-exit.
       if (hasFlag(args, '--in-process')) {
-        await serveMcp(buildOrchestrator(), VERSION, { idle: { clock: systemClock, idleMs } });
+        await serveMcp(buildOrchestrator(), VERSION, {
+          idle: { clock: systemClock, idleMs },
+          usage,
+        });
         return -1;
       }
       // The bridge (spec-daemon-singleton §2): a dumb stdio↔socket proxy. Connect to (or spawn) the
@@ -197,7 +204,10 @@ async function main(): Promise<number> {
       if (connection === undefined) {
         // Daemon unreachable (spawn/connect failed within budget) — fall back to in-process serving
         // (Stage-1 behavior). Worst case is "no amortization", never a hang or a hard failure (D1).
-        await serveMcp(buildOrchestrator(), VERSION, { idle: { clock: systemClock, idleMs } });
+        await serveMcp(buildOrchestrator(), VERSION, {
+          idle: { clock: systemClock, idleMs },
+          usage,
+        });
         return -1;
       }
       const remote = createRemoteOrchestrator({
@@ -206,7 +216,7 @@ async function main(): Promise<number> {
         replyDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
         version: VERSION,
       });
-      await serveMcp(remote, VERSION);
+      await serveMcp(remote, VERSION, { usage });
       return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {

@@ -11,10 +11,13 @@ import {
   ListToolsRequestSchema,
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { Clock } from '../common/async/clock.ts';
+import { systemClock, type Clock } from '../common/async/clock.ts';
 import { createIdleExit, type IdleExit } from '../common/async/idle-exit.ts';
+import type { JsonValue } from '../core/json.ts';
 import type { OrchestratorApi } from '../daemon/orchestrator-api.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
+import { noopUsageLogger } from '../support/usage-log/create.ts';
+import type { UsageLogger } from '../support/usage-log/entry.ts';
 import { renderResult, renderResultJson } from '../format/render/render-result.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
 import {
@@ -41,6 +44,12 @@ export interface ServeMcpOptions {
   /** Transport seam (§16 determinism): defaults to stdio; tests inject an in-memory pair to
    *  drive the real handler. */
   transport?: Transport;
+  /** Usage telemetry sink (spec usage-telemetry): every call's request+response is recorded to
+   *  `success.jsonl` / `fail.jsonl`. Default = no-op (a library default with no side effects); the
+   *  composition root (`bin.ts`) injects the real file logger. Tests inject a capturing fake. */
+  usage?: UsageLogger;
+  /** Clock for telemetry timestamps/duration (§16 determinism). Defaults to the system clock. */
+  clock?: Clock;
 }
 
 export async function serveMcp(
@@ -55,6 +64,11 @@ export async function serveMcp(
 
   // Self-staleness banner is ONE-SHOT per session (spec-stresstest §6): see `createOnceBanner`.
   const sessionBanner = createOnceBanner(() => orchestrator.sourceStale());
+
+  // Usage telemetry (spec usage-telemetry): default no-op; the composition root injects the real
+  // file logger. `clock` stamps each entry's start time + duration (§16 determinism).
+  const usage = options?.usage ?? noopUsageLogger;
+  const clock = options?.clock ?? systemClock;
 
   // The idle deadline is created (and the timer armed) only when `idle` is supplied — i.e.
   // the `mcp` serve path. The CLI one-shot path (`status`/`op`) never calls serveMcp, so no
@@ -73,6 +87,7 @@ export async function serveMcp(
     if (shuttingDown) return;
     shuttingDown = true;
     idleExit?.stop();
+    usage.dispose();
     void orchestrator
       .dispose()
       .catch(() => undefined)
@@ -95,82 +110,130 @@ export async function serveMcp(
     tools: TOOL_DESCRIPTORS.map(({ exampleCall: _exampleCall, ...tool }) => ({ ...tool })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-    // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
-    // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
-    // stay >0 and the server could never idle-exit — the orphan would persist).
-    idleExit?.enter();
-    const cwd = process.cwd();
-    try {
-      switch (request.params.name) {
-        case 'status': {
-          const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs('status', parsed.error.message);
-          const view = await orchestrator.status(cwd, parsed.data.root);
-          return text(renderStatus(view, { brief: parsed.data.brief, op: parsed.data.op }));
-        }
-        case 'op': {
-          const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs('op', parsed.error.message);
-          const { root, sql, return: returnMode, ...req } = parsed.data;
-          // The one-shot banner (§6) is consumed ONLY where it actually ships in a text response —
-          // NOT eagerly, or an early error return (bad route / dispatch fail / op-level error) would
-          // silently spend the session's single warning and leave every later call quiet (a stale
-          // daemon never owning up). `sessionBanner` is therefore called inside the success returns
-          // below, never before them; json mode passes `true` (a prefix corrupts the payload) and
-          // does not consume the one-shot.
-          const suppress = req.format === 'json';
-          if (sql !== undefined) {
-            // §2.6: single-op sql sugar = a batch of one request aliased `t`.
-            const outcome = await orchestrator.request(
-              cwd,
-              root,
-              [{ ...(req as OpRequest), as: 't' }],
-              { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) },
-            );
-            if (!outcome.ok) return errorText(outcome.message);
-            return text(
-              sessionBanner(suppress) + renderResults(outcome.results, req.format, req.verbosity),
-            );
-          }
-          const outcome = await orchestrator.request(cwd, root, [req as OpRequest]);
-          if (!outcome.ok) return errorText(outcome.message);
-          const result = outcome.results[0];
-          if (result === undefined) return errorText('no result (codemaster bug)');
-          return opResultText(result, req.format, req.verbosity, () => sessionBanner(suppress));
-        }
-        case 'batch': {
-          const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
-          if (!parsed.success) return badArgs('batch', parsed.error.message);
-          const { sql, return: returnMode, format, verbosity } = parsed.data;
+  /** Run one tool call, returning the response AND its success/fail classification + op names
+   *  for telemetry. Split out so the enter/leave bracketing and the single usage-log write live
+   *  in one place around it, never sprinkled across the ~7 return sites. */
+  const handleCall = async (
+    request: { params: { name: string; arguments?: unknown } },
+    cwd: string,
+  ): Promise<HandledCall> => {
+    switch (request.params.name) {
+      case 'status': {
+        const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
+        if (!parsed.success) return fail(badArgs('status', parsed.error.message));
+        const view = await orchestrator.status(cwd, parsed.data.root);
+        return ok(text(renderStatus(view, { brief: parsed.data.brief, op: parsed.data.op })));
+      }
+      case 'op': {
+        const parsed = opToolSchema.safeParse(request.params.arguments ?? {});
+        if (!parsed.success) return fail(badArgs('op', parsed.error.message));
+        const { root, sql, return: returnMode, ...req } = parsed.data;
+        const ops = [req.name];
+        // The one-shot banner (§6) is consumed ONLY where it actually ships in a text response —
+        // NOT eagerly, or an early error return (bad route / dispatch fail / op-level error) would
+        // silently spend the session's single warning and leave every later call quiet (a stale
+        // daemon never owning up). `sessionBanner` is therefore called inside the success returns
+        // below, never before them; json mode passes `true` (a prefix corrupts the payload) and
+        // does not consume the one-shot.
+        const suppress = req.format === 'json';
+        if (sql !== undefined) {
+          // §2.6: single-op sql sugar = a batch of one request aliased `t`.
           const outcome = await orchestrator.request(
             cwd,
-            parsed.data.root,
-            parsed.data.requests as OpRequest[],
-            sql !== undefined
-              ? { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) }
-              : undefined,
+            root,
+            [{ ...(req as OpRequest), as: 't' }],
+            {
+              sql,
+              ...(returnMode !== undefined ? { return: returnMode } : {}),
+            },
           );
-          if (!outcome.ok) return errorText(outcome.message);
-          return text(
+          if (!outcome.ok) return fail(errorText(outcome.message), ops);
+          return classify(
+            text(
+              sessionBanner(suppress) + renderResults(outcome.results, req.format, req.verbosity),
+            ),
+            outcome.results,
+            ops,
+          );
+        }
+        const outcome = await orchestrator.request(cwd, root, [req as OpRequest]);
+        if (!outcome.ok) return fail(errorText(outcome.message), ops);
+        const result = outcome.results[0];
+        if (result === undefined) return fail(errorText('no result (codemaster bug)'), ops);
+        return classify(
+          opResultText(result, req.format, req.verbosity, () => sessionBanner(suppress)),
+          [result],
+          ops,
+        );
+      }
+      case 'batch': {
+        const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
+        if (!parsed.success) return fail(badArgs('batch', parsed.error.message));
+        const { sql, return: returnMode, format, verbosity } = parsed.data;
+        const ops = parsed.data.requests.map((r) => r.name);
+        const outcome = await orchestrator.request(
+          cwd,
+          parsed.data.root,
+          parsed.data.requests as OpRequest[],
+          sql !== undefined
+            ? { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) }
+            : undefined,
+        );
+        if (!outcome.ok) return fail(errorText(outcome.message), ops);
+        return classify(
+          text(
             sessionBanner(false) +
               renderBatch(outcome.results, parsed.data.requests, {
                 sqlPresent: sql !== undefined,
                 format,
                 verbosity,
               }),
-          );
-        }
-        default:
-          return errorText(`unknown tool '${request.params.name}' (tools: op, status, batch)`);
+          ),
+          outcome.results,
+          ops,
+        );
       }
+      default:
+        return fail(errorText(`unknown tool '${request.params.name}' (tools: op, status, batch)`));
+    }
+  };
+
+  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
+    // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
+    // stay >0 and the server could never idle-exit — the orphan would persist).
+    idleExit?.enter();
+    const startMs = clock.now();
+    const cwd = process.cwd();
+    let handled: HandledCall;
+    try {
+      handled = await handleCall(request, cwd);
     } catch (thrown) {
       // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
       const message = thrown instanceof Error ? thrown.message : String(thrown);
-      return errorText(`codemaster internal error: ${message} (daemon still up; please report)`);
+      handled = fail(
+        errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
+      );
     } finally {
       idleExit?.leave();
     }
+    // ONE telemetry write, wrapped so a disk/serialize error never touches the request path.
+    try {
+      usage.record({
+        ts: startMs,
+        durationMs: clock.now() - startMs,
+        tool: request.params.name,
+        ops: handled.ops,
+        ok: handled.ok,
+        cwd,
+        args: (request.params.arguments ?? null) as JsonValue,
+        response: responseText(handled.result),
+        isError: handled.result.isError ?? false,
+      });
+    } catch {
+      /* telemetry must never crash the daemon */
+    }
+    return handled.result;
   });
 
   const transport = options?.transport ?? new StdioServerTransport();
@@ -264,6 +327,44 @@ export function createOnceBanner(sourceStale: () => boolean): (suppressed: boole
     emitted = true;
     return banner;
   };
+}
+
+/** A handled tool call: the agent-facing response plus its telemetry classification
+ *  (success/fail and the op name(s) involved). */
+interface HandledCall {
+  result: CallToolResult;
+  ok: boolean;
+  ops: string[];
+}
+
+function ok(result: CallToolResult, ops: string[] = []): HandledCall {
+  return { result, ok: true, ops };
+}
+
+function fail(result: CallToolResult, ops: string[] = []): HandledCall {
+  return { result, ok: false, ops };
+}
+
+/** Classify an op/batch response from its STRUCTURED results, not from `isError`: a
+ *  `Result` with `ok:false` (a `ToolFailure` — "couldn't, fall back") renders through a
+ *  plain `text()` with no `isError`, so an isError-only check would file it as success.
+ *  The call is a success only when every constituent op succeeded. */
+function classify(
+  result: CallToolResult,
+  results: readonly OpResult[],
+  ops: string[],
+): HandledCall {
+  return { result, ok: results.every(opResultOk), ops };
+}
+
+function opResultOk(r: OpResult): boolean {
+  return !('error' in r) && r.result.ok;
+}
+
+/** The text payload of a response, for the telemetry `response` field. */
+function responseText(result: CallToolResult): string {
+  const first = result.content[0];
+  return first !== undefined && first.type === 'text' ? first.text : '';
 }
 
 function text(body: string): CallToolResult {
