@@ -322,6 +322,11 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **move_symbol: renamed default-import under-detection** — a locally-renamed default import of a
       moved `export default` isn't reconstructed. Unreachable today (the LS doesn't rewrite
       default-export importers → the gate refuses the dangle first). `bug`·`low`·`cx:M`
+- [ ] **`move_symbols({names:[],dest})` bulk-move sugar (optional)** — dogfood ask: splitting a large
+      file means moving N top-level symbols into one dest. The underlying need (one §2.8 gate, atomic,
+      importers repointed once) is now MET by a `transaction` whose steps are N `move_symbol`s. A
+      dedicated bulk op would only save the agent from authoring the steps array — pure ergonomics, not
+      a capability gap. Defer unless the transaction form proves too verbose in practice. `feat`·`low`·`cx:M`
 - [ ] **move_symbol note(b) wording — "fan-out is OFF" reads as a disable-able mechanism** — the
       transaction cross-program note says the write-site fan-out is OFF inside a transaction, but
       move_symbol is primary-only **by construction** (no `rewriteImports` branch — the LS drives the
