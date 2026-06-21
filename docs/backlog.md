@@ -163,12 +163,34 @@ don't vanish.
       `ResultCommon.sourceStale?: true`, surfaced as a real key json keeps and text renders in the
       tail) injected at the facade — deferred because it tugs a daemon-level fact into the L0
       `core/result.ts` op-envelope and renders N× in a batch unless scoped to one result. `imp`·`cx:M`
-- [ ] **a STALE-daemon op-level ERROR response carries no staleness marker** — the banner ships on
-      the SUCCESS render only (`src/mcp/server.ts` — the `banner` thunk is invoked on the success
-      branch; op-level errors return bare error text). An error produced by stale code is itself
-      suspect, so §3.6 arguably wants the marker there too. Deferred (present behavior preserved by
-      the always-on fix): prefixing error text is safe in text mode but interacts with the json/
-      structural-field question above — fix the two together. `imp`·`low`·`cx:S`
+- [x] **FIXED — a STALE-daemon op-level ERROR response now carries the staleness marker.** §3.6 is
+      always-on, so the banner ships on the per-op tool's ERROR branch too — not just success. The
+      highest-value case is `unknown_op` for a freshly-added op (the dev-loop new-op-vs-stale-daemon
+      collapse from the obsolete hot-reload item above): the bridge lists the op but the stale daemon
+      never loaded it, so dispatch returns `unknown_op` — exactly where "run `codemaster daemon
+restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `runOpTool`'s two
+      request-level `!outcome.ok` branches + the BATCH request-level `!outcome.ok` branch prefix the
+      banner (text-mode); json suppresses it (op-level errors render as plain text in both modes, so
+      there's no bare-JSON payload to corrupt — the suppression is for consistency with success, where
+      json consumers read the structured `sourceStale` from `status`). So §11's "EVERY stale response"
+      is now literally true for both per-op and batch. The facade-side bad-args reject predates the
+      parse (format unknown) and stays banner-free — a malformed call isn't a stale-behavior read.
+      Oracle: `test/e2e/stale-daemon-error-banner.test.ts` (stale daemon → `unknown_op` + per-op
+      request-fail + batch request-fail carry the marker; json suppresses; fresh daemon never marks).
+      `imp`·`low`·`cx:S`
+- [ ] **facade-level rejects (pre-dispatch) stay banner-free on a stale daemon** — two per-op paths
+      reject BEFORE the orchestrator round-trip, so they carry no self-staleness marker even when the
+      daemon is source-stale: `badArgsOp` (`src/mcp/server.ts` `runOpTool`, the `!built.ok` branch) and
+      the `unknown tool` guard (the `opNames.has` miss). On a stale daemon with an old arg-schema/op
+      catalogue these could themselves be staleness artifacts, so the restart remedy doesn't reach
+      them. Narrow + low-value (the format is unparsed in the bad-args case, so json-suppression is
+      ambiguous; the `unknown tool` guard fires off the BRIDGE's own catalogue, not the daemon's, so it
+      isn't really a daemon-staleness signal). `bug`·`low`·`cx:S`
+- [ ] **two non-op error paths carry no staleness banner** — `runOpTool`'s `result === undefined` ("no
+      result (codemaster bug)") sentinel and the `handleCall` top-level `catch` (internal-error) return
+      bare error text with no banner (`src/mcp/server.ts`). Both are exception/edge paths (an empty
+      results array from a non-failing outcome; an escaped throw), negligible in practice — flagged for
+      completeness so the banner-coverage isn't mistaken as total. `bug`·`low`·`cx:S`
 - [ ] **serveMcp e2e: a `client.close()` makes the test process `exit(0)`, masking failures with a
       vacuum-pass** — `serveMcp` wires `server.onclose → shutdown → exit(0)` (default `exit` is
       `process.exit`, `src/mcp/server.ts`). A test that calls `await client.close()` therefore hard-
@@ -317,10 +339,18 @@ don't vanish.
 - [ ] **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`
 - [ ] **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into
       every plugin's `reindex` (same effect); revisit when plugins multiply. `dx`·`low`·`cx:S`
-- [ ] **MCP op hot-reload / dev-CLI** — a freshly-registered builtin op isn't dispatchable until the
-      MCP session reconnects (catalogue loaded at spawn), so new-op validation falls back to the e2e
-      harness. Read ops already hot-reload via the read-time freshness backstop. Relates to
-      daemon-singleton. `dx`·`med`·`cx:M`
+- [x] **OBSOLETE under per-op-tools — MCP op hot-reload / dev-CLI.** The original premise (a
+      freshly-registered op "isn't dispatchable until reconnect") no longer describes the system. Under
+      per-op tools there are TWO catalogues, BOTH static-at-spawn BY DESIGN: the bridge answers
+      `tools/list` from its OWN `builtinOps()` at bridge spawn (`serveMcp(remote,…)` defaults `ops` to
+      `builtinOps()`); the daemon dispatches from its `opsByName` built at daemon spawn. A new op = a
+      SOURCE change (`src/ops/*.ts` + `builtins.ts`), i.e. an ordinary src-edit — already covered by
+      the always-on self-staleness banner (every op/batch response → "run `codemaster daemon restart`") + restart, and VALIDATED via the one-shot dev-CLI (`node src/bin.ts op <name> '<args>'`), a fresh
+      process that always reflects current source (NOT the e2e harness). A live MCP session cannot pick
+      up a new op without a reconnect — and that is honest by design, not a bug: a stale daemon can't
+      manufacture a tool it never loaded, and `tools/list_changed` has no live trigger (both catalogues
+      change only on respawn = a new bridge + daemon). The one residual honesty slice — a stale-daemon
+      ERROR response carrying no restart remedy — is the item below (now FIXED). `dx`·`med`·`cx:M`
 - [ ] **idle-exit brackets only `CallTool`, not `ListTools`** — the Stage-1 idle deadline
       (`src/mcp/idle-exit.ts`) is reset by any `CallTool` (per-op / `status` / `batch`) but NOT by `tools/list`.
       Harmless and arguably correct (listTools is instant; an orphan that only ever lists tools

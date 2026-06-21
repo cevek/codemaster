@@ -117,10 +117,10 @@ test('staleBanner: empty when fresh, a restart line when stale (the MCP op surfa
   assert.match(staleBanner(true), /daemon restart/);
 });
 
-test('§3.6: an op-level ERROR result does NOT carry the staleness banner (it ships only on success)', () => {
-  // The banner thunk must be called ONLY on the success branch: an op-level error returns bare
-  // error text (an error on stale code is a separate honest-deferred item). The thunk being
-  // un-called on error proves an error response never picks up the prefix.
+test('§3.6 always-on: an op-level ERROR result carries the staleness banner too (not just success)', () => {
+  // §3.6 is always-on: the banner thunk is consumed on BOTH branches. A stale-daemon `unknown_op`
+  // (a freshly-added op the daemon never loaded) is exactly where "restart" matters most, so the
+  // error text picks up the prefix as well — never marker-less.
   let calls = 0;
   const thunk = (): string => {
     calls++;
@@ -129,14 +129,15 @@ test('§3.6: an op-level ERROR result does NOT carry the staleness banner (it sh
   const textOf = (r: ReturnType<typeof opResultText>): string =>
     (r.content[0] as { text?: string } | undefined)?.text ?? '';
 
-  const errResult: OpResult = { name: 'find_usages', error: { kind: 'bad_args', message: 'x' } };
+  const errResult: OpResult = { name: 'find_usages', error: { kind: 'unknown_op', message: 'x' } };
   const errOut = opResultText(errResult, 'text', 'terse', thunk);
-  assert.equal(calls, 0, 'an error result must not call (consume) the banner thunk');
-  assert.match(textOf(errOut), /bad_args: x/);
+  assert.equal(calls, 1, 'an error result consumes the banner exactly once');
+  assert.match(textOf(errOut), /STALE-BANNER/, 'the prefix ships on the error branch');
+  assert.match(textOf(errOut), /unknown_op: x/, 'the underlying error text is preserved');
 
   const okResult: OpResult = { name: 'find_usages', result: { ok: true, data: 'ok-body' } };
   const okOut = opResultText(okResult, 'text', 'terse', thunk);
-  assert.equal(calls, 1, 'a success result consumes the banner exactly once');
+  assert.equal(calls, 2, 'a success result consumes the banner once more');
   assert.match(textOf(okOut), /STALE-BANNER/);
 });
 

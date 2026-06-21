@@ -171,7 +171,11 @@ export async function serveMcp(
             ? { sql, ...(returnMode !== undefined ? { return: returnMode } : {}) }
             : undefined,
         );
-        if (!outcome.ok) return fail(errorText(outcome.message), ops);
+        // §3.6 always-on, mirrored onto the batch request-level failure: a stale-daemon batch that
+        // fails before producing rows must carry the restart remedy too — same `banner(false)` the
+        // success branch below uses (a batch is always text-wrapped per-section, never a single bare
+        // json payload, so the prefix is §12-safe regardless of batch format).
+        if (!outcome.ok) return fail(errorText(banner(false) + outcome.message), ops);
         return classify(
           text(
             banner(false) +
@@ -210,8 +214,11 @@ export async function serveMcp(
     const built = buildPerOpRequest(opName, rawArgs);
     if (!built.ok) return fail(badArgsOp(opName, built.message), ops);
     const { request, root, sql, returnMode } = built;
-    // The banner is a PREFIX on the SUCCESS render only (never an error). json mode suppresses it:
-    // a prefix would corrupt a single bare-JSON payload (§12); json reads `sourceStale` from status.
+    // The banner is a PREFIX on EVERY text response — success AND error alike (§3.6 always-on): a
+    // stale-daemon `unknown_op` for a freshly-added op is exactly where the "restart" remedy matters
+    // most. json mode suppresses it: a prefix would corrupt a single bare-JSON payload (§12); json
+    // reads `sourceStale` from status. (The facade-side bad-args reject above predates the parse, so
+    // its format is unknown and it stays banner-free — a malformed call isn't a stale-behavior read.)
     const suppress = request.format === 'json';
     if (sql !== undefined) {
       // §2.6: single-op sql sugar = a batch of one request aliased `t`.
@@ -219,7 +226,7 @@ export async function serveMcp(
         sql,
         ...(returnMode !== undefined ? { return: returnMode } : {}),
       });
-      if (!outcome.ok) return fail(errorText(outcome.message), ops);
+      if (!outcome.ok) return fail(errorText(banner(suppress) + outcome.message), ops);
       return classify(
         text(banner(suppress) + renderResults(outcome.results, request.format, request.verbosity)),
         outcome.results,
@@ -227,7 +234,7 @@ export async function serveMcp(
       );
     }
     const outcome = await orchestrator.request(cwd, root, [request]);
-    if (!outcome.ok) return fail(errorText(outcome.message), ops);
+    if (!outcome.ok) return fail(errorText(banner(suppress) + outcome.message), ops);
     const result = outcome.results[0];
     if (result === undefined) return fail(errorText('no result (codemaster bug)'), ops);
     return classify(
@@ -286,13 +293,16 @@ export function opResultText(
   result: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
-  // A THUNK, not a string: an op-level `error` result must NOT carry the staleness banner — it's
-  // called only on the success branch, where the banner ships (an error on stale code is a separate
-  // honest-deferred item, backlog).
+  // A THUNK so the banner is computed once, after the success/error branch is known. §3.6 is
+  // ALWAYS-ON: an op-level `error` (e.g. `unknown_op` for a freshly-added op the stale daemon never
+  // loaded) is exactly where the "restart the daemon" remedy matters MOST, so the banner ships on
+  // the error branch too. The error branch is plain text in BOTH modes (no json payload to corrupt
+  // here); json-suppression of the banner is encoded by the caller's thunk for consistency with the
+  // success path, where json consumers instead read the structured `sourceStale` from `status`.
   banner: () => string = () => '',
 ): CallToolResult {
   if ('error' in result) {
-    return errorText(`${result.error.kind}: ${result.error.message}`);
+    return errorText(`${banner()}${result.error.kind}: ${result.error.message}`);
   }
   return text(banner() + renderOne(result, format, verbosity));
 }
