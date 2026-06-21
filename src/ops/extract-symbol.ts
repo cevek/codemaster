@@ -43,6 +43,7 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
   example: { args: { name: 'Helper', dest: 'src/lib/helper.ts' } },
   notes: [
     'dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.',
+    'this op relocates ONE symbol per call. To build a new module from SEVERAL symbols in a single atomic step, chain a `transaction`: extract_symbol the first (creates dest), then move_symbol the rest into the now-existing dest — ONE typecheck gate, all-or-nothing rollback (no per-symbol gate, no intermediate broken state).',
     'when the LS refuses (e.g. several cross-referencing declarations in one file) the failure is reported with its ts-ls category — never a half-written file. A shape the stock LS asserts on is retried through the §4 patched-LS rescue (surfaced as a note).',
     "css: 'copy-safe' co-extracts the CSS-module classes the extracted block uses into a sibling sheet — ONLY the provably-safe ones move; the rest stay (rewritten to an sLegacy import) and every class is reported under cssCoExtract with a code. scss is type-blind, so a move is the taxonomy's proof, never the typecheck's.",
     'co-extract safety covers the source remainder + every importer of the same sheet codemaster can resolve — RELATIVE and tsconfig-`paths` ALIASED (@/…); a class an aliased sibling still uses is kept, not moved. Only a NON-tsconfig (bundler-only) alias stays invisible — verify those yourself.',

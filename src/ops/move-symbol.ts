@@ -37,7 +37,7 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath (an existing file), dirtyOk?: boolean }",
   example: { args: { name: 'helper', dest: 'src/lib/util.ts' } },
   notes: [
-    'dest must be an EXISTING file in the project — the moved symbol is merged into it (its imports folded into dest’s, every importer repointed, the source keeps a back-import if it still uses the symbol). To move into a NEW file use extract_symbol.',
+    'dest must be an EXISTING file in the project — the moved symbol is merged into it (its imports folded into dest’s, every importer repointed, the source keeps a back-import if it still uses the symbol). To move into a NEW file use extract_symbol; to relocate MANY symbols into one module atomically, chain extract_symbol + move_symbol steps in a single `transaction` (one gate, all-or-nothing).',
     'dry-run (default) writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back byte-exact if the post-apply typecheck shows newly-introduced errors.',
     'a name already declared at top level in dest is REFUSED with a collision message (never clobbered/shadowed); a target nested inside another declaration is REFUSED (only a TOP-LEVEL symbol moves); a JSX body needs a .tsx dest (a non-.tsx dest is REFUSED).',
     'DIRECT importers are repointed; a re-export barrel (`export { X } from`) of the moved symbol is NOT repointed by the LS, so it would dangle — the §2.8 gate then REFUSES the whole move (honest, never a half-move). Repoint such a barrel by hand or move the barrel’s own export.',
