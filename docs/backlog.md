@@ -270,13 +270,15 @@ don't vanish.
       (`support/transport/unix-socket.ts`) — safe today (no other startup I/O; plugins are lazy), but
       a future concurrent startup file-write would inherit 0600. Prefer a per-socket mode at create if
       a portable API appears. `bug`·`low`·`cx:S`
-- [ ] **flaky e2e: `daemon-cli-smoke` restart-while-live** (`test/e2e/daemon-cli-smoke.test.ts:100`) —
-      the `restart`-while-live verb intermittently resolves with `code:0` but **empty stdout**, so the
-      `/daemon stopped[\s\S]*daemon started/` match fails. Observed once in CI (run 27886079761), green
-      on the immediate re-run; passes 3/3 locally. A real-spawn timing race in the restart verb's stdout
-      capture/flush under CI load (not a product bug — the lifecycle works). Harden: capture stderr too
-      in `runVerb` for diagnosis, and/or `waitFor` the new pid via `status` instead of asserting on the
-      restart verb's own stdout. `bug`·`low`·`cx:S`
+- [x] **FIXED — flaky e2e: `daemon-cli-smoke` restart-while-live** (`test/e2e/daemon-cli-smoke.test.ts`) —
+      the `restart`-while-live verb intermittently resolved `code:0` with **empty stdout**, so the
+      `/daemon stopped[\s\S]*daemon started/` match failed (real-spawn flush race under CI load; not a
+      product bug). Hardened by asserting the **lifecycle fact** instead: `restart2.code===0` + a bounded
+      `waitForFreshPid` that polls `status` until the daemon reports a pid ≠ the pre-restart pid (the
+      "old killed, fresh bound" proof, load-independent). `runVerb` now pipes stderr into assertion
+      diagnostics. Real-spawn nature preserved (still real `node bin.ts daemon <verb>` subprocesses). The
+      removed restart **wording** assertion is now pinned deterministically in
+      `test/unit/daemon-manage.test.ts` (no silent coverage loss).
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
@@ -851,10 +853,18 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       note + truncated-text `… N more` hint untested; `expand_type` `constituents` `covered()`
       substring-match has a theoretical false-positive (arm a substring of arm AB, head drops standalone
       a without `...`) needing a TS-format bug to trigger. `dx`·`low`·`cx:S`
-- [ ] **real-spawn smoke tests are timing-flaky** — `test/e2e/*-smoke.test.ts` (daemon idle-exit /
-      socket lifetime) occasionally fail one run then pass on re-run, with a changing test count
-      (726→725). Pure render changes can't affect them; it's pre-existing timing flakiness. Stabilize
-      (deterministic clock/socket seam) so CI doesn't catch the flake. `dx`·`med`·`cx:M`
+- [x] **FIXED (assert-hardened, real-spawn preserved) — real-spawn smoke timing-flake** —
+      `test/e2e/*-smoke.test.ts`. The concrete CI-evidenced flake (the changing test count) was the
+      `daemon-cli-smoke` restart-while-live assertion on the restart verb's own (flush-racy) stdout —
+      now asserts the load-independent lifecycle pid-change (see the entry above). The other two smokes
+      were already lifecycle-bounded: `bridge-singleton-smoke` (pid equality + bounded `waitFor` on
+      socket-gone) and `mcp-idle-exit-smoke` (exit code + elapsed ≥ TTL, stderr captured).
+      **Honest residual on a deterministic clock/socket seam:** intentionally NOT applied. These tests
+      drive a REAL subprocess on purpose — they catch lifetime/teardown/socket bugs the manual-clock
+      units can't — and you cannot inject a clock into a spawned process without replacing it with a
+      fake, which would neutralize exactly that coverage. The correct hardening is bounded `waitFor`
+      polling on a real lifecycle fact (pid / socket presence / exit), never a fixed sleep — which is
+      what all three now do. No remaining flaky timing-assert is known. `dx`·`med`·`cx:M`
 - [ ] **CLI `op --root <dir>` doesn't scope config / plugin-activation to the root** — `bin.ts` appears
       to load config from `cwd`, not the resolved `--root`, so on a cross-dir CLI run i18n reads
       inactive and scss reads the wrong root (MCP per-request `root` is fine). Dogfood friction; the CLI

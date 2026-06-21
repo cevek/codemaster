@@ -198,6 +198,47 @@ test('restart: a wedged daemon that cannot be stopped is NOT restarted (would EA
   assert.equal(spawned, false, 'restart must not spawn while the old daemon holds the socket');
 });
 
+test('restart: healthy daemon → "daemon stopped (pid)" then "daemon started (fresh pid)" + reconnect (code 0)', async () => {
+  // The deterministic home for the successful restart-while-live WORDING. The real-socket smoke
+  // (daemon-cli-smoke.test.ts) no longer pins this — a restart verb's own stdout flush races under
+  // CI load (a code-0 reply can land with truncated stdout), so the smoke proves the load-independent
+  // lifecycle pid-change instead. Here, no socket and no flush: the old daemon replies to daemon-info
+  // (pid 42) and closes on shutdown; the freshly spawned daemon answers daemon-info with pid 99.
+  const old = fakeConnection((env, deliver, close) => {
+    if (env.kind === 'daemon-info') deliver(infoReply(env.id, INFO)); // pid 42
+    if (env.kind === 'shutdown') close();
+  });
+  const fresh = fakeConnection((env, deliver) => {
+    if (env.kind === 'daemon-info') deliver(infoReply(env.id, { ...INFO, pid: 99 }));
+  });
+  // The connect() sequence across one restart: stop's tryConnect lands on `old`; after stop closes
+  // it, daemonStart's tryConnect + connectOrSpawn's probe/reprobe see no daemon (ENOENT), then the
+  // spawned one answers — so [old, ✗, ✗, ✗, fresh], the rest being the post-spawn `fresh`.
+  const conns: (TransportConnection | undefined)[] = [old, undefined, undefined, undefined, fresh];
+  let i = 0;
+  const transport: Transport = {
+    listen: () => Promise.reject(new Error('listen unused in manage tests')),
+    connect: () => {
+      const c = i < conns.length ? conns[i++] : fresh;
+      return c === undefined
+        ? Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
+        : Promise.resolve(c);
+    },
+  };
+  let spawned = false;
+  const r = await runDaemonCommand(
+    'restart',
+    deps({ transport, spawnDaemon: () => (spawned = true) }),
+  );
+  assert.equal(r.code, 0);
+  assert.equal(spawned, true, 'restart spawned a fresh daemon after stopping the old one');
+  const out = r.lines.join('\n');
+  assert.match(out, /daemon stopped \(socket released, pid 42\)/, 'stops the live daemon by pid');
+  assert.match(out, /daemon started \(pid=99\)/, 'then starts a fresh one');
+  assert.match(out, /daemon stopped[\s\S]*daemon started/, 'stop precedes start in the output');
+  assert.match(out, /must reconnect/, 'warns connected clients to reconnect');
+});
+
 test('unknown verb → honest usage line (code 2)', async () => {
   const r = await runDaemonCommand('frobnicate', deps({}));
   assert.equal(r.code, 2);
