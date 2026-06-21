@@ -322,6 +322,12 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 - [ ] **move_symbol: renamed default-import under-detection** — a locally-renamed default import of a
       moved `export default` isn't reconstructed. Unreachable today (the LS doesn't rewrite
       default-export importers → the gate refuses the dangle first). `bug`·`low`·`cx:M`
+- [ ] **move_symbol note(b) wording — "fan-out is OFF" reads as a disable-able mechanism** — the
+      transaction cross-program note says the write-site fan-out is OFF inside a transaction, but
+      move_symbol is primary-only **by construction** (no `rewriteImports` branch — the LS drives the
+      repoint on the primary service), so there is nothing to switch off. The limitation-direction is
+      honest, but the phrasing implies a move_symbol-specific sibling-write path that gets gated.
+      Optionally reword to "primary-only by construction" for parity-accuracy. `dx`·`low`·`cx:S`
 - [ ] **move_symbol: no positive capture fixture** — the reconstruction/over-refusal guard is only
       exercised by the happy path (captures empty). A deterministic positive repro is hard with the
       LS's correct resolver; add if a real case surfaces. `dx`·`low`·`cx:M`
