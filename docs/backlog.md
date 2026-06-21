@@ -67,18 +67,36 @@ don't vanish.
       Test blind spot: `ls-host-tsconfig-invalidation.test.ts` covers only the discovery-memo
       direction, never the primary re-glob. Fix: treat a change to this program's `configPath` as
       structural → `loadFileList()`. `bug`·`high`·`cx:M`
-- [ ] **envelope honesty channels (freshness / handle-rebind / truncation) silently cut by the
-      char cap** — `src/format/render/render-result.ts:23-96`. `renderResult` appends the
-      `freshness` note, the `handle` rebind, and the `{shown,total,hint}` truncation line AFTER the
-      full `data` block, then `capOutput` (`RENDER_CHAR_CAP = 20_000`) slices the TAIL at a line
-      boundary. A ≥20K data payload pushes all three honesty channels past the cut → they vanish.
-      The §12 verdict-before-bulk fix only ordered keys WITHIN `data`; it does not protect the
-      envelope seam. Symptom: agent gets `!! OUTPUT CAPPED` (completeness only) but a dropped
-      `freshness: UNVERIFIED` (silent-stale lie) or a dropped `handle: rebound confidence=partial`
-      (§6 misidentification). Reproduced against the real renderer (20157 chars, UNVERIFIED absent).
-      Note `SPAN_TEXT_CEILING == RENDER_CHAR_CAP`, so even one large span can fill it. Fix: hoist
-      the envelope channels above the bulk, or cap only the data region and always re-append them.
-      `bug`·`high`·`cx:M`
+- [x] **FIXED (2026-06-21) — envelope honesty channels (freshness / handle-rebind / truncation)
+      silently cut by the char cap** — `src/format/render/render-result.ts`. `renderResult` used to
+      append the `freshness` note, the `handle` rebind, and the `{shown,total,hint}` truncation line
+      AFTER the full `data` block, then `capOutput` (`RENDER_CHAR_CAP = 20_000`) sliced the TAIL —
+      a ≥20K data payload pushed all three honesty channels past the cut → they vanished while the
+      agent saw only `!! OUTPUT CAPPED` (completeness), a silent-stale / §6-misidentification lie.
+      Fix: the envelope renders as four segments (head / bulk / tail / debug); only `bulk` (the data
+      render) is cappable, and the honesty channels are reserved against the budget in
+      `assembleEnvelope` so they survive the cut by construction; debug is the only droppable
+      segment. §12 doc updated (envelope-seam paragraph). Oracle test:
+      `test/unit/render-compact-ops.test.ts` "§12 envelope-seam" (terse+normal). `bug`·`high`·`cx:M`
+      Residual (separate, plugins/ts boundary): `SPAN_TEXT_CEILING == RENDER_CHAR_CAP` so one large
+      span can still fill the whole bulk — honesty channels now survive that too, but the data is
+      uselessly truncated; tracked below.
+- [ ] **`SPAN_TEXT_CEILING == RENDER_CHAR_CAP` (20_000) — one large span can fill the whole render
+      budget** — `src/plugins/ts/spans.ts`. A single proof span allowed up to the same 20K as the
+      whole-output cap means one big declaration body consumes the entire `bulk` region; the
+      envelope-seam fix keeps the honesty channels alive, but the data itself is reduced to one
+      truncated span. Lower the per-span ceiling well under the output cap (leave room for ≥a few
+      spans + the honesty tail), or budget spans against the remaining output room. `bug`·`med`·`cx:S`
+      (plugins/ts boundary — not in the envelope-seam scope.)
+- [ ] **the envelope `head` segment is no longer capped — a pathological `failure.message` escapes
+      the 95KB-dump guard** — `src/format/render/render-result.ts` (the head-path of `renderResult`
+      / `assembleEnvelope`). The envelope-seam fix reserves `head` (FAIL verdict + message) and
+      `tail` (honesty channels) against the budget so they always survive; only `bulk` is trimmed.
+      That is correct for the honesty channels, but it means a pathologically large `failure.message`
+      now renders unbounded — weakening the "never a 95KB dump" guarantee on the FAIL path. The
+      message is our OWN text (a `ToolFailure.message`, normally a short tool error), so this is a
+      latent edge, not a live leak. Fix: cap the FAIL message itself at the source, or give `head` a
+      generous own sub-budget before reserving it. `bug`·`low`·`cx:S`
 - [ ] **self-staleness banner is one-shot per bridge session (op/batch path)** —
       `src/mcp/server.ts:65-66,321-330` (`createOnceBanner` sets `emitted=true` after the first
       emit; op/batch `OpResult` carries no per-op staleness field — only `status()` re-reports).

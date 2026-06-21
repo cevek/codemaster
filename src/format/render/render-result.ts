@@ -21,33 +21,41 @@ const RENDER_CHAR_CAP = 20_000;
 /** Default verbosity is TERSE: list-shaped answers come back as `file:line:col` lines;
  *  verbatim proof text is opt-in via verbosity=full (re-fetch one symbol when needed). */
 export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = 'terse'): string {
-  const lines: string[] = [];
+  // The envelope is rendered as FOUR segments so the cap can never bury an honesty channel
+  // (§12 envelope-seam): `head` is the verdict-before-bulk preamble, `bulk` is the ONLY
+  // cappable region (the data render), `tail` carries the load-bearing honesty channels —
+  // truncation / handle-rebind / freshness — that MUST survive the cap by construction, and
+  // `debug` is the lowest-priority dev trace. Capping the tail-shaped honesty channels off the
+  // end (the old single-`lines[]` shape) silently dropped a `freshness: UNVERIFIED` or a
+  // `handle: rebound confidence=partial` — the exact silent-stale / §6-misidentification lie.
+  const head: string[] = [];
+  const bulk: string[] = [];
+  const tail: string[] = [];
+  const debug: string[] = [];
 
   if (!result.ok) {
     const partial = result.failure.partial === true;
-    lines.push(
+    head.push(
       `FAIL tool=${result.failure.tool}${partial ? ' partial=true' : ''} — ${result.failure.message}`,
     );
     if (partial && result.data !== undefined) {
-      lines.push(`data (incomplete — produced before the failure):`);
-      lines.push(renderDense(condenseSpans(result.data, verbosity)));
+      head.push(`data (incomplete — produced before the failure):`);
+      bulk.push(renderDense(condenseSpans(result.data, verbosity)));
     }
     // The affordance at the moment of pain (spec-feedback-channel §3): only on a hard
     // FAIL, never on `partial` (which is honest success). The nudge fires where the agent
     // is blocked, not in a doc read once.
     if (!partial) {
-      lines.push(
+      head.push(
         "— blocked or missing a capability? file it: op({name:'feedback', args:{kind:'bug', title:'…', detail:'…'}})",
       );
     }
   } else if (isSqlTableData(result.data)) {
     // sql-mode result (§5.6): a relation, not a span tree — its own dense table.
-    lines.push(renderSqlTable(result.data));
-    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
+    bulk.push(renderSqlTable(result.data));
   } else if (isSourceData(result.data)) {
     // `source` op (§3.2): always show bodies (never condensed to loc), budget + elision.
-    lines.push(renderSource(result.data));
-    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
+    bulk.push(renderSource(result.data));
   } else if (verbosity === 'full' && isDefinitionsData(result.data)) {
     // find_definition at full carries the same {id,name,kind,decl(body)} as `source`, just
     // under `definitions` — render it through source's compact body path (header + raw body)
@@ -60,23 +68,64 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
       src.sources.every((s) => s.decl.text.length > 0);
     // Empty, OR no usable body on some definition → dense path: never a blank render, never a
     // silently dropped definition (the dense fallback shows `definitions (N):` + every span).
-    lines.push(usable ? renderSource(src) : renderDense(condenseSpans(result.data, verbosity)));
-    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
+    bulk.push(usable ? renderSource(src) : renderDense(condenseSpans(result.data, verbosity)));
   } else {
-    lines.push(renderDense(condenseSpans(result.data, verbosity)));
-    if (result.truncated !== undefined) lines.push(renderTruncation(result.truncated));
+    bulk.push(renderDense(condenseSpans(result.data, verbosity)));
   }
 
-  if (result.handle !== undefined) lines.push(renderRebind(result.handle));
+  // Honesty channels — small, load-bearing, and reserved against the cap (`assembleCapped`).
+  // truncation first (it qualifies the bulk it follows), then handle, then freshness — the
+  // same relative order the single-list render emitted.
+  if (result.ok && result.truncated !== undefined) tail.push(renderTruncation(result.truncated));
+  if (result.handle !== undefined) tail.push(renderRebind(result.handle));
   if (result.freshness !== undefined) {
     const freshness = renderFreshness(result.freshness, verbosity);
-    if (freshness !== undefined) lines.push(freshness);
+    if (freshness !== undefined) tail.push(freshness);
   }
   if (result.debug !== undefined && result.debug.length > 0) {
-    lines.push('--- debug trace ---', ...result.debug, '--- end debug ---');
+    debug.push('--- debug trace ---', ...result.debug, '--- end debug ---');
   }
-  return capOutput(lines.join('\n'));
+  return assembleEnvelope(head, bulk, tail, debug);
 }
+
+/** Join the four segments under the char cap. When everything fits, the output is
+ *  byte-identical to the flat `head ∪ bulk ∪ tail ∪ debug` join (no reorder — goldens hold).
+ *  Over the cap, only `bulk` is trimmed: `head` (verdict) and `tail` (honesty channels) are
+ *  reserved against the budget so they survive by construction, and `debug` (a dev trace, not
+ *  an honesty channel) is dropped. */
+function assembleEnvelope(head: string[], bulk: string[], tail: string[], debug: string[]): string {
+  const full = [...head, ...bulk, ...tail, ...debug].join('\n');
+  if (full.length <= RENDER_CHAR_CAP) return full;
+
+  const headText = head.join('\n');
+  const bulkText = bulk.join('\n');
+  const tailText = tail.join('\n');
+  const dataLen = bulkText.length;
+
+  // Reserve head + tail (always preserved) + the marker. The marker length varies only by two
+  // small integers, so an upper bound keeps the final string ≤ cap without a circular dependency.
+  const fixed = [headText, tailText].filter((s) => s.length > 0);
+  const reserved = fixed.reduce((n, s) => n + s.length + 1, 0) + MARKER_RESERVE;
+  const budget = Math.max(RENDER_CHAR_CAP - reserved, 0);
+
+  const cut = bulkText.lastIndexOf('\n', budget);
+  const cappedBulk = bulkText.slice(0, cut > 0 ? cut : budget);
+  const marker = capMarker(dataLen, cappedBulk.length);
+
+  // Order in the capped path: head, trimmed bulk, the marker (explaining the bulk cut), then the
+  // intact honesty tail. Debug is dropped — it is the lowest priority and never an honesty channel.
+  return [headText, cappedBulk, marker, tailText].filter((s) => s.length > 0).join('\n');
+}
+
+function capMarker(dataTotal: number, dataShown: number): string {
+  return `!! OUTPUT CAPPED: data ${dataTotal} chars, showing first ${dataShown} (honesty channels below preserved). Narrow the query (lower limit, scope by file/dir), use terse, or project columns with sql — do NOT assume this is everything.`;
+}
+
+/** Upper bound on `capMarker`'s length — the fixed template plus headroom for the two
+ *  integers (each ≤ 7 digits well past any realistic render size). Reserving the bound rather
+ *  than the exact length avoids the marker-length ⇄ bulk-budget circularity; the final string
+ *  lands a few chars under the cap, which is fine. */
+const MARKER_RESERVE = capMarker(0, 0).length + 16;
 
 /** The machine-composition (`format:'json'`) render: the envelope serialized verbatim EXCEPT
  *  the render-only `~shape` tags are stripped from `data` (a deep copy — the live data still
@@ -86,13 +135,6 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
 export function renderResultJson(result: Result<JsonValue>): string {
   if (result.data === undefined) return JSON.stringify(result);
   return JSON.stringify({ ...result, data: stripShapeTags(result.data) });
-}
-
-function capOutput(rendered: string): string {
-  if (rendered.length <= RENDER_CHAR_CAP) return rendered;
-  const cut = rendered.lastIndexOf('\n', RENDER_CHAR_CAP);
-  const head = rendered.slice(0, cut > 0 ? cut : RENDER_CHAR_CAP);
-  return `${head}\n!! OUTPUT CAPPED: ${rendered.length} chars total, showing first ${head.length}. Narrow the query (lower limit, scope by file/dir), use terse, or project columns with sql — do NOT assume this is everything.`;
 }
 
 function renderTruncation(t: Truncation): string {

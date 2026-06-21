@@ -764,7 +764,12 @@ one-line legend + sectioned summary). Rules:
   so the cap can only ever truncate the (re-fetchable) diff, never the safety verdict (§3a /
   spec-stresstest). A renderer change that reorders keys (e.g. sorting them) would silently re-bury
   the verdict — keep insertion-order rendering, or move this guarantee behind an explicit field
-  ordering.
+  ordering. **The verdict-first contract orders keys WITHIN `data`; the envelope-seam cap is a
+  separate guarantee** — the renderer caps only the `data` region and reserves the envelope's
+  honesty channels (truncation / handle-rebind / freshness) against the budget so they ALWAYS
+  survive the cut, never trimmed off the tail (dropping a `freshness: UNVERIFIED` or a partial
+  handle rebind is the silent-stale / §6-misidentification lie). Debug (a dev trace, not an
+  honesty channel) is the only segment the cap may drop.
 - `verbosity = terse | normal | full` lets the agent dial token cost; column
   projection is done with `sql` (SELECT over the op table), not a `fields` flag.
 - `format=json` for machine composition (agent feeding one call into another).

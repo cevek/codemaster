@@ -9,6 +9,8 @@ import { renderResult } from '../../src/format/render/render-result.ts';
 import { ok } from '../../src/common/result/construct.ts';
 import { tag } from '../../src/common/shape-tag/tag.ts';
 import type { JsonValue } from '../../src/core/json.ts';
+import type { RepoRelPath } from '../../src/core/brands.ts';
+import type { SymbolId } from '../../src/core/ids.ts';
 
 const span = (file: string, line: number, col: number, text: string): JsonValue => ({
   file,
@@ -200,6 +202,58 @@ test('§3a: the typecheck/touched verdict survives the output cap; only the diff
     'the touched summary must survive the cap too',
   );
 });
+
+// The envelope-seam cap (§12). The bulk data is huge (> RENDER_CHAR_CAP); the three honesty
+// channels — freshness UNVERIFIED, a partial-confidence handle rebind, and a truncation count —
+// are tiny and load-bearing. They live PAST the data in the render, so the old tail-trimming cap
+// dropped them silently: the agent saw `!! OUTPUT CAPPED` (about completeness) but never the
+// silent-stale / §6-misidentification signals. The fix reserves them against the budget so they
+// survive by construction. Oracle: every channel's marker text must be present AND the cap fired.
+for (const verbosity of ['terse', 'normal'] as const) {
+  test(`§12 envelope-seam: freshness/handle/truncation survive the output cap (${verbosity})`, () => {
+    const hugeData = {
+      rows: Array.from({ length: 4000 }, (_, i) => ({
+        note: `row ${i} — bulk payload that pushes the data render well past the 20k char cap`,
+      })),
+    };
+    const out = renderResult(
+      ok(hugeData as JsonValue, {
+        freshness: {
+          plugins: [{ id: 'ts', fingerprint: 'fp' }],
+          pending: 3,
+          unverified: { tool: 'git', message: 'git diff failed' },
+        },
+        handle: {
+          status: 'rebound',
+          from: 'ts:Old@src/a.ts:v1' as SymbolId,
+          to: {
+            id: 'ts:Old@src/b.ts:v2' as SymbolId,
+            name: 'Old',
+            kind: 'function',
+            loc: { file: 'src/b.ts' as RepoRelPath, line: 12, col: 1 },
+          },
+          proof: {
+            file: 'src/b.ts' as RepoRelPath,
+            line: 12,
+            col: 1,
+            endLine: 12,
+            endCol: 9,
+            text: 'function',
+          },
+          confidence: 'partial',
+          note: 'a symbol of this name/kind is here now; cannot prove identity',
+        },
+        truncated: { shown: 50, total: 4000, hint: 'lower limit or scope by file' },
+      }),
+      verbosity,
+    );
+    assert.match(out, /!! OUTPUT CAPPED/, 'guard: the data must actually bust the cap');
+    assert.match(out, /freshness: UNVERIFIED — git failed/, 'freshness UNVERIFIED must survive');
+    assert.match(out, /PENDING 3 file\(s\)/, 'the pending count must survive');
+    assert.match(out, /handle: rebound .* confidence=partial/, 'the handle rebind must survive');
+    assert.match(out, /… 3950 more \(shown 50\/4000;/, 'the truncation count must survive');
+  });
+}
 
 test('list registry entries collapse to one clickable line each (key · kind · loc · confidence · provenance)', () => {
   const entry = (name: string, file: string, line: number, confidence: string): JsonValue =>
