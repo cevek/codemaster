@@ -74,11 +74,11 @@ export function createI18nPlugin(
       return { id: localeIdOf(rel), keys: [] };
     }
     const parsed = parseLocaleKeys(rel, read.text);
-    if (!parsed.ok) {
-      failures.set(rel, parsed.message);
-      return { id: localeIdOf(rel), keys: [] };
-    }
-    failures.delete(rel);
+    // A malformed file still contributes its well-formed-prefix keys (degrade-and-continue,
+    // §3.6) — but the failure stays recorded, so `failedLocaleIds`/`globalDemote` keep those
+    // keys `partial` and surface the parse failure; never a silent `certain` over a broken file.
+    if (parsed.ok) failures.delete(rel);
+    else failures.set(rel, parsed.message);
     return { id: localeIdOf(rel), keys: parsed.keys };
   };
 

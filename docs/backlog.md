@@ -711,12 +711,14 @@ SAFE (an unfaithful head — escapes, inner backtick, raw CR/LF — bails to glo
 false`certain`), but must conservatively drop legit prefixes the cooked value would keep. Proper
 fix: have `plugins/ts` `literalArgFields`emit`staticPrefix`from`arg0.head.text`(the cooked
 value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying field. `dx`·`med`·`cx:M`
-- [ ] **I-f — a no-substitution template `t(\`a.b\`)` is treated as dynamic** — a
-      `ts.isNoSubstitutionTemplateLiteral` arg is classified `dynamic:true`, so a statically-
-      determinate backtick key is NOT counted as a use (may read unused) AND demotes the whole `a.b*`
-      namespace to `partial`. Not a lie (stays `partial`), but in a backtick-habitual repo it collapses
-      the actionable dead tail. Fix: treat a no-substitution template as a static literal (read `.text`
-      as the key). `bug`·`med`·`cx:M`
+- [x] **FIXED — I-f — a no-substitution template `t(\`a.b\`)` is treated as dynamic** —
+      `literalArgFields` (`src/plugins/ts/call-scan-shared.ts`) classifies the first argument with
+      `ts.isStringLiteralLike` (= StringLiteral ∪ NoSubstitutionTemplateLiteral), so a backtick key with
+      NO interpolation reads as the static literal it provably is (`.text`), while an interpolated
+      `t(\`a.${x}\`)`(a`TemplateExpression`) stays `dynamic`. Single classification point for i18n
+ (`literalCalls`→`forEachMatchedCall`→`literalArgFields`, both by-name and by-identity). Oracle
+ test: `test/differential/i18n-scope-template.test.ts`(no-sub-static + interpolated-stays-dynamic).
+`bug`·`med`·`cx:M`
 
 ### impact / usages
 
@@ -973,13 +975,22 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       other path is repo-relative (inconsistent, breaks click-through); (e) namespace-merge members
       flagged `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge).
       (a)/(b)/(c) are correctness (lost/wrong type facts); (d)/(e) are honesty/clarity. `bug`·`med`·`cx:M`
-- [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
-      JSON parse error, `i18n_lookup` (key/prefix/value) returns `defs:0 · usages:0 · matched:0 ·
-parseFailures:1` — unusable even for keys in the well-formed portion — while
-      `find_unused_i18n_keys` / `find_missing_i18n_keys` parse the SAME file error-tolerantly (still
-      indexed `keys=2331` on the same repo). Cross-op inconsistency in the i18n plugin; `i18n_lookup`
-      should degrade-and-continue like its siblings (honest `partial` + the parse failure noted), not
-      zero out. Repro: any repo with a malformed locale (amiro `en.json` line ~2761). `bug`·`med`·`cx:M`
+- [x] **FIXED — `i18n_lookup` fatal on a single malformed locale file** — the fix is in the SHARED
+      parser (`parseLocaleKeys`), so all three i18n ops degrade-and-continue consistently. Note the
+      original premise was empirically off: the siblings were NOT error-tolerant — all three share the
+      strict `JSON.parse` gate and zero out identically on a single broken file; the siblings only
+      "indexed keys" in the real repo because OTHER well-formed locale files supplied them. The real
+      gap was that NO op recovered the broken file's OWN keys. `parseLocaleKeys` now recovers the
+      WELL-FORMED PREFIX (every property whose name precedes the first parse-error offset — the min of
+      `parseJsonText`'s parse diagnostics and the `JSON.parse` error position; a trailing comma, the
+      commonest case, has no TS diagnostic, so the `JSON.parse` position is essential) and returns it
+      alongside `ok:false`. Keys past the first error are dropped (parseJsonText re-nests them onto
+      mis-paths). `parseOne` still records the failure, so `failedLocaleIds`/`globalDemote`/`parseFailures`
+      keep recovered keys `partial` and surface the failure — never a silent `certain` over a broken
+      file. Delta: a single-broken-file repo now surfaces recovered keys as `partial`-dead (find_unused)
+      / `defs`+parseFailure (lookup) instead of empty. Oracle test:
+      `test/differential/i18n-parse-recovery.test.ts` (prefix==repaired-JSON / post-error-dropped /
+      early-brace-stays-partial / multi-locale-feeds-missing). `bug`·`med`·`cx:M`
 - [ ] **`find_usages symbols:[…]` does not accept a SymbolId** — passing a full id
       (`{"symbols":["ts:Button@…:54:10~d19d0f20"]}`) returns `no symbol named 'ts:Button@…'`, though
       the single-target `symbolId`/`target` form accepts it. Undercuts the "ids are chainable" premise
