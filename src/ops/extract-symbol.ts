@@ -1,6 +1,7 @@
-// `extract_symbol` — move a top-level symbol to a new file via the LS "Move to a new file"
-// refactor (§7), re-targeted to the requested `dest`. The `ts` plugin plans it (LS edits →
-// tree → import rewrite); the shared `applyRefactorPlan` runs the §2.8 dry-run/apply/
+// `extract_symbol` — move a top-level symbol to a NEW file via the LS "Move to file" refactor
+// (§7) with the requested `dest` as the (not-yet-existing) `targetFile`, so the LS emits importer
+// specifiers natively in each file's own convention (alias→alias). The `ts` plugin plans it (LS
+// edits → tree → ambient-import rebase); the shared `applyRefactorPlan` runs the §2.8 dry-run/apply/
 // typecheck/rollback contract. The LS refusal shapes are surfaced honestly with their
 // `ts-ls-failures` category; a shape the stock LS asserts on (e.g. the extracted block uses a
 // css-module member) is retried through the §4 patched-LS rescue. With `css: 'copy-safe'`,

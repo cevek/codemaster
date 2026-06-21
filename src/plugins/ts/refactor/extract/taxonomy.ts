@@ -1,7 +1,8 @@
 // The TS-language-service extract/move failure taxonomy (front-renamer docs/ts-ls-failures.md).
-// The LS's "Move to a new file" / "Move to file" refactors refuse some shapes — we surface the
-// refusal honestly with a category, never a half-written file or a crash. Two assertion shapes
-// are KNOWN and RESCUABLE through the §4 patched-LS fork:
+// The LS's "Move to file" refactor (which BOTH `extract_symbol` — into a new dest — and
+// `move_symbol` drive) refuses some shapes — we surface the refusal honestly with a category, never
+// a half-written file or a crash. Two assertion shapes are KNOWN and RESCUABLE through the §4
+// patched-LS fork:
 //   - `Expected symbol to be a module` — several cross-referencing declarations in one file (e.g.
 //     the moved block uses a css-module member);
 //   - `Changes overlap` — the LS computed two overlapping text edits (e.g. two mutually-recursive

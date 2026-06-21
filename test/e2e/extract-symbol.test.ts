@@ -175,8 +175,9 @@ test('extract_symbol: refuses to overwrite a gitignored file at dest, even with 
   });
   try {
     // A gitignored file at dest is excluded from ls-files → invisible to the tree's
-    // dest-collision guard, but present on disk. Overwriting it is unrecoverable, so the
-    // existsSync backstop must refuse REGARDLESS of dirtyOk.
+    // dest-collision guard, but present on disk. Passing it as the LS `targetFile` would make the
+    // refactor MERGE into it, so extract refuses the on-disk collision before any write —
+    // REGARDLESS of dirtyOk (the waiver can't license overwriting an unrecoverable file).
     p.write('src/gen/helper.ts', 'export const precious = 99;\n');
     const [r] = await p.request([
       {
@@ -185,10 +186,10 @@ test('extract_symbol: refuses to overwrite a gitignored file at dest, even with 
         apply: true,
       },
     ]);
-    assert.ok(r !== undefined && 'result' in r && r.result.ok);
-    const data = r.result.data as unknown as Envelope & { reason?: string };
-    assert.notEqual(data.applied, true);
-    assert.match(String(data.reason), /refusing to overwrite/);
+    assert.ok(r !== undefined && 'result' in r && !r.result.ok, 'on-disk dest must refuse');
+    if ('result' in r && !r.result.ok) {
+      assert.match(r.result.failure.message, /already exists|refusing to overwrite/);
+    }
     assert.equal(
       readFileSync(path.join(p.root, 'src/gen/helper.ts'), 'utf8'),
       'export const precious = 99;\n',

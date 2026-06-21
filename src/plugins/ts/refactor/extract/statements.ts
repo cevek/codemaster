@@ -1,5 +1,5 @@
 // Shared statement-level helpers for the LS-driven symbol relocations — `extract_symbol`
-// ("Move to a new file", `move-to-file.ts`) and `move_symbol` ("Move to file" into an
+// ("Move to file" into a NEW dest, `move-to-file.ts`) and `move_symbol` ("Move to file" into an
 // EXISTING dest, `move-to-existing.ts`). Both refactors operate on the SAME unit — the
 // top-level statement enclosing the target offset — and both must REFUSE a nested target
 // rather than silently act on its enclosing top-level ancestor (§4a / §6). Keeping the range
@@ -15,6 +15,29 @@ export const REFACTOR_FORMAT: ts.FormatCodeSettings = {
   tabSize: 2,
   indentSize: 2,
 };
+
+/** The LS refactor name/action both relocations drive: `move_symbol` into an existing dest, and
+ *  `extract_symbol` into a NON-existent dest (the LS creates it). This action — unlike the legacy
+ *  "Move to a new file" — emits every importer/relink/dep specifier NATIVELY, mirroring each file's
+ *  own import convention (alias→alias, relative→relative). */
+export const MOVE_TO_FILE = 'Move to file';
+
+/** Whether a statement's subtree contains JSX (→ a `.ts` dest would not compile). Shared by the two
+ *  relocations: `move_symbol` refuses a non-`.tsx` JSX dest, `extract_symbol` coerces its created
+ *  dest `.ts`→`.tsx`. */
+export function statementHasJsx(stmt: ts.Statement): boolean {
+  let found = false;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(stmt);
+  return found;
+}
 
 export const posixDirname = (p: string): string => {
   const i = p.lastIndexOf('/');
@@ -117,7 +140,7 @@ function isDeclarationNode(n: ts.Node): boolean {
 
 /** True when `offset` lands on a declaration NESTED inside `topStmt` (a class/enum/object/interface
  *  MEMBER, or a binding inside a function body) rather than on the top-level statement's own
- *  declaration. The LS "Move to a new file" / "Move to file" refactors extract the ENCLOSING
+ *  declaration. The LS "Move to file" refactor extracts the ENCLOSING
  *  top-level statement, so without this guard a nested target is silently retargeted to its
  *  top-level ancestor — a DIFFERENT symbol than the agent asked for (spec-stresstest §4a: a nested
  *  `BoundInput` silently moved the whole `useAppForm`; an enum member / object property / class

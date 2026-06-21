@@ -19,7 +19,7 @@ export interface TextEdit {
  *  the original coordinates it was computed in.
  *
  *  Coincident edits at one anchor are the subtle case the single-pass exists for. The TS "Move to
- *  file" / "Move to a new file" refactor, merging several names into an existing (multi-line) import,
+ *  file" refactor, merging several names into an existing (multi-line) import,
  *  emits MANY zero-length inserts at the SAME offset, meant to apply in ARRAY ORDER (its own
  *  `applyChanges` reverse-applies to that end). The sort is by `start` asc, ties by `end` asc, and
  *  Array.sort is STABLE — so those coincident inserts keep their incoming array order and

@@ -1,9 +1,14 @@
-// Extract a top-level symbol to a new file via the LS "Move to a new file" refactor, then
-// re-target the LS-chosen filename to the requested `dest`. The LS emits the new file + edits
-// to the source (symbol removed, import added) + consumer edits; we apply them to the tree
-// and let `assemblePlan`'s import pass rewrite the LS-named import to `dest`. The refactor
-// call is WRAPPED — the `Expected symbol to be a module` Debug Failure is thrown by the LS,
-// so without this it would crash instead of failing honestly (§3.6).
+// Extract a top-level symbol to a NEW file via the LS "Move to file" refactor
+// (`refactor.move.file`) with `interactiveRefactorArguments.targetFile` = the requested `dest`'s
+// abs path — a path that does NOT yet exist, so the LS creates it (`isNewFile`). This is the SAME
+// action `move_symbol` drives (move-to-existing.ts); the delta is only that the dest is new. We use
+// it instead of the legacy "Move to a new file" action because that one (a) let the LS pick the
+// filename — forcing a re-target + an `emitSpecifier` re-emit that mangled aliased importers to
+// relative — and (b) never mirrored each importer's import convention. "Move to file" emits every
+// importer/relink/dep specifier NATIVELY, mirroring the file's own convention (alias→alias,
+// relative→relative) + extension, so codemaster reforms nothing (the dogfood fix: aliased repos keep
+// `@/…`). The refactor call is WRAPPED — the `Expected symbol to be a module` / `Changes overlap`
+// Debug Failures are thrown by the LS, so without this it would crash instead of failing honestly.
 //
 // §4 patched-LS rescue: the `Expected symbol to be a module` assertion (thrown e.g. when the
 // extracted block uses a css-module member) is retried through the host's fallback LS from the
@@ -15,17 +20,21 @@ import type ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
-import { messageOfThrown } from '../../../../common/result/construct.ts';
 import type { RefactorPlan, CssExtractAnalysis, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
+import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
+import { rebaseAmbientImports } from '../imports/rebase-ambient.ts';
+import { fileExists } from '../../../../support/fs/exists.ts';
 import { analyzeCssExtractUsage } from './css-usage.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
+  MOVE_TO_FILE,
   applyTsChanges,
   posixBasename,
   posixDirname,
   sourceLeadingGap,
+  statementHasJsx,
   targetsNestedDeclaration,
   topLevelDeclName,
   topLevelStatementAt,
@@ -53,18 +62,36 @@ export function planExtractTo(
   // refactor below operates on `stmt` (the enclosing top-level statement), so a nested symbol would
   // be acted on as a different symbol than requested — the exact silent retarget §6 forbids.
   if (targetsNestedDeclaration(sf, offset, stmt)) {
-    return 'ts-ls-nested-target: the target is a declaration nested inside another (the LS "Move to a new file" extracts only a TOP-LEVEL symbol) — extract its enclosing top-level symbol, or lift this one to the top level first';
+    return 'ts-ls-nested-target: the target is a declaration nested inside another (the LS "Move to file" extracts only a TOP-LEVEL symbol) — extract its enclosing top-level symbol, or lift this one to the top level first';
   }
-  const range: ts.TextRange = { pos: stmt.getStart(sf), end: stmt.getEnd() };
 
+  // The LS creates the file at exactly the `targetFile` we pass, so coerce a JSX body's dest
+  // `.ts`→`.tsx` BEFORE the call (a JSX body in a `.ts` file would not compile). move_symbol REFUSES
+  // a non-`.tsx` JSX dest (its dest pre-exists); extract can CREATE the corrected one.
+  let dest = destArg;
+  if (statementHasJsx(stmt) && dest.endsWith('.ts') && !dest.endsWith('.tsx')) {
+    dest = `${dest}x` as RepoRelPath;
+  }
+  // extract CREATES the dest — an existing dest is `move_symbol`'s job, not ours. A TRACKED dest
+  // is in the tree; a GITIGNORED/untracked one is invisible to the tree but real on disk, and
+  // passing it as `targetFile` would make the LS MERGE into it (lose its content) — so check BOTH,
+  // refusing before any write. (The dirtyOk waiver can never license overwriting an unrecoverable
+  // on-disk file; this is the §3.6 honest refusal the agent acts on.)
+  if (tree.findByCurrentPath(dest) !== null || fileExists(host.absOf('' as RepoRelPath), dest)) {
+    return `destination already exists: ${dest} — refusing to overwrite; use move_symbol to move into an existing file`;
+  }
+  const destAbs = host.absOf(dest);
+
+  const range: ts.TextRange = { pos: stmt.getStart(sf), end: stmt.getEnd() };
   const requestEdits = (service: ts.LanguageService): ts.RefactorEditInfo | undefined =>
     service.getEditsForRefactor(
       sourceAbs,
       FORMAT,
       range,
-      'Move to a new file',
-      'Move to a new file',
-      {},
+      MOVE_TO_FILE,
+      MOVE_TO_FILE,
+      { allowTextChangesInNewFiles: true },
+      { targetFile: destAbs },
     ) ?? undefined;
 
   // Request the LS edits, routing the two known rescuable assertions (`Expected symbol to be a
@@ -74,60 +101,58 @@ export function planExtractTo(
   const outcome = requestEditsWithRescue(host, requestEdits, 'extract');
   if ('error' in outcome) return outcome.error;
   const { edits, rescued } = outcome;
+  if (edits?.notApplicableReason !== undefined) {
+    return `extract-not-applicable: ${edits.notApplicableReason}`;
+  }
   if (edits === undefined || edits.edits.length === 0) {
     return 'ts-ls-no-edits: the LS produced no edits for this extract — extract manually';
   }
 
-  // Apply the LS edits to the tree: one new file (LS picks the name) + source/consumer edits.
-  let createdInitial: RepoRelPath | undefined;
+  // Apply the LS edits to the tree: the new file (created at `dest`) + source/consumer edits.
+  let createdNewFile = false;
   for (const fc of edits.edits) {
     const rel = host.relOf(fc.fileName);
     if (fc.isNewFile) {
+      // The LS must create exactly our dest (it does — we passed it as targetFile). Anything else
+      // is a contract surprise we refuse rather than silently honour.
+      if (rel !== dest) {
+        return `extract: the LS created an unexpected file ${rel} (expected ${dest})`;
+      }
       const content = applyTsChanges('', fc.textChanges);
       const parent = tree.ensureDirAtCurrent(posixDirname(rel) as RepoRelPath);
       if (parent.childByCurrent(posixBasename(rel)) !== undefined) {
-        return `extract: the LS chose an existing filename ${rel} — pick a different dest`;
+        return `extract: dest ${rel} already exists`;
       }
       tree.addFileAtCurrent(parent, posixBasename(rel), content);
-      createdInitial = rel;
+      createdNewFile = true;
     } else {
-      const node = tree.findByInitialPath(rel) ?? tree.findByCurrentPath(rel);
-      if (node === null) return `extract: edits target an unknown file ${rel}`;
+      const node = tree.findByCurrentPath(rel) ?? tree.findByInitialPath(rel);
+      if (node === null) {
+        // The LS rewrites an importer the move-tree has no node for — chiefly a GITIGNORED importer
+        // the TS program compiles but git's listing EXCLUDES. We can't track/roll back an edit to it,
+        // so REFUSE honestly (nothing written — the tree is in-memory) rather than half-extract.
+        const inProgram = program?.getSourceFile(host.absOf(rel)) !== undefined;
+        return inProgram
+          ? `extract-importer-untracked: the extract rewrites ${rel}, which the TS program compiles but git's file listing EXCLUDES (gitignored, or otherwise untracked) — codemaster can't safely track or roll back an edit to it. git-track ${rel} (or drop its ignore) and retry, or extract manually.`
+          : `extract: edits target ${rel}, which is in neither the move tree nor the TS program — refusing (nothing written); extract manually.`;
+      }
       const base =
         node.contentOverride() ?? program?.getSourceFile(host.absOf(node.initialPath()))?.text;
       // No resolvable content (no override, not in the program) → splicing the LS's real
-      // offsets into '' would silently produce garbage. Fail honestly (§3.6). The LS only
-      // edits files it has, so this is a defensive guard, not an expected path.
+      // offsets into '' would silently produce garbage. Fail honestly (§3.6).
       if (base === undefined) {
         return `extract: edits target a file with no resolvable content (${rel}) — extract manually`;
       }
       node.setContent(applyTsChanges(base, fc.textChanges));
     }
   }
-  if (createdInitial === undefined) return 'extract: the refactor produced no new file';
+  if (!createdNewFile) return 'extract: the refactor produced no new file';
 
-  // Coerce dest to .tsx when the LS produced a .tsx (the body has JSX) — §G JSX coercion.
-  let dest = destArg;
-  if (createdInitial.endsWith('.tsx') && dest.endsWith('.ts') && !dest.endsWith('.tsx')) {
-    dest = `${dest}x` as RepoRelPath;
-  }
-  if (tree.findByCurrentPath(dest) !== null && dest !== createdInitial) {
-    return `destination already exists: ${dest}`;
-  }
-
-  // Re-target the LS-chosen new file to the requested dest; assemblePlan then rewrites the
-  // source's import (still pointing at the LS name) to dest.
-  if (createdInitial !== dest) {
-    const createdNode = tree.findByCurrentPath(createdInitial);
-    if (createdNode === null) return `extract: created node not found at ${createdInitial}`;
-    const targetParent = tree.ensureDirAtCurrent(posixDirname(dest) as RepoRelPath);
-    try {
-      createdNode.moveTo(targetParent, posixBasename(dest));
-    } catch (thrown) {
-      return `extract: cannot place new file at ${dest}: ${messageOfThrown(thrown)}`;
-    }
-    tree.rekeyByInitialPath(createdNode, dest);
-  }
+  // Rebase the new file's verbatim-copied AMBIENT imports (`*.module.scss`, …) for the source→dest
+  // directory shift — the LS re-emits TS imports relative to `dest` but copies an unresolvable
+  // ambient specifier as-written (valid only from the source's dir). Scoped to the new file's
+  // ambient imports; TS/alias imports the LS already placed are untouched.
+  rebaseAmbientImports(host, tree, options, dest, sourceAbs);
 
   // Normalize the relocated new file (reattach the moved symbol's doc, fold same-module duplicate
   // imports) before the plan reads it. Scoped to the new file only — the source's edits are untouched.
@@ -146,6 +171,18 @@ export function planExtractTo(
   const plan = assemblePlan(host, tree, options, overlay);
   if (typeof plan === 'string') return plan;
   if (rescued) plan.rescued = true;
+  // Importer rewrites are LS-driven (no tree move → `rewriteImports` is a no-op), so `assemblePlan`
+  // recorded no capture metadata. Reconstruct it from the post-edit importers of the moved symbol
+  // and run the shared path-capture gate (§7) — parity with move_symbol — so a same-named,
+  // type-compatible export at the dest path is caught, not waved through.
+  plan.captures = detectMoveSymbolCaptures(
+    host,
+    options,
+    plan,
+    dest,
+    topLevelDeclName(stmt),
+    overlay !== undefined ? { files: overlay.files, removed: overlay.removed } : undefined,
+  );
   if (css) {
     const analysis = buildCssExtractAnalysis(host, tree, dest, sourceAbs);
     if (analysis !== undefined) plan.cssExtract = analysis;

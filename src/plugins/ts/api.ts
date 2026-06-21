@@ -146,9 +146,10 @@ export interface TsPluginApi extends Plugin {
     dest: RepoRelPath,
     overlay?: PlanningOverlay,
   ): Promise<RefactorPlan | string>;
-  /** Plan extracting the top-level symbol at `target` to a new file `dest` via the LS
-   *  "Move to a new file" refactor. A message on a bad target; a structured failure (with
-   *  the `ts-ls-failures` category) when the LS refuses — never a throw. */
+  /** Plan extracting the top-level symbol at `target` to a NEW file `dest` via the LS
+   *  "Move to file" refactor (dest as the not-yet-existing `targetFile`). A message on a bad
+   *  target; a structured failure (with the `ts-ls-failures` category) when the LS refuses —
+   *  never a throw. */
   planExtract(
     target: TsTargetInput,
     dest: RepoRelPath,

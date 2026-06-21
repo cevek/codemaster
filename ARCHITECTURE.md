@@ -197,8 +197,8 @@ both depths through one LS, so a "syntactic vs semantic" disagreement can never 
 within it — there is only one parser.
 
 **Bounded exception — the LS-relocation rescue's second TS (§14).** The LS-driven symbol
-relocations — `extract_symbol` ("Move to a new file") and `move_symbol` ("Move to file" into an
-existing dest) — build their edits from a patched TypeScript fork
+relocations — `extract_symbol` ("Move to file" into a NEW dest) and `move_symbol` ("Move to file"
+into an existing dest) — build their edits from a patched TypeScript fork
 (`@cevek/typescript-extract-refactor-fix`) _only_ when the project's own LS throws one of the two
 recognized internal assertions — `Expected symbol to be a module` (e.g. the moved block uses a
 css-module member) or `Changes overlap` (overlapping edits, e.g. mutually-recursive symbols). This
@@ -921,8 +921,8 @@ See [`src/core/debug.ts`](src/core/debug.ts).
   trusted — only the edges are guarded.
 - **`@cevek/typescript-extract-refactor-fix`** — a patched TypeScript fork, loaded **lazily**
   (via `createRequire`, gated to the project's TS major) **only** as the LS-relocation rescue
-  (§4) for `extract_symbol` / `move_symbol`: it produces "Move to a new file" / "Move to file"
-  edits for shapes the stock LS asserts on (the `Expected symbol to be a module` and `Changes
+  (§4) for `extract_symbol` / `move_symbol`: it produces "Move to file" (both drive the same LS
+  action) edits for shapes the stock LS asserts on (the `Expected symbol to be a module` and `Changes
 overlap` assertions — e.g. a moved block using a css-module member, which co-extract —
   spec-css-coextract — needs, or mutually-recursive symbols whose edits overlap).
   It is an **edit producer, not a fact oracle** — every rescued edit is verified by the

@@ -1,5 +1,5 @@
-// Post-LS normalizer for the relocated symbol's leading doc comment. The TS "Move to a new file" /
-// "Move to file" refactors emit the moved declaration with a SPURIOUS blank line inserted between an
+// Post-LS normalizer for the relocated symbol's leading doc comment. The TS "Move to file" refactor
+// (driven by both relocations) emits the moved declaration with a SPURIOUS blank line inserted between an
 // ADJACENT leading comment (the symbol's JSDoc) and the declaration — `*/\n\nexport const X` where
 // the source had `*/\nexport const X`. Typecheck-clean (it's a comment) → the §2.8 gate never sees
 // it → the doc silently detaches from what it documents.

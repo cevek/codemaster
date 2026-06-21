@@ -414,14 +414,35 @@ don't vanish.
       importers but leaves `export { X } from './source'` barrels (and default-export importers)
       dangling → the §2.8 gate honestly REFUSES the whole move. Close by supplementing the LS edits
       with codemaster's own barrel-specifier rewrite. `feat`·`med`·`cx:M`
-- [ ] **move/extract: specifier style is LS-chosen, not alias-preserving** — affects BOTH
-      `extract_symbol` and `move_symbol` (shared LS "Move to file" relocation): generated importer +
-      dest-file specifiers come out RELATIVE (`./dest`) instead of re-forming the tsconfig path alias
-      (`@/…`) the importing file uses, and miss the project's explicit `.ts`/`.tsx` extension. Cold
-      compile proves correctness, but it forces MANUAL cleanup after every extract/move — recurring
-      dogfood friction (raised repeatedly), not mere diff-noise. Close by post-processing the LS-emitted
-      specifiers through `emitSpecifier` (re-form the alias the file already uses + carry the extension
-      convention). Lives in `plugins/ts/refactor/imports/` (emit/rewrite). `dx`·`med`·`cx:M`
+- [x] **move/extract: specifier style is LS-chosen, not alias-preserving** — FIXED (2026-06-22).
+      Root cause was NOT a missing post-process: `extract_symbol` drove the LS "Move to a new file"
+      action, which lets the LS pick the filename (forcing a re-target + an `emitSpecifier` re-emit
+      that mangled aliased importers to relative) and never mirrors each importer's convention.
+      `move_symbol` was already correct — it uses "Move to file". Fix: extract now drives the SAME
+      "Move to file" action with the requested `dest` as the not-yet-existing `targetFile`, so the LS
+      emits every importer/relink/dep specifier NATIVELY in the file's own convention (alias→alias,
+      relative→relative, no preference hardcode — which would break relative repos). No hand-reform.
+      The new file's verbatim-copied AMBIENT imports (`*.module.scss` — the LS can't relocate them)
+      are rebased for the source→dest dir shift by `imports/rebase-ambient.ts`. Oracle test:
+      `test/e2e/extract-specifier-convention.test.ts`.
+- [ ] **stale "Move to a new file" docs/test comments after the extract action-switch** — the
+      action-switch (extract now drives "Move to file", not "Move to a new file") left present-state
+      drift: `docs/spec-extract-completion.md` (Status: proposed) still describes the RETIRED mechanism
+      ("drives Move to a new file, post-processes specifiers") — retire or rewrite it, and re-verify its
+      KS-2 / KS-3 quarantine claims under "Move to file". Plus stale test comments naming the dead
+      action: `extract-symbol.test.ts`, `kitchensink-extract.test.ts`, `refactor-doc-adjacency.test.ts`,
+      `refactor-import-fold.test.ts`. `dx`·`low`·`cx:S`
+- [ ] **ambient-rebase neither-resolve residual** — `imports/rebase-ambient.ts` rebases a new-file
+      ambient import (`*.module.scss`) only when it resolves from SOURCE but not from DEST. A
+      PATH-RELATIVE ambient import whose sheet lives in an UNTRACKED source file resolves from neither,
+      so it is not rebased and stays broken from `dest` — and the ambient `declare module '*'` keeps the
+      §2.8 typecheck clean, so no error surfaces. Narrow (needs a relative ambient import of an untracked
+      sheet); close by also probing the source dir for an on-disk (untracked) sheet. `bug`·`low`·`cx:S`
+- [ ] **extract JSX-dest coercion misses `.mts`/`.cts`** — `move-to-file.ts` coerces a JSX body's dest
+      `.ts`→`.tsx` only when it ends `.ts` (not `.mts`/`.cts`), and unlike `move_symbol` does not refuse
+      a non-`.tsx` JSX dest — a JSX body extracted to a `.mts`/`.cts` dest is created as-is and caught
+      only by the §2.8 typecheck (a less pointed message). Parity-nit with `move_symbol`'s upfront JSX
+      refusal. `dx`·`low`·`cx:S`
 - [ ] **move_symbol PRODUCES a default+named same-module duplicate (open)** — the LS merges a moved
       NAMED import into a dest's existing DEFAULT line, but NOT the reverse (moved default into an
       existing named line) nor the both-from-source case (the moved symbol's default + named both come

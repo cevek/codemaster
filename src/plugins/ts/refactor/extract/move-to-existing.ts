@@ -1,7 +1,8 @@
 // Move one top-level symbol into an EXISTING file via the LS "Move to file" refactor
 // (`refactor.move.file`, with `interactiveRefactorArguments.targetFile` = the dest's abs path).
-// This is `move_symbol` — the delta vs `extract_symbol` ("Move to a new file") is the dest
-// ALREADY exists, so the LS itself owns the hard part: merging the moved symbol's imports into
+// This is `move_symbol` — the delta vs `extract_symbol` (which drives the SAME "Move to file"
+// action with a not-yet-existing `targetFile`) is that here the dest ALREADY exists, so the LS
+// itself owns the hard part: merging the moved symbol's imports into
 // the dest's existing imports, handling existing-locals, rewriting every importer (including
 // aliased / re-export forms), and adding the source's back-reference. We apply its edits to the
 // tree and reuse `assemblePlan` (a moves-free, content-only tree → the plain plan) + the shared
@@ -24,8 +25,10 @@ import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
+  MOVE_TO_FILE,
   applyTsChanges,
   sourceLeadingGap,
+  statementHasJsx,
   targetsNestedDeclaration,
   topLevelDeclName,
   topLevelStatementAt,
@@ -38,7 +41,6 @@ import { reattachLeadingDoc } from '../normalize/reattach-doc.ts';
 // write (bug-review). Accepting only `.ts(x)`/`.mts`/`.cts` keeps the edit-accept set == the
 // typecheck set, so every byte the move writes is gated. (move_symbol is a TS/React op.)
 const TS_DEST_RE = /\.(tsx?|mts|cts)$/;
-const MOVE_TO_FILE = 'Move to file';
 
 /** Names of every top-level declaration in `sf` (for the dest collision pre-check). */
 function topLevelNames(sf: ts.SourceFile): Set<string> {
@@ -53,21 +55,6 @@ function topLevelNames(sf: ts.SourceFile): Set<string> {
     }
   }
   return out;
-}
-
-/** Whether a statement's subtree contains JSX (→ a `.ts` dest would not compile). */
-function statementHasJsx(stmt: ts.Statement): boolean {
-  let found = false;
-  const visit = (n: ts.Node): void => {
-    if (found) return;
-    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(stmt);
-  return found;
 }
 
 export function planMoveSymbolTo(
