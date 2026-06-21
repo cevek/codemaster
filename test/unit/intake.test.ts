@@ -112,13 +112,20 @@ test('class C — source `symbols`/`sites` → `targets` (SymbolId + file:line:c
   }
 });
 
-test('class C honesty — a `sites` element WITHOUT a column is rejected (col not invented)', async () => {
+test('class C honesty — a col-less `sites` element resolves the line declaration (col not invented)', async () => {
   const p: TestProject = await project(FILES);
   try {
-    const r = await p.op('source', { sites: ['src/util.ts:1'] });
-    const msg = badArgs(r);
-    assert.match(msg, /file\+line\+col/, 'asks for the missing column, honestly');
-    assert.doesNotMatch(msg, /alias/, 'the canonical hint carries no alias annotation');
+    // `src/util.ts:1` (no column): the resolver takes the SOLE declaration on line 1 (getInitials)
+    // — it does NOT fabricate a column, and it does NOT silently drop the target. Identical to
+    // addressing the same symbol by name (the canonical oracle).
+    const byLine = await p.op('source', { sites: ['src/util.ts:1'] });
+    const byName = await p.op('source', { targets: [{ name: 'getInitials' }] });
+    assert.equal(
+      dataJson(byLine),
+      dataJson(byName),
+      'col-less line resolves the line declaration == by-name',
+    );
+    assert.ok(okResult(byLine).intake.includes('sites→targets'));
   } finally {
     await p.dispose();
   }

@@ -7,6 +7,7 @@ import type { HandleRebind, SymbolId } from '../../core/ids.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
 import { searchSymbols } from './search.ts';
+import { declarationsOnLine, topLevelDeclarationsNamed } from './declarations-on-line.ts';
 import type { SymbolView } from './query-types.ts';
 
 export type ResolvedTarget =
@@ -20,11 +21,14 @@ export type TsTargetInput = {
    *  The natural `target` spelling is collapsed to `symbolId` by the liberal intake layer
    *  (§7 Postel) before any args reach the resolver, so only `symbolId` exists here. */
   symbolId?: string | undefined;
-  /** Or an explicit position. */
+  /** Or an explicit position. With `col` omitted, `file+line` resolves the declaration on that
+   *  line (one → taken; several → an honest pick-list), never a guessed column. */
   file?: string | undefined;
   line?: number | undefined;
   col?: number | undefined;
-  /** Or a name to resolve via workspace symbol search (must match exactly one). */
+  /** Or a name to resolve via workspace symbol search (must match exactly one). With `file` also
+   *  given, the name is resolved to its top-level declaration IN that file (rank-independent),
+   *  never the fuzzy workspace search. */
   name?: string | undefined;
 };
 
@@ -52,8 +56,88 @@ export function resolveTarget(h: TsProjectHost, target: TsTargetInput): Resolved
     }
     return { ok: true, abs, offset };
   }
+  // `file+line` WITHOUT a column (a grep/editor `path:line` paste): resolve the declaration ON
+  // that line instead of demanding the column — one decl → take it; several → an honest pick-list
+  // (never a fabricated column, §3/§6). `name`, when also given, scopes the line to that name.
+  if (target.file !== undefined && target.line !== undefined) {
+    return resolveByLine(h, target.file, target.line, target.name);
+  }
+  // `name+file` (no line/col): resolve the named declaration IN that file directly, rank-independent
+  // — never the workspace-wide `resolveByName`, whose navto search is fuzzy + case-insensitive and
+  // can flood an exact-but-low-rank symbol past its cap (e.g. type `Span` behind 132 `span` props).
+  if (target.file !== undefined && target.name !== undefined) {
+    return resolveNameInFile(h, target.name, target.file);
+  }
   if (target.name !== undefined) return resolveByName(h, target.name);
-  return { ok: false, message: 'target needs symbolId, file+line+col, or name' };
+  return {
+    ok: false,
+    message: 'target needs symbolId, name, file+line (col optional), or name+file',
+  };
+}
+
+/** `name+file` (no line/col) → position, via the top-level declaration of that name in that file
+ *  (rank-independent, never navto). A single match resolves; >1 same-named top-level declaration
+ *  returns the candidates with their positions; none fails honestly. */
+function resolveNameInFile(h: TsProjectHost, name: string, file: string): ResolvedTarget {
+  const abs = h.absOf(file as RepoRelPath);
+  const sourceFile = h.sourceFileAcross(abs)?.sf;
+  if (sourceFile === undefined) {
+    return { ok: false, message: `file not in the TS project: ${file}` };
+  }
+  const decls = topLevelDeclarationsNamed(sourceFile, name);
+  const sole = decls[0];
+  if (sole === undefined) {
+    return {
+      ok: false,
+      message: `no top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col`,
+    };
+  }
+  if (decls.length > 1) {
+    return {
+      ok: false,
+      message: `${file} has ${decls.length} top-level declarations named '${name}' (${decls
+        .map((d) => `${d.line}:${d.col} (${d.kind})`)
+        .join(', ')}) — pass file:line:col to pick one`,
+    };
+  }
+  return { ok: true, abs, offset: sole.offset };
+}
+
+/** `file+line` (col-less) → position, via the declaration(s) anchored on that line. A single
+ *  declaration resolves; an ambiguous line returns the candidates with their columns so the agent
+ *  passes `file:line:col`; an empty line fails honestly. `name`, when given, filters the line's
+ *  declarations to that name (so `name+file+line` is line-scoped, not a workspace-wide name search). */
+function resolveByLine(
+  h: TsProjectHost,
+  file: string,
+  line: number,
+  name: string | undefined,
+): ResolvedTarget {
+  const abs = h.absOf(file as RepoRelPath);
+  // sourceFileAcross, not the primary: a `test/**` position lives only in a sibling program.
+  const sourceFile = h.sourceFileAcross(abs)?.sf;
+  if (sourceFile === undefined) {
+    return { ok: false, message: `file not in the TS project: ${file}` };
+  }
+  const all = declarationsOnLine(sourceFile, line);
+  const decls = name === undefined ? all : all.filter((d) => d.name === name);
+  const sole = decls[0];
+  if (sole === undefined) {
+    const named = name !== undefined ? ` named '${name}'` : '';
+    return {
+      ok: false,
+      message: `no declaration${named} on ${file}:${line} — pass file:line:col (the column) or a 'name'`,
+    };
+  }
+  if (decls.length > 1) {
+    return {
+      ok: false,
+      message: `${file}:${line} has ${decls.length} declarations (${decls
+        .map((d) => `${d.name} at col ${d.col} (${d.kind})`)
+        .join(', ')}) — pass file:line:col to pick one`,
+    };
+  }
+  return { ok: true, abs, offset: sole.offset };
 }
 
 /** Name → position, via the LS workspace-symbol provider. Multiple navto entries are often

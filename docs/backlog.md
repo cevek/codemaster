@@ -546,6 +546,31 @@ from 'm'` statements in the dest. Typecheck-clean → §2.8 doesn't catch it →
       regression: main never folded move_symbol, so this is the long-standing status quo, surfaced
       honestly. Close by folding ONLY the move's own newly-emitted dup (not pre-existing dest imports).
       `bug`·`med`·`cx:M`
+- [ ] **`name+line` WITHOUT `file` silently ignores `line` → workspace-wide `resolveByName`** —
+      `resolve-target.ts`. The col-less `file+line` and `name+file` branches both require `file`; a
+      target carrying `name+line` but no `file` matches neither, falls through to `resolveByName(name)`,
+      and the `line` is dropped (the resolution is workspace-wide, not line-scoped). Pre-existing (the
+      col-less work didn't introduce it — `name` always short-circuited the gate), low impact (an
+      unusual address: a name with a line but no file), but a silent input-drop (§3). Fix: a `name+line`
+      with no file is underspecified — fail with a pointed "pass `file` too (or drop `line`)".
+      `bug`·`low`·`cx:S`
+- [ ] **move_symbol capability gap — an edit targeting a gitignored-but-COMPILED file is refused, not
+      relocated** — the move-tree is git's listing (`ls-files`: tracked + untracked-not-ignored), but the
+      TS program ALSO compiles GITIGNORED files (a `generated/` tree, an out dir). When the LS "Move to
+      file" repoints such an importer, the edit targets a file the plan/rollback machinery has no node
+      for → `move-symbol-importer-untracked` HONEST refusal (now NAMES the file + says git-track-or-move-
+      manually; nothing written — verified in `test/e2e/move-symbol.test.ts`). This is the safe floor;
+      the CAPABILITY fix (seed a tree node from the program text, rewrite the gitignored importer too) is
+      deferred — it pulls untracked/ignored files into the edit set, which the dirty-gate and git-backed
+      rollback don't currently cover, so it needs its own dirty/rollback story. `feat`·`low`·`cx:M`
+- [ ] **the precise move_symbol fail[10] (amiro `getInitials`→`src/lib/utils.ts`, "edits target an unknown
+      file …/PersonAvatar.tsx") has no captured repro** — the observed desync was on the SOURCE-side
+      `PersonAvatar.tsx` (not a gitignored importer like the floor repro above), pointing at a different
+      trigger: a realpath↔git path-form skew, a nested-path mismatch, or a DUPLICATE `getInitials`
+      (cf. fail[9]) resolving the symbol into the wrong file. The amiro snapshot is destroyed, so a
+      faithful repro needs real amiro inputs; the honest refusal + zero-write floor holds regardless.
+      Reproduce against a path-form / duplicate-symbol fixture, then close the matching desync.
+      `bug`·`med`·`cx:M`
 - [ ] **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred,
       DISTINCT from the move-produced dup above. The extract fold is not run on move_symbol because a
       whole-dest fold can't distinguish a same-module split the move PRODUCED from one that ALREADY

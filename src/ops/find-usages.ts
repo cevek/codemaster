@@ -13,141 +13,23 @@ import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
-import type { GroupRow, UsageOptions, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
+import type { UsageOptions } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
 import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
 import { findUsagesTable } from './find-usages-table.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
+import {
+  targetOfElement,
+  rowsShown,
+  rowsTotal,
+  listableField,
+  hoistView,
+  usageNotes,
+} from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
-
-// Row dimension of the TABLE projection: usages in flat mode, enclosers in grouped mode.
-// `total` is the pre-cap count, so `total > shown` is the producer's own truncation — the
-// signal sql-batch turns into a `partial` table (a capped table feeding NOT IN lies, §2.3).
-function rowsShown(view: UsagesView): number {
-  return view.groups?.length ?? view.usages?.length ?? 0;
-}
-function rowsTotal(view: UsagesView): number {
-  if (view.groups !== undefined) return view.groupTotal ?? view.groups.length;
-  // Flat: truncation is about rows raising `limit` would reveal — the DISPLAYABLE set,
-  // i.e. matches minus collapsed imports (raising the limit never un-collapses; that's
-  // collapseImports:false). Keeps "shown X/Y" from miscounting a collapse as a cap (§3.4).
-  return view.total - (view.importsCollapsed ?? 0);
-}
-
-/** `{ listable }` ties the raw `total` to the listed `usages (M):`/`shown` counts when imports are
- *  collapsed (total = listable + importsCollapsed). FLAT mode only: in groupBy the listed rows are
- *  ENCLOSERS (a different axis), so a usages-based `listable` would tie to nothing — omit it there.
- *  Emitted ONLY when the listed rows are TRUNCATED (listable > shown): without truncation listable
- *  equals the `usages (N):` header count, so it just repeats N — the gap is already explained by
- *  `total` + `importsCollapsed` (density audit). */
-function listableField(view: UsagesView): Record<string, JsonValue> {
-  const collapsed = view.importsCollapsed ?? 0;
-  if (view.usages === undefined || collapsed <= 0) return {};
-  const listable = view.total - collapsed;
-  return listable > view.usages.length ? { listable } : {};
-}
-
-/** A copy of `row` without key `k` — used to lift a constant column into a header without mutating
- *  the plugin's cached row (tear-free reads, §19). */
-function omitKey<T extends object, K extends keyof T>(row: T, k: K): T {
-  const { [k]: _drop, ...rest } = row;
-  return rest as T;
-}
-
-/** The most common single-program label across a view's rows (flat `program`, or a grouped row
- *  whose `programs` is a single program — a comma-joined multi-program set is never a candidate).
- *  `undefined` when no row carries a program (a single-program repo — the plugin omits the field). */
-function dominantProgram(view: UsagesView): string | undefined {
-  const counts = new Map<string, number>();
-  const bump = (p: string): void => {
-    counts.set(p, (counts.get(p) ?? 0) + 1);
-  };
-  for (const u of view.usages ?? []) if (u.program !== undefined) bump(u.program);
-  for (const g of view.groups ?? [])
-    if (g.programs !== undefined && !g.programs.includes(',')) bump(g.programs);
-  let best: string | undefined;
-  let bestN = 0;
-  for (const [p, n] of counts)
-    if (n > bestN) {
-      best = p;
-      bestN = n;
-    }
-  return best;
-}
-
-type Hoisted = {
-  usages?: UsageView[] | undefined;
-  groups?: GroupRow[] | undefined;
-  role?: string;
-  allProgram?: string;
-  progNote?: string;
-};
-
-/** Lift columns that are CONSTANT across the listed rows into header fields (mirrors `list`'s
- *  `hoistUniform`), so a 86-row answer doesn't repeat `· call` / `· prog tsconfig.json` on every
- *  line. TEXT/JSON path only — sql-mode keeps every per-row value (the table projects `role` /
- *  `program` per row, and a header-hoisted column there would lie under a NOT IN). */
-function hoistView(view: UsagesView, role: string | undefined, sqlMode: boolean): Hoisted {
-  if (sqlMode) return { usages: view.usages, groups: view.groups };
-  let { usages, groups } = view; // both narrowed/hoisted below
-  const out: Hoisted = {};
-  // Item 4: a single `role` filter pins every flat row's role — state it once, drop it per-row.
-  if (role !== undefined && usages !== undefined) {
-    usages = usages.map((u) => omitKey(u, 'role'));
-    out.role = role;
-  }
-  // Item 6: most rows carry the SAME program (the primary, since refs are surfaced primary-first) —
-  // hoist the dominant into `allProgram`, drop it per-row, leave the rest tagged. The note carries
-  // the full by-NAME asymmetry so a bare row is unambiguous regardless of which program was hoisted:
-  // a sibling label (tsconfig.test.json) = present ONLY there; the primary label = present there,
-  // POSSIBLY elsewhere too (primary-preferred dedup keeps one label). Ties resolve to the
-  // first-surfaced program (primary), so allProgram is the primary in the common case.
-  const dominant = dominantProgram(view);
-  if (dominant !== undefined) {
-    if (usages !== undefined)
-      usages = usages.map((u) => (u.program === dominant ? omitKey(u, 'program') : u));
-    if (groups !== undefined)
-      groups = groups.map((g) => (g.programs === dominant ? omitKey(g, 'programs') : g));
-    out.allProgram = dominant;
-    out.progNote = `allProgram=${dominant}: a row without a \`prog …\` tag was surfaced by it; a tagged row by the named program. A sibling label (e.g. tsconfig.test.json) means present ONLY there; the primary (tsconfig.json) means present there, POSSIBLY elsewhere.`;
-  }
-  out.usages = usages;
-  out.groups = groups;
-  return out;
-}
-
-/** Compose the advisory microtext for a usages view (§2.2/§2.3): the import-collapse
- *  count, and — when a role filter is active — what the role-unfiltered answer looked
- *  like. The generalized principle: an empty filtered answer must show what the
- *  unfiltered answer looked like, else "0" is indistinguishable from "none exist" (a
- *  §3.4-class lie). */
-function usageNotes(view: UsagesView, role: string | undefined, verbosity: string): string[] {
-  const notes: string[] = [];
-  if (view.importsCollapsed !== undefined && view.importsCollapsed > 0) {
-    notes.push(
-      `imports: ${view.importsCollapsed} collapsed (their files appear via real usages) — collapseImports:false or role:'import' to list`,
-    );
-  }
-  if (role !== undefined && view.roleBreakdown !== undefined) {
-    const byCount = Object.entries(view.roleBreakdown).sort((a, b) => b[1] - a[1]);
-    if (view.total === 0) {
-      const all = byCount.map(([r, c]) => `${r}=${c}`).join(' ');
-      const dominant = byCount[0]?.[0];
-      notes.push(
-        all.length === 0
-          ? `0 usages role=${role} (no references of any role found)`
-          : `0 usages role=${role} (all roles: ${all} — try role:${dominant})`,
-      );
-    } else if (verbosity !== 'terse') {
-      const others = byCount.filter(([r]) => r !== role).map(([r, c]) => `${r}=${c}`);
-      if (others.length > 0) notes.push(`(other roles: ${others.join(' ')})`);
-    }
-  }
-  return notes;
-}
 
 const argsSchema = z
   .strictObject({
@@ -241,19 +123,26 @@ export const findUsagesOp = defineOp({
     try {
       if (args.symbols !== undefined) {
         const targets: Record<string, JsonValue>[] = [];
+        // The bare name each target resolved to (aligned with `targets`), for the text overlay —
+        // a SymbolId/position element scans under its RESOLVED name, never the raw addressing string.
+        const resolvedNames: (string | undefined)[] = [];
         const unresolved: JsonValue[] = [];
         let shownRows = 0;
         let totalRows = 0;
-        for (const name of args.symbols) {
-          const outcome = ts.findUsages({ name }, options);
+        for (const sym of args.symbols) {
+          // Each element may be a SymbolId / file:line[:col] / bare name (the single-target forms),
+          // not only a bare name — so a held handle in the array chains exactly like a single target.
+          const element = targetOfElement(sym);
+          const fallbackName = element.name;
+          const outcome = ts.findUsages(element, options);
           if (typeof outcome === 'string') {
-            unresolved.push(tag('unresolved-name', { name, reason: outcome }));
+            unresolved.push(tag('unresolved-name', { name: sym, reason: outcome }));
             continue;
           }
           if ('unresolved' in outcome) {
-            // By-name targets never carry a rebind (no handle was held), but the type admits
-            // it; record the reason in the sectioned `unresolved` list either way.
-            unresolved.push(tag('unresolved-name', { name, reason: outcome.unresolved }));
+            // A held SymbolId element CAN carry a rebind/gone reason; record it in the sectioned
+            // `unresolved` list (a bare-name element simply has no handle).
+            unresolved.push(tag('unresolved-name', { name: sym, reason: outcome.unresolved }));
             continue;
           }
           const { view } = outcome;
@@ -262,8 +151,9 @@ export const findUsagesOp = defineOp({
           const notes = usageNotes(view, args.role, verbosity);
           const hoisted = hoistView(view, args.role, sqlMode);
           if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
+          resolvedNames.push(view.definition?.name ?? fallbackName);
           targets.push({
-            symbol: name,
+            symbol: sym,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
             ...(view.mergedDeclarations !== undefined
               ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
@@ -288,14 +178,18 @@ export const findUsagesOp = defineOp({
         }
         let textFailure: ToolFailure | undefined;
         if (args.text === true) {
-          const entries = targets.map((t) => ({
-            name: t['symbol'] as string,
-            target: { name: t['symbol'] as string },
-          }));
+          // Scan each target under its RESOLVED name (a SymbolId/position element resolved to a
+          // bare name above), not the raw addressing string — a `ts:Foo@…` would scan for nothing.
+          const named = targets
+            .map((t, i) => ({ t, name: resolvedNames[i] }))
+            .filter(
+              (x): x is { t: Record<string, JsonValue>; name: string } => x.name !== undefined,
+            );
+          const entries = named.map((x) => ({ name: x.name, target: { name: x.name } }));
           const { byName, failure } = await overlayFor(ts, scanner, textRoot, textCap, entries);
           textFailure = failure;
-          for (const t of targets) {
-            const tally = attachOverlay(t, byName.get(t['symbol'] as string));
+          for (const x of named) {
+            const tally = attachOverlay(x.t, byName.get(x.name));
             shownRows += tally.shown;
             totalRows += tally.total;
           }

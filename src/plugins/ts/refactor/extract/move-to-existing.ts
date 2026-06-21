@@ -162,7 +162,18 @@ export function planMoveSymbolTo(
   for (const fc of edits.edits) {
     const rel = host.relOf(fc.fileName);
     const node = tree.findByCurrentPath(rel) ?? tree.findByInitialPath(rel);
-    if (node === null) return `move-symbol: edits target an unknown file ${rel}`;
+    if (node === null) {
+      // The LS edits a file the move-tree has no node for. The move-tree is git's listing
+      // (`ls-files`: tracked + untracked-but-not-ignored), while the TS program ALSO compiles
+      // files git EXCLUDES — chiefly a GITIGNORED importer (a `generated/` tree, an out dir). We
+      // can't track/rollback an edit to a file the plan machinery can't see, so REFUSE honestly
+      // (nothing is written — the tree is in-memory, discarded on return) rather than half-move.
+      // Naming whether it's program-compiled makes the cause actionable, never an opaque "unknown".
+      const inProgram = program?.getSourceFile(host.absOf(rel)) !== undefined;
+      return inProgram
+        ? `move-symbol-importer-untracked: the move rewrites ${rel}, which the TS program compiles but git's file listing EXCLUDES (gitignored, or otherwise untracked) — codemaster can't safely track or roll back an edit to it. git-track ${rel} (or drop its ignore) and retry, or move the symbol manually.`
+        : `move-symbol-edits-unknown-file: the LS edits ${rel}, which is in neither the move tree nor the TS program — refusing (nothing written); move the symbol manually.`;
+    }
     const base =
       node.contentOverride() ?? program?.getSourceFile(host.absOf(node.initialPath()))?.text;
     // No resolvable content → splicing real offsets into '' would silently corrupt the file.

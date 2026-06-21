@@ -267,6 +267,51 @@ test('move_symbol: a type alias moves; a type-only importer is repointed and sta
   }
 });
 
+test('move_symbol: an edit targeting a gitignored-but-compiled importer → honest refusal, zero write', async () => {
+  // git-tree↔program desync: the move-tree is git's listing (ls-files: tracked + untracked-not-
+  // ignored), but the TS program ALSO compiles GITIGNORED files. The LS "Move to file" repoints
+  // the gitignored importer → an edit to a file the plan/rollback machinery has no node for. That
+  // must be an HONEST refusal that NAMES the file (and is actionable), never a half-move or a
+  // silent edit-to-nowhere (the fail[10] class). Independent oracle: git stays byte-clean.
+  const before = {
+    source:
+      'export const helper = (x: number): number => x * 2;\nexport const other = (): number => 1;\n',
+    consumer:
+      "import { helper } from '../src/source';\nexport const use = (): number => helper(2);\n",
+  };
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    '.gitignore': 'generated/\n',
+    'src/source.ts': before.source,
+    'src/dest.ts': 'export const existing = 1;\n',
+    // Gitignored, so EXCLUDED from git ls-files, yet compiled by the default tsconfig include.
+    'generated/consumer.ts': before.consumer,
+  });
+  try {
+    const [r] = await p.request([
+      { name: 'move_symbol', args: { name: 'helper', dest: 'src/dest.ts' }, apply: true },
+    ]);
+    assert.ok(
+      r !== undefined && 'result' in r && !r.result.ok,
+      `desync edit must refuse, got ${JSON.stringify(r)}`,
+    );
+    if ('result' in r && !r.result.ok) {
+      assert.match(r.result.failure.message, /generated\/consumer\.ts/, 'names the offending file');
+      assert.match(
+        r.result.failure.message,
+        /untracked|git-track|excludes/i,
+        'the refusal is actionable, not an opaque "unknown file"',
+      );
+    }
+    // Zero write — git stays clean (covers every TRACKED file), and the GITIGNORED importer (which
+    // git can't see, the one the desync edit targeted) is byte-unchanged too.
+    assert.equal(p.git('status', '--porcelain'), '', 'no tracked file written');
+    assert.equal(readFileSync(path.join(p.root, 'generated/consumer.ts'), 'utf8'), before.consumer);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('move_symbol: a re-export barrel of the moved symbol → honest refusal (LS does not repoint barrels)', async () => {
   // KNOWN LIMITATION: the LS "Move to file" rewrites DIRECT importers but NOT `export {X} from`
   // re-export barrels — so the barrel would dangle (`Module '@/source' has no exported member`).

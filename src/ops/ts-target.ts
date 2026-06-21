@@ -31,11 +31,14 @@ type TargetFields = {
 };
 
 export const requireTarget = {
+  // `file+line` is enough — the column is OPTIONAL: with it, an exact position; without it, the
+  // resolver takes the declaration on that line (or lists them). `name` alone, or `name+file`
+  // (file-scoped), also resolve. The resolver (resolve-target.ts) is the one place these dispatch.
   predicate: (t: TargetFields): boolean =>
     t.symbolId !== undefined ||
     t.name !== undefined ||
-    (t.file !== undefined && t.line !== undefined && t.col !== undefined),
-  message: "pass 'symbolId' (a ts: SymbolId), or 'name', or all of file+line+col",
+    (t.file !== undefined && t.line !== undefined),
+  message: "pass 'symbolId' (a ts: SymbolId), or 'name', or file+line (col optional)",
 };
 
 export const tsTargetSchema = z

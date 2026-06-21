@@ -1,13 +1,13 @@
 // Parse a string an agent passed where a structured target was expected (§7 Postel) — the
 // `name: "ts:…"` / `name: "path:line:col"` shapes from the dogfood fail log, and the bare
 // string ELEMENTS of `source.targets` (`["src/x.ts:12:3"]`). Pure: classifies the string,
-// never invents a missing column (a `path:line` with no col stays col-less, so the canonical
-// gate honestly asks for the column rather than guessing one — §3, Postel "form only").
+// never invents a missing column (a `path:line` with no col stays col-less — the resolver then
+// takes the declaration ON that line, never a guessed column — §3, Postel "form only").
 
 /** A target string classified into the canonical shape it denotes. `location` keeps `col`
  *  optional precisely because a `path:line` (no column) must NOT be fabricated a column —
- *  it flows on as `{file,line}` and the canonical `requireTarget` rejects it with a pointed
- *  "needs file+line+col", never a wrong guess. */
+ *  it flows on as `{file,line}`, which the resolver resolves to the declaration on that line
+ *  (one → taken; several → an honest pick-list), never a wrong guess. */
 export type TargetString =
   | { kind: 'symbolId'; symbolId: string }
   | { kind: 'location'; file: string; line: number; col?: number }
