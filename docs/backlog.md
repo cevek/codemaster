@@ -20,6 +20,94 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 ---
 
+## Bug sweep 2026-06-21 (non-low) — adversarial multi-agent hunt
+
+Five domain-scoped bug-reviewers swept the tree for the cardinal sins (lie / crash / hang,
+§1/§3). HIGH items verified by code-trace and (where noted) reproduced. Parked here so they
+don't vanish.
+
+### HIGH
+
+- [ ] **daemon socket path diverges under stripped env → `restart` misses the bridge's daemon**
+      — `src/support/transport/socket-path.ts:20-22`. `base = XDG_RUNTIME_DIR ?? os.tmpdir()`
+      and the filename is `cm-<fnv1a64(username+version)>.sock` — the **base dir is NOT in the
+      hash**. An MCP bridge launched with a stripped env falls to `os.tmpdir()` = `/tmp`; a
+      `codemaster daemon restart` from a normal shell resolves `$TMPDIR` (macOS
+      `/var/folders/.../T`). Same filename, **different directory → two different socket files**.
+      `restart`/`status` probe the shell-env socket, get ENOENT, print "no daemon running", and
+      spawn a SECOND daemon while the bridge keeps serving the FIRST (stale) one — two warm LS's,
+      singleton (§2) + memory amortization (§9) broken. CONFIRMED on this box ($TMPDIR ≠ /tmp);
+      reproduces the 2026-06-20 feedback exactly. Fix: anchor the base dir to a stable
+      env-independent location (e.g. `~/.codemaster/run/`, as the per-repo debug log already does)
+      so bridge + all management verbs agree. `bug`·`high`·`cx:S`
+- [ ] **`tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
+      — `src/plugins/ts/program/single.ts:166-175` (`reindex` sets `structural` only via
+      `isTsLike`, which excludes `.json` at `:249`) → `loadFileList()` never re-runs on a tsconfig
+      edit; the host re-globs SIBLINGS but not the primary (`ls-host.ts`), and the config-eviction
+      fingerprint covers only `codemaster.config.*` (`config-load/resolve.ts:11-16`), never
+      `tsconfig.json`. After an `include`/`exclude`/`paths`/`strict`/`jsx` edit the primary keeps
+      its stale file list + compilerOptions; `find_usages`/`importers_of`/`find_unused_exports`/
+      `impact` silently omit real sites (or analyze under stale options) and report complete/
+      `certain`. Worse: the first drift reports `reindexed:1` → a freshness note claims absorption
+      that didn't happen (§3.5). Persistent (no self-correct until an unrelated source add/remove).
+      Test blind spot: `ls-host-tsconfig-invalidation.test.ts` covers only the discovery-memo
+      direction, never the primary re-glob. Fix: treat a change to this program's `configPath` as
+      structural → `loadFileList()`. `bug`·`high`·`cx:M`
+- [ ] **envelope honesty channels (freshness / handle-rebind / truncation) silently cut by the
+      char cap** — `src/format/render/render-result.ts:23-96`. `renderResult` appends the
+      `freshness` note, the `handle` rebind, and the `{shown,total,hint}` truncation line AFTER the
+      full `data` block, then `capOutput` (`RENDER_CHAR_CAP = 20_000`) slices the TAIL at a line
+      boundary. A ≥20K data payload pushes all three honesty channels past the cut → they vanish.
+      The §12 verdict-before-bulk fix only ordered keys WITHIN `data`; it does not protect the
+      envelope seam. Symptom: agent gets `!! OUTPUT CAPPED` (completeness only) but a dropped
+      `freshness: UNVERIFIED` (silent-stale lie) or a dropped `handle: rebound confidence=partial`
+      (§6 misidentification). Reproduced against the real renderer (20157 chars, UNVERIFIED absent).
+      Note `SPAN_TEXT_CEILING == RENDER_CHAR_CAP`, so even one large span can fill it. Fix: hoist
+      the envelope channels above the bulk, or cap only the data region and always re-append them.
+      `bug`·`high`·`cx:M`
+- [ ] **self-staleness banner is one-shot per bridge session (op/batch path)** —
+      `src/mcp/server.ts:65-66,321-330` (`createOnceBanner` sets `emitted=true` after the first
+      emit; op/batch `OpResult` carries no per-op staleness field — only `status()` re-reports).
+      After the first stale warning, every later `op`/`batch` in a long session serves the daemon's
+      pre-edit behavior with NO marker — §11's "op/batch responses prepend the banner" violated for
+      all-but-the-first. Locked by `self-staleness.test.ts:120-125`. INTENTIONAL per spec-stresstest
+      §6 (mid-session restart warning deemed noise), but in a multi-edit dogfood session it is the
+      §3.6 cardinal sin. ADJUDICATION: a cheap always-on per-op staleness token (suppressed in json)
+      vs. the one-shot prose banner. Compounds with the socket-divergence bug above (which is why no
+      banner fired at all in the 2026-06-20 report). `bug`·`high`·`cx:M`
+
+### MED
+
+- [ ] **chokidar feeds absolute OS paths into the reindex pipeline** —
+      `src/support/watch/chokidar.ts:48-51` (`pending.add(path)` collects chokidar's absolute path
+      → `onChanged(batch)`). Plugins key by `RepoRelPath` (forward-slash, root-relative, case-folded,
+      §19). If the downstream reindex doesn't re-mint these through the canonicalization chokepoint,
+      a watcher-driven invalidation can miss its target on case-insensitive volumes / Windows
+      separators (freshness then rides the slower read-time backstop). Confirm the re-mint happens in
+      engine/plugin reindex. `bug`·`med`·`cx:S`
+- [ ] **`detectReverseImportCaptures` adds an O(repo) AST walk to every `move_file`/`extract_symbol`**
+      — `src/plugins/ts/refactor/capture/imports.ts:160-210`, reached unconditionally via
+      `assemblePlan` from `planMove` + `planExtractTo`. It `forEachChild`-traverses EVERY source file
+      in the program on every dry-run and apply; the touted memo bounds only `resolveModuleName`
+      calls, not the walk. CONTRIBUTING bans per-call work scaling with repo size; tiny-fixture tests
+      can't catch it. MED not HIGH because `rewriteImports` already imposes one O(repo) pass, so this
+      ~doubles an already-O(repo) op rather than introducing the first. Confirm with a timed
+      `move_file` dry-run on a multi-thousand-file repo. `perf`·`med`·`cx:M`
+- [ ] **schema endpoint card reads `certain` while its body/response type is unresolvable** —
+      `src/plugins/schema/parse.ts:141-160,221`. `buildCard` derives card `confidence` from `notes`,
+      but `notes` is populated only for `query`/`response` enumeration failure; a `requestBody`/
+      response content that falls to `contentRef`'s `partial` catch-all (`:221`) never demotes the
+      card. In `list_endpoints` sql/table mode (`list-endpoints.ts:31-40`) the slot's own `partial`
+      is dropped, so the row reads a clean `certain` (§3.4 completeness lie). Trigger needs
+      non-standard generator output (union / bare-alias content). Fix: demote the card to `partial`
+      when `body`/`resp` came back `partial`. `bug`·`med`·`cx:S`
+- [ ] **sql text-table renderer lacks the `~`-meta-key strip the generic/json paths have** —
+      `src/format/render/render-table.ts:37-51`. `renderSqlTable` prints `data.columns` as the header
+      and every cell raw, with no `~`-key guard (unlike `condenseSpans`/`stripShapeTags` on the
+      generic path and `stripShapeTags` on json). REAL mechanism, THEORETICAL trigger (needs a
+      producer emitting a `~`-prefixed column — none proven today). Defensive: add a `~`-strip to
+      match the generic-path guarantee. `bug`·`med`·`cx:S`
+
 ## Roadmap — unbuilt phases
 
 ### Phase 4 — framework plugins + `list` ops
