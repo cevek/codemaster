@@ -37,6 +37,23 @@ don't vanish.
       real spawn boundary); no production caller sets it. Covered by a discriminating unit
       (env-independence, RED on the old default) + the real-spawn `daemon-cli-smoke` convergence
       step. `bug`·`high`·`cx:S`
+  - residuals from the socket-fix review (low, none block the fix):
+    - [ ] **`CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)** — if a user
+          exports it in a normal shell, a management verb honours it but the stripped-env bridge does
+          NOT → re-opens the exact split the fix closed. Severity low (needs a user to set an internal
+          test-seam var, undocumented for users). Fix idea: bridge ignores it, or warn on set; at
+          minimum document it as test-only. `bug`·`low`·`cx:S`
+    - [ ] **`socket-path.ts` is git-classified BINARY** (numstat `- -`, `Bin` in diff) despite 0 NUL /
+          valid UTF-8 — the fix's core shows as "Binary files differ" in plain `git diff`, hiding it
+          from review (needs `git diff -a`). Since file creation (bc3003b). Fix: `.gitattributes`
+          `*.ts text`, or find the trigger byte. No runtime impact. `infra`·`low`·`cx:S`
+    - [ ] **key-template separator is a space (`username version`)** — admits a theoretical
+          username/version collision (`"a b"+"c"` vs `"a"+"b c"`); pre-existing (main was identical),
+          practically impossible (POSIX usernames + semver carry no spaces). Use an unambiguous
+          delimiter if ever touched. `bug`·`low`·`cx:S`
+    - [ ] **long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr** on
+          the bridge/spawn path — the user sees only a silent in-process fallback, no message.
+          Pre-existing. Surface the actionable "home too long" error to the client. `bug`·`low`·`cx:S`
 - [ ] **`tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
       — `src/plugins/ts/program/single.ts:166-175` (`reindex` sets `structural` only via
       `isTsLike`, which excludes `.json` at `:249`) → `loadFileList()` never re-runs on a tsconfig
@@ -760,6 +777,15 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 
 ## Correctness bugs surfaced by the density audit (not density — parked here so they don't vanish)
 
+- [ ] **expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)**
+      — five distinct defects: (a) `expand_type` on a fn/namespace merge TRUNCATES the return type after
+      the colon; (b) a 2nd overload signature is dropped everywhere (`about` shows `+1 overload`, `source`
+      shows only the impl, `full` never lists the overload sigs) — real signature data lost; (c)
+      `expand_type` by `name`+`file` FAILS to resolve a type alias that `file`+`line`+`col` resolves fine
+      (resolver gap); (d) `find_unused_exports` `undiscoveredPrograms` lists ABSOLUTE paths while every
+      other path is repo-relative (inconsistent, breaks click-through); (e) namespace-merge members
+      flagged `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge).
+      (a)/(b)/(c) are correctness (lost/wrong type facts); (d)/(e) are honesty/clarity. `bug`·`med`·`cx:M`
 - [ ] **`i18n_lookup` is fatal on a single malformed locale file** — on a repo whose `en.json` has a
       JSON parse error, `i18n_lookup` (key/prefix/value) returns `defs:0 · usages:0 · matched:0 ·
 parseFailures:1` — unusable even for keys in the well-formed portion — while
