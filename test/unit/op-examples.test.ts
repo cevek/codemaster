@@ -15,7 +15,6 @@ import {
   TOOL_DESCRIPTORS,
   batchToolSchema,
   exampleCallFor,
-  opToolSchema,
   statusToolSchema,
 } from '../../src/mcp/schema.ts';
 import { badArgs } from '../../src/mcp/server.ts';
@@ -32,7 +31,6 @@ test('every op example validates against the op’s own argsSchema', () => {
 });
 
 const TOOL_SCHEMAS = {
-  op: opToolSchema,
   status: statusToolSchema,
   batch: batchToolSchema,
 } as const;

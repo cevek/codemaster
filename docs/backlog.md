@@ -322,7 +322,7 @@ don't vanish.
       harness. Read ops already hot-reload via the read-time freshness backstop. Relates to
       daemon-singleton. `dx`·`med`·`cx:M`
 - [ ] **idle-exit brackets only `CallTool`, not `ListTools`** — the Stage-1 idle deadline
-      (`src/mcp/idle-exit.ts`) is reset by `op`/`status`/`batch` calls but NOT by `tools/list`.
+      (`src/mcp/idle-exit.ts`) is reset by any `CallTool` (per-op / `status` / `batch`) but NOT by `tools/list`.
       Harmless and arguably correct (listTools is instant; an orphan that only ever lists tools
       should still reap, and a tool-active client resets the deadline on its next real call), but
       formally one request type sits outside the enter()/leave() bracketing. Note for when the
@@ -958,10 +958,20 @@ parseFailures:1` — unusable even for keys in the well-formed portion — while
       (a real introduced error could be absorbed as pre-existing, or vice versa) — a correctness risk,
       not cosmetic. Investigate the baseline typecheck determinism (program reuse / diagnostic order).
       `bug`·`med`·`cx:M`
-- [ ] **FAIL envelopes repeat the `file it: op({name:'feedback'…})` footer** — every `FAIL tool=…`
+- [ ] **FAIL envelopes repeat the `file it: feedback({kind:'bug'…})` footer** — every `FAIL tool=…`
       response appends the same feedback-CTA footer; in an agent loop hitting repeated FAILs it is
       per-call noise. Consider emitting it once per session, or only on an internal-error FAIL (not a
       conservative-refusal FAIL the agent expects). `dx`·`low`·`cx:S`
+- [ ] **per-op tool accepts `sql` on a non-table op** — `opToolSchema` accepts `sql` for any op, but
+      the per-op `inputSchema` advertises it only on table-bearing ops; a `sql` on a tableless op
+      still reaches dispatch and degrades honestly ("op has no table"). Optionally reject at the
+      facade before dispatch for a sharper error. `dx`·`low`·`cx:S`
+- [ ] **no test for the per-op `needs:<plugin>` description tag** — `buildOpToolDescriptor` adds a
+      `[needs: i18n]`-style tag from `op.requires`, but no test asserts it appears (the e2e covers
+      the call-time `unavailable`, not the advertised tag). `dx`·`low`·`cx:S`
+- [ ] **`src/mcp/server.ts` is ~293 real lines (300 cap)** — the next edit forces a split; the natural
+      seam is extracting the per-op `runOpTool` + the render helpers (`renderResults`/`renderBatch`)
+      into a sibling `render-call.ts`. `dx`·`low`·`cx:S`
 - [ ] **`expand_type` drops overload signatures everywhere** — for an overloaded function `expand_type`
       shows `(+1 overload)`, `source` shows only the impl signature, and even `verbosity:full` never
       lists the overload sigs. An agent can't see the call shapes. Surface all signatures (the LS has

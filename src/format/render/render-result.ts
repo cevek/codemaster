@@ -47,7 +47,7 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
     // is blocked, not in a doc read once.
     if (!partial) {
       head.push(
-        "— blocked or missing a capability? file it: op({name:'feedback', args:{kind:'bug', title:'…', detail:'…'}})",
+        "— blocked or missing a capability? file it: feedback({kind:'bug', title:'…', detail:'…'})",
       );
     }
   } else if (isSqlTableData(result.data)) {

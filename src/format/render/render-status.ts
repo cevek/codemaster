@@ -210,11 +210,15 @@ function renderOps(ops: readonly OpStatusView[]): string[] {
   return lines;
 }
 
-/** Compose an op example into the EXACT tool-args JSON an agent would pass to the `op`
- *  tool: `op <json>`, where `<json>` is `{name, args, …flags}` (§1.1). One canonical
- *  shape, machine-derived from the structured `OpExample` — so the printed example can
- *  never drift from the real tool schema (the anti-drift test parses it back). */
+/** Compose an op example into the EXACT per-op tool call an agent would make: `<op> <json>`,
+ *  where the tool-name IS the op-name and `<json>` is the FLAT `{...args, ...flags}` (no
+ *  `name`/`args` envelope — §11). One canonical shape, machine-derived from the structured
+ *  `OpExample` — so the printed example can never drift from the real tool schema. */
 function renderExample(name: string, example: OpExample): string {
-  const call = { name, args: example.args, ...(example.flags ?? {}) };
-  return `op ${JSON.stringify(call)}`;
+  const flatArgs =
+    typeof example.args === 'object' && example.args !== null && !Array.isArray(example.args)
+      ? example.args
+      : {};
+  const call = { ...flatArgs, ...(example.flags ?? {}) };
+  return `${name} ${JSON.stringify(call)}`;
 }

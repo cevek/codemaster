@@ -136,8 +136,9 @@ subfolder reaching ~5 files is the split signal.
 
 ## Boundaries — zod
 
-Everything entering from outside — config load, MCP `op` args, IPC messages — is
-**zod-validated, fail-fast, with a pointed error**. Trust typed data within; guard the edges.
+Everything entering from outside — config load, MCP tool args (per-op + status + batch),
+IPC messages — is **zod-validated, fail-fast, with a pointed error**. Trust typed data
+within; guard the edges.
 
 ## Tests (§16)
 

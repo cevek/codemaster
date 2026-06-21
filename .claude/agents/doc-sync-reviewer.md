@@ -22,7 +22,7 @@ Check, in priority order:
    type, file, or symbol a doc names exists in `src/` with that exact name (grep to confirm).
 2. **Doc ↔ contract consistency.** Names and shapes in the docs match the actual contracts
    (`src/core/*`, `src/config/config.ts`, `src/ops/contracts.ts`, `src/core/plugin.ts`):
-   the three MCP tools (`op` / `status` / `batch`); the `Result` / `Fact` / `Span` /
+   the MCP tool surface; the `Result` / `Fact` / `Span` /
    `Confidence` / `Provenance` / `FreshnessNote` / `ToolFailure` / `HandleRebind` fields;
    the branded types; the `Plugin` interface + DAG; the op catalogue listed in
    ARCHITECTURE.md §5-L3 and §17; config sections. A symbol renamed in code but stale in a

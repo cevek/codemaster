@@ -6,7 +6,7 @@
 // in-process and wants typed access to the op dispatch envelope (`OpRequest` /
 // `OpResult` / `DispatchError`), and (c) plugin authors who need the `Plugin` interface,
 // `Result<T>`, brands, and proof types. It is **not** the agent-facing surface — that
-// is `src/mcp/` and the three MCP tools (§11).
+// is `src/mcp/` and its tools — one per op, plus `status` and `batch` (§11).
 
 export { defineConfig } from './config/config.ts';
 export type {

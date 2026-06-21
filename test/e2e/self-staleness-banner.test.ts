@@ -50,8 +50,8 @@ test('always-on: a STALE daemon carries the marker on EVERY op text response (no
   const client = await wire(() => true);
   for (let i = 1; i <= 3; i++) {
     const r = (await client.callTool({
-      name: 'op',
-      arguments: { name: 'find_definition', args: { q: 'X' } },
+      name: 'find_definition',
+      arguments: { q: 'X' },
     })) as CallToolResult;
     // RED on the one-shot latch: responses #2 and #3 came back marker-less.
     assert.match(textOf(r), MARKER, `op response #${i} must carry the staleness marker`);
@@ -72,8 +72,8 @@ test('always-on: a STALE daemon carries the marker on EVERY batch text response'
 test('§12: an op `format:json` response suppresses the marker AND stays valid JSON', async () => {
   const client = await wire(() => true);
   const r = (await client.callTool({
-    name: 'op',
-    arguments: { name: 'find_definition', args: {}, format: 'json' },
+    name: 'find_definition',
+    arguments: { format: 'json' },
   })) as CallToolResult;
   const body = textOf(r);
   assert.doesNotMatch(body, MARKER, 'a prefix line would corrupt the single bare-JSON payload');
@@ -83,8 +83,8 @@ test('§12: an op `format:json` response suppresses the marker AND stays valid J
 test('no false positive: a FRESH daemon never emits the marker on op/batch', async () => {
   const client = await wire(() => false);
   const op = (await client.callTool({
-    name: 'op',
-    arguments: { name: 'find_definition', args: {} },
+    name: 'find_definition',
+    arguments: {},
   })) as CallToolResult;
   const batch = (await client.callTool({
     name: 'batch',

@@ -1,7 +1,7 @@
-// The op dispatch contract — what the MCP facade and the daemon see when an agent calls
-// `op({ name, args, ... })`. Each individual op (e.g. `find_usages`) lives in its own
-// file and exports its own typed `Args`/`Data` shapes; this file defines only the
-// type-erased dispatch envelope used at the boundary.
+// The op dispatch contract — the type-erased envelope the facade builds from a per-op tool
+// call (the flat `{...args, ...flags}` of e.g. the `find_usages` tool) or a `batch`
+// sub-request, and routes to the daemon. Each individual op (e.g. `find_usages`) lives in its
+// own file and exports its own typed `Args`/`Data` shapes; this file defines only the envelope.
 //
 // See ARCHITECTURE.md §5-L3 for the layer, §11 for the MCP surface, §7 for the dry-run /
 // apply contract on mutating ops.
@@ -51,8 +51,8 @@ export interface OpRequest extends OpFlags {
   name: string;
   /** Op-specific arguments. JSON-validated at the boundary by the op's schema. */
   args: JsonValue;
-  /** SQL table alias for this request's tabular projection, used only under a `batch`/`op`
-   *  carrying `sql` (§3). Validated `^[a-z_][a-z0-9_]{0,30}$`; defaults to `t` (single
+  /** SQL table alias for this request's tabular projection, used only under a `batch` (or a single
+   *  op tool call) carrying `sql` (§3). Validated `^[a-z_][a-z0-9_]{0,30}$`; defaults to `t` (single
    *  request) or `t0..tN`. Ignored when the call has no `sql`. */
   as?: string;
   /** Per-request workspace root (cross-repo §1): a sibling TS repo this one request
@@ -63,7 +63,7 @@ export interface OpRequest extends OpFlags {
 }
 
 /** Batch-level modifiers that are NOT per-request (§5–6). Present only on the `batch`
- *  tool (and the `op` sugar, which desugars to a batch of one). */
+ *  tool (and a single op tool call's sql sugar, which desugars to a batch of one). */
 export interface BatchOptions {
   /** A single read-only SELECT run across the requests' aliased tabular projections in an
    *  ephemeral in-memory SQLite database that lives only for this call (§1). When present,

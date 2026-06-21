@@ -1,6 +1,7 @@
-// zod boundary for the MCP tools (§11): everything an agent sends is validated
-// fail-fast here. The JSON Schemas advertised in tools/list are handwritten below —
-// stable across SDK versions, no zod-version coupling.
+// zod boundary for the MCP tools (§11): everything an agent sends is validated fail-fast here.
+// `status`/`batch` advertise handwritten JSON Schemas below (stable, no zod-version coupling); the
+// per-op tools are GENERATED from each op's argsSchema (op-tools.ts). `opToolSchema` is reused by
+// the per-op route to type-validate the reserved request/flag keys a flat call carries.
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
@@ -53,51 +54,13 @@ export const batchToolSchema = z.object({
   verbosity: z.enum(['terse', 'normal', 'full']).optional(),
 });
 
-/** Handwritten JSON Schemas for tools/list, each with a minimal valid `exampleCall` —
- *  a complete, schema-valid arguments object for that tool. `badArgs` appends it to a
- *  validation error so the message alone is enough to author the corrected call (§1.2);
- *  the anti-drift test parses every `exampleCall` back through the tool's zod schema.
- *  `exampleCall` is internal to codemaster — `tools/list` advertises only the MCP fields
- *  (name/description/inputSchema). */
+/** Handwritten JSON Schemas for the NON-op tools (`status`/`batch`) in tools/list, each with a
+ *  minimal valid `exampleCall` — a complete, schema-valid arguments object for that tool. `badArgs`
+ *  appends it to a validation error so the message alone is enough to author the corrected call
+ *  (§1.2); the anti-drift test parses every `exampleCall` back through the tool's zod schema. The
+ *  per-op tools are generated separately (op-tools.ts). `exampleCall` is internal to codemaster —
+ *  `tools/list` advertises only the MCP fields (name/description/inputSchema). */
 export const TOOL_DESCRIPTORS = [
-  {
-    name: 'op',
-    exampleCall: { name: 'find_usages', args: { name: 'Button' } },
-    description:
-      'Run one codemaster op against this repo (catalogue + arg schemas: call status first). ' +
-      'Results are dense and proof-carrying (file:line + verbatim spans). ' +
-      'Mutating ops dry-run unless apply:true. ' +
-      "Pass sql to post-filter the op's table (aliased `t`) with one read-only SELECT.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Op name from the status catalogue' },
-        args: { type: 'object', description: 'Op-specific args (schema in status)' },
-        apply: { type: 'boolean', description: 'Mutating ops: actually write (default dry-run)' },
-        summaryOnly: {
-          type: 'boolean',
-          description:
-            'Mutating ops: verdict + merged per-file touched list, omit the unified diff',
-        },
-        verbosity: { type: 'string', enum: ['terse', 'normal', 'full'] },
-        format: { type: 'string', enum: ['text', 'json'] },
-        debug: { type: 'boolean', description: 'Inline per-call debug trace' },
-        sql: {
-          type: 'string',
-          description:
-            "Read-only SELECT over this op's table (aliased `t`); only the SQL result returns",
-        },
-        return: {
-          type: 'string',
-          enum: ['sql', 'all'],
-          description:
-            "With sql: 'sql' (default) returns only the SQL result, 'all' adds the op result",
-        },
-        root: { type: 'string', description: 'Workspace root override (default: cwd repo)' },
-      },
-      required: ['name', 'args'],
-    },
-  },
   {
     name: 'status',
     exampleCall: {},
@@ -180,9 +143,9 @@ export function exampleCallFor(tool: string): JsonValue | undefined {
 }
 
 export const SERVER_INSTRUCTIONS = `codemaster is a stateful codebase inspector for TS/React repos: a warm TypeScript LanguageService + domain plugins answer structural/semantic queries with proof spans (file:line + verbatim text).
-Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches aliased imports/JSX), definitions, type expansion, SCSS class usage. Call the 'status' tool first — it is the complete per-repo documentation (op catalogue + arg schemas + per-op notes + shared concepts); there is no separate usage guide.
+Use it INSTEAD of grep/file-reading for: symbol search, find-usages (catches aliased imports/JSX), definitions, type expansion, SCSS class usage. Each op is its own tool (find_usages, rename_symbol, …) — the tool list IS the catalogue; flags (apply, verbosity, format, root) are top-level params on each op tool. Call the 'status' tool for the per-repo deep dive (per-op notes + shared concepts + freshness); an op tool whose plugin is inactive for the repo returns an honest 'plugin not active'.
 Honesty contract: results carry explicit freshness, confidence (certain/partial/dynamic/unresolved) and truncation; a FAIL means codemaster could not do it — fall back to your own tools then. Query directly; do not delegate codemaster lookups to file-reading subagents.
 Output is terse by default (spans as file:line:col). verbosity:'full' returns verbatim proof text — use it for one symbol, not for lists. Oversized answers are explicitly capped with '!! OUTPUT CAPPED' — narrow the query, never assume completeness past the marker.
-Relational post-filtering: a batch (or op) carrying 'sql' loads each aliased request's rows into an ephemeral in-memory SQLite table and runs ONE read-only SELECT — use it for anti-joins / negations / aggregates over op outputs (e.g. components that render <X> but not under <Form>); producers run uncapped, and a 'partial' table makes NOT IN untrustworthy.
-Hit a bug or missing capability? File it in-band: op({name:'feedback', args:{kind:'wish', title:'…', detail:'…'}}) — it travels with this server and records to a global inbox.
-Cross-repo: any call or batch request may carry a per-request 'root' (a TOP-LEVEL key beside name/args, NOT inside args) to target a sibling TS repo — one batch can mix repos (results stay in order), and 'status' lists the warm roots.`;
+Relational post-filtering: a batch (or any op call) carrying 'sql' loads each aliased request's rows into an ephemeral in-memory SQLite table and runs ONE read-only SELECT — use it for anti-joins / negations / aggregates over op outputs (e.g. components that render <X> but not under <Form>); producers run uncapped, and a 'partial' table makes NOT IN untrustworthy.
+Hit a bug or missing capability? File it in-band with the feedback tool: feedback({kind:'wish', title:'…', detail:'…'}) — it travels with this server and records to a global inbox.
+Cross-repo: any op or batch request may carry a top-level 'root' to target a sibling TS repo — one batch can mix repos (results stay in order), and 'status' lists the warm roots.`;

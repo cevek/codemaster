@@ -458,15 +458,18 @@ This list grows; the **dispatch shape never does** — see §11.
 
 ### L5 — MCP facade
 
-[`src/mcp/`](src/mcp/) — exposes **exactly three tools** to agents (§11):
+[`src/mcp/`](src/mcp/) — exposes **one tool per op** plus `status` and `batch` (§11):
 
-- `op({ name, args, ...flags })` — dispatcher routing to the named op.
-- `status()` — first-contact manifest: active plugins, op cheat-sheet, freshness.
-- `batch(requests)` — many ops in one round-trip.
+- `<op>({ ...args, ...flags })` — one MCP tool per op (`find_usages`, `rename_symbol`, …),
+  tool-name = op-name; args + flags are flat (no `name`/`args` envelope). The `inputSchema`
+  is generated from the op's canonical zod `argsSchema`, so the tool-list IS the catalogue.
+- `status()` — first-contact manifest: active plugins, per-op notes + concepts, freshness.
+- `batch(requests)` — many ops in one round-trip (the `{name, args}` envelope persists here).
 
-Ops are the single public unit — there is no fixed verb set baked into the protocol.
-The op catalogue is per-repo (it depends on which plugins are active) and is delivered
-through `status`, not through standing tool schemas.
+Each op is a first-class tool, its capability permanently in the agent's tool-list. The MCP
+tool-list is the static **union** of every op (per-connection); an op whose plugin isn't
+active for the resolved repo dispatches to an honest `unavailable` (no `tools/list_changed`
+churn). `status` carries the per-repo deep dive (notes, concepts).
 
 ---
 
@@ -477,7 +480,7 @@ plugin-routed** handle. It lets an agent chain `find_definition → find_usages 
 rename_symbol` without re-searching.
 
 **Module-routed encoding.** Every `SymbolId` carries the id of the plugin that owns it as
-a prefix, so the op dispatcher can route to the right plugin without inspecting the
+a prefix, so the dispatcher can route to the right plugin without inspecting the
 referent:
 
 ```
@@ -709,24 +712,35 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
 
 ---
 
-## 11. MCP surface (lean by design)
+## 11. MCP surface (catalogue-in-the-tool-list by design)
 
-> **Decision.** Every tool schema + its examples is loaded into the agent's context
-> **every session, forever** — a fixed token tax that can cost more than the greps it
-> saves. So the surface is exactly three tools, period:
+> **Decision.** Every tool schema is loaded into the agent's context **every session** — a
+> fixed token tax. We spend it deliberately: one MCP tool **per op**, so the capability
+> catalogue lives permanently in the agent's tool-list. Agents are blind to an opaque
+> `op({name})` dispatcher and under-use it; a named tool per op keeps every capability on
+> view (a standing reminder) and its **typed per-op `inputSchema`** surfaces the arg shape up
+> front — a wrong/missing key or wrong type is caught at the boundary. The cross-field `one-of`
+> constraints JSON Schema can't express (a symbol-addressed op's `{symbolId | name | file+line+col}`)
+> stay enforced by the canonical zod gate (`.refine`), which rejects them with a pointed error.
+> The N-schema cost IS the feature (visibility + type-safety), not a price to dodge. So the
+> surface is: one tool per op, plus `status` and `batch`.
 
-- **`op({ name, args, ...flags })`** — the single dispatcher. `name` is an enum of
-  available ops in _this_ repo (the set depends on which plugins are active);
-  `args` is op-specific; `flags` carry op-shape modifiers like `apply: true|false` for
-  mutating ops, `verbosity: 'terse'|'normal'|'full'`, `format:
-'text'|'json'`, etc. (§12); column projection is done with `sql`, not a `fields` flag. There
-  are no individual MCP tools per op — that would scale
-  the token tax linearly with the op catalogue.
+- **`<op>({ ...args, ...flags })`** — one tool per op (`find_usages`, `rename_symbol`, …),
+  tool-name = op-name. Args and flags are **flat** (no `name`/`args` envelope): the op's own
+  args, plus the output-shape flags as top-level params — `apply` / `summaryOnly` (mutating
+  ops), `verbosity`, `format`, `debug`, `root`, and `sql` / `return` (table-bearing ops);
+  column projection is `sql`, not a `fields` flag. The `inputSchema` is **generated** from
+  the op's canonical zod `argsSchema` (single source of truth = the dispatch gate, so the
+  advertised schema can't drift from what validates) and enriched with those flags; the
+  description carries the op summary + the compact `argsHint`. The flat call is routed
+  through the unchanged dispatch path: the facade extracts the reserved flag/route keys and
+  hands the remainder to the op's own argsSchema — the **sole** validator (§7).
 - **`status({ brief?, op? })`** — the first-contact manifest. Lists active plugins (with
   their versions/freshness fingerprints), the op catalogue for _this_ repo (op names +
   one-line what-it-does + args schema + per-op notes + the shared concepts), and available
-  debug namespaces (§13). Teaches the op catalogue **dynamically**, so ops cost zero
-  standing context — only `op`/`status`/`batch` do. The codemaster-vs-grep steer is **not**
+  debug namespaces (§13). The per-op tools advertise each op's schema standingly; `status`
+  is the per-repo **deep dive** (per-op notes + shared concepts + freshness) and the place
+  to discover which ops the active plugins enable. The codemaster-vs-grep steer is **not**
   re-emitted here — it ships once per session in the MCP `initialize` response
   (`SERVER_INSTRUCTIONS`), so repeating it every `status` would be a pure token tax.
   Two opt-in token-saver renders sit on top of the FULL default: **`brief: true`** drops
@@ -734,7 +748,7 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
 "<name>"`** renders one op's full detail on demand (cheaper than re-emitting the whole
   catalogue to re-read one op). It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
-  is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend — on
+  is serving pre-edit behavior, so `status` and the per-op/`batch` responses prepend — on
   EVERY stale response, not just the first — a one-line "run `codemaster daemon restart`"
   banner (a multi-edit session must be warned on every answer it acts on). It is a PREFIX so the
   render cap (which trims the tail) can never lose it and it never lands inside a batch's
@@ -744,11 +758,12 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   remedy is **restart**, not a bridge reconnect: a reconnect re-attaches to the same stale-code
   daemon on the same socket (§2 singleton), so the daemon itself must be restarted (`codemaster
   daemon restart` — the management verbs, §2).
-- **`batch(requests)`** — one tool carrying a list of op invocations; results come back
+- **`batch(requests)`** — one tool carrying a list of op invocations (each `{name, args, …}`);
+  results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
   ops in the batch see a consistent view per plugin (each plugin pins its state at
-  batch entry; there is no single global version across all plugins). A batch (or the
-  `op` sugar) may carry **`sql`**: each request is aliased (`as`), its tabular projection
+  batch entry; there is no single global version across all plugins). A batch (or a single
+  per-op tool call) may carry **`sql`**: each request is aliased (`as`), its tabular projection
   (`OpDefinition.table`) is loaded into an **ephemeral in-memory SQLite database that
   lives only for that call**, and one read-only `SELECT` runs across the aliased tables —
   relational algebra (anti-joins, negations, aggregates) over op outputs without the agent
@@ -757,9 +772,9 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   LS stays the only oracle — SQLite is a stateless evaluator over one call's freshly
   produced rows, never a cache or a second index (`support/sql/`, lazy `better-sqlite3`).
 
-There are no first-class MCP tools per op (no top-level `find_usages` / `rename_symbol`
-tool exposed to the agent). Every op is dispatched through `op`; the catalogue is
-discovered through `status`.
+Every op IS a first-class MCP tool (`find_usages`, `rename_symbol`, … exposed to the agent
+by name). The tool-list is the static union of the op catalogue, generated from each op's
+`OpDefinition`; `status` adds the per-repo deep dive (notes, concepts, freshness).
 
 Usage guidance ships in the MCP `initialize` response — **not** an instructions file
 bolted into `CLAUDE.md`/`AGENTS.md` — and it steers the agent to **query codemaster
@@ -902,8 +917,8 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`chokidar`** — debounced file watching (behind an injectable seam for tests).
 - **`@modelcontextprotocol/sdk`** — the MCP facade.
 - **`zod`** — runtime validation at the boundaries where serialized/external data enters:
-  config load, MCP `op` args, IPC messages. Internal typed data is trusted — only the
-  edges are guarded.
+  config load, MCP tool args (per-op + status + batch), IPC messages. Internal typed data is
+  trusted — only the edges are guarded.
 - **`@cevek/typescript-extract-refactor-fix`** — a patched TypeScript fork, loaded **lazily**
   (via `createRequire`, gated to the project's TS major) **only** as the LS-relocation rescue
   (§4) for `extract_symbol` / `move_symbol`: it produces "Move to a new file" / "Move to file"
@@ -990,7 +1005,7 @@ codemaster/
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       component-card.ts  impact.ts  affected.ts  …
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
-    mcp/                     # L5 — MCP facade: op + status + batch dispatcher
+    mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
         shapes/              # per-domain ~shape renderers + Record<ShapeTag> registry (§12)
@@ -1107,8 +1122,8 @@ The build is **plugin-incremental**: each phase adds one plugin (with its ops) a
 project gets useful capability immediately. There is no upfront "build the graph first"
 phase — there is no graph.
 
-- **Phase 0 — Foundation.** Daemon + IPC + MCP facade (`op` + `status` + `batch`
-  dispatcher); repo resolution; orchestrator with engine lifecycle (lazy spin-up, idle
+- **Phase 0 — Foundation.** Daemon + IPC + MCP facade (per-op tools + `status` + `batch`);
+  repo resolution; orchestrator with engine lifecycle (lazy spin-up, idle
   TTL, path-existence sweeper §9); `core/plugin.ts` `Plugin` interface + `PluginRegistry`
   with DAG validation; `support/` (git/prettier/text-edits/fs); read-time freshness
   backstop (§3.5/§8); injectable watcher seam; output formatter (§12); debug subsystem

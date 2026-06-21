@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { z } from 'zod';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { serveMcp } from '../../src/mcp/server.ts';
@@ -16,11 +17,28 @@ import { createFileUsageLogger } from '../../src/support/usage-log/create.ts';
 import type { UsageLogEntry } from '../../src/support/usage-log/entry.ts';
 import type { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
+import { defineOp, type AnyOpDefinition } from '../../src/ops/registry.ts';
 import type { Clock } from '../../src/common/async/clock.ts';
 
 process.setMaxListeners(50);
 
 const fixedClock: Clock = { now: () => 1_700_000_000_000, schedule: () => () => undefined };
+
+/** Minimal op definitions so the per-op tools (find_definition / tool_fail / dispatch_fail) are
+ *  advertised and routable; the stub orchestrator below crafts each one's result (its `run` is
+ *  never reached — dispatch is stubbed at the orchestrator). */
+function stubOp(name: string): AnyOpDefinition {
+  return defineOp({
+    name,
+    summary: `stub ${name}`,
+    mutating: false,
+    requires: [],
+    argsSchema: z.looseObject({}),
+    argsHint: '{ }',
+    run: async () => ({ ok: true, data: {} }),
+  });
+}
+const STUB_OPS = ['find_definition', 'tool_fail', 'dispatch_fail'].map(stubOp);
 
 /** Stub orchestrator whose `request` returns a crafted OpResult per op name, so each
  *  classification arm (ok / ToolFailure / DispatchError) can be exercised in isolation. */
@@ -54,6 +72,7 @@ async function wire(dir: string): Promise<Client> {
     transport: serverT,
     usage: createFileUsageLogger(dir),
     clock: fixedClock,
+    ops: STUB_OPS,
   });
   const client = new Client({ name: 'test-client', version: '0' });
   await client.connect(clientT);
@@ -71,7 +90,7 @@ function readEntries(file: string): UsageLogEntry[] {
 test('usage-log: a successful op lands in success.jsonl with request + response captured', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-'));
   const client = await wire(dir);
-  await client.callTool({ name: 'op', arguments: { name: 'find_definition', args: { q: 'X' } } });
+  await client.callTool({ name: 'find_definition', arguments: { q: 'X' } });
 
   const ok = readEntries(path.join(dir, 'success.jsonl'));
   const fail = readEntries(path.join(dir, 'fail.jsonl'));
@@ -80,21 +99,18 @@ test('usage-log: a successful op lands in success.jsonl with request + response 
   const e = ok[0];
   assert.ok(e);
   assert.equal(e.ok, true);
-  assert.equal(e.tool, 'op');
+  // The per-op tool's name IS the op name — telemetry records it as the tool, ops still lists it.
+  assert.equal(e.tool, 'find_definition');
   assert.deepEqual(e.ops, ['find_definition']);
   assert.equal(e.ts, 1_700_000_000_000);
-  assert.deepEqual(
-    e.args,
-    { name: 'find_definition', args: { q: 'X' } },
-    'the request is recorded',
-  );
+  assert.deepEqual(e.args, { q: 'X' }, 'the flat per-op arguments are recorded');
   assert.ok(e.response.length > 0, 'the response is recorded');
 });
 
 test('usage-log: a ToolFailure (ok:false, no isError) is filed as FAIL, not success', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-'));
   const client = await wire(dir);
-  await client.callTool({ name: 'op', arguments: { name: 'tool_fail', args: {} } });
+  await client.callTool({ name: 'tool_fail', arguments: {} });
 
   const ok = readEntries(path.join(dir, 'success.jsonl'));
   const fail = readEntries(path.join(dir, 'fail.jsonl'));
@@ -107,7 +123,7 @@ test('usage-log: a ToolFailure (ok:false, no isError) is filed as FAIL, not succ
 test('usage-log: a DispatchError op is filed as fail', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-'));
   const client = await wire(dir);
-  await client.callTool({ name: 'op', arguments: { name: 'dispatch_fail', args: {} } });
+  await client.callTool({ name: 'dispatch_fail', arguments: {} });
 
   assert.equal(readEntries(path.join(dir, 'success.jsonl')).length, 0);
   const fail = readEntries(path.join(dir, 'fail.jsonl'));
@@ -115,13 +131,17 @@ test('usage-log: a DispatchError op is filed as fail', async () => {
   assert.equal(fail[0]?.ok, false);
 });
 
-test('usage-log: bad args are filed as fail', async () => {
+test('usage-log: a per-op bad-arg (wrong-typed reserved flag) is filed as fail', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-'));
   const client = await wire(dir);
-  await client.callTool({ name: 'op', arguments: { notName: true } });
+  // `apply` is a reserved flag extracted at the facade; a non-boolean fails the boundary before
+  // dispatch — a fail, recorded against the op's own tool name.
+  await client.callTool({ name: 'find_definition', arguments: { apply: 'notbool' } });
 
   assert.equal(readEntries(path.join(dir, 'success.jsonl')).length, 0);
-  assert.equal(readEntries(path.join(dir, 'fail.jsonl')).length, 1);
+  const fail = readEntries(path.join(dir, 'fail.jsonl'));
+  assert.equal(fail.length, 1);
+  assert.equal(fail[0]?.tool, 'find_definition');
 });
 
 test('usage-log: a batch with one failing op is filed as fail, recording every op name', async () => {

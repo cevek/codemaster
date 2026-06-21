@@ -163,7 +163,7 @@ test('serveMcp: an in-flight request blocks idle-exit; it fires after completion
   }, true);
   assert.ok(client);
 
-  const callP = client.callTool({ name: 'op', arguments: { name: 'find_definition' } });
+  const callP = client.callTool({ name: 'find_definition', arguments: {} });
   await flush();
   await flush(); // let the server handler enter()
   clock.advance(5000); // past TTL — must not reap the live call
@@ -186,7 +186,7 @@ test('serveMcp: a THROWING request still releases the in-flight count (finally),
   // The handler catches the throw (returns an error payload) — the point is `finally { leave() }`
   // runs on that path too. Were leave() only on the success return, inFlight would stay >0 and the
   // server could never idle-exit — the orphan would persist (the exact bug Stage 1 fixes).
-  await client.callTool({ name: 'op', arguments: { name: 'find_definition' } });
+  await client.callTool({ name: 'find_definition', arguments: {} });
   await flush();
   clock.advance(1001);
   await flush();

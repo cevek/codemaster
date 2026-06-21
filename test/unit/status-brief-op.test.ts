@@ -30,7 +30,7 @@ test('status {brief}: names + summaries only — no arg schemas, notes, concepts
     assert.ok(!/find_unused_exports \{ pathInclude/.test(brief), 'arg schema dropped');
     assert.ok(!brief.includes('\n    · '), 'per-op notes dropped');
     assert.ok(!brief.includes('\nconcepts:\n'), 'concepts block dropped');
-    assert.ok(!brief.includes('e.g. op {'), 'examples dropped');
+    assert.ok(!brief.includes('e.g. '), 'examples dropped');
 
     // Brief is materially smaller than full (the whole point — a token tax cut).
     assert.ok(brief.length < full.length / 2, 'brief is well under half of full');
@@ -51,7 +51,7 @@ test('status {op:"<name>"}: one op\'s full block on demand; unknown name self-co
     assert.match(one, /find_unused_exports \{ pathInclude\?: string\[\]/, 'arg schema present');
     assert.match(one, /· an export reached only via a barrel/, 'per-op notes present');
     assert.match(one, /columns: name,kind,file/, 'columns present');
-    assert.match(one, /e.g. op \{"name":"find_unused_exports"/, 'example present');
+    assert.match(one, /e.g. find_unused_exports \{/, 'example present (per-op tool form)');
     // ...and ONLY that op — not the rest of the catalogue.
     assert.ok(!one.includes('search_symbol'), 'other ops omitted');
     assert.ok(!one.includes('\nconcepts:\n'), 'concepts omitted in single-op render');

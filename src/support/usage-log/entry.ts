@@ -9,9 +9,9 @@ export interface UsageLogEntry {
   ts: number;
   /** Wall-clock the call took, start→response. */
   durationMs: number;
-  /** Which MCP tool was invoked (`op`/`status`/`batch`, or a verbatim unknown name). */
+  /** Which MCP tool was invoked (an op name / `status` / `batch`, or a verbatim unknown name). */
   tool: string;
-  /** The op name(s) involved: one for `op`, the batch's names for `batch`, empty for `status`. */
+  /** The op name(s) involved: the op name for a per-op call, the batch's names for `batch`, empty for `status`. */
   ops: string[];
   /** True when the call fully succeeded — no dispatch error, no `ToolFailure`, no bad args.
    *  Routes the entry to `success.jsonl` (true) or `fail.jsonl` (false). */

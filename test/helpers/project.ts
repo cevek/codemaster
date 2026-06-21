@@ -11,6 +11,7 @@ import type { Clock } from '../../src/common/async/clock.ts';
 import { createDebugSystem } from '../../src/support/debug/system.ts';
 import { nullWatcher } from '../../src/support/watch/seam.ts';
 import { Orchestrator } from '../../src/daemon/orchestrator.ts';
+import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
 import { createI18nPlugin } from '../../src/plugins/i18n/plugin.ts';
@@ -30,6 +31,9 @@ import { extractText } from '../../src/common/span/extract-text.ts';
 
 export interface TestProject {
   root: string;
+  /** The real workspace orchestrator (the `OrchestratorApi` serveMcp talks to) — exposed so an
+   *  MCP-facade e2e can drive the genuine dispatch path. Per-request `root` targets this fixture. */
+  orchestrator: OrchestratorApi;
   op(name: string, args: JsonValue): Promise<OpResult>;
   /** The rendered `status` reply for this workspace (the per-repo documentation). Pass
    *  `{brief}` / `{op}` to exercise the token-saver renders (spec-agent-surface-ergonomics §1). */
@@ -186,6 +190,7 @@ export async function project(
 
   return {
     root,
+    orchestrator,
     clock,
     git,
     commit,

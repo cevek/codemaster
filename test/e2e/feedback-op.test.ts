@@ -119,14 +119,14 @@ test('args boundary: a normal short title is recorded verbatim', async () => {
 
 test('FAIL trailer points to feedback on a hard FAIL, never on ok or partial', () => {
   const hard = renderResult(fail({ tool: 'ts-ls', message: 'boom' }), 'terse');
-  assert.match(hard, /file it: op\(\{name:'feedback'/, 'hard FAIL nudges feedback');
+  assert.match(hard, /file it: feedback\(\{kind:'bug'/, 'hard FAIL nudges the feedback tool');
 
   const partialOut = renderResult(
     partial({ matches: [] }, { tool: 'ts-ls', message: 'boom' }),
     'terse',
   );
-  assert.doesNotMatch(partialOut, /file it: op/, 'partial is honest success — no nudge');
+  assert.doesNotMatch(partialOut, /file it:/, 'partial is honest success — no nudge');
 
   const okay = renderResult(ok({ matches: [] }), 'terse');
-  assert.doesNotMatch(okay, /file it: op/, 'ok results carry no nudge');
+  assert.doesNotMatch(okay, /file it:/, 'ok results carry no nudge');
 });
