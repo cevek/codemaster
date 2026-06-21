@@ -17,7 +17,11 @@ import type { DaemonInfo } from './registry.ts';
 
 const argsSchema = z.strictObject({
   kind: z.enum(['bug', 'wish', 'friction']),
-  title: z.string().min(1).max(120, { message: 'title ≤ 120 chars — put specifics in detail' }),
+  // No length cap on `title`: a natural one-line title easily exceeds any tight bound, and
+  // rejecting it would lose the round-trip on the very channel meant for low-friction
+  // capture (§1/§3 — be liberal at the boundary, never lose data). `min(1)` still rejects
+  // an empty title (genuinely no signal); the title is recorded verbatim.
+  title: z.string().min(1),
   detail: z
     .string()
     .min(1)
@@ -65,6 +69,7 @@ export const feedbackOp = defineOp({
   notes: [
     'file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.',
     'the daemon attaches timestamp/version/repo/plugins automatically; you supply only kind/title/detail (+ optional example call). Nothing else leaves the machine.',
+    'title has no length limit — write a natural one-line title; it is recorded verbatim. detail is capped at 4000 chars.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const d = ctx.daemon;

@@ -141,6 +141,7 @@ ops (21):
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.
     · the daemon attaches timestamp/version/repo/plugins automatically; you supply only kind/title/detail (+ optional example call). Nothing else leaves the machine.
+    · title has no length limit — write a natural one-line title; it is recorded verbatim. detail is capped at 4000 chars.
     e.g. op {"name":"feedback","args":{"kind":"wish","title":"find_usages should accept a regex name","detail":"wanted to match Use* hooks in one call; had to enumerate names instead."}}
 concepts:
   targets: symbol-addressed ops take {symbolId:"ts:…"} (a SymbolId from a prior answer; alias target) · {name} (a bare name — must be unambiguous; ambiguity returns the candidate list) · {file,line,col} (1-based). symbolId is ONLY a SymbolId, never a bare name (that is name). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.

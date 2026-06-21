@@ -768,10 +768,11 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       `col` should resolve the decl on that line or say col is required (1×). Postel's law on the arg
       boundary; eliminates ~13/18 logged fails. The named-per-op-tool redesign kills classes 1/3/4/6/7
       structurally. `dx`·`med`·`cx:M`
-- [ ] **`feedback` op hard-rejects title > 120 chars (bad_args) → wasted retry** — dogfood: a natural
+- [x] **FIXED — `feedback` op hard-rejects title > 120 chars (bad_args) → wasted retry** — dogfood: a natural
       one-line title easily exceeds 120; the op `bad_args`-rejects, costing a round-trip on the very
-      channel meant for low-friction capture. Auto-truncate to 120 (ellipsis + fold overflow into
-      detail) and record, or raise the cap — don't hard-fail. `dx`·`low`·`cx:S`
+      channel meant for low-friction capture. FIX: `src/ops/feedback.ts` removed the 120-char `title` cap
+      entirely — `title` is now `z.string().min(1)` (non-empty only) and recorded verbatim, no truncation.
+      `dx`·`low`·`cx:S`
 
 ---
 

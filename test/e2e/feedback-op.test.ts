@@ -82,12 +82,36 @@ test('an unwritable inbox returns a ToolFailure, daemon stays up', async () => {
   }
 });
 
-test('args boundary: oversize title is rejected with a pointed message', async () => {
+test('args boundary: a long title (200+ chars) is accepted and recorded VERBATIM — no cap, no truncation', async () => {
+  // The 120-char cap was removed (§1/§3 — be liberal at the boundary, never lose the
+  // round-trip on the low-friction capture channel). A natural long title must record
+  // as-is. Oracle = read the inbox back and find the exact title, untruncated/unmarked.
   const p = await project({ 'tsconfig.json': TSCONFIG, 'src/a.ts': 'export const a = 1;\n' });
   try {
-    const r = await p.op('feedback', { kind: 'wish', title: 'x'.repeat(121), detail: 'd' });
-    assert.ok('error' in r && r.error.kind === 'bad_args');
-    assert.match(r.error.message, /title ≤ 120 chars/);
+    const title = 'A'.repeat(150) + 'B'.repeat(50); // 200 chars — well over the old cap
+    const r = await p.op('feedback', { kind: 'bug', title, detail: 'plain detail' });
+    // The whole point of the fix: it succeeds rather than failing with bad_args.
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const at = (r.result.data as { at: string }).at;
+    const inbox = readFileSync(at, 'utf8');
+    // The full 200-char title appears verbatim in the heading — not truncated.
+    assert.ok(inbox.includes(`## [bug] ${title} — `), 'long title recorded verbatim');
+    assert.doesNotMatch(inbox, /…/, 'no ellipsis/truncation marker');
+    assert.doesNotMatch(inbox, /\[title overflow\]/, 'no overflow fold');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('args boundary: a normal short title is recorded verbatim', async () => {
+  const p = await project({ 'tsconfig.json': TSCONFIG, 'src/a.ts': 'export const a = 1;\n' });
+  try {
+    const title = 'a normal short title';
+    const r = await p.op('feedback', { kind: 'wish', title, detail: 'plain detail' });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const at = (r.result.data as { at: string }).at;
+    const inbox = readFileSync(at, 'utf8');
+    assert.match(inbox, /## \[wish\] a normal short title — /, 'short title recorded verbatim');
   } finally {
     await p.dispose();
   }
