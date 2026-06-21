@@ -114,3 +114,35 @@ test('daemon CLI: status → start → status → stop → status → restart ov
     rmSync(sockDir, { recursive: true, force: true });
   }
 });
+
+// Real-spawn convergence (the socket-path env-independence fix, §2): two subprocesses with the SAME
+// base dir but DIFFERENT TMPDIR must meet on ONE socket — i.e. the base wins, TMPDIR never factors
+// into the path end-to-end. The deterministic env-independence of the *default* (no seam) is pinned
+// by the unit test; this is the live spawn/bind/find/stop proof on an isolated path that never
+// touches the user's real ~/.codemaster/run (the seam keeps it isolated). A daemon `start` under one
+// TMPDIR, then `status` under another, must report the SAME running pid.
+test('daemon CLI: a differing TMPDIR does not split the socket — start/status converge', async () => {
+  const sockDir = mkdtempSync(path.join(tmpdir(), 'cm-conv-'));
+  const base = { CODEMASTER_SOCK_DIR: sockDir, CODEMASTER_MCP_IDLE_MS: '20000' };
+  const envStart = cleanEnv({ ...base, TMPDIR: '/tmp' });
+  const envQuery = cleanEnv({ ...base, TMPDIR: '/var/folders/zz/codemaster-divergent/T' });
+  try {
+    const start = await runVerb('start', envStart);
+    assert.equal(start.code, 0, start.out);
+    assert.match(start.out, /daemon started \(pid=\d+\)/, 'start under TMPDIR=/tmp');
+    const startedPid = /pid=(\d+)/.exec(start.out)?.[1];
+
+    const seen = await runVerb('status', envQuery);
+    assert.equal(seen.code, 0, seen.out);
+    assert.match(seen.out, /daemon running pid=\d+/, 'a different TMPDIR still finds the daemon');
+    assert.equal(
+      /pid=(\d+)/.exec(seen.out)?.[1],
+      startedPid,
+      'same socket → same pid, despite the divergent TMPDIR',
+    );
+  } finally {
+    await runVerb('stop', envStart).catch(() => undefined);
+    await waitFor(() => socketGone(sockDir), 5000);
+    rmSync(sockDir, { recursive: true, force: true });
+  }
+});

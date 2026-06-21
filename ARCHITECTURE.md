@@ -1186,11 +1186,13 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   daemon is recovered by the next bridge (unlink + rebind), never a hang. If the daemon can't be
   reached within the budget the bridge falls back to in-process serving (worst case: Stage-1
   behavior). (§2)
-- **IPC endpoint portability.** Socket at a short, hashed path (a long `$HOME` or macOS
-  `/var/folders` `os.tmpdir()` can blow `sun_path`'s ~104/108-byte limit) with a length
-  assertion at bind, and created user-only (0600). A `Transport` seam (mirroring `ProjectHost`,
-  built in `support/transport/`) carries the unix-socket impl now; a Windows named-pipe impl
-  drops in behind it later. (§2, §18)
+- **IPC endpoint portability.** Socket at a short, hashed path under an **env-independent** base
+  dir (`os.userInfo().homedir/.codemaster/run` — the passwd home, never `$HOME`/`XDG_RUNTIME_DIR`/
+  `$TMPDIR`, so the stripped-env bridge and a normal-shell management verb compute the SAME path and
+  the singleton can't split), with a length assertion at bind (a very long home can still blow
+  `sun_path`'s ~104/108-byte limit → honest throw) and created user-only (0600). A `Transport` seam
+  (mirroring `ProjectHost`, built in `support/transport/`) carries the unix-socket impl now; a
+  Windows named-pipe impl drops in behind it later. (§2, §18)
 - **`process`-mode child bootstrap.** Specify the child entry script and how it loads the
   engine when codemaster is global / `npx` (its `__dirname` is not in the project); how
   the `ts` plugin resolves the **project's own TS** (resolve-from-project-root, passed as

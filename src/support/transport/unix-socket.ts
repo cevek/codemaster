@@ -5,6 +5,7 @@
 
 import * as net from 'node:net';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { JsonValue } from '../../core/json.ts';
 import type { Transport, TransportConnection, TransportServer } from './seam.ts';
 import { createLineDecoder, encodeLine } from './ndjson.ts';
@@ -77,6 +78,11 @@ function listen(socketPath: string): Promise<TransportServer> {
   return new Promise<TransportServer>((resolve, reject) => {
     try {
       assertSocketPathLength(socketPath); // §19 — honest throw, never a cryptic bind failure
+      // The env-independent socket dir (`~/.codemaster/run`, socket-path.ts) may not exist yet on a
+      // first daemon spawn — create it (owner-only) before bind. Wrapped so an mkdir failure is an
+      // honest reject, never an uncaught crash (§3.6). connect() needs no mkdir: a missing dir →
+      // ENOENT → the bridge's spawn path, which lands here.
+      fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
     } catch (thrown) {
       reject(thrown instanceof Error ? thrown : new Error(String(thrown)));
       return;

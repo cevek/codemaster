@@ -28,18 +28,15 @@ don't vanish.
 
 ### HIGH
 
-- [ ] **daemon socket path diverges under stripped env → `restart` misses the bridge's daemon**
-      — `src/support/transport/socket-path.ts:20-22`. `base = XDG_RUNTIME_DIR ?? os.tmpdir()`
-      and the filename is `cm-<fnv1a64(username+version)>.sock` — the **base dir is NOT in the
-      hash**. An MCP bridge launched with a stripped env falls to `os.tmpdir()` = `/tmp`; a
-      `codemaster daemon restart` from a normal shell resolves `$TMPDIR` (macOS
-      `/var/folders/.../T`). Same filename, **different directory → two different socket files**.
-      `restart`/`status` probe the shell-env socket, get ENOENT, print "no daemon running", and
-      spawn a SECOND daemon while the bridge keeps serving the FIRST (stale) one — two warm LS's,
-      singleton (§2) + memory amortization (§9) broken. CONFIRMED on this box ($TMPDIR ≠ /tmp);
-      reproduces the 2026-06-20 feedback exactly. Fix: anchor the base dir to a stable
-      env-independent location (e.g. `~/.codemaster/run/`, as the per-repo debug log already does)
-      so bridge + all management verbs agree. `bug`·`high`·`cx:S`
+- [x] **daemon socket path diverges under stripped env → `restart` misses the bridge's daemon**
+      — FIXED. `socketPath()` now anchors the base dir to the env-independent passwd home
+      (`os.userInfo().homedir/.codemaster/run` — `$HOME`/`XDG_RUNTIME_DIR`/`$TMPDIR` no longer
+      consulted in the default), so the stripped-env bridge and a normal-shell management verb
+      compute the SAME socket. The dir is `mkdir`'d (0700) before bind. The `CODEMASTER_SOCK_DIR`
+      env stays strictly as the test-isolation seam (the only way to carry an isolated base across a
+      real spawn boundary); no production caller sets it. Covered by a discriminating unit
+      (env-independence, RED on the old default) + the real-spawn `daemon-cli-smoke` convergence
+      step. `bug`·`high`·`cx:S`
 - [ ] **`tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
       — `src/plugins/ts/program/single.ts:166-175` (`reindex` sets `structural` only via
       `isTsLike`, which excludes `.json` at `:249`) → `loadFileList()` never re-runs on a tsconfig

@@ -15,6 +15,32 @@ test('socketPath: a version bump yields a different socket (old daemon idle-exit
   assert.notEqual(socketPath('0.1.0', '/tmp/rt'), socketPath('0.2.0', '/tmp/rt'));
 });
 
+// The headline honesty guarantee (§2 daemon-singleton): the default path (no baseDir) must NOT
+// depend on env, or the stripped-env MCP bridge and a normal-shell management verb would compute
+// different sockets and split the singleton. Discriminating: RED on the old `XDG_RUNTIME_DIR ??
+// os.tmpdir()` default, GREEN once the base is derived from the passwd home.
+test('socketPath: the default path is ENV-INDEPENDENT (ignores TMPDIR / XDG_RUNTIME_DIR)', () => {
+  const saved = { TMPDIR: process.env['TMPDIR'], XDG: process.env['XDG_RUNTIME_DIR'] };
+  try {
+    process.env['TMPDIR'] = '/tmp';
+    delete process.env['XDG_RUNTIME_DIR'];
+    const stripped = socketPath('9.9.9'); // mimics the bridge: no TMPDIR-derived base, no XDG
+
+    process.env['TMPDIR'] = '/var/folders/ab/cdEFghIjKl/T';
+    process.env['XDG_RUNTIME_DIR'] = '/run/user/1000';
+    const shell = socketPath('9.9.9'); // mimics a normal shell: TMPDIR + XDG both present
+
+    assert.equal(stripped, shell, 'bridge and management-verb sockets must be identical');
+    // A normal passwd home keeps the default path well under the sun_path cap (≈52 bytes here).
+    assert.doesNotThrow(() => assertSocketPathLength(stripped), 'default path fits sun_path');
+  } finally {
+    if (saved.TMPDIR === undefined) delete process.env['TMPDIR'];
+    else process.env['TMPDIR'] = saved.TMPDIR;
+    if (saved.XDG === undefined) delete process.env['XDG_RUNTIME_DIR'];
+    else process.env['XDG_RUNTIME_DIR'] = saved.XDG;
+  }
+});
+
 test('assertSocketPathLength: passes a short path, throws an honest error on an over-long one', () => {
   assert.doesNotThrow(() => assertSocketPathLength('/tmp/rt/cm-0123456789abcdef.sock'));
   const tooLong = '/' + 'x'.repeat(120) + '.sock';
