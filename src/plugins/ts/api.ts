@@ -156,8 +156,14 @@ export interface TsPluginApi extends Plugin {
     overlay?: PlanningOverlay,
   ): Promise<RefactorPlan | string>;
   /** Plan moving the top-level symbol at `target` into the EXISTING file `dest` (§7) — the dest's
-   *  imports/exports are merged, every importer rewritten. A message on a bad target / dest. */
-  planMoveSymbol(target: TsTargetInput, dest: RepoRelPath): Promise<RefactorPlan | string>;
+   *  imports/exports are merged, every importer rewritten. A message on a bad target / dest.
+   *  `overlay` (a `transaction` step ≥2's cumulative prior-step state) plans against prior steps'
+   *  edits, never pre-transaction disk; absent for the standalone op (plans against disk). */
+  planMoveSymbol(
+    target: TsTargetInput,
+    dest: RepoRelPath,
+    overlay?: PlanningOverlay,
+  ): Promise<RefactorPlan | string>;
   /** Plan a parameter remove/reorder on the function at `target`, applied to the declaration
    *  and every call site (§7). A message on a bad target / invalid change. */
   planChangeSignature(

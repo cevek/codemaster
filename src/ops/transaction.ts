@@ -49,7 +49,7 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
     },
   },
   notes: [
-    `steps are applied IN ORDER: step i+1 plans against step i's post-edit overlay (use the post-rename/move NAMES and PATHS in later steps). Supported step kinds: ${SUPPORTED_STEP_KINDS.join(', ')} (move_symbol / codemod / css co-extract are not yet transaction steps).`,
+    `steps are applied IN ORDER: step i+1 plans against step i's post-edit overlay (use the post-rename/move NAMES and PATHS in later steps). Supported step kinds: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are not yet transaction steps).`,
     'ONE §2.8 typecheck gates the cumulative result and the union of touched files is dirty-gated ONCE. dry-run (default) previews the cumulative diff + final verdict without writing; diff(dry-run) == diff(apply).',
     'all-or-nothing: if a step cannot be planned the op refuses naming the step index and writes NOTHING; if the final gate is unclean or ANY step CAPTURES (a type-compatible silent re-bind), the WHOLE sequence rolls back byte-exact (apply) or is refused (dry-run). summaryOnly:true returns the verdict + ONE merged `touched` list (each file with its +added/-removed line counts; a moved-away/deleted source marked `(removed)`) instead of the full diff.',
     'cross-program LIMIT: a step’s WRITE-site fan-out is restricted to the PRIMARY program (a planning overlay is active, so a sibling LS would read stale disk) — a step rewrites primary-program reference/call sites only. The CUMULATIVE §2.8 gate STILL fans across every affected program (including the program that owns a move/extract DEST), so a cross-program dangle a step left un-rewritten is caught and rolls the whole transaction back; only a type-COMPATIBLE cross-program re-bind (capture) is missed, as for the standalone ops.',
@@ -71,7 +71,7 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
       if (planner === undefined) {
         return fail({
           tool: 'transaction',
-          message: `step ${i} '${step.name}' is not a supported transaction step — supported: ${SUPPORTED_STEP_KINDS.join(', ')} (move_symbol / codemod / css co-extract are follow-ups). Nothing written.`,
+          message: `step ${i} '${step.name}' is not a supported transaction step — supported: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are follow-ups). Nothing written.`,
         });
       }
       const parsed = planner.schema.safeParse(step.args);

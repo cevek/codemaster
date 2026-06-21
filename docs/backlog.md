@@ -343,7 +343,9 @@ new external-tool call wrapped → `ToolFailure` · docs at present state · dep
 
 - [ ] **E-g residual — in-transaction REVERSE import-capture is not overlay-aware** — the FORWARD
       pass now seeds its resolver from the cumulative prior-step overlay (`PriorStepState` via
-      `mergedFileSet`), closing the headline trust-gap. The REVERSE pass (`detectReverseImportCaptures`)
+      `mergedFileSet`), closing the headline trust-gap — for `extract_symbol`/`move_file`
+      (`assemblePlan`) AND `move_symbol` (its LS-driven `detectMoveSymbolCaptures` forward path,
+      seeded with the same `PriorStepState`). The REVERSE pass (`detectReverseImportCaptures`)
       stays symmetric on this-step content + pre-transaction disk (both its POST and PRE resolutions),
       so a reverse shadow that only manifests through a PRIOR step's move is under-detected. Left
       deliberately: E-g is forward-only, an overlay-aware reverse has no red→green yet, and the §7-safe

@@ -2,6 +2,7 @@
 // the transaction planning-overlay helpers. Both close over the plugin's `warm()` (and `root`),
 // so they are created once per plugin instance — pure construction, no behavior change.
 
+import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import type { TsProjectHost } from './ls-host.ts';
@@ -80,27 +81,47 @@ export interface PlanningHelpers {
   /** Build the move-tree from the overlay's listing (prior moves/new files baked in) or, with no
    *  overlay, from git (the standalone path). */
   planTree(overlay: PlanningOverlay | undefined): Promise<{ tree: VFSTree } | { error: string }>;
+  /** The shared prologue of every overlay-aware plan method (planMove / planExtract / planMoveSymbol
+   *  / planChangeSignature): warm the host, build the plan tree (overlay or disk), snapshot the
+   *  primary compiler options, then run `body` under the overlay shadow. Returns the tree-load error
+   *  verbatim; otherwise `body`'s result. Factored out so the four methods can't drift on the
+   *  load/overlay handshake (and to keep plugin.ts under the line cap). */
+  planUnderOverlay<T>(
+    overlay: PlanningOverlay | undefined,
+    body: (h: TsProjectHost, tree: VFSTree, options: ts.CompilerOptions) => T,
+  ): Promise<T | string>;
 }
 
 export function createPlanningHelpers(warm: () => TsProjectHost, root: string): PlanningHelpers {
+  const runWithOverlay = <T>(overlay: PlanningOverlay | undefined, fn: () => T): T => {
+    if (overlay === undefined) return fn();
+    const h = warm();
+    h.setOverlay(
+      overlay.files.map((f) => ({ abs: h.absOf(f.path as RepoRelPath), content: f.content })),
+      overlay.removed,
+    );
+    try {
+      return fn();
+    } finally {
+      h.clearOverlay();
+    }
+  };
+  const planTree = async (
+    overlay: PlanningOverlay | undefined,
+  ): Promise<{ tree: VFSTree } | { error: string }> => {
+    if (overlay !== undefined) return { tree: buildTree(overlay.listing) };
+    const t = await loadTreeFromGit(root);
+    return isOk(t) ? { tree: t.data } : { error: t.failure.message };
+  };
   return {
-    runWithOverlay(overlay, fn) {
-      if (overlay === undefined) return fn();
+    runWithOverlay,
+    planTree,
+    async planUnderOverlay(overlay, body) {
       const h = warm();
-      h.setOverlay(
-        overlay.files.map((f) => ({ abs: h.absOf(f.path as RepoRelPath), content: f.content })),
-        overlay.removed,
-      );
-      try {
-        return fn();
-      } finally {
-        h.clearOverlay();
-      }
-    },
-    async planTree(overlay) {
-      if (overlay !== undefined) return { tree: buildTree(overlay.listing) };
-      const t = await loadTreeFromGit(root);
-      return isOk(t) ? { tree: t.data } : { error: t.failure.message };
+      const t = await planTree(overlay);
+      if ('error' in t) return t.error;
+      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+      return runWithOverlay(overlay, () => body(h, t.tree, options));
     },
   };
 }

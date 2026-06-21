@@ -37,13 +37,56 @@ test('applyEdits: hand-computed splices, order-independent', () => {
 });
 
 test('applyEdits: coincident delete+insert pair is allowed and deterministic', () => {
-  // The LS "rename" shape: delete [2,5) and insert at [2,2). Larger end applies first.
+  // The LS "rename" shape: delete [3,5) and insert at [3,3); the insert text lands where the
+  // deleted span was. With an empty delete this is order-insensitive — the next test pins the
+  // insert-text-before-delete-text ordering against a NON-empty delete.
   const pair: TextEdit[] = [
     { start: 3, end: 5, text: '' }, // delete "cd"
     { start: 3, end: 3, text: 'XY' }, // insert before
   ];
   assert.equal(findConflict(pair), null); // a zero-length side → allowed
   assert.equal(applyEdits('ab cd ef', pair), 'ab XY ef');
+});
+
+test('applyEdits: coincident insert+delete keeps insert-text BEFORE delete-text', () => {
+  // A NON-empty delete at the same anchor as an insert — the contract is insert-text then
+  // delete-text (the single-pass preserves what the prior mutate-and-reslice produced).
+  const pair: TextEdit[] = [
+    { start: 3, end: 5, text: 'DEL' }, // replace "cd" → DEL
+    { start: 3, end: 3, text: 'INS' }, // insert at the same start
+  ];
+  assert.equal(findConflict(pair), null);
+  assert.equal(applyEdits('ab cd ef', pair), 'ab INSDEL ef');
+});
+
+test('applyEdits: N coincident zero-length inserts at ONE offset apply in array order (import-merge shape)', () => {
+  // The exact shape the TS "Move to file" refactor emits when merging names into an existing
+  // multi-line import: several zero-length inserts at the SAME offset, meant to apply in array
+  // order. The prior mutate-and-reslice loop interleaved them — producing the field-reported
+  // `,,` / missing-comma. Hand-computed oracle: 'a' + ',X,Y' + 'b'. A reslice loop yields
+  // 'aY,X,b' (wrong), so this discriminates the fix.
+  const inserts: TextEdit[] = [
+    { start: 1, end: 1, text: ',' },
+    { start: 1, end: 1, text: 'X' },
+    { start: 1, end: 1, text: ',' },
+    { start: 1, end: 1, text: 'Y' },
+  ];
+  assert.equal(findConflict(inserts), null); // all zero-length → coincident-allowed
+  assert.equal(applyEdits('ab', inserts), 'a,X,Yb');
+});
+
+test('applyEdits: a MIXED batch of coincident + disjoint edits in one call (equivalence lock)', () => {
+  // Disjoint edits must behave exactly as before (the fix only changes coincident handling). One
+  // call mixing a replace at [0,1), two coincident inserts at 2, and a replace at [3,4) — passed
+  // out of order. Hand-computed: A→a, X then Y between B and C, D→d ⇒ 'aBXYCd'.
+  const mixed: TextEdit[] = [
+    { start: 3, end: 4, text: 'd' },
+    { start: 2, end: 2, text: 'X' },
+    { start: 0, end: 1, text: 'a' },
+    { start: 2, end: 2, text: 'Y' },
+  ];
+  assert.equal(findConflict(mixed), null);
+  assert.equal(applyEdits('ABCD', mixed), 'aBXYCd');
 });
 
 test('findConflict: two NON-empty edits sharing a start conflict (no silent clobber)', () => {

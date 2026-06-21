@@ -4,9 +4,10 @@
 // standalone op and the transaction step go through the identical plugin plan method + `targetOf`
 // mapping — no parallel arg-handling to drift (spec §factor-out-the-seam).
 //
-// SCOPE: rename / move / extract / change_signature — the four that produce a plan through the
-// overlay-aware plugin methods. `codemod` (reads disk directly + detects captures against the
-// disk-LS) and CSS co-extract (an op-level scss join) are deferred follow-ups (docs/backlog.md).
+// SCOPE: rename / move_file / extract / move_symbol / change_signature — the ones that produce a
+// plan through the overlay-aware plugin methods. `codemod` (reads disk directly + detects captures
+// against the disk-LS) and CSS co-extract (an op-level scss join) are deferred follow-ups
+// (docs/backlog.md).
 
 import type { z } from 'zod';
 import type { RepoRelPath } from '../core/brands.ts';
@@ -17,6 +18,7 @@ import { targetOf } from './ts-target.ts';
 import { renameSymbolOp } from './rename-symbol.ts';
 import { moveFileOp } from './move-file.ts';
 import { extractSymbolOp } from './extract-symbol.ts';
+import { moveSymbolOp } from './move-symbol.ts';
 import { changeSignatureOp } from './change-signature.ts';
 
 export interface StepPlanner {
@@ -110,6 +112,15 @@ function planExtractStep(
   return tsApi(ctx).planExtract(targetOf(a), a.dest as RepoRelPath, { css: false }, overlay);
 }
 
+function planMoveSymbolStep(
+  ctx: OpContext,
+  args: unknown,
+  overlay: PlanningOverlay | undefined,
+): Promise<RefactorPlan | string> {
+  const a = args as TargetArgs & { dest: string };
+  return tsApi(ctx).planMoveSymbol(targetOf(a), a.dest as RepoRelPath, overlay);
+}
+
 function planChangeSignatureStep(
   ctx: OpContext,
   args: unknown,
@@ -131,6 +142,7 @@ export const STEP_PLANNERS: Readonly<Record<string, StepPlanner>> = {
   [renameSymbolOp.name]: { schema: renameSymbolOp.argsSchema, plan: planRename },
   [moveFileOp.name]: { schema: moveFileOp.argsSchema, plan: planMoveStep },
   [extractSymbolOp.name]: { schema: extractSymbolOp.argsSchema, plan: planExtractStep },
+  [moveSymbolOp.name]: { schema: moveSymbolOp.argsSchema, plan: planMoveSymbolStep },
   [changeSignatureOp.name]: { schema: changeSignatureOp.argsSchema, plan: planChangeSignatureStep },
 };
 

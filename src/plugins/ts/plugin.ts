@@ -25,8 +25,6 @@ import { planExtractTo } from './refactor/extract/move-to-file.ts';
 import { planMoveSymbolTo } from './refactor/extract/move-to-existing.ts';
 import { rewriteExtractedCss } from './refactor/extract/css-usage.ts';
 import { planChangeSignature } from './refactor/change-signature/plan.ts';
-import { loadTreeFromGit } from './refactor/tree/build.ts';
-import { isOk } from '../../common/result/narrow.ts';
 import {
   resolveTarget,
   resolveAllByName,
@@ -35,6 +33,7 @@ import {
 } from './resolve-target.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createScanMemos, createPlanningHelpers } from './plugin-helpers.ts';
+import type { RefactorPlan } from './refactor/plan.ts';
 import type { TsPluginApi } from './api.ts';
 
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
@@ -81,7 +80,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
   // Per-instance bookkeeping (the `literalCalls` memo + transaction planning-overlay helpers) lives
   // in plugin-helpers.ts to keep this file under the line cap. The memo MUST be cleared on dispose.
   const memos = createScanMemos(warm);
-  const { runWithOverlay, planTree } = createPlanningHelpers(warm, root);
+  const { runWithOverlay, planUnderOverlay } = createPlanningHelpers(warm, root);
 
   return {
     id: 'ts',
@@ -234,74 +233,37 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       }
     },
 
-    async planMove(source, dest, overlay) {
-      const h = warm();
-      const t = await planTree(overlay);
-      if ('error' in t) return t.error;
-      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      return runWithOverlay(overlay, () => planMove(h, t.tree, options, source, dest, overlay));
+    planMove(source, dest, overlay) {
+      return planUnderOverlay(overlay, (h, tree, options) =>
+        planMove(h, tree, options, source, dest, overlay),
+      );
     },
 
-    async planExtract(target, dest, opts, overlay) {
-      const h = warm();
-      const t = await planTree(overlay);
-      if ('error' in t) return t.error;
-      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
+    planExtract(target, dest, opts, overlay) {
       const css = opts?.css ?? false;
-      return runWithOverlay(overlay, () => {
-        const resolved = resolve(target);
-        if (!resolved.ok) return resolved.message;
-        const plan = planExtractTo(
-          h,
-          t.tree,
-          options,
-          resolved.abs,
-          resolved.offset,
-          dest,
-          css,
-          overlay,
-        );
-        if (typeof plan !== 'string' && resolved.rebind !== undefined)
-          plan.rebind = resolved.rebind;
-        return plan;
-      });
+      return planUnderOverlay(overlay, (h, tree, options) =>
+        withRebind(resolve(target), (r) =>
+          planExtractTo(h, tree, options, r.abs, r.offset, dest, css, overlay),
+        ),
+      );
     },
 
-    async planMoveSymbol(target, dest) {
-      const h = warm();
-      const resolved = resolve(target);
-      if (!resolved.ok) return resolved.message;
-      const tree = await loadTreeFromGit(root);
-      if (!isOk(tree)) return tree.failure.message;
-      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      const plan = planMoveSymbolTo(h, tree.data, options, resolved.abs, resolved.offset, dest);
-      if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
-      return plan;
+    planMoveSymbol(target, dest, overlay) {
+      return planUnderOverlay(overlay, (h, tree, options) =>
+        withRebind(resolve(target), (r) =>
+          planMoveSymbolTo(h, tree, options, r.abs, r.offset, dest, overlay),
+        ),
+      );
     },
 
-    async planChangeSignature(target, change, overlay) {
-      const h = warm();
-      const t = await planTree(overlay);
-      if ('error' in t) return t.error;
-      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      return runWithOverlay(overlay, () => {
-        const resolved = resolve(target);
-        if (!resolved.ok) return resolved.message;
-        // Fan call-site search across programs only off the transaction path (overlay present →
-        // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
-        const plan = planChangeSignature(
-          h,
-          t.tree,
-          options,
-          resolved.abs,
-          resolved.offset,
-          change,
-          overlay === undefined,
-        );
-        if (typeof plan !== 'string' && resolved.rebind !== undefined)
-          plan.rebind = resolved.rebind;
-        return plan;
-      });
+    planChangeSignature(target, change, overlay) {
+      return planUnderOverlay(overlay, (h, tree, options) =>
+        withRebind(resolve(target), (r) =>
+          // Fan call-site search across programs only off the transaction path (overlay present →
+          // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
+          planChangeSignature(h, tree, options, r.abs, r.offset, change, overlay === undefined),
+        ),
+      );
     },
 
     diagnostics(paths) {
@@ -369,4 +331,17 @@ function missOf(resolved: { message: string; rebind?: HandleRebind }): Unresolve
   return resolved.rebind !== undefined
     ? { unresolved: resolved.message, rebind: resolved.rebind }
     : resolved.message;
+}
+
+/** Resolve→plan→attach-rebind: the shared shape of every symbol-anchored plan method. On a failed
+ *  resolve, the message; otherwise `body`'s plan with the §6 rebind stamped on (when the held handle
+ *  moved). Keeps the four overlay-aware plan methods to one expression each. */
+function withRebind(
+  resolved: ResolvedTarget,
+  body: (r: { abs: string; offset: number }) => RefactorPlan | string,
+): RefactorPlan | string {
+  if (!resolved.ok) return resolved.message;
+  const plan = body(resolved);
+  if (typeof plan !== 'string' && resolved.rebind !== undefined) plan.rebind = resolved.rebind;
+  return plan;
 }

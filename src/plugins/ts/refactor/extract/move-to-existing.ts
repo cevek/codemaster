@@ -18,7 +18,7 @@ import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
-import type { RefactorPlan } from '../plan.ts';
+import type { RefactorPlan, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
@@ -99,6 +99,10 @@ export function planMoveSymbolTo(
   sourceAbs: string,
   offset: number,
   destArg: RepoRelPath,
+  // The cumulative prior-step overlay when this is a `transaction` step ≥2 — forwarded (as
+  // `assemblePlan`'s overlay + the capture gate's prior state) so the import-capture re-resolves
+  // against prior moves/edits, not pre-transaction disk (E-g, parity with planExtractTo).
+  overlay?: PlanningOverlay,
 ): RefactorPlan | string {
   const program = host.service.getProgram();
   const sf = program?.getSourceFile(sourceAbs);
@@ -191,13 +195,21 @@ export function planMoveSymbolTo(
     node.setContent(applyTsChanges(base, fc.textChanges));
   }
 
-  const plan = assemblePlan(host, tree, options);
+  const plan = assemblePlan(host, tree, options, overlay);
   if (typeof plan === 'string') return plan;
   if (rescued) plan.rescued = true;
   // The importer rewrites here are LS-driven (not `rewriteImports`), so `assemblePlan` recorded no
   // capture metadata. Reconstruct it from the post-edit importers of the moved symbol and run the
   // shared path-capture gate (§7 capture-safety) so a same-named, type-compatible export at the
-  // dest path is caught, not waved through.
-  plan.captures = detectMoveSymbolCaptures(host, options, plan, destArg, movedName);
+  // dest path is caught, not waved through. `overlay` (its prior-step files/removed) seeds the
+  // resolver so a step ≥2 re-resolves against prior moves, not pre-transaction disk (E-g).
+  plan.captures = detectMoveSymbolCaptures(
+    host,
+    options,
+    plan,
+    destArg,
+    movedName,
+    overlay !== undefined ? { files: overlay.files, removed: overlay.removed } : undefined,
+  );
   return plan;
 }

@@ -15,7 +15,7 @@ import ts from 'typescript';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { RepoRelPath } from '../../../../core/brands.ts';
 import type { RefactorPlan } from '../plan.ts';
-import { detectImportCaptures, type RewrittenImport } from './imports.ts';
+import { detectImportCaptures, type PriorStepState, type RewrittenImport } from './imports.ts';
 import type { Capture } from './types.ts';
 
 /** The module specifier string-literal of an import/export/dynamic-import node, if any. */
@@ -135,13 +135,22 @@ export function detectMoveSymbolCaptures(
   plan: RefactorPlan,
   destArg: RepoRelPath,
   movedName: string | undefined,
+  // Cumulative prior-step state when this move is a `transaction` step ≥2 — seeds the resolver so a
+  // rewritten specifier re-resolves against prior moves/edits, not pre-transaction disk (E-g, parity
+  // with `assemblePlan`'s forward-capture). Absent for the standalone op.
+  prior?: PriorStepState,
 ): Capture[] {
   // No single moved name (unnamed/multi-binding statement) → no name-anchored reconstruction; the
   // §2.8 typecheck remains the backstop. Never fabricate a capture we can't prove (§3).
   if (movedName === undefined) return [];
   const destAbs = host.absOf(destArg);
   const rewrites = reconstructRewrites(host, plan, destAbs, movedName);
-  return detectImportCaptures(options, rewrites, plan.overlayFiles, plan.removed, (rel) =>
-    host.absOf(rel),
+  return detectImportCaptures(
+    options,
+    rewrites,
+    plan.overlayFiles,
+    plan.removed,
+    (rel) => host.absOf(rel),
+    prior,
   );
 }
