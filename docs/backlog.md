@@ -399,6 +399,21 @@ don't vanish.
 - [ ] **move_symbol: specifier style is LS-chosen, not alias-preserving** — importer specifiers come
       out relative (`@/source` → `./dest`) instead of re-forming the path alias. Cold compile proves
       correctness; purely diff-noise. Close by post-processing through `emitSpecifier`. `dx`·`low`·`cx:M`
+- [ ] **move/extract detaches a symbol's leading JSDoc (blank line inserted before the decl)** —
+      dogfood (amiro, 2026-06-21): after `extract_symbol`/`move_symbol` of a top-level symbol with a
+      leading JSDoc/doc comment, the relocated symbol in dest ends up with a BLANK LINE between the
+      JSDoc block and its `export function …`, detaching the doc from what it documents (visually + for
+      tooling that requires adjacency). Typecheck-clean (it's a comment) → the §2.8 gate never catches
+      it → silent degradation of the moved code, requiring manual re-attachment. Bites the dominant
+      file-split workflow (the exact extract+move_symbol chain the transaction step now enables). Likely
+      in the moved-block text assembly (`refactor/extract/statements.ts`) — the leading-trivia /
+      blank-line handling around the relocated declaration. `bug`·`high`·`cx:M`
+- [ ] **move/extract emit duplicate import lines from the SAME module in dest** — dogfood (amiro,
+      2026-06-21): the generated dest imports can contain several separate statements from one module
+      (e.g. multiple `@tanstack/react-query` lines) instead of one merged specifier list. Typecheck
+      passes; forces manual tidy. Distinct from the malformed-merge bug already fixed (that was `,,`
+      INTO an existing line) — this is failing to MERGE into one statement at all. Close by folding
+      same-module specifiers in the dest import assembly. `bug`·`med`·`cx:M`
 - [ ] **move/extract/move_symbol: capture `line:col` over UNFORMATTED LS output** — the proof
       coordinate is computed on raw LS edits, but the agent sees the prettier-formatted diff → on a
       real capture the `file:line:col` can point at a reflowed line. Detail string still names the
@@ -724,11 +739,25 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       to load config from `cwd`, not the resolved `--root`, so on a cross-dir CLI run i18n reads
       inactive and scss reads the wrong root (MCP per-request `root` is fine). Dogfood friction; the CLI
       self-dev loop is misleading on a non-cwd repo. `bug`·`med`·`cx:M`
-- [ ] **self-staleness banner missed after `daemon restart` (uncertain)** — after editing `src` +
-      `codemaster daemon restart` ('no daemon running' → started), an MCP call still returned pre-edit
-      output WITHOUT the `!! daemon code behind source` banner (§3.6/§11); fresh CLI was current.
-      Possibly the bridge was attached to a different socket/daemon than the restart targeted — a
-      potential honesty gap in the restart→bridge convergence. Investigate. `bug`·`med`·`cx:M`
+- [ ] **self-staleness banner missed after `daemon restart`** — ROOT CAUSE NOW KNOWN (see the
+      2026-06-21 bug-sweep HIGH items above): the "no daemon running" + stale-serving combo is the
+      **socket-path env-divergence** (bridge in `/tmp`, restart in `$TMPDIR` → different sockets) PLUS
+      the **one-shot staleness banner** (op/batch re-warns only once). The socket half is being fixed on
+      branch `socket-path-fix`; the banner half awaits the per-op-staleness adjudication. `bug`·`med`·`cx:M`
+- [ ] **arg-shape too strict — accept synonyms / coerce scalar→array / accept top-level flags in args**
+      — dogfood (amiro, 2026-06-21, from `~/.codemaster/usage/fail.jsonl`: ~13/18 fails are pure
+      arg-shape/naming mismatches). Frequency-ranked: `symbol`→alias for `name` (find_usages, 3×);
+      `path`/`file`→alias for `module` (importers_of, 3×); `apply`/`summaryOnly` placed INSIDE args
+      (extract, 2×) — also NOT listed in the mutating-op schema line, so document them AND accept them
+      in args; `symbols`/`sites`→alias for `targets` (source, 2×); coerce a scalar to a 1-elem array
+      (`pathInclude:"x"`, 1×); auto-parse a `path:line:col` string put in `name` (1×); file+line without
+      `col` should resolve the decl on that line or say col is required (1×). Postel's law on the arg
+      boundary; eliminates ~13/18 logged fails. The named-per-op-tool redesign kills classes 1/3/4/6/7
+      structurally. `dx`·`med`·`cx:M`
+- [ ] **`feedback` op hard-rejects title > 120 chars (bad_args) → wasted retry** — dogfood: a natural
+      one-line title easily exceeds 120; the op `bad_args`-rejects, costing a round-trip on the very
+      channel meant for low-friction capture. Auto-truncate to 120 (ellipsis + fold overflow into
+      detail) and record, or raise the cap — don't hard-fail. `dx`·`low`·`cx:S`
 
 ---
 
