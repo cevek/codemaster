@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
-import { staleBanner, createOnceBanner, opResultText } from '../../src/mcp/server.ts';
+import { staleBanner, opResultText } from '../../src/mcp/server.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 import {
   defaultSourceFingerprint,
@@ -117,31 +117,10 @@ test('staleBanner: empty when fresh, a restart line when stale (the MCP op surfa
   assert.match(staleBanner(true), /daemon restart/);
 });
 
-test('§6: the staleness banner is ONE-SHOT per session — warns once, then stays silent', () => {
-  const once = createOnceBanner(() => true); // stale for the whole session
-  assert.match(once(false), /daemon restart/, 'first response carries the banner');
-  assert.equal(once(false), '', 'a second response does NOT repeat the un-actionable warning');
-  assert.equal(once(false), '', 'and a third stays silent too');
-});
-
-test('§6/§12: a json-suppressed call is silent AND does not consume the one-shot', () => {
-  const once = createOnceBanner(() => true);
-  // json mode suppresses the prefix (it would corrupt the payload) — and must NOT spend the
-  // one-shot, so a following text-mode call still gets the single warning.
-  assert.equal(once(true), '', 'json-suppressed → no banner');
-  assert.match(once(false), /daemon restart/, 'the later text response still warns once');
-  assert.equal(once(false), '', 'and only once');
-});
-
-test('§6: a fresh daemon never emits the banner (no false positive, no wasted one-shot)', () => {
-  const once = createOnceBanner(() => false);
-  assert.equal(once(false), '', 'fresh → silent');
-  assert.equal(once(false), '', 'still silent');
-});
-
-test('§6: an op-level ERROR result does NOT consume the one-shot banner (it ships only on success)', () => {
-  // The leak the bug-review caught: if the session's first staleness-eligible call returns an
-  // op-level error, the banner must NOT be spent — a later success still carries the single warning.
+test('§3.6: an op-level ERROR result does NOT carry the staleness banner (it ships only on success)', () => {
+  // The banner thunk must be called ONLY on the success branch: an op-level error returns bare
+  // error text (an error on stale code is a separate honest-deferred item). The thunk being
+  // un-called on error proves an error response never picks up the prefix.
   let calls = 0;
   const thunk = (): string => {
     calls++;

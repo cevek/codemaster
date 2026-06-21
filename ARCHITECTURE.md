@@ -734,9 +734,13 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
 "<name>"`** renders one op's full detail on demand (cheaper than re-emitting the whole
   catalogue to re-read one op). It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
-  is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend a
-  one-line "run `codemaster daemon restart`" banner — suppressed in `format:'json'` (it would
-  corrupt the payload) and silent where the source can't be located (global/`npx` — §19). The
+  is serving pre-edit behavior, so `status` and the `op`/`batch` responses prepend — on
+  EVERY stale response, not just the first — a one-line "run `codemaster daemon restart`"
+  banner (a multi-edit session must be warned on every answer it acts on). It is a PREFIX so the
+  render cap (which trims the tail) can never lose it and it never lands inside a batch's
+  per-section JSON; suppressed in `format:'json'` (a prefix would corrupt the single bare-JSON
+  payload — json consumers read the structured `sourceStale` from `status`) and silent where the
+  source can't be located (global/`npx` — §19). The
   remedy is **restart**, not a bridge reconnect: a reconnect re-attaches to the same stale-code
   daemon on the same socket (§2 singleton), so the daemon itself must be restarted (`codemaster
   daemon restart` — the management verbs, §2).

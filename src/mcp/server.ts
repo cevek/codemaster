@@ -62,8 +62,15 @@ export async function serveMcp(
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
 
-  // Self-staleness banner is ONE-SHOT per session (spec-stresstest §6): see `createOnceBanner`.
-  const sessionBanner = createOnceBanner(() => orchestrator.sourceStale());
+  // Self-staleness banner (§3.6 applied to the tool): a PREFIX on every op/batch text response
+  // while the daemon's own source is behind disk — ALWAYS-ON, not one-shot, so a long multi-edit
+  // session is warned on EVERY answer it acts on, never just the first (a one-shot latch left the
+  // daemon serving pre-edit behavior silently after the first warning — the §3.6 cardinal sin).
+  // Response-scoped: a daemon fact at per-response granularity, composed here, never stamped into
+  // the per-result Result envelope. `suppressed` is the json guard — a prefix would corrupt a
+  // single bare-JSON payload (§12); json consumers read the structured `sourceStale` from `status`.
+  const banner = (suppressed: boolean): string =>
+    suppressed ? '' : staleBanner(orchestrator.sourceStale());
 
   // Usage telemetry (spec usage-telemetry): default no-op; the composition root injects the real
   // file logger. `clock` stamps each entry's start time + duration (§16 determinism).
@@ -129,12 +136,10 @@ export async function serveMcp(
         if (!parsed.success) return fail(badArgs('op', parsed.error.message));
         const { root, sql, return: returnMode, ...req } = parsed.data;
         const ops = [req.name];
-        // The one-shot banner (§6) is consumed ONLY where it actually ships in a text response —
-        // NOT eagerly, or an early error return (bad route / dispatch fail / op-level error) would
-        // silently spend the session's single warning and leave every later call quiet (a stale
-        // daemon never owning up). `sessionBanner` is therefore called inside the success returns
-        // below, never before them; json mode passes `true` (a prefix corrupts the payload) and
-        // does not consume the one-shot.
+        // The banner is a PREFIX on the SUCCESS render only — never on an op-level error / dispatch
+        // failure (those return bare error text; an error on stale code is a separate honest-deferred
+        // item, backlog). json mode passes `true`: a prefix would corrupt the single bare-JSON
+        // payload (§12); json consumers read the structured `sourceStale` from `status`.
         const suppress = req.format === 'json';
         if (sql !== undefined) {
           // §2.6: single-op sql sugar = a batch of one request aliased `t`.
@@ -149,9 +154,7 @@ export async function serveMcp(
           );
           if (!outcome.ok) return fail(errorText(outcome.message), ops);
           return classify(
-            text(
-              sessionBanner(suppress) + renderResults(outcome.results, req.format, req.verbosity),
-            ),
+            text(banner(suppress) + renderResults(outcome.results, req.format, req.verbosity)),
             outcome.results,
             ops,
           );
@@ -161,7 +164,7 @@ export async function serveMcp(
         const result = outcome.results[0];
         if (result === undefined) return fail(errorText('no result (codemaster bug)'), ops);
         return classify(
-          opResultText(result, req.format, req.verbosity, () => sessionBanner(suppress)),
+          opResultText(result, req.format, req.verbosity, () => banner(suppress)),
           [result],
           ops,
         );
@@ -182,7 +185,7 @@ export async function serveMcp(
         if (!outcome.ok) return fail(errorText(outcome.message), ops);
         return classify(
           text(
-            sessionBanner(false) +
+            banner(false) +
               renderBatch(outcome.results, parsed.data.requests, {
                 sqlPresent: sql !== undefined,
                 format,
@@ -247,8 +250,9 @@ export function opResultText(
   result: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
-  // A THUNK, not a string: an op-level `error` result must NOT consume the one-shot banner (§6) —
-  // it's called only on the success branch, where the banner truly ships.
+  // A THUNK, not a string: an op-level `error` result must NOT carry the staleness banner — it's
+  // called only on the success branch, where the banner ships (an error on stale code is a separate
+  // honest-deferred item, backlog).
   banner: () => string = () => '',
 ): CallToolResult {
   if ('error' in result) {
@@ -304,29 +308,13 @@ export function renderBatch(
     .join('\n\n');
 }
 
-/** The one-line self-staleness banner (§3.6 applied to the tool). Prepended to op/batch
- *  responses when the daemon's own source moved since spawn, so an agent acting on a
- *  stale answer is told to restart the daemon. Empty when fresh — pure, exported, unit-tested. */
+/** The one-line self-staleness banner (§3.6 applied to the tool), prepended to EVERY op/batch text
+ *  response while the daemon's own source is behind disk — always-on, never one-shot: a long
+ *  multi-edit session must be warned on every answer it acts on, not just the first. Empty when
+ *  fresh (no false-positive nag) — pure, exported, unit-tested. A PREFIX so it can never be lost to
+ *  the render cap (which trims the tail) and never lands inside a batch's per-section JSON. */
 export function staleBanner(sourceStale: boolean): string {
   return sourceStale ? `${SOURCE_STALE_LINE}\n` : '';
-}
-
-/** A session-scoped, ONE-SHOT self-staleness banner (spec-stresstest §6). The "daemon restart"
- *  warning is un-actionable mid-session (an agent can't restart the daemon on demand), so repeating it
- *  on every op/batch response is noise that erodes trust. This returns a function that emits the
- *  banner on the FIRST response that would carry it (stale + not suppressed), then stays silent for
- *  the rest of the session — `status().sourceStale` still reports the true state on demand.
- *  `suppressed` is the json-mode guard: prepending a line to a single JSON payload would corrupt it
- *  (§12), and a suppressed call must NOT consume the one-shot (so a later text call still warns once). */
-export function createOnceBanner(sourceStale: () => boolean): (suppressed: boolean) => string {
-  let emitted = false;
-  return (suppressed: boolean): string => {
-    if (suppressed || emitted) return '';
-    const banner = staleBanner(sourceStale());
-    if (banner === '') return '';
-    emitted = true;
-    return banner;
-  };
 }
 
 /** A handled tool call: the agent-facing response plus its telemetry classification

@@ -113,16 +113,16 @@ don't vanish.
       message is our OWN text (a `ToolFailure.message`, normally a short tool error), so this is a
       latent edge, not a live leak. Fix: cap the FAIL message itself at the source, or give `head` a
       generous own sub-budget before reserving it. `bug`·`low`·`cx:S`
-- [ ] **self-staleness banner is one-shot per bridge session (op/batch path)** —
-      `src/mcp/server.ts:65-66,321-330` (`createOnceBanner` sets `emitted=true` after the first
-      emit; op/batch `OpResult` carries no per-op staleness field — only `status()` re-reports).
-      After the first stale warning, every later `op`/`batch` in a long session serves the daemon's
-      pre-edit behavior with NO marker — §11's "op/batch responses prepend the banner" violated for
-      all-but-the-first. Locked by `self-staleness.test.ts:120-125`. INTENTIONAL per spec-stresstest
-      §6 (mid-session restart warning deemed noise), but in a multi-edit dogfood session it is the
-      §3.6 cardinal sin. ADJUDICATION: a cheap always-on per-op staleness token (suppressed in json)
-      vs. the one-shot prose banner. Compounds with the socket-divergence bug above (which is why no
-      banner fired at all in the 2026-06-20 report). `bug`·`high`·`cx:M`
+- [x] **self-staleness banner is one-shot per bridge session (op/batch path)** — FIXED. The
+      one-shot `createOnceBanner` latch is gone; the staleness banner is now ALWAYS-ON — a PREFIX on
+      EVERY op/batch text response while the daemon's source is behind disk (`src/mcp/server.ts`
+      `staleBanner` + the `banner(suppressed)` closure). Prefix (not a tail/suffix or a per-result
+      `ResultCommon` field): the marker is a daemon fact at per-RESPONSE granularity, and a suffix
+      would land inside a batch's per-section bare-JSON → break per-section `JSON.parse` (§12); a
+      prefix is a preamble before `[0]`, safe and cap-proof. Suppressed in `format:'json'` (single
+      bare-JSON payload). Oracle: `test/e2e/self-staleness-banner.test.ts` (op ×3 + batch ×3 carry
+      the marker — red on the one-shot code; json suppressed + parseable; fresh daemon silent).
+      `bug`·`high`·`cx:M`
 
 ### MED
 
@@ -155,6 +155,30 @@ don't vanish.
       generic path and `stripShapeTags` on json). REAL mechanism, THEORETICAL trigger (needs a
       producer emitting a `~`-prefixed column — none proven today). Defensive: add a `~`-strip to
       match the generic-path guarantee. `bug`·`med`·`cx:S`
+- [ ] **json op/batch consumers never see daemon self-staleness** — the always-on staleness banner
+      (`src/mcp/server.ts`) is a TEXT-mode prefix, suppressed in `format:'json'` (a prefix would
+      corrupt the single bare-JSON payload — §12). So an agent composing in json learns of daemon
+      source-drift only via `status` (`sourceStale: boolean`), never from the op/batch response it
+      acts on. Pre-existing; the honest json fix is a STRUCTURAL field on the envelope (e.g.
+      `ResultCommon.sourceStale?: true`, surfaced as a real key json keeps and text renders in the
+      tail) injected at the facade — deferred because it tugs a daemon-level fact into the L0
+      `core/result.ts` op-envelope and renders N× in a batch unless scoped to one result. `imp`·`cx:M`
+- [ ] **a STALE-daemon op-level ERROR response carries no staleness marker** — the banner ships on
+      the SUCCESS render only (`src/mcp/server.ts` — the `banner` thunk is invoked on the success
+      branch; op-level errors return bare error text). An error produced by stale code is itself
+      suspect, so §3.6 arguably wants the marker there too. Deferred (present behavior preserved by
+      the always-on fix): prefixing error text is safe in text mode but interacts with the json/
+      structural-field question above — fix the two together. `imp`·`low`·`cx:S`
+- [ ] **serveMcp e2e: a `client.close()` makes the test process `exit(0)`, masking failures with a
+      vacuum-pass** — `serveMcp` wires `server.onclose → shutdown → exit(0)` (default `exit` is
+      `process.exit`, `src/mcp/server.ts`). A test that calls `await client.close()` therefore hard-
+      exits the spawned test FILE with code 0 mid-run; `node --test` trusts the child exit code and
+      reports the file as `ok` even when inner subtests already threw — a red test silently reads
+      green. Caught while building `test/e2e/self-staleness-banner.test.ts` (it falsely passed under a
+      deliberately-broken one-shot banner until the close was removed). This is honesty-of-tests: a
+      masked failure is the harness lying. Pattern: in serveMcp e2e tests DON'T call `client.close()`
+      (as `usage-log.test.ts` already avoids), OR inject `idle.exit` so shutdown never reaches
+      `process.exit` under test. `dx`·`med`·`cx:S`
 
 ## Roadmap — unbuilt phases
 
@@ -838,8 +862,9 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 - [ ] **self-staleness banner missed after `daemon restart`** — ROOT CAUSE NOW KNOWN (see the
       2026-06-21 bug-sweep HIGH items above): the "no daemon running" + stale-serving combo is the
       **socket-path env-divergence** (bridge in `/tmp`, restart in `$TMPDIR` → different sockets) PLUS
-      the **one-shot staleness banner** (op/batch re-warns only once). The socket half is being fixed on
-      branch `socket-path-fix`; the banner half awaits the per-op-staleness adjudication. `bug`·`med`·`cx:M`
+      the **one-shot staleness banner** (op/batch re-warns only once). The banner half is FIXED
+      (always-on prefix — see the FIXED HIGH item above); the socket half is being fixed on branch
+      `socket-path-fix`. `bug`·`med`·`cx:M`
 - [x] **FIXED — arg-shape too strict → liberal intake (Postel) at the dispatch boundary** — dogfood
       (amiro, 2026-06-21, `~/.codemaster/usage/fail.jsonl`). An INVISIBLE normalizer (`src/ops/intake/`)
       runs in `runOne` BEFORE the canonical zod gate (via `daemon/resolve-args.ts`), mapping known
