@@ -91,6 +91,31 @@ export function coldMembers(root: string, fileRel: string, typeName: string): Co
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Independent oracle for `expand_type` signatures (Bug A/B): the call-signature strings a cold
+ *  checker produces for a named function declaration — EVERY overload, via the SAME
+ *  `getSignaturesOfType(…, Call)` + `signatureToString(NoTruncation)` the warm path uses, so a
+ *  "2 vs 2" agreement is real (cold-vs-warm drift), not the checker against itself. Anchors on the
+ *  first function/namespace declaration of `fnName` (overloads/merges share the name). */
+export function coldSignatures(root: string, fileRel: string, fnName: string): string[] {
+  const { program, checker } = coldProgram(root);
+  const file = path.join(root, fileRel);
+  const sf = program.getSourceFile(file);
+  assert.ok(sf !== undefined, `oracle could not load ${fileRel}`);
+  let nameNode: ts.Identifier | undefined;
+  sf.forEachChild((node) => {
+    if (nameNode === undefined && ts.isFunctionDeclaration(node) && node.name?.text === fnName) {
+      nameNode = node.name;
+    }
+  });
+  assert.ok(nameNode !== undefined, `oracle could not find function ${fnName}`);
+  const symbol = checker.getSymbolAtLocation(nameNode);
+  assert.ok(symbol !== undefined);
+  const type = checker.getTypeOfSymbolAtLocation(symbol, nameNode);
+  return checker
+    .getSignaturesOfType(type, ts.SignatureKind.Call)
+    .map((s) => checker.signatureToString(s, undefined, ts.TypeFormatFlags.NoTruncation));
+}
+
 /** The post-op cross-check oracle for rename_symbol / move_file (spec-kitchensink §3): a
  *  fresh-from-cold `ts.LanguageService` over the ON-DISK post-op tree — never the warm daemon
  *  that performed the edit — answering `getReferencesAtPosition`. After a rename, a cold

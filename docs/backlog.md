@@ -997,14 +997,19 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 ## Correctness bugs surfaced by the density audit (not density — parked here so they don't vanish)
 
 - [ ] **expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)**
-      — five distinct defects: (a) `expand_type` on a fn/namespace merge TRUNCATES the return type after
-      the colon; (b) a 2nd overload signature is dropped everywhere (`about` shows `+1 overload`, `source`
-      shows only the impl, `full` never lists the overload sigs) — real signature data lost; (c)
-      `expand_type` by `name`+`file` FAILS to resolve a type alias that `file`+`line`+`col` resolves fine
-      (resolver gap); (d) `find_unused_exports` `undiscoveredPrograms` lists ABSOLUTE paths while every
-      other path is repo-relative (inconsistent, breaks click-through); (e) namespace-merge members
-      flagged `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge).
-      (a)/(b)/(c) are correctness (lost/wrong type facts); (d)/(e) are honesty/clarity. `bug`·`med`·`cx:M`
+      — (a) FIXED + (b) FIXED + (c) test-landed/fix-in-addressing-track; (d)/(e) OPEN. (a) `expand_type`
+      on a fn/namespace merge truncated the return type after the colon — now the callable headline is
+      cut at the first `(` and the full call shape lives in `signatures` (NoTruncation), so nothing is
+      lost. (b) overload signatures were dropped everywhere — `expand_type` now lists EVERY call
+      signature via `getSignaturesOfType(…, Call)` in `signatures[]`. (c) `expand_type` by `name`+`file`
+      fails to resolve a type alias that `file`+`line`+`col` resolves (the `name`+`file` resolver path
+      silently ignores `file` and falls into workspace-wide fuzzy navto, where case-insensitive `span`
+      matches bury the exact `Span` past the cap) — FIXED by the addressing track's `name`+`file` →
+      `resolveNameInFile` branch in the shared `plugins/ts/resolve-target.ts`; oracle test
+      `test/differential/expand-type.test.ts` "Bug C". (d) `find_unused_exports` `undiscoveredPrograms`
+      lists ABSOLUTE paths while every other path is repo-relative; (e) namespace-merge members flagged
+      `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge). (d)/(e)
+      are honesty/clarity. `bug`·`med`·`cx:M`
 - [x] **FIXED — `i18n_lookup` fatal on a single malformed locale file** — the fix is in the SHARED
       parser (`parseLocaleKeys`), so all three i18n ops degrade-and-continue consistently. Note the
       original premise was empirically off: the siblings were NOT error-tolerant — all three share the
@@ -1051,16 +1056,33 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 - [ ] **`src/mcp/server.ts` is ~293 real lines (300 cap)** — the next edit forces a split; the natural
       seam is extracting the per-op `runOpTool` + the render helpers (`renderResults`/`renderBatch`)
       into a sibling `render-call.ts`. `dx`·`low`·`cx:S`
-- [ ] **`expand_type` drops overload signatures everywhere** — for an overloaded function `expand_type`
-      shows `(+1 overload)`, `source` shows only the impl signature, and even `verbosity:full` never
-      lists the overload sigs. An agent can't see the call shapes. Surface all signatures (the LS has
-      them via `getSignaturesOfType`). `feat`·`med`·`cx:M`
-- [ ] **`expand_type` name+file resolution misses type aliases** — `expand_type {name:"Span",
-file:"src/core/span.ts"}` → `FAIL no symbol named 'Span'`, yet `{file,line,col}` on the same decl
-      resolves it. The name+file resolver doesn't find a type-alias symbol it should. `bug`·`med`·`cx:M`
-- [ ] **`expand_type` truncates a function return type after the colon** — a fn/namespace merge renders
-      `about=function box(label: string):` — the return type (`{label:string}`) is cut off after `:`.
-      `bug`·`med`·`cx:S`
+- [x] **`expand_type` drops overload signatures everywhere** — FIXED. `expandTypeAt`
+      (`plugins/ts/type-expand.ts`) now lists EVERY call signature via `getSignaturesOfType(type,
+SignatureKind.Call)` in a `signatures[]` field (each NoTruncation, OUR explicit per-string cap),
+      for both pure overloaded functions and fn/namespace merges. Oracle test
+      `test/differential/expand-type.test.ts` "Bug B" (cold `ts.Program`, same getSignaturesOfType).
+      SCOPED TO `expand_type` only — the sibling `source`-shows-only-impl gap is tracked separately
+      below. `feat`·`med`·`cx:M`
+- [ ] **`source` shows only the impl signature for an overloaded function** — `source` on an
+      overloaded `function coerce(...)` returns only the implementation declaration's span/body, never
+      the overload signature decls that precede it (verified: only the impl line is rendered). The
+      decl-span machinery (`plugins/ts/definitions.ts` / `source` op) anchors one declaration; for an
+      overload set it should surface all signature decls. Split out of the `expand_type` overload fix
+      (that fix covered `expand_type` only; `source` is `src/ops/source.ts`, a different surface).
+      `feat`·`low`·`cx:M`
+- [x] **`expand_type` name+file resolution misses type aliases** — FIXED. `expand_type {name:"Span",
+file:"src/core/span.ts"}` returned `FAIL no symbol named 'Span'` while `{file,line,col}` on the same
+      decl resolved it: the `name`+`file` path ignored `file` and fell into workspace-wide fuzzy navto,
+      where case-insensitive `span` matches bury the exact type past the resolver's view cap. The
+      addressing track added a `name`+`file` → `resolveNameInFile` additive branch in the shared
+      `plugins/ts/resolve-target.ts` (rank-independent, scopes to the named file). Discriminating oracle
+      test `test/differential/expand-type.test.ts` "Bug C" (name+file ⇒ same view as file+line+col, with
+      a `span`-property flood fixture that reproduces the bury). `bug`·`med`·`cx:M`
+- [x] **`expand_type` truncates a function return type after the colon** — FIXED. The object-member
+      headline (`plugins/ts/type-expand.ts`) cut `function box(label: string): {` to `function box(label:
+string):` for a fn/namespace merge. A callable type now takes a headline cut at the first `(`
+      (`function box`) and carries the full call shape (return type included) in `signatures[]`. Oracle
+      test `test/differential/expand-type.test.ts` "Bug A". `bug`·`med`·`cx:S`
 - [ ] **`expand_type` enum members echo the member name and omit the value** — enum/const-enum members
       render `Low: Severity.Low` (a name echo) while the actual value (`Low=0`, `High='high'`) is not
       shown; the column should carry the value, not re-echo the name. `bug`·`low`·`cx:S`

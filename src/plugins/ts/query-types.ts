@@ -171,6 +171,12 @@ export type TypeView = {
    *  (`about`/`type`) already lists every arm verbatim and isn't LS-truncated (it would just repeat
    *  them); a wide/elided union keeps it as the load-bearing complete list (density audit). */
   constituents?: string[];
+  /** Call signatures of a callable type — EVERY overload, each NoTruncation (the checker has them
+   *  via `getSignaturesOfType`). Present whenever the type is callable: quick-info shows only the
+   *  first signature + a `(+N overload)` count, dropping the rest, so the full set lives here. For a
+   *  function/namespace merge it carries the call shape while `members` carries the namespace
+   *  exports — neither truncating the other (§3.4). */
+  signatures?: string[];
   /** Honest caveats: member list capped (`… N more`), depth cap reached, type string
    *  elided — never a silent `…` (§3.4). */
   notes?: string[];

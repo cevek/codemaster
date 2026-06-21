@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
-import { coldMembers, type ColdMember } from '../helpers/cold-ls.ts';
+import { coldMembers, coldSignatures, type ColdMember } from '../helpers/cold-ls.ts';
 
 type Member = {
   name: string;
@@ -19,8 +19,25 @@ type View = {
   type?: string;
   members?: Member[];
   constituents?: string[];
+  signatures?: string[];
   notes?: string[];
 };
+
+// Overloaded function (2 call sigs + 1 impl) and a function/namespace merge whose return type is a
+// multi-line object literal — the two callable shapes Bug A/B lose facts on.
+const CALLABLE = `export function coerce(value: number): string;
+export function coerce(value: string): number;
+export function coerce(value: number | string): string | number {
+  return typeof value === 'number' ? String(value) : value.length;
+}
+export function box(label: string): { label: string } {
+  return { label };
+}
+export namespace box {
+  export const of = (label: string): { label: string } => box(label);
+  export const empty = '';
+}
+`;
 
 const DTO = `export interface Base { id: number; }
 export interface User extends Base {
@@ -198,6 +215,101 @@ test('optional member under exactOptionalPropertyTypes: an EXPLICIT ` | undefine
       members.find((m) => m.name === 'name')?.type,
       'string | undefined',
       'EOPT explicit undefined preserved',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('Bug B: an overloaded function lists EVERY call signature (full), matching a cold checker', async () => {
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/c.ts': CALLABLE,
+  });
+  try {
+    const r = await p.op('expand_type', { name: 'coerce' });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const view = r.result.data as View;
+    // Oracle: the same overload set a fresh-from-cold checker produces (same getSignaturesOfType
+    // Call + signatureToString) — the impl signature is NOT a call signature, so both see exactly 2.
+    const cold = coldSignatures(p.root, 'src/c.ts', 'coerce');
+    assert.equal(cold.length, 2, 'oracle: two overload signatures');
+    assert.deepEqual(view.signatures, cold, 'warm lists every overload, equal to the cold oracle');
+    // The count surfaced in `about` (`(+1 overload)`) is consistent with the full list — both say 2.
+    assert.match(view.about ?? '', /\+1 overload/, 'about count stays correct');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('Bug A: a fn/namespace merge keeps the full return type — never truncated after the colon', async () => {
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/c.ts': CALLABLE,
+  });
+  try {
+    const r = await p.op('expand_type', { name: 'box' });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const view = r.result.data as View;
+    // The return type (`{ label: string }`) must survive — Bug A chopped `about` to `function box(label:
+    // string):`. The headline no longer carries a dangling/truncated signature; the call shape lives
+    // verbatim in `signatures`, agreeing with a cold checker.
+    const head = view.about ?? '';
+    assert.ok(!/:\s*$/.test(head), `headline must not end at a dangling colon (was: ${head})`);
+    const cold = coldSignatures(p.root, 'src/c.ts', 'box');
+    assert.deepEqual(view.signatures, cold, 'the full signature equals the cold oracle');
+    assert.ok(
+      (view.signatures?.[0] ?? '').includes('label: string') &&
+        /:\s*\{[^}]*label: string/.test(view.signatures?.[0] ?? ''),
+      `return type {label:string} preserved in the signature (was: ${view.signatures?.[0]})`,
+    );
+    // The namespace half is still listed — neither truncates the other.
+    assert.deepEqual(
+      (view.members ?? []).map((m) => m.name).sort(),
+      ['empty', 'of'],
+      'namespace exports listed alongside the call signature',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('Bug C: a type alias resolves by name+file exactly as by file+line+col (resolver gap)', async () => {
+  // RED until the addressing track lands the name+file → resolveNameInFile branch (resolve-target.ts,
+  // a shared seam owned by that track). The defect: name+file silently ignores `file` and falls into
+  // workspace-wide fuzzy navto, where a case-insensitive flood of unrelated names buries the exact
+  // type past the cap → "no symbol named". This op-level test pins the contract the fix must meet.
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    // Many lowercase `span` PROPERTIES: each is a case-insensitive EXACT navto match to `Span`, so
+    // they tie at the top match rank and crowd the exact type past the resolver's view cap — the
+    // real-repo condition (132 `span` props bury `Span`). 12 already reproduces the FAIL.
+    'src/span.ts':
+      'export type Span = { start: number; end: number };\n' +
+      Array.from({ length: 15 }, (_, i) => `export interface I${i} { span: number; }`).join('\n') +
+      '\n',
+  });
+  try {
+    const byName = await p.op('expand_type', { name: 'Span', file: 'src/span.ts' });
+    const byPos = await p.op('expand_type', { file: 'src/span.ts', line: 1, col: 13 });
+    assert.ok('result' in byPos && byPos.result.ok, JSON.stringify(byPos));
+    assert.ok(
+      'result' in byName && byName.result.ok,
+      `name+file must resolve the alias as file+line+col does: ${JSON.stringify(byName)}`,
+    );
+    // Same declaration → same structural view (members of the alias body).
+    const named = byName.result.data as View;
+    const positioned = byPos.result.data as View;
+    assert.deepEqual(
+      (named.members ?? []).map((m) => m.name).sort(),
+      (positioned.members ?? []).map((m) => m.name).sort(),
+      'name+file and file+line+col resolve to the same alias',
+    );
+    // Oracle: that member set is what a cold checker reports for the alias.
+    assert.deepEqual(
+      (named.members ?? []).map((m) => m.name).sort(),
+      coldMembers(p.root, 'src/span.ts', 'Span').map((m) => m.name),
+      'resolved alias members equal the cold oracle',
     );
   } finally {
     await p.dispose();

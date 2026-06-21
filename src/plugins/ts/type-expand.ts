@@ -81,6 +81,15 @@ export function expandTypeAt(
     return !truncated && covered ? base : { ...base, constituents };
   }
 
+  // Callable type (function / overloaded function / fn+namespace merge): list EVERY call signature.
+  // Quick-info shows only the first + `(+N overload)`, dropping the rest, and the object-member
+  // headline path (below) truncates a multi-line return type after the colon — both lose real type
+  // facts (§3.4). `getSignaturesOfType(…, Call)` returns the OVERLOAD signatures (not the impl), so
+  // a 2-overload set yields 2, matching the `(+1 overload)` count.
+  const callSigs = checker.getSignaturesOfType(type, ts.SignatureKind.Call);
+  const signatures =
+    callSigs.length > 0 ? callSigs.map((s) => signatureStr(checker, s)) : undefined;
+
   // Optional members inject ` | undefined` into their type — but `?` already implies it, so the
   // pair `id?: number | undefined` prints the undefined twice. Strip it on optional members,
   // EXCEPT under exactOptionalPropertyTypes, where an explicit `| undefined` is a DISTINCT type
@@ -96,19 +105,49 @@ export function expandTypeAt(
     notes,
     stripOptUndefined,
   );
-  if (members === undefined) return notes.length > 0 ? { ...base, notes } : base;
+  if (members === undefined) {
+    // A pure function / overload set has no object members — quick-info describes one signature;
+    // `signatures` adds the rest. Keep `about`/`type` (the first signature + count, still honest).
+    const withSigs = signatures !== undefined ? { ...base, signatures } : base;
+    return notes.length > 0 ? { ...withSigs, notes } : withSigs;
+  }
   // An object type's `members` list IS its field set — for a `type X = {…}` alias the LS quick-info
   // ALSO carries the whole body as `type`, so emitting both prints all N fields twice (the field
-  // feedback that started the density audit). Drop the body, keep a one-line `about` headline (the
-  // decl line, trimmed of a dangling `= {`). An interface already has a single-line `about` here, so
-  // this is a no-op for it; only the alias-with-inline-body case is de-duplicated. (§3.4 / density.)
-  const headline = about.replace(/\s*=?\s*\{$/, '');
+  // feedback that started the density audit). Drop the body, keep a one-line `about` headline. For a
+  // type alias that is the decl line trimmed of a dangling `= {`; for a fn+namespace MERGE (callable
+  // AND has members) the first line is the function head with a dangling return-type `{` — the alias
+  // trim would chop it off after the colon, so cut at the first `(` to a clean `function box` head
+  // and let `signatures` carry the call shape verbatim. An interface already has a single-line
+  // `about` here, so this is a no-op for it. (§3.4 / density.)
+  const headline =
+    signatures !== undefined ? headOfCallable(about) : about.replace(/\s*=?\s*\{$/, '');
   const {
     type: _body,
     about: _head,
     ...rest
   } = base as TypeView & { type?: string; about?: string };
-  return { about: headline, ...rest, members, ...(notes.length > 0 ? { notes } : {}) };
+  return {
+    about: headline,
+    ...rest,
+    ...(signatures !== undefined ? { signatures } : {}),
+    members,
+    ...(notes.length > 0 ? { notes } : {}),
+  };
+}
+
+/** A callable's headline: the quick-info first line cut at the first `(` (`function box(label:
+ *  string): {` → `function box`) — the params/return live in `signatures`, NoTruncation, so the
+ *  head never carries a dangling/truncated return type. A first line with no `(` is kept whole. */
+function headOfCallable(about: string): string {
+  const paren = about.indexOf('(');
+  return (paren > 0 ? about.slice(0, paren) : about).trim();
+}
+
+/** `signatureToString` with NoTruncation, then OUR explicit cap (the checker's silent `...` would
+ *  read as completeness, §3.4) — the per-signature analogue of `typeStr`. */
+function signatureStr(checker: ts.TypeChecker, sig: ts.Signature): string {
+  const s = checker.signatureToString(sig, undefined, ts.TypeFormatFlags.NoTruncation);
+  return s.length > MEMBER_TYPE_CAP ? `${s.slice(0, MEMBER_TYPE_CAP)}… (signature elided)` : s;
 }
 
 /** Object-like members of `type`, or `undefined` when it has none to show (a function /
