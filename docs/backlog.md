@@ -500,9 +500,14 @@ restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `ru
       importers but leaves `export { X } from './source'` barrels (and default-export importers)
       dangling → the §2.8 gate honestly REFUSES the whole move. Close by supplementing the LS edits
       with codemaster's own barrel-specifier rewrite. `feat`·`med`·`cx:M`
-- [ ] **move_symbol: specifier style is LS-chosen, not alias-preserving** — importer specifiers come
-      out relative (`@/source` → `./dest`) instead of re-forming the path alias. Cold compile proves
-      correctness; purely diff-noise. Close by post-processing through `emitSpecifier`. `dx`·`low`·`cx:M`
+- [ ] **move/extract: specifier style is LS-chosen, not alias-preserving** — affects BOTH
+      `extract_symbol` and `move_symbol` (shared LS "Move to file" relocation): generated importer +
+      dest-file specifiers come out RELATIVE (`./dest`) instead of re-forming the tsconfig path alias
+      (`@/…`) the importing file uses, and miss the project's explicit `.ts`/`.tsx` extension. Cold
+      compile proves correctness, but it forces MANUAL cleanup after every extract/move — recurring
+      dogfood friction (raised repeatedly), not mere diff-noise. Close by post-processing the LS-emitted
+      specifiers through `emitSpecifier` (re-form the alias the file already uses + carry the extension
+      convention). Lives in `plugins/ts/refactor/imports/` (emit/rewrite). `dx`·`med`·`cx:M`
 - [x] **move/extract detaches a symbol's leading JSDoc (blank line inserted before the decl)** —
       FIXED (2026-06-21). The spurious blank line is LS-EMITTED inside the moved block's `newText`
       (`getEditsForRefactor` returns `*/\n\nexport const X` for an ADJACENT doc) — the backlog's
