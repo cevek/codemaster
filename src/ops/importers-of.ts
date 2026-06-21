@@ -57,7 +57,7 @@ export const importersOfOp = defineOp({
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
-    "spans ALL the repo's loaded TS programs — an importer in a `test/**` file under a sibling tsconfig (tsconfig.test.json) is found, not just main-program importers.",
+    'importers are found across ALL loaded programs (a `test/**` importer under a sibling tsconfig too) — see concepts: cross-program-read.',
   ],
   table: importersOfTable,
   async run(ctx, args): Promise<Result<JsonValue>> {

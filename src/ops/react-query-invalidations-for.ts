@@ -68,7 +68,7 @@ export const invalidationsForOp = defineOp({
   notes: [
     'mutation is resolved by its ENCLOSING declaration name (the custom hook / function holding the useMutation), or a callId/SymbolId. 0 matches → reported honestly (found:0), never an empty success dressed as "invalidates nothing".',
     'detection is import-anchored to @tanstack/react-query (by identity), so a same-named useQuery/useMutation from another module is NOT mistaken for react-query; qc.invalidateQueries() matches via the useQueryClient binding. If the module does not resolve, moduleResolved:false and results are NOT authoritative.',
-    'per-hop confidence: a static queryKey proven to prefix a static query key is certain; a dynamic segment (identifier/template/computed) on either side is partial; a broad invalidateQueries() with no key affects every query (dynamic). A dynamic key segment is flagged, never resolved to a guessed value (§3.3).',
+    'per-hop confidence: a static queryKey proven to prefix a static query key is certain; a dynamic segment (identifier/template/computed) on either side is partial; a broad invalidateQueries() with no key affects every query (dynamic). A dynamic key segment is flagged, never resolved to a guessed value.',
     'invalidation is a PREFIX filter (react-query semantics): a query is affected iff its key starts with the invalidation key. new QueryClient() receivers are not yet matched (only useQueryClient()) — a deferred limit.',
   ],
   table: invalidationsForTable,

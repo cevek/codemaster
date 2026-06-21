@@ -146,7 +146,7 @@ function byteToUtf16(text: string, byteOffsets: readonly number[]): (byte: numbe
 
 export const codemodOp = defineOp<CodemodArgs, JsonValue>({
   name: 'codemod',
-  summary: 'Shape-based structural find/replace via ast-grep — NOT symbol-anchored (§7)',
+  summary: 'Shape-based structural find/replace via ast-grep — NOT symbol-anchored',
   mutating: true,
   requires: ['ts'],
   argsSchema: codemodArgsSchema,
@@ -154,9 +154,9 @@ export const codemodOp = defineOp<CodemodArgs, JsonValue>({
   example: { args: { pattern: 'oldApi($A)', rewrite: 'newApi($A)' } },
   notes: [
     'matches AST SHAPE, not a symbol — it never touches a same-named binding that does not match the pattern. Metavars: $X (one node), $$$X (many, comma-joined — intended for argument/array lists).',
-    'dry-run/apply like every mutating op; the whole-program typecheck gates apply on errors the rewrite INTRODUCES (diffed against a pre-edit baseline — pre-existing repo errors are a preExisting count, not a block) and rolls back a rewrite that introduces new ones.',
     'paths (optional) are GLOBS over tracked .ts/.tsx (e.g. "src/features/**", "**/*.tsx") — a literal file path works too; an entry that selects no tracked TS file FAILS loudly (never a silent clean). Omit paths to scan every tracked TS file.',
-    'capture-safe (best-effort, shape-based): a metavar ($X/$$$X) identifier PRESERVED into a rewritten span that silently re-resolves to a different declaration is listed under `captures` and apply is REFUSED. An INTRODUCED identifier binding a same-named local is NOT flagged (it would over-refuse) — the whole-program typecheck is its guard. summaryOnly:true returns the verdict + ONE merged `touched` list (each file with its +added/-removed line counts) instead of the full diff.',
+    'capture-safe (best-effort, shape-based): a metavar ($X/$$$X) identifier PRESERVED into a rewritten span that silently re-resolves to a different declaration is listed under `captures` and apply is REFUSED. An INTRODUCED identifier binding a same-named local is NOT flagged (it would over-refuse) — the whole-program typecheck is its guard.',
+    'gate: dry-run→whole-program-typecheck→rollback like every mutating op — see concepts (mutating-gate). The typecheck gates on errors the rewrite INTRODUCES (a pre-edit baseline rides along as a preExisting count, not a block).',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const root = ctx.daemon?.root;

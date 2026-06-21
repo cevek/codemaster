@@ -243,10 +243,10 @@ export const listOp = defineOp({
   example: { args: { registry: 'components', pathInclude: ['src/features/**'] } },
   notes: [
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',
-    'an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).',
+    'an unknown or inactive registry returns the honest available-list, never a guessed result.',
     'entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).',
     'density: a column CONSTANT across every entry (kind, provenance, confidence) is stated ONCE as `allKind`/`allProvenance`/`allConfidence` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is hoisted only when its uniform value is non-`certain` (a `certain` tail is invisible anyway). A mixed answer keeps the column per-row. `available` is shown only when the registry is NOT found (the did-you-mean list).',
-    'bounded: limit caps the entry set (the cap returns as truncation `{shown,total,hint}`, never silent §3.4); pathInclude/pathExclude are globs over the entry DECLARATION file — dropped entries are reported as `excludedByFilter`, so a filter never reads as completeness. In sql-mode the producer is UNCAPPED (limit ignored — a capped table feeding NOT IN would lie §11); path filters still apply (an explicit WHERE, not a cap).',
+    'bounded: limit caps the entry set (the cap returns as truncation `{shown,total,hint}`, never silent); pathInclude/pathExclude are globs over the entry DECLARATION file — dropped entries are reported as `excludedByFilter`, so a filter never reads as completeness. In sql-mode the producer is UNCAPPED (limit ignored — a capped table feeding NOT IN would lie); path filters still apply (an explicit WHERE, not a cap).',
   ],
   table: listTable,
   async run(ctx, args) {

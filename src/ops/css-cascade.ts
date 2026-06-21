@@ -72,7 +72,7 @@ export const cssCascadeOp = defineOp({
   example: { args: { file: 'src/button.module.scss', class: 'button' } },
   notes: [
     'a rule TARGETS the class when its rightmost compound (the subject) carries it — `.parent .foo` and `.foo[aria-x]` target `foo`; `.foo .bar` does NOT (foo is only an ancestor there).',
-    'cross-module is syntactic only: CSS-module class names are per-file scoped, so a same-named class in ANOTHER sheet is a different runtime class unless composed/:global/applied to the same element — such a winner is named & ordered but stays `partial` (§19).',
+    'cross-module is syntactic only: CSS-module class names are per-file scoped, so a same-named class in ANOTHER sheet is a different runtime class unless composed/:global/applied to the same element — such a winner is named & ordered but stays `partial`.',
     'a winner is `certain` only when same-module, unconditional (no descendant/state/attribute/:not context), statically valued, and untied; state/attribute/@media/interpolated/computed/cross-module → `partial` with the reason, never a false resolved winner.',
     'scopeable by pathInclude/pathExclude (globs over the .scss path); the owning sheet is always searched. Searches the currently-INDEXED stylesheet set (`.scss`/`.sass`/`.css`); a just-created sheet may be missed until reindex, but the owning sheet named in {file} is always read fresh. A no-match answer is `partial`, not a proven absence.',
   ],

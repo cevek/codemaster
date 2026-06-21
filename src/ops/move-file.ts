@@ -29,10 +29,8 @@ export const moveFileOp = defineOp<MoveArgs, JsonValue>({
   example: { args: { source: 'src/old/Button.tsx', dest: 'src/ui/Button.tsx' } },
   notes: [
     'dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.',
-    'dry-run writes nothing; apply is refused only if the move INTRODUCES new typecheck errors (vs a pre-edit baseline — pre-existing repo errors ride along as a preExisting count), and rolls back to the pre-op state if the post-apply typecheck shows newly-introduced errors.',
-    'capture-safe: each rewritten import is re-resolved over the post-move tree — if one lands on a DIFFERENT same-named, type-compatible export (a path-capture the typecheck cannot see) the sites are listed under `captures` and apply is REFUSED. summaryOnly:true returns the verdict + ONE merged `touched` list (each file with its +added/-removed line counts; a moved-away/deleted source marked `(removed)`) instead of the full diff.',
-    'cross-program: an importer in a `test/**` file under a sibling tsconfig is repointed too (not left dangling), and the typecheck gate runs on every affected program — including the program whose glob owns the DEST, so a moved file erroneous under a disjoint dest tsconfig (e.g. a divergent `lib`/`strict`) is refused, not silently applied.',
-    'cross-program LIMITS: (a) the capture-safety check (the type-compatible silent re-bind on a rewritten import) runs on the PRIMARY program ONLY. (b) inside a `transaction` the cross-program write-site fan-out is OFF: a step rewrites primary-program sites only, though the cumulative §2.8 gate still fans across every program and refuses a cross-program dangle.',
+    'capture-safe: each rewritten import is re-resolved over the post-move tree — if one lands on a DIFFERENT same-named, type-compatible export (a path-capture the typecheck cannot see) the sites are listed under `captures` and apply is REFUSED.',
+    'gate & cross-program: dry-run→typecheck→rollback gate; importers are repointed across ALL loaded programs (the gate also runs on the dest-owning program); capture & in-transaction write-fan-out LIMITS apply — see concepts (mutating-gate, cross-program-limits).',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

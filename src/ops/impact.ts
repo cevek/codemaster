@@ -225,7 +225,7 @@ export const impactOp = defineOp({
   example: { args: { name: 'createEngine', depth: 2 } },
   notes: [
     'bounded BFS over find_usages: who transitively depends on the target (encloser rollup → those enclosers’ usages → …). Each dependent is a chainable SymbolId, grouped by its SHALLOWEST depth (proximity), sorted by fan-in within a depth.',
-    'HARD bounds (§1 never-hang): a depth cap AND a global node cap (total work = nodes × find_usages). Hitting either — or a dependent that cannot be re-expanded (a module-level rollup) — is flagged `!!`; a truncated closure NEVER reads as complete.',
+    'HARD bounds (never-hang): a depth cap AND a global node cap (total work = nodes × find_usages). Hitting either — or a dependent that cannot be re-expanded (a module-level rollup) — is flagged `!!`; a truncated closure NEVER reads as complete.',
     'value-flow boundary: a dependent that reads a callable target as a VALUE (not call/jsx) is where dynamic dispatch can carry impact past what find_usages sees — flagged `dynamic`, NOT traversed, the closure reported PARTIAL (never silently bridged).',
     'summary:true returns counts-per-depth only (gauge risk without the node list). kind/path/exportedOnly are a VIEW over the complete closure (they shrink the listing, never the walk); hidden counts are surfaced.',
   ],
