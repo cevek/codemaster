@@ -51,21 +51,57 @@ export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
   'endpoint-card': list.endpointCard,
 };
 
-/** Tags whose form carries NO verbatim proof body (a name-token span is a location, members are
- *  `name: type`, a list row is locations) — so they collapse at `full` too, instead of exploding
- *  into multi-line blocks. Proof-bearing tags (symbol+decl body, …) pass through unchanged at full
- *  (the existing behavior), so this changes full output ONLY for the listed non-proof forms. */
-export const COLLAPSE_AT_FULL: ReadonlySet<ShapeTag> = new Set<ShapeTag>([
-  'type-member',
-  'type-ref',
-  'bare-span',
-  'list-entry',
-  'endpoint-card',
-  'typecheck-clean',
-  'touched-stat',
-  'i18n-unused-key',
-  'i18n-def',
-  'i18n-usage',
-  'i18n-missing-per-key',
-  'i18n-missing-usage',
-]);
+/** Per-tag `full`-verbosity disposition. The DEFAULT is `collapse`: a list/verdict row's form
+ *  carries NO verbatim proof body (a name-token span is a location, members are `name: type`, a
+ *  verdict is a value), so it renders as its dense one-liner even at `full` — never an exploded
+ *  multi-line `key=value` block. `verbatim` is the small opt-OUT for a proof-BEARING form whose
+ *  full value IS meaningful source text. Today exactly one tag qualifies:
+ *
+ *  - `symbol` — carries `decl`, a span whose verbatim text is the declaration BODY (the "show me
+ *    the code" payload of find_definition / find_usages' definition / search_symbol). It is also
+ *    FORCED verbatim: the `symbol` renderer reads `decl` as a pre-condensed STRING, so collapsing
+ *    it at full (where `decl` is a verbatim span OBJECT) would yield `[object Object]` and drop the
+ *    body. Every other tag's value is structural (locations / type-strings / verdicts / counts) —
+ *    exactly the noise §12 collapses.
+ *
+ *  EXHAUSTIVE over `ShapeTag` (a `Record`, not a Set) — so a NEW tag with no entry is a COMPILE
+ *  error, the second half of the coverage guard (SHAPE_RENDERERS is the first). This is what keeps
+ *  the density regression from recurring: a new row shape cannot silently default into the
+ *  exploder — it must be classified, and the default it inherits when classified is `collapse`. */
+export const FULL_DISPOSITION: Record<ShapeTag, 'collapse' | 'verbatim'> = {
+  symbol: 'verbatim',
+  usage: 'collapse',
+  'text-hit': 'collapse',
+  'group-row': 'collapse',
+  importer: 'collapse',
+  'construction-site': 'collapse',
+  'unused-export': 'collapse',
+  'type-member': 'collapse',
+  'type-ref': 'collapse',
+  'unresolved-name': 'collapse',
+  'bare-span': 'collapse',
+  'target-ref': 'collapse',
+  'ts-diagnostic': 'collapse',
+  'parse-failure': 'collapse',
+  capture: 'collapse',
+  'name-survives': 'collapse',
+  'typecheck-clean': 'collapse',
+  'touched-stat': 'collapse',
+  'i18n-unused-key': 'collapse',
+  'i18n-def': 'collapse',
+  'i18n-usage': 'collapse',
+  'i18n-missing-per-key': 'collapse',
+  'i18n-missing-usage': 'collapse',
+  'scss-class': 'collapse',
+  'css-rule': 'collapse',
+  'css-property': 'collapse',
+  'css-winner': 'collapse',
+  'css-decl-ref': 'collapse',
+  'css-left-behind': 'collapse',
+  'css-coextract': 'collapse',
+  'rq-mutation': 'collapse',
+  'rq-edge': 'collapse',
+  'rq-affected': 'collapse',
+  'list-entry': 'collapse',
+  'endpoint-card': 'collapse',
+};

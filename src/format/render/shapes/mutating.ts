@@ -2,7 +2,7 @@
 // rename old-name-survivor report.
 
 import type { ShapeRenderer } from './types.ts';
-import { asArray, flat } from './helpers.ts';
+import { asArray, flat, spanLoc } from './helpers.ts';
 
 /** Capture row (rename/move/extract/codemod capture-safety refusal): { at, kind, detail }.
  *  `at` is the clickable file:line:col; `detail` carries spaces. One line, not a 3-line block. */
@@ -13,8 +13,11 @@ export const capture: ShapeRenderer = (v) =>
  *  states the counts; the (already-condensed) survivor spans ride beneath as proof, as a
  *  multi-line string — no bare k=v at depth. */
 export const nameSurvives: ShapeRenderer = (v) => {
-  const aliases = asArray(v['reExportAliases']).map(String);
-  const consumers = asArray(v['exportStarConsumers']).map(String);
+  // reExportAliases / exportStarConsumers are condensed proof SPANS — a string at terse/normal, a
+  // verbatim OBJECT at full; spanLoc collapses each to its loc so neither stringifies to `[object
+  // Object]` (this is a collapse-disposition disclosure row — the body is not the proof here).
+  const aliases = asArray(v['reExportAliases']).map((s) => spanLoc(s));
+  const consumers = asArray(v['exportStarConsumers']).map((s) => spanLoc(s));
   const lines = [String(v['summary'])];
   if (aliases.length > 0) lines.push(`  re-export aliases: ${aliases.join(' | ')}`);
   if (consumers.length > 0) lines.push(`  via export*: ${consumers.join(' | ')}`);

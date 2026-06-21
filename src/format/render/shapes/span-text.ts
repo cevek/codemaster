@@ -1,6 +1,6 @@
 // Span loc/text extraction over the ALREADY-CONDENSED span. condense.ts runs bottom-up, so by
 // the time a shape renderer runs its `span` child is a STRING at terse/normal (`loc` / `loc · text`)
-// or a verbatim OBJECT at full (for a COLLAPSE_AT_FULL form). These let a renderer drop the
+// or a verbatim OBJECT at full (for a `collapse`-disposition form, FULL_DISPOSITION). These let a renderer drop the
 // normal-mode text echo (keep just the clickable loc) or dedup a sibling field against the span's
 // proof text — without re-deriving the span. Terse has no text, so `spanTextOf` returns '' there
 // and a text-vs-field comparison safely no-ops (the field is the only identifier — never stripped).

@@ -15,7 +15,7 @@
 import type { JsonValue } from '../../core/json.ts';
 import type { Verbosity } from '../../core/result.ts';
 import { SHAPE_KEY, type ShapeTag } from '../../common/shape-tag/tag.ts';
-import { COLLAPSE_AT_FULL, SHAPE_RENDERERS } from './shapes/index.ts';
+import { FULL_DISPOSITION, SHAPE_RENDERERS } from './shapes/index.ts';
 
 const NORMAL_TEXT_CAP = 60;
 
@@ -33,9 +33,11 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
     for (const [key, child] of Object.entries(value)) out[key] = condenseSpans(child, verbosity);
     const tagVal = out[SHAPE_KEY];
     if (typeof tagVal === 'string') {
-      // At full, a proof-bearing row passes through verbatim (the pre-tag behavior); only the
-      // non-proof structural forms collapse (members/spans/list rows carry no verbatim body).
-      if (verbosity === 'full' && !COLLAPSE_AT_FULL.has(tagVal as ShapeTag)) {
+      // At full, a `verbatim`-disposition row passes through untouched (its value IS proof body —
+      // today only `symbol`'s decl); every other tag collapses to its dense one-liner even at full
+      // (the DEFAULT — a list/verdict row carries no verbatim body). FULL_DISPOSITION is exhaustive
+      // over ShapeTag, so a new tag defaults to neither: it must be classified or tsc fails.
+      if (verbosity === 'full' && FULL_DISPOSITION[tagVal as ShapeTag] === 'verbatim') {
         // The renderer does NOT run here to consume them, so strip EVERY `~`-meta key — the
         // shape tag AND render-only hints (~subject/~sectioned/…) — so none reaches render-dense
         // as a `~key=value` field. (Recursion already condensed nested rows, which stripped

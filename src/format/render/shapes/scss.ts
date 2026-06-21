@@ -5,20 +5,23 @@
 
 import type { JsonValue } from '../../../core/json.ts';
 import type { ShapeRenderer } from './types.ts';
-import { asArray, confTail, flat, isObject } from './helpers.ts';
-import { spanLocOnly, spanTextOf } from './span-text.ts';
+import { asArray, confTail, flat, isObject, spanLoc } from './helpers.ts';
+import { spanLocOnly } from './span-text.ts';
 import { SECTIONED_KEY, SUBJECT_KEY } from './meta-keys.ts';
 
-/** ScssClassView / UnusedClassView: { name, file, span, confidence, note? }. The span's proof text
- *  (normal/full) is the selector `.name`, so the bare `name` echo is dropped there (the span carries
- *  it); terse has no text, so `name` stays — it is then the only identifier. A class whose module is
- *  named in the dynamicModules/globalModules envelope section drops its per-row note (`~sectioned`). */
+/** ScssClassView / UnusedClassView: { name, file, span, confidence, note? }. The `name` echo is
+ *  dropped ONLY when the RENDERED span already shows it — at normal the span string ends with the
+ *  `.name` selector (its proof text), so it is redundant. At full the span collapses to loc-only (no
+ *  text), and at terse there is no text, so the name is the only identifier and MUST stay. Checking
+ *  the rendered loc (not the raw span text) is what keeps the name from vanishing at full. A class
+ *  whose module is named in the dynamicModules/globalModules envelope section drops its per-row note
+ *  (`~sectioned`). */
 export const scssClass: ShapeRenderer = (v) => {
-  const nameEchoed = spanTextOf(v['span']) === `.${String(v['name'])}`;
-  const name = nameEchoed ? '' : ` · ${String(v['name'])}`;
+  const loc = spanLoc(v['span']);
+  const name = loc.endsWith(`.${String(v['name'])}`) ? '' : ` · ${String(v['name'])}`;
   const note =
     v[SECTIONED_KEY] === true || v['note'] === undefined ? '' : ` · ${String(v['note'])}`;
-  return `${String(v['span'])}${name}${confTail(v['confidence'])}${note}`;
+  return `${loc}${name}${confTail(v['confidence'])}${note}`;
 };
 
 /** A selector token ends at one of these (or end-of-string); anything else (`-`, `_`, alnum) is part
@@ -74,7 +77,7 @@ export const cssRule: ShapeRenderer = (v) => {
   const extra = asArray(v['requiresExtraClasses']);
   const extraStr = extra.length > 0 ? ` +.${extra.join('.')}` : '';
   const flagStr = flags.length > 0 ? ` · ${flags.join(',')}` : '';
-  return `[${String(v['specificity'])}] ${String(v['span'])} · ${String(v['selector'])}${extraStr}${flagStr} · {${declList(v['declarations'])}}`;
+  return `[${String(v['specificity'])}] ${spanLoc(v['span'])} · ${String(v['selector'])}${extraStr}${flagStr} · {${declList(v['declarations'])}}`;
 };
 
 /** CascadeProperty (the per-property verdict) — `prop: <winner>` + indented losers. */
@@ -98,7 +101,7 @@ export const cssDeclRef: ShapeRenderer = (v) => declRefLine(v);
 /** LeftBehindEntry (extract_symbol cssCoExtract.leftBehind) — { class, code, reason, detail?,
  *  span? }. */
 export const cssLeftBehind: ShapeRenderer = (v) => {
-  const loc = v['span'] !== undefined ? `${String(v['span'])} · ` : '';
+  const loc = v['span'] !== undefined ? `${spanLoc(v['span'])} · ` : '';
   const detail = v['detail'] !== undefined ? ` — ${flat(v['detail'])}` : '';
   return `${loc}${String(v['class'])} · ${String(v['code'])} · ${flat(v['reason'])}${detail}`;
 };

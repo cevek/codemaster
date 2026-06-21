@@ -834,9 +834,20 @@ marker), never a silent fall-through.
 - **Ops own the tag.** Composing the answer, an op stamps `tag(<shape>, row)` on every renderable
   row it emits (the shape is the op's contract; the renderer is the format layer's). A row reused
   across ops (a `GroupRow` in `find_usages` and `impact`) is tagged at each op's assembly.
-- **`full` is per-tag.** A tag whose form carries no verbatim proof body (a name-token span, a type
-  member, a list row) collapses even at `full`; a proof-bearing form (a symbol + its decl body)
-  passes through verbatim. So `full` changes only the non-proof forms, never the proof.
+- **`full` is per-tag, and COLLAPSE is the default.** `FULL_DISPOSITION`
+  ([`format/render/shapes`](src/format/render/shapes)) is an EXHAUSTIVE `Record<ShapeTag,
+'collapse' | 'verbatim'>` — so a new tag with no entry is a COMPILE error (the second half of the
+  coverage guard, mirroring `SHAPE_RENDERERS`), and the disposition it must then declare defaults to
+  `collapse`. `collapse` means the tag renders as its dense one-liner even at `full` (a list/verdict
+  row carries no verbatim body — a name-token span is a location, a member is `name: type`, a verdict
+  is a value). `verbatim` is the small opt-OUT for a proof-BEARING form whose full value IS meaningful
+  source text: today exactly one tag — `symbol` (its `decl` span is the declaration body, the "show
+  me the code" payload). So `full` changes only that one proof form, never a list/verdict; a renderer
+  that reaches a span must use the object-safe `spanLoc` helpers (a collapse row meets a verbatim span
+  OBJECT at full). This default-collapse inversion is what stops the density regression recurring: a
+  new row shape cannot silently fall into the exploder — it must be classified, and collapse is what
+  it inherits. (Raw top-level spans — not tagged rows — still pass verbatim at full per `condense`,
+  which is the point of `full` for a single-symbol lookup.)
 
 ---
 

@@ -1,16 +1,20 @@
 // 5a — registry COMPLETENESS, runtime (split from output-density.test.ts for the line cap).
 // `SHAPE_RENDERERS` is a `Record<ShapeTag, …>` (compile-time exhaustive), but that does not prove
 // each renderer COLLAPSES a real row. One representative row per tag is fed through the same
-// condense→dense path; each must collapse with no leaked `~shape` and no explosion — at every
-// verbosity, plus `full` for the collapse-at-full forms. This reaches the config-gated shapes
-// (i18n / react-query / schema / mutating / css) the live-op pipeline can't, so a new tag whose
-// renderer is forgotten (or a sample omitted) fails CI here. A nested-row sample carries its
-// children PRE-condensed (a string / [] ) — the row's OWN renderer is what's under test.
+// condense→dense path; each must collapse with no leaked `~shape`, no explosion, and no
+// `[object Object]` — at every verbosity, INCLUDING `full` for every `collapse`-disposition tag
+// (all but the proof-bearing `symbol`). `full` is the load-bearing case: that is where a renderer
+// that reaches a span via raw `String(v['span'])` meets a verbatim span OBJECT and prints
+// `[object Object]` — an explosion-guard-invisible failure the `[object Object]` assertion catches.
+// This reaches the config-gated shapes (i18n / react-query / schema / mutating / css) the live-op
+// pipeline can't, so a new tag whose renderer is forgotten (or a sample omitted) fails CI here. A
+// nested-row sample carries its children PRE-condensed (a string / [] ) — the row's OWN renderer is
+// what's under test.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tag, type ShapeTag } from '../../src/common/shape-tag/tag.ts';
-import { SHAPE_RENDERERS, COLLAPSE_AT_FULL } from '../../src/format/render/shapes/index.ts';
+import { SHAPE_RENDERERS, FULL_DISPOSITION } from '../../src/format/render/shapes/index.ts';
 import { fallThrough, leakedTag, renderRows, span } from '../helpers/density.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { Verbosity } from '../../src/core/result.ts';
@@ -135,13 +139,21 @@ test('every emitted shape tag has a renderer that collapses (no leak, no explosi
       sample !== undefined,
       `no TAG_SAMPLES row for tag '${t}' — add one so the guard covers it`,
     );
-    const verbosities: Verbosity[] = COLLAPSE_AT_FULL.has(t)
-      ? ['terse', 'normal', 'full']
-      : ['terse', 'normal'];
+    // `full` is asserted for every collapse-disposition tag — a verbatim tag (`symbol`) is the
+    // opt-OUT: it legitimately passes its proof body through at full, so the explosion guard would
+    // false-trip on it. terse/normal are asserted for ALL tags.
+    const verbosities: Verbosity[] =
+      FULL_DISPOSITION[t] === 'collapse' ? ['terse', 'normal', 'full'] : ['terse', 'normal'];
     for (const v of verbosities) {
       const text = renderRows([tag(t, sample)], v);
       assert.equal(leakedTag(text), undefined, `tag '${t}' (${v}) leaked into output:\n${text}`);
       assert.equal(fallThrough(text), undefined, `tag '${t}' (${v}) exploded:\n${text}`);
+      // A renderer that String()s a span field collapses to one line but stringifies the verbatim
+      // span OBJECT as `[object Object]` at full — invisible to the explosion guard. Catch it.
+      assert.ok(
+        !text.includes('[object Object]'),
+        `tag '${t}' (${v}) stringified an object (missing spanLoc?):\n${text}`,
+      );
     }
   }
 });

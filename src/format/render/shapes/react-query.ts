@@ -6,7 +6,7 @@
 
 import type { JsonValue } from '../../../core/json.ts';
 import type { ShapeRenderer } from './types.ts';
-import { confTail, isObject, summarizeQueryKey } from './helpers.ts';
+import { confTail, isObject, spanLoc, summarizeQueryKey } from './helpers.ts';
 
 /** ResolvedMutation: { id, name, site, edges }. The id carries name + decl loc, so name/site
  *  drop; the `edges (N):` tree header stays (the hierarchy is real). */
@@ -23,7 +23,7 @@ export const rqEdge: ShapeRenderer = (v) => {
     (v['exact'] === true ? ' · exact' : '') + (v['narrowed'] === true ? ' · narrowed' : '');
   const key = broad ? '(all)' : summarizeQueryKey(v['key']);
   const conf = broad ? 'dynamic' : isObject(v['key']) ? String(v['key']['confidence']) : 'dynamic';
-  const edge = `${String(v['method'])} @${String(v['span'])} ${key}${flags} · ${conf}`;
+  const edge = `${String(v['method'])} @${spanLoc(v['span'])} ${key}${flags} · ${conf}`;
   return { edge, affects: v['affects'] ?? null } as JsonValue;
 };
 

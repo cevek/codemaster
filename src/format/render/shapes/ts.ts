@@ -26,20 +26,20 @@ export const symbol: ShapeRenderer = (v) => {
  *  per-row (find_usages), so the line would otherwise end in `· undefined`. */
 export const usage: ShapeRenderer = (v) => {
   const role = v['role'] !== undefined ? ` · ${String(v['role'])}` : '';
-  return `${String(v['span'])}${role}${confTail(v['confidence'])}${usageDeco(v)}`;
+  return `${spanLoc(v['span'])}${role}${confTail(v['confidence'])}${usageDeco(v)}`;
 };
 
 /** Text-only hit (§ text-overlay): { span, confidence:'unresolved' } — no role (the text scanner
  *  can't claim an AST concept). The `unresolved` confidence is stated ONCE in the section note
  *  (the whole section is identity-unproven by definition), so the row is just its location. */
-export const textHit: ShapeRenderer = (v) => String(v['span']);
+export const textHit: ShapeRenderer = (v) => spanLoc(v['span']);
 
 /** GroupRow (enclosing rollup): the id carries name + file:line:col, so terse collapses to
  *  one line; the explicit columns exist for relational projection. `site` (a representative
  *  reference span inside the encloser) is present in find_usages, stripped by impact. */
 export const groupRow: ShapeRenderer = (v) => {
   const exp = v['exported'] === true ? ' · exported' : '';
-  const ref = v['site'] !== undefined ? ` · ref ${String(v['site'])}` : '';
+  const ref = v['site'] !== undefined ? ` · ref ${spanLoc(v['site'])}` : '';
   return `${String(v['id'])} · ${String(v['kind'])} · x${String(v['count'])} (${String(v['roles'])})${exp}${confTail(v['confidence'])}${ref}${usageDeco(v)}`;
 };
 
@@ -53,7 +53,7 @@ export const constructionSite: ShapeRenderer = (v) => {
   if (!isObject(enc)) return v;
   const exp = enc['exported'] === true ? ', exported' : '';
   const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
-  return `${String(v['span'])} · in ${String(enc['id'])} (${String(enc['kind'])}${exp})${confTail(v['confidence'])}${note}`;
+  return `${spanLoc(v['span'])} · in ${String(enc['id'])} (${String(enc['kind'])}${exp})${confTail(v['confidence'])}${note}`;
 };
 
 /** UnusedExportView: { name, kind, file, span, symbol, confidence, note? }. The `symbol` id

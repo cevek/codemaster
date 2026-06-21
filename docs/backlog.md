@@ -757,11 +757,27 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       a renderer", not "forgot to tag a row"). All ops currently tag (verified). Fix: add the
       config-gated ops to the live CASES via a configured fixture (kitchensink/react-query repos).
       `dx`·`med`·`cx:M`
-- [ ] **`COLLAPSE_AT_FULL` drops verbatim span text for `bare-span`/`list-entry` at full** — at
-      `verbosity:full` (meant to be verbatim) the `bare-span` form (`find_missing_i18n_keys`
-      `dynamicUsages`, whose span text is the `t(\`…\`)`dynamic-key expression) and`list-entry`    (proof span text) collapse to`file:line:col`. The text is arguably re-fetchable / loc-identified,
-but for `dynamicUsages`the`t()`expression IS the evidence of the dynamic call — reconsider
-whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
+- [ ] **`FULL_DISPOSITION` collapse drops span proof TEXT at full — re-examine the few forms where the
+      text IS the evidence** — the density-regression root (an opt-IN `COLLAPSE_AT_FULL` allowlist that
+      left every unlisted tag exploding at `full`) is CLOSED: `FULL_DISPOSITION` is now an exhaustive
+      `Record<ShapeTag,'collapse'|'verbatim'>` with `collapse` the default and `symbol` the lone
+      `verbatim` (see `format/render/shapes/index.ts`, §12). A consequence: a `collapse` row renders its
+      span loc-only at `full` (via `spanLoc`), dropping the span's verbatim TEXT. That is correct for
+      the vast majority (the text is a redundant name-token, or shown as a data field). The handful
+      where the dropped text WAS the evidence, to reconsider per-form: (a) `bare-span`
+      (`find_missing_i18n_keys` `dynamicUsages`, whose text is the dynamic `t()` template-literal
+      key expression — the evidence of the dynamic call); (b) `i18n-usage` / `i18n-missing-usage`
+      drop the echoed dotted KEY at full (`spanEchoes` matches the source token, but `spanLoc` no
+      longer renders it) — same class as the `scss-class` name-drop fixed in this pass (which now
+      keeps the name by checking the RENDERED loc, not the raw span text). Fold a `name` / `key`
+      survives positive assertion into the full-verbosity sweep when fixed. `dx`·`low`·`cx:S`
+- [ ] **`find_usages` `definition` passes verbatim at full but carries only a name-token span (watery)**
+      — `definition` is `tag('symbol', …)` → `verbatim` disposition, so at `full` it explodes into
+      `id=/name=/kind=/span{file=…}` instead of a compact body. For a `const` with no `decl` body that
+      is pure water (the name-token span repeats the id). `find_definition` full avoids this via the
+      `isDefinitionsData` → `renderSource` compact-body path (render-result.ts); `find_usages`'
+      `definition` does not. Route it through the same compact symbol-body path, or drop the name-token
+      span from the definition view. `dx`·`low`·`cx:S`
 - [ ] **shape renderers are not wrapped in try/catch** — `condense`'s tag-dispatch calls the renderer
       directly; a throwing renderer would escape to the agent (the "never crash" §3.6 contract formally
       relies on renderers being throw-free by construction — they are today: only `String()`/asArray
