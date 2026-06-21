@@ -447,21 +447,69 @@ don't vanish.
 - [ ] **move_symbol: specifier style is LS-chosen, not alias-preserving** — importer specifiers come
       out relative (`@/source` → `./dest`) instead of re-forming the path alias. Cold compile proves
       correctness; purely diff-noise. Close by post-processing through `emitSpecifier`. `dx`·`low`·`cx:M`
-- [ ] **move/extract detaches a symbol's leading JSDoc (blank line inserted before the decl)** —
-      dogfood (amiro, 2026-06-21): after `extract_symbol`/`move_symbol` of a top-level symbol with a
-      leading JSDoc/doc comment, the relocated symbol in dest ends up with a BLANK LINE between the
-      JSDoc block and its `export function …`, detaching the doc from what it documents (visually + for
-      tooling that requires adjacency). Typecheck-clean (it's a comment) → the §2.8 gate never catches
-      it → silent degradation of the moved code, requiring manual re-attachment. Bites the dominant
-      file-split workflow (the exact extract+move_symbol chain the transaction step now enables). Likely
-      in the moved-block text assembly (`refactor/extract/statements.ts`) — the leading-trivia /
-      blank-line handling around the relocated declaration. `bug`·`high`·`cx:M`
-- [ ] **move/extract emit duplicate import lines from the SAME module in dest** — dogfood (amiro,
-      2026-06-21): the generated dest imports can contain several separate statements from one module
-      (e.g. multiple `@tanstack/react-query` lines) instead of one merged specifier list. Typecheck
-      passes; forces manual tidy. Distinct from the malformed-merge bug already fixed (that was `,,`
-      INTO an existing line) — this is failing to MERGE into one statement at all. Close by folding
-      same-module specifiers in the dest import assembly. `bug`·`med`·`cx:M`
+- [x] **move/extract detaches a symbol's leading JSDoc (blank line inserted before the decl)** —
+      FIXED (2026-06-21). The spurious blank line is LS-EMITTED inside the moved block's `newText`
+      (`getEditsForRefactor` returns `*/\n\nexport const X` for an ADJACENT doc) — the backlog's
+      `statements.ts` "moved-block assembly" hypothesis was wrong (that file only computes the range +
+      nested guard). Fix: `refactor/normalize/reattach-doc.ts` shrinks the output comment→decl gap down
+      to the SOURCE gap, applied to the relocated file at both call sites
+      (`move-to-file.ts`/`move-to-existing.ts`). SOURCE-FAITHFUL, no over-glue: the LS PRESERVES the gap
+      of a blank-line-DETACHED comment that travels with the symbol, so a blind collapse would wrongly
+      glue it; we remove only the spurious insertion (verified empirically — over-glue guard test).
+      Survives prettier (it preserves the gap). Oracle: `test/e2e/refactor-doc-adjacency.test.ts`
+      (extract + move_symbol adjacency, detached-no-glue guard, the `transaction([extract,extract])`
+      file-split = the literal amiro repro, cold-compile).
+- [x] **extract emits duplicate import lines from the SAME module in the new file** — FIXED
+      (2026-06-21), EXTRACT-ONLY. Fix: `refactor/normalize/fold-imports.ts` folds ≥2 same-module import
+      statements in the extracted new file into one, applied via `normalize/relocated-file.ts`
+      (`normalizeExtractedContent`). The concrete reproduced gap is **default + named** (`import def` +
+      `import { x }` → `import def, { x }`), which the LS leaves split and prettier does not merge.
+      The fold is EXTRACT-ONLY by deliberate scope choice (the move_symbol contract is a scoped edit —
+      see the deferred consolidation item — and the move_symbol-produced dup is tracked as a separate
+      open bug below). Honest note on the original report ("multiple `@tanstack/react-query` lines"):
+      react-query is named-only and **named+named ALWAYS merges** (the only LS-merge behaviour VERIFIED
+      here, incl. under `verbatimModuleSyntax`), so that exact shape does not reproduce; if amiro's real
+      case was **namespace+named** (`import * as RQ` + `import { x }`), that is the only LEGAL form
+      (unmergeable into one statement) and the LS is correct — NOT a bug. Residuals left unmerged by
+      design: namespace-present / bare-side-effect / two-distinct-default / **type-only-default**
+      (`import type D` + `import { x }` — folding would drop the `type` and add a runtime import under
+      verbatimModuleSyntax, a silent semantic change) groups, and two grouped imports sharing one source
+      line. Oracle: `test/e2e/refactor-import-fold.test.ts`.
+- [ ] **move_symbol PRODUCES a default+named same-module duplicate (open)** — the LS merges a moved
+      NAMED import into a dest's existing DEFAULT line, but NOT the reverse (moved default into an
+      existing named line) nor the both-from-source case (the moved symbol's default + named both come
+      from the source into a fresh dest) — those leave TWO separate `import def from 'm'` / `import { x }
+from 'm'` statements in the dest. Typecheck-clean → §2.8 doesn't catch it → hand-tidy. The fold is
+      EXTRACT-ONLY (it can't tell a move-produced dup from a pre-existing one — see the consolidation
+      item — so consolidating would exceed the scoped-edit contract), so this is left open. NOT a
+      regression: main never folded move_symbol, so this is the long-standing status quo, surfaced
+      honestly. Close by folding ONLY the move's own newly-emitted dup (not pre-existing dest imports).
+      `bug`·`med`·`cx:M`
+- [ ] **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred,
+      DISTINCT from the move-produced dup above. The extract fold is not run on move_symbol because a
+      whole-dest fold can't distinguish a same-module split the move PRODUCED from one that ALREADY
+      existed in the dest — consolidating the latter is an unrequested refactor that expands the diff
+      beyond the moved symbol + its imports, exceeding the op's scoped-edit contract. A future opt-in
+      "tidy dest imports" could do it; not this bug. `feat`·`low`·`cx:S`
+- [ ] **extract import-fold misses different-specifier-same-after-rewrite** —
+      `foldSameModuleImports` runs BEFORE `assemblePlan`'s `rewriteImports`, so two imports that become
+      same-module only AFTER a specifier rewrite (e.g. `'./a'` and `'@/a'` resolving to one moved file)
+      are not folded. Rare; acceptable today. `bug`·`low`·`cx:M`
+- [ ] **reattach-doc gap rebuild is LF-only** — `reattachLeadingDoc` rebuilds the comment→decl gap with
+      `'\n'.repeat(...)`, so in a CRLF file the normalized gap is LF (mixed line endings). The project's
+      own prettier normalizes on apply; only bites a no-prettier repo on Windows. `dx`·`low`·`cx:S`
+- [ ] **`fold-imports.ts` git-classified as BINARY** (same as `socket-path.ts`) — `git grep` without
+      `-a` misses it. A repo-wide `.gitattributes` `*.ts text` would fix both this and the socket-path
+      B2 residual in one stroke; do them together. `infra`·`low`·`cx:S`
+- [ ] **fold-imports leaves an own-line leading comment of a deleted duplicate import hanging** —
+      `deleteLine` removes the import line from its `import` token, not from a comment above it, so a
+      `// note` on its own line above a folded-away duplicate is orphaned. Rare (a comment on a duplicate
+      import); §2.8 doesn't care (comment). `dx`·`low`·`cx:S`
+- [ ] **extract/move_symbol: cosmetic double blank line after the import block (no-doc case)** — the LS
+      can emit `import …\n\n\nexport const X` (two blank lines) in the extracted/moved block when the
+      symbol has no leading doc. LS-emitted, not detached by our fix; the project's own prettier collapses
+      it to one blank line on apply (mutating ops format), so it is invisible in real repos and only shows
+      in fixtures without a project prettier. Known-cosmetic, prettier-handled. `dx`·`low`·`cx:S`
 - [ ] **move/extract/move_symbol: capture `line:col` over UNFORMATTED LS output** — the proof
       coordinate is computed on raw LS edits, but the agent sees the prettier-formatted diff → on a
       real capture the `file:line:col` can point at a reflowed line. Detail string still names the

@@ -25,9 +25,12 @@ import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
   applyTsChanges,
+  sourceLeadingGap,
   targetsNestedDeclaration,
+  topLevelDeclName,
   topLevelStatementAt,
 } from './statements.ts';
+import { reattachLeadingDoc } from '../normalize/reattach-doc.ts';
 
 // Dest must be a TYPECHECKED TS file. This set is kept IN SYNC with `assemble.ts`'s `TS_RE`
 // (the overlay/checkPaths filter): a `.js`/`.jsx` dest would be EDITED but never overlaid or
@@ -36,31 +39,6 @@ import {
 // typecheck set, so every byte the move writes is gated. (move_symbol is a TS/React op.)
 const TS_DEST_RE = /\.(tsx?|mts|cts)$/;
 const MOVE_TO_FILE = 'Move to file';
-
-/** The declared name of a top-level statement (the symbol the agent is moving), or undefined for
- *  an unnamed/multi-binding statement we can't pin to one name (collision/capture checks then skip
- *  — the §2.8 typecheck remains the backstop, never a false refusal). */
-function topLevelDeclName(stmt: ts.Statement): string | undefined {
-  if (
-    (ts.isFunctionDeclaration(stmt) ||
-      ts.isClassDeclaration(stmt) ||
-      ts.isInterfaceDeclaration(stmt) ||
-      ts.isTypeAliasDeclaration(stmt) ||
-      ts.isEnumDeclaration(stmt) ||
-      ts.isModuleDeclaration(stmt)) &&
-    stmt.name !== undefined &&
-    ts.isIdentifier(stmt.name)
-  ) {
-    return stmt.name.text;
-  }
-  if (ts.isVariableStatement(stmt)) {
-    const decls = stmt.declarationList.declarations;
-    if (decls.length === 1 && decls[0] !== undefined && ts.isIdentifier(decls[0].name)) {
-      return decls[0].name.text;
-    }
-  }
-  return undefined;
-}
 
 /** Names of every top-level declaration in `sf` (for the dest collision pre-check). */
 function topLevelNames(sf: ts.SourceFile): Set<string> {
@@ -193,6 +171,16 @@ export function planMoveSymbolTo(
       return `move-symbol: edits target a file with no resolvable content (${rel}) — move manually`;
     }
     node.setContent(applyTsChanges(base, fc.textChanges));
+  }
+
+  // Reattach the moved symbol's leading doc before the plan reads dest. Import folding is NOT applied
+  // here on purpose: the LS already merges the move's OWN imports into dest's existing lines, so the
+  // only thing a fold could do is consolidate PRE-EXISTING dest duplicates the move didn't create —
+  // an unrequested refactor that would expand the diff past the moved symbol (extract-only; backlog).
+  const destContent = destNode.contentOverride();
+  const gap = sourceLeadingGap(sf, stmt);
+  if (destContent !== null && movedName !== undefined && gap !== undefined) {
+    destNode.setContent(reattachLeadingDoc(destContent, movedName, gap));
   }
 
   const plan = assemblePlan(host, tree, options, overlay);

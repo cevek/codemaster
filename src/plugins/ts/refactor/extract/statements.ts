@@ -45,6 +45,50 @@ export function topLevelStatementAt(sf: ts.SourceFile, offset: number): ts.State
   return undefined;
 }
 
+/** The declared name of a top-level statement (the symbol being relocated), or undefined for an
+ *  unnamed / multi-binding statement we can't pin to one name. Shared by `move_symbol` (collision
+ *  pre-check) and the doc-reattach normalizer (locating the moved decl in the LS output). */
+export function topLevelDeclName(stmt: ts.Statement): string | undefined {
+  if (
+    (ts.isFunctionDeclaration(stmt) ||
+      ts.isClassDeclaration(stmt) ||
+      ts.isInterfaceDeclaration(stmt) ||
+      ts.isTypeAliasDeclaration(stmt) ||
+      ts.isEnumDeclaration(stmt) ||
+      ts.isModuleDeclaration(stmt)) &&
+    stmt.name !== undefined &&
+    ts.isIdentifier(stmt.name)
+  ) {
+    return stmt.name.text;
+  }
+  if (ts.isVariableStatement(stmt)) {
+    const decls = stmt.declarationList.declarations;
+    if (decls.length === 1 && decls[0] !== undefined && ts.isIdentifier(decls[0].name)) {
+      return decls[0].name.text;
+    }
+  }
+  return undefined;
+}
+
+/** Newlines between a relocated statement's nearest leading comment and the statement itself, IN
+ *  THE SOURCE — the faithful gap the LS output must preserve. `undefined` when the statement carries
+ *  no leading comment (nothing for the doc-reattach normalizer to do). The LS adds a spurious blank
+ *  line for an ADJACENT doc (gap 1 → 2) but preserves the gap of a blank-line-DETACHED comment, so
+ *  matching this source gap removes only the spurious insertion, never glues a detached comment. */
+export function sourceLeadingGap(sf: ts.SourceFile, stmt: ts.Statement): number | undefined {
+  const ranges = ts.getLeadingCommentRanges(sf.text, stmt.getFullStart());
+  if (ranges === undefined || ranges.length === 0) return undefined;
+  const last = ranges[ranges.length - 1];
+  if (last === undefined) return undefined;
+  return countNewlines(sf.text.slice(last.end, stmt.getStart(sf)));
+}
+
+export function countNewlines(s: string): number {
+  let n = 0;
+  for (const ch of s) if (ch === '\n') n++;
+  return n;
+}
+
 /** A node kind whose NAME an extract/move target can land on (the "thing being declared"). The set
  *  is deliberately broad — it must include every MEMBER kind (class member, enum member,
  *  object-literal property, interface/type member), or a target on one of those would walk past it

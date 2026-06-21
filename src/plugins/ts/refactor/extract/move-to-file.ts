@@ -25,9 +25,12 @@ import {
   applyTsChanges,
   posixBasename,
   posixDirname,
+  sourceLeadingGap,
   targetsNestedDeclaration,
+  topLevelDeclName,
   topLevelStatementAt,
 } from './statements.ts';
+import { normalizeExtractedContent } from '../normalize/relocated-file.ts';
 
 export function planExtractTo(
   host: TsProjectHost,
@@ -124,6 +127,20 @@ export function planExtractTo(
       return `extract: cannot place new file at ${dest}: ${messageOfThrown(thrown)}`;
     }
     tree.rekeyByInitialPath(createdNode, dest);
+  }
+
+  // Normalize the relocated new file (reattach the moved symbol's doc, fold same-module duplicate
+  // imports) before the plan reads it. Scoped to the new file only — the source's edits are untouched.
+  const relocated = tree.findByCurrentPath(dest);
+  const relocatedContent = relocated?.contentOverride();
+  if (relocated !== null && relocatedContent !== null && relocatedContent !== undefined) {
+    relocated.setContent(
+      normalizeExtractedContent(
+        relocatedContent,
+        topLevelDeclName(stmt),
+        sourceLeadingGap(sf, stmt),
+      ),
+    );
   }
 
   const plan = assemblePlan(host, tree, options, overlay);
