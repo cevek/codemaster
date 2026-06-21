@@ -16,6 +16,7 @@ import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
 import { createJsScanner, type TextScanner } from '../support/text-search/scan.ts';
 import { runSqlBatch, type SqlBounds } from './sql-batch.ts';
 import { unknownOpMessage } from './dispatch-errors.ts';
+import { resolveArgs } from './resolve-args.ts';
 import { createPluginRegistry } from '../common/plugin-registry/create.ts';
 import { scopeRegistry } from '../common/plugin-registry/scope.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
@@ -288,15 +289,12 @@ class Engine implements WorkspaceEngine {
         },
       };
     }
-    const parsed = op.argsSchema.safeParse(req.args);
-    if (!parsed.success) {
-      const issues = parsed.error.issues
-        .map((i) => `${i.path.join('.') || '<args>'}: ${i.message}`)
-        .join('; ');
-      return {
-        name: req.name,
-        error: { kind: 'bad_args', message: `${issues} — expected ${op.argsHint}` },
-      };
+    // Liberal intake (§7 Postel) + the canonical zod gate, in one helper: a known off-canonical
+    // spelling is rewritten to canonical BEFORE validation (the gate stays the sole validator —
+    // a non-alias key still fails, with a did-you-mean), and what was rewritten is disclosed.
+    const resolved = resolveArgs(op, req.args);
+    if (!resolved.ok) {
+      return { name: req.name, error: { kind: 'bad_args', message: resolved.message } };
     }
 
     const opTrace = this.deps.debug.ns(`op:${req.name}`);
@@ -309,19 +307,23 @@ class Engine implements WorkspaceEngine {
           const r = await op.run(
             {
               plugins: this.registry,
-              flags: extractFlags(req),
+              flags: extractFlags({ ...req, ...resolved.flags }),
               daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
               textScanner: this.textScanner,
               ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
             },
-            parsed.data,
+            resolved.args,
           );
           opTrace('done', () => ({ ok: r.ok, ms: this.deps.clock.now() - started }));
           const captured = this.deps.debug.takeCapture();
           return captured.length > 0 ? { ...r, debug: captured } : r;
         },
       );
-      return { name: req.name, result: withBatchFreshness(result, batchFreshness) };
+      const merged = withBatchFreshness(result, batchFreshness);
+      return {
+        name: req.name,
+        result: resolved.intake.length > 0 ? { ...merged, intake: resolved.intake } : merged,
+      };
     } catch (thrown) {
       // An op implementation threw something unwrapped — a codemaster bug, reported
       // as such (§3.6): structured, honest, daemon stays up.

@@ -76,6 +76,30 @@ export interface TableSpec<D> {
   notes?(data: D): readonly string[];
 }
 
+/** Liberal-intake metadata (§7 Postel boundary) — how the dispatcher rewrites a known
+ *  off-canonical arg spelling to this op's canonical shape BEFORE zod validation. PURELY
+ *  INTERNAL: never projected into `status`/`argsHint` (the canonical shape is the only
+ *  advertised truth), so an alias never leaks into the documentation. All fields optional;
+ *  an op with no off-canonical inputs omits `intake` entirely. The rewrites that actually
+ *  fire on a call are disclosed per-call via `Result.intake`. */
+export interface OpIntake {
+  /** Per-op input-key → canonical-key map (e.g. `{ symbol: 'name' }` for find_usages,
+   *  `{ path: 'module', file: 'module' }` for importers_of). Applied only when the canonical
+   *  key is not already present (an explicit canonical value never gets clobbered). */
+  readonly aliases?: Readonly<Record<string, string>>;
+  /** Canonical fields that are arrays but are commonly passed as a bare scalar — coerced
+   *  `x` → `[x]` (e.g. `pathInclude`). Top-level keys only. */
+  readonly arrayFields?: readonly string[];
+  /** This op addresses a TS symbol via the shared `{symbolId|name|file+line+col}` shape:
+   *  enable smart-string parsing of `name` — a `ts:…@…:L:C` SymbolId → `symbolId`, a
+   *  `path:line:col` string → `file/line/col`. */
+  readonly locationTarget?: boolean;
+  /** This op carries an array of target objects under the named field (e.g. `source.targets`):
+   *  each STRING element is parsed into a target object (SymbolId / file:line:col / name) and
+   *  each OBJECT element gets the shared symbol/target alias rename + name smart-string. */
+  readonly targetArray?: string;
+}
+
 export interface OpDefinition<A, D extends JsonValue> {
   readonly name: string;
   readonly summary: string;
@@ -86,7 +110,7 @@ export interface OpDefinition<A, D extends JsonValue> {
   readonly requires: readonly string[];
   readonly argsSchema: z.ZodType<A>;
   /** Compact args rendering for the `status` cheat-sheet, e.g.
-   *  `{ target: SymbolId, limit?: number }`. */
+   *  `{ symbolId: SymbolId, limit?: number }`. */
   readonly argsHint: string;
   /** A canonical example call, validated against `argsSchema` by the anti-drift test
    *  (§1.1). The formatter composes the display string; ops never hand-write it. */
@@ -96,6 +120,8 @@ export interface OpDefinition<A, D extends JsonValue> {
    *  definition so they appear and vanish with the op, never drifting to one that isn't
    *  active. Clauses, not paragraphs: the deep dive is `argsHint` + `example`. */
   readonly notes?: readonly string[];
+  /** Liberal-intake rewrites for this op (§7 Postel) — INTERNAL, never shown in `status`. */
+  readonly intake?: OpIntake;
   /** Present when the op is list-shaped and usable under `batch + sql` (§3). */
   readonly table?: TableSpec<D>;
   run(ctx: OpContext, args: A): Promise<Result<D>>;

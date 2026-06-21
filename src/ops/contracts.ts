@@ -30,6 +30,18 @@ export interface OpFlags {
   debug?: boolean;
 }
 
+/** The agent-visible output-shape modifier keys (the fields of `OpFlags`) as a runtime
+ *  tuple — the liberal intake layer (§7 Postel) lifts any of these found INSIDE `args`
+ *  up to the request level, where ops read them, so a misplaced `apply`/`verbosity` is
+ *  honored instead of rejected. Kept beside `OpFlags` so the two never drift. */
+export const OP_FLAG_KEYS = [
+  'apply',
+  'summaryOnly',
+  'verbosity',
+  'format',
+  'debug',
+] as const satisfies readonly (keyof OpFlags)[];
+
 /** One op invocation crossing the MCP/IPC boundary. The `args` payload is op-private —
  *  the dispatcher routes to the op by `name`, the op validates `args` with its own zod
  *  schema. */

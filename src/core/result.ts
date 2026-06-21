@@ -83,6 +83,13 @@ interface ResultCommon {
    *  compact, greppable line per event. Surfaced only when `OpFlags.debug` was set on
    *  the request. */
   debug?: string[];
+  /** Liberal-intake disclosure (§7 Postel boundary): when the dispatcher rewrote a known
+   *  input spelling to the canonical arg shape BEFORE validation, the rewrites that
+   *  actually fired on THIS call are listed here (e.g. `['symbol→name']`) — a tiny per-call
+   *  note, never the alias table. The canonical shape stays the only advertised truth
+   *  (`status`/`argsHint`); this just states what we reinterpreted so the agent is never
+   *  silently second-guessed. Absent when nothing was rewritten. */
+  intake?: readonly string[];
 }
 
 /** Success envelope: `data` present, no `failure`. */

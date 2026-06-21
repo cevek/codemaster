@@ -14,7 +14,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 
 const moveSymbolArgsSchema = z
@@ -35,6 +35,7 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
   argsSchema: moveSymbolArgsSchema,
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath (an existing file), dirtyOk?: boolean }",
+  intake: tsTargetIntake,
   example: { args: { name: 'helper', dest: 'src/lib/util.ts' } },
   notes: [
     'dest must be an EXISTING file in the project — the moved symbol is merged into it (the LS folds its imports into dest’s where it can, every importer repointed, the source keeps a back-import if it still uses the symbol; a moved default + named from one module can land as two statements — known, harmless). To move into a NEW file use extract_symbol; to relocate MANY symbols into one module atomically, chain extract_symbol + move_symbol steps in a single `transaction` (one gate, all-or-nothing).',

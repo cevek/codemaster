@@ -53,6 +53,7 @@ export const importersOfOp = defineOp({
   argsSchema,
   argsHint:
     "{ module: string, limit?: number } — a repo-relative path or an import specifier ('@/…')",
+  intake: { aliases: { path: 'module', file: 'module' } },
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',

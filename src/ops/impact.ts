@@ -22,7 +22,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
 import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { defineOp } from './registry.ts';
-import { TS_TARGET_HINT, requireTarget, tsTargetShape } from './ts-target.ts';
+import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 import {
   buildClosure,
   rolesDeclOnly,
@@ -221,6 +221,7 @@ export const impactOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-${MAX_DEPTH} (default ${DEFAULT_DEPTH}), nodes?: 1-${MAX_NODES} (default ${DEFAULT_NODES}), kind?, exportedOnly?, pathInclude?, pathExclude?, summary?: boolean }`,
+  intake: tsTargetIntake,
   example: { args: { name: 'createEngine', depth: 2 } },
   notes: [
     'bounded BFS over find_usages: who transitively depends on the target (encloser rollup → those enclosers’ usages → …). Each dependent is a chainable SymbolId, grouped by its SHALLOWEST depth (proximity), sorted by fan-in within a depth.',

@@ -28,7 +28,7 @@ export interface OpStatusView {
   name: string;
   summary: string;
   mutating: boolean;
-  /** Compact args description, e.g. '{ target: SymbolId, limit?: number }'. */
+  /** Compact args description, e.g. '{ symbolId: SymbolId, limit?: number }'. */
   argsHint: string;
   /** Structured example call (§1.1); the display string is composed here, never
    *  hand-written, so it can't drift from the real tool-args shape. */

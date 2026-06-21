@@ -840,16 +840,47 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       **socket-path env-divergence** (bridge in `/tmp`, restart in `$TMPDIR` → different sockets) PLUS
       the **one-shot staleness banner** (op/batch re-warns only once). The socket half is being fixed on
       branch `socket-path-fix`; the banner half awaits the per-op-staleness adjudication. `bug`·`med`·`cx:M`
-- [ ] **arg-shape too strict — accept synonyms / coerce scalar→array / accept top-level flags in args**
-      — dogfood (amiro, 2026-06-21, from `~/.codemaster/usage/fail.jsonl`: ~13/18 fails are pure
-      arg-shape/naming mismatches). Frequency-ranked: `symbol`→alias for `name` (find_usages, 3×);
-      `path`/`file`→alias for `module` (importers_of, 3×); `apply`/`summaryOnly` placed INSIDE args
-      (extract, 2×) — also NOT listed in the mutating-op schema line, so document them AND accept them
-      in args; `symbols`/`sites`→alias for `targets` (source, 2×); coerce a scalar to a 1-elem array
-      (`pathInclude:"x"`, 1×); auto-parse a `path:line:col` string put in `name` (1×); file+line without
-      `col` should resolve the decl on that line or say col is required (1×). Postel's law on the arg
-      boundary; eliminates ~13/18 logged fails. The named-per-op-tool redesign kills classes 1/3/4/6/7
-      structurally. `dx`·`med`·`cx:M`
+- [x] **FIXED — arg-shape too strict → liberal intake (Postel) at the dispatch boundary** — dogfood
+      (amiro, 2026-06-21, `~/.codemaster/usage/fail.jsonl`). An INVISIBLE normalizer (`src/ops/intake/`)
+      runs in `runOne` BEFORE the canonical zod gate (via `daemon/resolve-args.ts`), mapping known
+      off-canonical spellings to each op's canonical shape; the canonical schema stays the SOLE validator
+      (a non-alias key still fails — now with a did-you-mean) and the only advertised truth
+      (`status`/`argsHint` cleaned of every `(alias: …)` annotation; `target` moved out of the canonical
+      `tsTargetShape` into the intake layer). Rewrites that fire are disclosed per-call as
+      `Result.intake` (`interpreted: symbol→name`), rendered in the cap-reserved envelope tail. Covered:
+      `symbol`→`name`, `path`/`file`→`module`, `symbols`/`sites`→`targets` (+ string elements →
+      target objects), scalar→array (`pathInclude`), OpFlags lifted from `args` (`apply`/`summaryOnly`/
+      `verbosity`/`format`/`debug`, type-validated), `name="path:line:col"`/`"ts:…"` smart-parse. Metadata
+      lives per-op on `OpDefinition.intake` (internal, never projected to status). Oracle tests:
+      `test/unit/intake.test.ts` (per-class bad-form == canonical-form + note; unknown-field reject;
+      catalogue tsTarget-intake invariant; anti-leak). KNOWN LIMIT: intake is dispatcher-level —
+      `transaction` sub-steps validate against the op schema directly (`ops/transaction.ts`), so they are
+      CANONICAL-ONLY (all canonical forms still work; the `target`/`symbol` aliases do not apply inside a
+      step). NB this is a deliberate NARROWING of the step surface: `target` USED to be a canonical
+      `tsTargetShape` field, so a transaction step `{target:…}` that once validated now rejects
+      (unrecognized → bad_args + did-you-mean→symbolId) — honest, not a silent change. `dx`·`med`·`cx:M`
+- [ ] **intake flag-precedence: a lifted-from-args flag overrides an explicit top-level flag** — when a
+      call passes the SAME OpFlag both inside `args` AND at top level (e.g. `{apply:false, args:{apply:true}}`),
+      the intake flag-lift (`engine.ts` `extractFlags({ ...req, ...resolved.flags })`) lets the args-placed
+      value win. Harmless today (no agent double-specifies) and arguably the right call (the args-placed one
+      is the more explicit intent), but undocumented; pick a precedence and state it. `dx`·`low`·`cx:S`
+- [ ] **intake: `find_usages` scalar `symbols:"Foo"` not coerced to array** — the bare-name multi-target
+      field `symbols` is not in any op's `arrayFields`, so `symbols:"Foo"` (string) still rejects; the
+      single-name path is `symbol`→`name` (or `name` directly), not `symbols`. Minor DX — add `symbols` to
+      find_usages `arrayFields` if the scalar form shows up again in the fail log. `dx`·`low`·`cx:S`
+- [ ] **resolver: file+line WITHOUT col, and name+file+line, don't disambiguate** — split out of the
+      Postel item above (intake fixes the SHAPE, not resolution). Two dogfood fails: (a) `source`/
+      symbol-addressed ops given a `path:line` (no column) honestly reject "needs file+line+col" — should
+      instead resolve the declaration spanning that line; (b) `find_usages {name, file, line}` (no col)
+      resolves by NAME and reports ambiguous, ignoring the file+line the agent passed to disambiguate —
+      should use the position. One resolver enhancement (`plugins/ts/resolve-target.ts`): a file+line with
+      no col resolves the top-level decl on that line. `bug`·`med`·`cx:M`
+- [ ] **`move_symbol` emits edits targeting an unknown file** — dogfood (amiro, 2026-06-21): a
+      `move_symbol` into an existing `dest` (apply:true) failed at the ts-ls stage — "move-symbol:
+      edits target an unknown file …/PersonAvatar.tsx". The LS "Move to file" produced an edit against
+      a file not in the overlay/program set (likely a cross-program or unopened importer). No partial
+      write (good), but the move is blocked. Investigate the program-membership of move-symbol edit
+      targets. `bug`·`med`·`cx:M`
 - [x] **FIXED — `feedback` op hard-rejects title > 120 chars (bad_args) → wasted retry** — dogfood: a natural
       one-line title easily exceeds 120; the op `bad_args`-rejects, costing a round-trip on the very
       channel meant for low-friction capture. FIX: `src/ops/feedback.ts` removed the 120-char `title` cap

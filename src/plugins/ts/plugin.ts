@@ -139,8 +139,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       // mergeDeclarations: union usages across ALL same-named declarations (only meaningful for a
       // NAME target — a SymbolId/position already addresses one declaration). Per-site provenance is
       // preserved (`UsageView.decls`), so unrelated same-named symbols are never conflated (§3.3).
-      const byName =
-        target.name !== undefined && target.symbolId === undefined && target.target === undefined;
+      const byName = target.name !== undefined && target.symbolId === undefined;
       if (options.mergeDeclarations === true && byName && target.name !== undefined) {
         const decls = resolveAllByName(warm(), target.name);
         if (typeof decls === 'string') return decls;

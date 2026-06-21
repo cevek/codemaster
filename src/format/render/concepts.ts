@@ -12,7 +12,7 @@
 
 /** Fully-formatted concept lines, appended under a `concepts:` header by render-status. */
 export const CONCEPTS_LINES: readonly string[] = [
-  'targets: symbol-addressed ops take {symbolId:"ts:…"} (a SymbolId from a prior answer; alias target) · {name} (a bare name — must be unambiguous; ambiguity returns the candidate list) · {file,line,col} (1-based). symbolId is ONLY a SymbolId, never a bare name (that is name). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.',
+  'targets: symbol-addressed ops take {symbolId:"ts:…"} (a SymbolId from a prior answer) · {name} (a bare name — must be unambiguous; ambiguity returns the candidate list) · {file,line,col} (1-based). symbolId is ONLY a SymbolId, never a bare name (that is name). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.',
   'dials: verbosity=terse (default; file:line:col) · normal (+first line) · full (verbatim text). format:"json" for machine composition. To project columns, post-filter with `sql` (SELECT the columns you want from the op table `t`).',
   "sql: a batch (or op) carrying `sql` loads each aliased (`as`) request's table into an ephemeral in-memory SQLite db and runs ONE read-only SELECT — anti-joins / negations / aggregates over op outputs. Producers run uncapped; a `partial` table makes NOT IN untrustworthy.",
   '  e.g. batch {requests:[{as:"r",name:"find_usages",args:{symbols:["Input"],role:"jsx",groupBy:"enclosing"}},{as:"f",name:"find_usages",args:{symbols:["useAppForm"],groupBy:"enclosing"}}], sql:"SELECT encloser FROM r WHERE encloser NOT IN (SELECT encloser FROM f)"}',

@@ -3,6 +3,7 @@
 // keep that file focused on the request lifecycle.
 
 import type { AnyOpDefinition } from '../ops/registry.ts';
+import { canonicalKeys } from '../ops/intake/shape-keys.ts';
 
 export function unknownOpMessage(name: string, ops: Map<string, AnyOpDefinition>): string {
   const known = [...ops.keys()];
@@ -11,6 +12,35 @@ export function unknownOpMessage(name: string, ops: Map<string, AnyOpDefinition>
   }
   const guess = closestName(name, known);
   return `unknown op '${name}'${guess !== undefined ? ` — did you mean '${guess}'?` : ''} (known: ${known.join(', ')})`;
+}
+
+/** A structural subset of a zod issue — enough to format it and to spot an unrecognized key. */
+interface ArgIssue {
+  readonly code?: string;
+  readonly path: ReadonlyArray<PropertyKey>;
+  readonly message: string;
+  readonly keys?: readonly string[];
+}
+
+/** Build the `bad_args` message after the canonical (post-intake) zod gate rejected `args`
+ *  (§7). An unrecognized key gets a did-you-mean against the op's canonical fields — the
+ *  intake layer already mapped every known alias, so a leftover unknown key is a genuine
+ *  typo/wrong-field, not a spelling we accept. The clean canonical `argsHint` (no alias
+ *  annotations) closes the message — the only advertised shape. */
+export function badArgsMessage(op: AnyOpDefinition, issues: readonly ArgIssue[]): string {
+  const canonical = [...canonicalKeys(op.argsSchema)];
+  const parts = issues.map((issue) => {
+    const where = issue.path.map((p) => String(p)).join('.') || '<args>';
+    if (issue.code === 'unrecognized_keys' && issue.keys !== undefined) {
+      const suggestions = issue.keys.map((key) => {
+        const guess = closestName(key, canonical);
+        return `'${key}'${guess !== undefined ? ` — did you mean '${guess}'?` : ''}`;
+      });
+      return `unrecognized ${suggestions.join(', ')}`;
+    }
+    return `${where}: ${issue.message}`;
+  });
+  return `${parts.join('; ')} — expected ${op.argsHint}`;
 }
 
 /** Cheap edit-distance-free guess: shared-prefix length, good enough for typos. */

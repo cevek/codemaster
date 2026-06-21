@@ -10,7 +10,7 @@ import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import { findReExportAliasSites, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
 import { applyMutation } from './refactor-apply.ts';
 import { buildOldNameSurvives, touchedSet } from './rename-survivors.ts';
 
@@ -33,6 +33,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
   argsSchema: renameArgsSchema,
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean }",
+  intake: tsTargetIntake,
   example: { args: { file: 'src/app.ts', line: 12, col: 8, newName: 'renamed' } },
   notes: [
     'dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.',

@@ -41,6 +41,7 @@ export const sourceOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: '{ targets: [{ symbolId? | name? | file+line+col }] } — up to 20',
+  intake: { aliases: { symbols: 'targets', sites: 'targets' }, targetArray: 'targets' },
   example: {
     args: { targets: [{ name: 'createEngine' }, { symbolId: 'ts:Button@src/Button.tsx:1:14' }] },
   },

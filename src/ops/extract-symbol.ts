@@ -15,7 +15,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { tsTargetShape, requireTarget, targetOf } from './ts-target.ts';
+import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 import { applyCssCoExtract, type CssCoExtractReport } from './extract-css-coextract.ts';
 
@@ -40,6 +40,7 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
   argsSchema: extractArgsSchema,
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' }",
+  intake: tsTargetIntake,
   example: { args: { name: 'Helper', dest: 'src/lib/helper.ts' } },
   notes: [
     'dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.',

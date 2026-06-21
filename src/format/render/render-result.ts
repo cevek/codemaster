@@ -82,6 +82,12 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
     const freshness = renderFreshness(result.freshness, verbosity);
     if (freshness !== undefined) tail.push(freshness);
   }
+  // Liberal-intake disclosure (§7 Postel): the off-canonical input spellings we rewrote on
+  // THIS call. A small honesty channel — in the reserved tail so it survives the cap — so the
+  // agent is never silently second-guessed about how its args were read.
+  if (result.intake !== undefined && result.intake.length > 0) {
+    tail.push(`interpreted: ${result.intake.join(', ')}`);
+  }
   if (result.debug !== undefined && result.debug.length > 0) {
     debug.push('--- debug trace ---', ...result.debug, '--- end debug ---');
   }

@@ -16,10 +16,10 @@ export type ResolvedTarget =
 /** The three ways an agent addresses a symbol (§6 targets): a held `ts:` SymbolId, an
  *  explicit `file+line+col`, or an unambiguous `name`. */
 export type TsTargetInput = {
-  /** A `ts:`-prefixed SymbolId from a previous answer (NOT a bare name — that is `name`). */
+  /** A `ts:`-prefixed SymbolId from a previous answer (NOT a bare name — that is `name`).
+   *  The natural `target` spelling is collapsed to `symbolId` by the liberal intake layer
+   *  (§7 Postel) before any args reach the resolver, so only `symbolId` exists here. */
   symbolId?: string | undefined;
-  /** Alias for `symbolId` — agents naturally address by `target`; collapsed to `symbolId` here. */
-  target?: string | undefined;
   /** Or an explicit position. */
   file?: string | undefined;
   line?: number | undefined;
@@ -32,10 +32,9 @@ export type TsTargetInput = {
  *  SymbolId's file moved). Pure over the host — the shared entry every symbol-addressed read
  *  method funnels through, so SymbolId / file:line:col / name dispatch lives in one place. */
 export function resolveTarget(h: TsProjectHost, target: TsTargetInput): ResolvedTarget {
-  // `target` is the SymbolId alias of `symbolId` — the single collapse point, so every
-  // symbol-addressed op (direct-args find_usages and the targetOf path alike) accepts either.
-  const symbolId = target.symbolId ?? target.target;
-  if (symbolId !== undefined) return resolveSymbolId(h, symbolId);
+  // `target`/`symbol` aliases are collapsed to `symbolId`/`name` by the intake layer (§7)
+  // before any args reach here, so the resolver sees only the canonical fields.
+  if (target.symbolId !== undefined) return resolveSymbolId(h, target.symbolId);
   if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
     const abs = h.absOf(target.file as RepoRelPath);
     // Across ALL loaded programs (spec Task G): a `test/**` file lives only in a sibling program,

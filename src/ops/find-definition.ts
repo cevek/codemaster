@@ -5,7 +5,7 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { TS_TARGET_HINT, tsTargetSchema } from './ts-target.ts';
+import { TS_TARGET_HINT, tsTargetSchema, tsTargetIntake } from './ts-target.ts';
 
 export const findDefinitionOp = defineOp({
   name: 'find_definition',
@@ -14,6 +14,7 @@ export const findDefinitionOp = defineOp({
   requires: ['ts'],
   argsSchema: tsTargetSchema,
   argsHint: TS_TARGET_HINT,
+  intake: tsTargetIntake,
   example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
   notes: [
     'verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).',

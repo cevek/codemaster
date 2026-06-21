@@ -19,7 +19,7 @@ import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
 import { findUsagesTable } from './find-usages-table.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
-import { TS_TARGET_HINT, requireTarget, tsTargetShape } from './ts-target.ts';
+import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
 
@@ -92,8 +92,7 @@ type Hoisted = {
  *  `program` per row, and a header-hoisted column there would lie under a NOT IN). */
 function hoistView(view: UsagesView, role: string | undefined, sqlMode: boolean): Hoisted {
   if (sqlMode) return { usages: view.usages, groups: view.groups };
-  let usages = view.usages;
-  let groups = view.groups;
+  let { usages, groups } = view; // both narrowed/hoisted below
   const out: Hoisted = {};
   // Item 4: a single `role` filter pins every flat row's role — state it once, drop it per-row.
   if (role !== undefined && usages !== undefined) {
@@ -191,6 +190,7 @@ export const findUsagesOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
+  intake: tsTargetIntake,
   example: {
     args: {
       symbols: ['DialogContent', 'SheetContent'],

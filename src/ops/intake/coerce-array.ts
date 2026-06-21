@@ -1,0 +1,30 @@
+// Coerce a bare scalar into a one-element array for a field the op's schema declares as an
+// array (§7 Postel) — the dogfood fail `construction_sites {pathInclude: "local-api"}` meant
+// `["local-api"]`. Top-level fields only; the op names them in `OpDefinition.intake.arrayFields`.
+// An existing array (or an absent field) is left untouched.
+
+export interface CoerceArrayResult {
+  notes: string[];
+}
+
+function isScalar(v: unknown): v is string | number | boolean {
+  return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+}
+
+/** Wrap each declared array-field's scalar value in a one-element array, mutating `args`. */
+export function coerceArrayFields(
+  args: Record<string, unknown>,
+  fields: readonly string[] | undefined,
+): CoerceArrayResult {
+  const notes: string[] = [];
+  if (fields === undefined) return { notes };
+  for (const field of fields) {
+    if (!(field in args)) continue;
+    const value = args[field];
+    if (isScalar(value)) {
+      args[field] = [value];
+      notes.push(`${field}→[…]`);
+    }
+  }
+  return { notes };
+}

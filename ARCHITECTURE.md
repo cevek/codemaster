@@ -532,6 +532,22 @@ on apply, pre/post-typecheck, atomic, auto-rollback. Op descriptors are designed
 **an agent can author them blind, without reading docs** — the schema + inline examples
 in `status`'s op-catalogue are the documentation.
 
+**Liberal intake at the arg boundary (Postel — applies to every op).** Two layers, only one
+visible. The **canonical** per-op zod shape is the single advertised truth: it is what `status`
+/ `argsHint` show and what every error cites — one canonical name per field, no alias clutter.
+Behind it, an **invisible normalizer** (`src/ops/intake/`, run in `runOne` via
+`daemon/resolve-args.ts` BEFORE the canonical parse) maps known off-canonical spellings to the
+canonical shape: per-op aliases (`symbol`→`name`, `path`/`file`→`module`, `symbols`/`sites`→
+`targets`, the `target`→`symbolId` SymbolId spelling), scalar→array coercion, OpFlag keys
+mis-placed inside `args` lifted up to the request (type-validated), and a `name` string that is
+really a `path:line:col` / `ts:…` SymbolId smart-parsed to the right field. The canonical schema
+stays the **sole gate** — a key that is _not_ a known alias still fails (with a did-you-mean),
+never silently stripped (a silent strip is an input-lost lie, §3). What the normalizer rewrote on
+a given call is disclosed per-call as `Result.intake` (`interpreted: symbol→name`), so the agent is
+never silently second-guessed. The alias metadata lives on `OpDefinition.intake` and is **never**
+projected into `status`. (Scope: the normalizer is dispatcher-level — `transaction` sub-steps, which
+validate against the op schema directly, are canonical-only.)
+
 Mutating ops carry additional flags beyond `apply`, e.g. `dirtyOk: false`, `force: false`,
 `format: true` — each op publishes its full flag set via `status`.
 
@@ -963,6 +979,7 @@ codemaster/
       zustand/               # framework plugin (deps: ts) — stores
     ops/                     # L3 — public, named, parameterized ops (compose plugins)
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
+      intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
       find-definition.ts  find-usages.ts  expand-type.ts  assignability.ts
       list.ts  trace.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  codemod.ts
