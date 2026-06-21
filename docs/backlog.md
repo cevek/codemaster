@@ -28,75 +28,38 @@ don't vanish.
 
 ### HIGH
 
-- [x] **daemon socket path diverges under stripped env → `restart` misses the bridge's daemon**
-      — FIXED. `socketPath()` now anchors the base dir to the env-independent passwd home
-      (`os.userInfo().homedir/.codemaster/run` — `$HOME`/`XDG_RUNTIME_DIR`/`$TMPDIR` no longer
-      consulted in the default), so the stripped-env bridge and a normal-shell management verb
-      compute the SAME socket. The dir is `mkdir`'d (0700) before bind. The `CODEMASTER_SOCK_DIR`
-      env stays strictly as the test-isolation seam (the only way to carry an isolated base across a
-      real spawn boundary); no production caller sets it. Covered by a discriminating unit
-      (env-independence, RED on the old default) + the real-spawn `daemon-cli-smoke` convergence
-      step. `bug`·`high`·`cx:S`
-  - residuals from the socket-fix review (low, none block the fix):
-    - [ ] **`CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)** — if a user
-          exports it in a normal shell, a management verb honours it but the stripped-env bridge does
-          NOT → re-opens the exact split the fix closed. Severity low (needs a user to set an internal
-          test-seam var, undocumented for users). Fix idea: bridge ignores it, or warn on set; at
-          minimum document it as test-only. `bug`·`low`·`cx:S`
-    - [ ] **`socket-path.ts` is git-classified BINARY** (numstat `- -`, `Bin` in diff) despite 0 NUL /
-          valid UTF-8 — the fix's core shows as "Binary files differ" in plain `git diff`, hiding it
-          from review (needs `git diff -a`). Since file creation (bc3003b). Fix: `.gitattributes`
-          `*.ts text`, or find the trigger byte. No runtime impact. `infra`·`low`·`cx:S`
-    - [ ] **key-template separator is a space (`username version`)** — admits a theoretical
-          username/version collision (`"a b"+"c"` vs `"a"+"b c"`); pre-existing (main was identical),
-          practically impossible (POSIX usernames + semver carry no spaces). Use an unambiguous
-          delimiter if ever touched. `bug`·`low`·`cx:S`
-    - [ ] **long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr** on
-          the bridge/spawn path — the user sees only a silent in-process fallback, no message.
-          Pre-existing. Surface the actionable "home too long" error to the client. `bug`·`low`·`cx:S`
-- [x] **FIXED — `tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
-      — `src/plugins/ts/program/single.ts` `reindex` now treats any `tsconfig*.json` in the changed
-      set as STRUCTURAL → `loadFileList()` re-parses (fresh `parsed.options` + re-glob `fileNames` +
-      rebuilt `membership`). Any `tsconfig*.json`-named path (not just this program's own `configPath`)
-      triggers it, so a `tsconfig*.json`-named `extends` parent is covered too; an `extends` target with
-      a NON-tsconfig basename (e.g. `./base.json`) is NOT detected → stale (residual below). The host
-      needed no change (`ls-host.reindex` already
-      disposes+rebuilds siblings AND forwards the full changed set to `primary.reindex`, so the
-      asymmetry was entirely in `single.reindex`). §19-safe: the re-glob runs ONLY here, on the reindex
-      changed set, never on the LS hot path (`ls-host-config-cache.test.ts` stays green). Oracle test:
-      `test/differential/freshness-tsconfig.test.ts` — widened `include` (file-list) + edited `paths`
-      (options), both cold==warm, discriminating red→green. `bug`·`high`·`cx:M`
-  - residuals from the tsconfig-staleness fix review (low, none block the fix):
-    - [ ] **broken-tsconfig edit silently falls back to default options + glob-everything** —
-          `single.ts` `parseConfig`/`loadFileList` discard `parseJsonConfigFileContent` errors (and a
-          malformed-JSON edit yields `config ?? {}`), so an edit that breaks the tsconfig silently
-          re-globs under DEFAULT options instead of failing/noting. The result set changes with no
-          `FreshnessNote` — a silent behaviour swap (mild §3.5/§3.6 honesty gap). Surface a note (or
-          keep the prior parse) when the re-parse has `errors`. `bug`·`low`·`cx:S`
-    - [ ] **`parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)** — a throw
-          from `ts.parseJsonConfigFileContent` / `readConfigFile` would escape `reindex` to the agent,
-          against CONTRIBUTING "every external-tool call wrapped". Pre-existing, but now REACHABLE on a
-          tsconfig edit (the new structural trigger). Wrap → keep prior parse + honest note on failure.
-          `bug`·`low`·`cx:S`
-    - [ ] **a non-`tsconfig*.json`-named `extends` target is not detected** — the structural trigger
-          keys on `isTsconfigBasename`, so an `extends: "./base.json"` / `"configs/strict.json"` parent
-          edit does NOT re-glob the child → stale options until an unrelated source add/remove. Fix idea:
-          on warm, resolve+track each program's `extends` chain and trigger on any member's change (still
-          §19-bounded — resolved once per program, not per call). `bug`·`low`·`cx:S`
-- [x] **FIXED (2026-06-21) — envelope honesty channels (freshness / handle-rebind / truncation)
-      silently cut by the char cap** — `src/format/render/render-result.ts`. `renderResult` used to
-      append the `freshness` note, the `handle` rebind, and the `{shown,total,hint}` truncation line
-      AFTER the full `data` block, then `capOutput` (`RENDER_CHAR_CAP = 20_000`) sliced the TAIL —
-      a ≥20K data payload pushed all three honesty channels past the cut → they vanished while the
-      agent saw only `!! OUTPUT CAPPED` (completeness), a silent-stale / §6-misidentification lie.
-      Fix: the envelope renders as four segments (head / bulk / tail / debug); only `bulk` (the data
-      render) is cappable, and the honesty channels are reserved against the budget in
-      `assembleEnvelope` so they survive the cut by construction; debug is the only droppable
-      segment. §12 doc updated (envelope-seam paragraph). Oracle test:
-      `test/unit/render-compact-ops.test.ts` "§12 envelope-seam" (terse+normal). `bug`·`high`·`cx:M`
-      Residual (separate, plugins/ts boundary): `SPAN_TEXT_CEILING == RENDER_CHAR_CAP` so one large
-      span can still fill the whole bulk — honesty channels now survive that too, but the data is
-      uselessly truncated; tracked below.
+- [ ] **`CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)** — if a user
+      exports it in a normal shell, a management verb honours it but the stripped-env bridge does
+      NOT → re-opens the exact split the fix closed. Severity low (needs a user to set an internal
+      test-seam var, undocumented for users). Fix idea: bridge ignores it, or warn on set; at
+      minimum document it as test-only. `bug`·`low`·`cx:S`
+- [ ] **`socket-path.ts` is git-classified BINARY** (numstat `- -`, `Bin` in diff) despite 0 NUL /
+      valid UTF-8 — the fix's core shows as "Binary files differ" in plain `git diff`, hiding it
+      from review (needs `git diff -a`). Since file creation (bc3003b). Fix: `.gitattributes`
+      `*.ts text`, or find the trigger byte. No runtime impact. `infra`·`low`·`cx:S`
+- [ ] **key-template separator is a space (`username version`)** — admits a theoretical
+      username/version collision (`"a b"+"c"` vs `"a"+"b c"`); pre-existing (main was identical),
+      practically impossible (POSIX usernames + semver carry no spaces). Use an unambiguous
+      delimiter if ever touched. `bug`·`low`·`cx:S`
+- [ ] **long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr** on
+      the bridge/spawn path — the user sees only a silent in-process fallback, no message.
+      Pre-existing. Surface the actionable "home too long" error to the client. `bug`·`low`·`cx:S`
+- [ ] **broken-tsconfig edit silently falls back to default options + glob-everything** —
+      `single.ts` `parseConfig`/`loadFileList` discard `parseJsonConfigFileContent` errors (and a
+      malformed-JSON edit yields `config ?? {}`), so an edit that breaks the tsconfig silently
+      re-globs under DEFAULT options instead of failing/noting. The result set changes with no
+      `FreshnessNote` — a silent behaviour swap (mild §3.5/§3.6 honesty gap). Surface a note (or
+      keep the prior parse) when the re-parse has `errors`. `bug`·`low`·`cx:S`
+- [ ] **`parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)** — a throw
+      from `ts.parseJsonConfigFileContent` / `readConfigFile` would escape `reindex` to the agent,
+      against CONTRIBUTING "every external-tool call wrapped". Pre-existing, but now REACHABLE on a
+      tsconfig edit (the new structural trigger). Wrap → keep prior parse + honest note on failure.
+      `bug`·`low`·`cx:S`
+- [ ] **a non-`tsconfig*.json`-named `extends` target is not detected** — the structural trigger
+      keys on `isTsconfigBasename`, so an `extends: "./base.json"` / `"configs/strict.json"` parent
+      edit does NOT re-glob the child → stale options until an unrelated source add/remove. Fix idea:
+      on warm, resolve+track each program's `extends` chain and trigger on any member's change (still
+      §19-bounded — resolved once per program, not per call). `bug`·`low`·`cx:S`
 - [ ] **`SPAN_TEXT_CEILING == RENDER_CHAR_CAP` (20_000) — one large span can fill the whole render
       budget** — `src/plugins/ts/spans.ts`. A single proof span allowed up to the same 20K as the
       whole-output cap means one big declaration body consumes the entire `bulk` region; the
@@ -113,16 +76,6 @@ don't vanish.
       message is our OWN text (a `ToolFailure.message`, normally a short tool error), so this is a
       latent edge, not a live leak. Fix: cap the FAIL message itself at the source, or give `head` a
       generous own sub-budget before reserving it. `bug`·`low`·`cx:S`
-- [x] **self-staleness banner is one-shot per bridge session (op/batch path)** — FIXED. The
-      one-shot `createOnceBanner` latch is gone; the staleness banner is now ALWAYS-ON — a PREFIX on
-      EVERY op/batch text response while the daemon's source is behind disk (`src/mcp/server.ts`
-      `staleBanner` + the `banner(suppressed)` closure). Prefix (not a tail/suffix or a per-result
-      `ResultCommon` field): the marker is a daemon fact at per-RESPONSE granularity, and a suffix
-      would land inside a batch's per-section bare-JSON → break per-section `JSON.parse` (§12); a
-      prefix is a preamble before `[0]`, safe and cap-proof. Suppressed in `format:'json'` (single
-      bare-JSON payload). Oracle: `test/e2e/self-staleness-banner.test.ts` (op ×3 + batch ×3 carry
-      the marker — red on the one-shot code; json suppressed + parseable; fresh daemon silent).
-      `bug`·`high`·`cx:M`
 
 ### MED
 
@@ -163,21 +116,6 @@ don't vanish.
       `ResultCommon.sourceStale?: true`, surfaced as a real key json keeps and text renders in the
       tail) injected at the facade — deferred because it tugs a daemon-level fact into the L0
       `core/result.ts` op-envelope and renders N× in a batch unless scoped to one result. `imp`·`cx:M`
-- [x] **FIXED — a STALE-daemon op-level ERROR response now carries the staleness marker.** §3.6 is
-      always-on, so the banner ships on the per-op tool's ERROR branch too — not just success. The
-      highest-value case is `unknown_op` for a freshly-added op (the dev-loop new-op-vs-stale-daemon
-      collapse from the obsolete hot-reload item above): the bridge lists the op but the stale daemon
-      never loaded it, so dispatch returns `unknown_op` — exactly where "run `codemaster daemon
-restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `runOpTool`'s two
-      request-level `!outcome.ok` branches + the BATCH request-level `!outcome.ok` branch prefix the
-      banner (text-mode); json suppresses it (op-level errors render as plain text in both modes, so
-      there's no bare-JSON payload to corrupt — the suppression is for consistency with success, where
-      json consumers read the structured `sourceStale` from `status`). So §11's "EVERY stale response"
-      is now literally true for both per-op and batch. The facade-side bad-args reject predates the
-      parse (format unknown) and stays banner-free — a malformed call isn't a stale-behavior read.
-      Oracle: `test/e2e/stale-daemon-error-banner.test.ts` (stale daemon → `unknown_op` + per-op
-      request-fail + batch request-fail carry the marker; json suppresses; fresh daemon never marks).
-      `imp`·`low`·`cx:S`
 - [ ] **facade-level rejects (pre-dispatch) stay banner-free on a stale daemon** — two per-op paths
       reject BEFORE the orchestrator round-trip, so they carry no self-staleness marker even when the
       daemon is source-stale: `badArgsOp` (`src/mcp/server.ts` `runOpTool`, the `!built.ok` branch) and
@@ -210,20 +148,17 @@ restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `ru
 
 - [ ] **`plugins/react`** (`deps:['ts']`) — component detection, hook identification, dialog/sheet
       conventions. `feat`·`med`·`cx:L`
-- [x] **`plugins/react-query`** (`deps:['ts']`) — mutations, queries, queryKeys, `invalidates`
-      relations via the `ts.callArgShapes` seam; `invalidations_for` op + `list` registries.
-      Residuals (out of v1 scope):
-  - [ ] **react-query v4 positional hook signatures** — `useQuery(key, fn)` / `useMutation(fn, opts)`
-        positional forms are NOT detected (v5 object-form only); positional `invalidateQueries(['a'])`
-        IS handled via the generic arg-shape. `feat`·`low`·`cx:S`
-  - [ ] **`new QueryClient()` receiver** — the invalidate-family methods match a `useQueryClient()`
-        binding only; a `const qc = new QueryClient()` receiver is not matched (deferred to W5-a). `feat`·`low`·`cx:S`
-  - [ ] **`queryKeys` registry = query keys only** — lists each query's key (one entry per query site,
-        no dedup; invalidation-only keys are not included). `feat`·`low`·`cx:S`
-  - [ ] **`dynamicKeyedQueries` note wording** — for a BROAD edge (`invalidateQueries()` with no key)
-        the opaque-keyed queries DO appear in `affects` as `dynamic` (matchKey's opaque-check follows
-        the broad-check), so the op note "not listed under affects" is imprecise. Cosmetic — no false
-        `certain`; tighten to "not listed under a CONCRETE invalidation's affects". `bug`·`low`·`cx:S`
+- [ ] **react-query v4 positional hook signatures** — `useQuery(key, fn)` / `useMutation(fn, opts)`
+      positional forms are NOT detected (v5 object-form only); positional `invalidateQueries(['a'])`
+      IS handled via the generic arg-shape. `feat`·`low`·`cx:S`
+- [ ] **`new QueryClient()` receiver** — the invalidate-family methods match a `useQueryClient()`
+      binding only; a `const qc = new QueryClient()` receiver is not matched (deferred to W5-a). `feat`·`low`·`cx:S`
+- [ ] **`queryKeys` registry = query keys only** — lists each query's key (one entry per query site,
+      no dedup; invalidation-only keys are not included). `feat`·`low`·`cx:S`
+- [ ] **`dynamicKeyedQueries` note wording** — for a BROAD edge (`invalidateQueries()` with no key)
+      the opaque-keyed queries DO appear in `affects` as `dynamic` (matchKey's opaque-check follows
+      the broad-check), so the op note "not listed under affects" is imprecise. Cosmetic — no false
+      `certain`; tighten to "not listed under a CONCRETE invalidation's affects". `bug`·`low`·`cx:S`
 - [ ] **`plugins/tanstack-router`** (`deps:['ts']`) — route declarations. `feat`·`low`·`cx:M`
 - [ ] **`plugins/zustand`** (`deps:['ts']`) — stores. `feat`·`low`·`cx:S`
 - [ ] **autodetection** — presence of dep in `package.json` + config gate. `feat`·`low`·`cx:S`
@@ -292,15 +227,6 @@ restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `ru
       (`support/transport/unix-socket.ts`) — safe today (no other startup I/O; plugins are lazy), but
       a future concurrent startup file-write would inherit 0600. Prefer a per-socket mode at create if
       a portable API appears. `bug`·`low`·`cx:S`
-- [x] **FIXED — flaky e2e: `daemon-cli-smoke` restart-while-live** (`test/e2e/daemon-cli-smoke.test.ts`) —
-      the `restart`-while-live verb intermittently resolved `code:0` with **empty stdout**, so the
-      `/daemon stopped[\s\S]*daemon started/` match failed (real-spawn flush race under CI load; not a
-      product bug). Hardened by asserting the **lifecycle fact** instead: `restart2.code===0` + a bounded
-      `waitForFreshPid` that polls `status` until the daemon reports a pid ≠ the pre-restart pid (the
-      "old killed, fresh bound" proof, load-independent). `runVerb` now pipes stderr into assertion
-      diagnostics. Real-spawn nature preserved (still real `node bin.ts daemon <verb>` subprocesses). The
-      removed restart **wording** assertion is now pinned deterministically in
-      `test/unit/daemon-manage.test.ts` (no silent coverage loss).
 - [ ] **bridge spawn-wait budget is 5s** (`connect-or-spawn.ts`) — a cold daemon start slower than 5s
       makes the bridge fall back to in-process (safe + self-correcting on the next launch, but loses
       amortization for that session). Revisit if cold starts approach it. `perf`·`low`·`cx:S`
@@ -339,18 +265,6 @@ restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `ru
 - [ ] **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`
 - [ ] **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into
       every plugin's `reindex` (same effect); revisit when plugins multiply. `dx`·`low`·`cx:S`
-- [x] **OBSOLETE under per-op-tools — MCP op hot-reload / dev-CLI.** The original premise (a
-      freshly-registered op "isn't dispatchable until reconnect") no longer describes the system. Under
-      per-op tools there are TWO catalogues, BOTH static-at-spawn BY DESIGN: the bridge answers
-      `tools/list` from its OWN `builtinOps()` at bridge spawn (`serveMcp(remote,…)` defaults `ops` to
-      `builtinOps()`); the daemon dispatches from its `opsByName` built at daemon spawn. A new op = a
-      SOURCE change (`src/ops/*.ts` + `builtins.ts`), i.e. an ordinary src-edit — already covered by
-      the always-on self-staleness banner (every op/batch response → "run `codemaster daemon restart`") + restart, and VALIDATED via the one-shot dev-CLI (`node src/bin.ts op <name> '<args>'`), a fresh
-      process that always reflects current source (NOT the e2e harness). A live MCP session cannot pick
-      up a new op without a reconnect — and that is honest by design, not a bug: a stale daemon can't
-      manufacture a tool it never loaded, and `tools/list_changed` has no live trigger (both catalogues
-      change only on respawn = a new bridge + daemon). The one residual honesty slice — a stale-daemon
-      ERROR response carrying no restart remedy — is the item below (now FIXED). `dx`·`med`·`cx:M`
 - [ ] **idle-exit brackets only `CallTool`, not `ListTools`** — the Stage-1 idle deadline
       (`src/mcp/idle-exit.ts`) is reset by any `CallTool` (per-op / `status` / `batch`) but NOT by `tools/list`.
       Harmless and arguably correct (listTools is instant; an orphan that only ever lists tools
@@ -508,34 +422,6 @@ restart`" matters most. `src/mcp/server.ts`: `opResultText`'s error branch + `ru
       dogfood friction (raised repeatedly), not mere diff-noise. Close by post-processing the LS-emitted
       specifiers through `emitSpecifier` (re-form the alias the file already uses + carry the extension
       convention). Lives in `plugins/ts/refactor/imports/` (emit/rewrite). `dx`·`med`·`cx:M`
-- [x] **move/extract detaches a symbol's leading JSDoc (blank line inserted before the decl)** —
-      FIXED (2026-06-21). The spurious blank line is LS-EMITTED inside the moved block's `newText`
-      (`getEditsForRefactor` returns `*/\n\nexport const X` for an ADJACENT doc) — the backlog's
-      `statements.ts` "moved-block assembly" hypothesis was wrong (that file only computes the range +
-      nested guard). Fix: `refactor/normalize/reattach-doc.ts` shrinks the output comment→decl gap down
-      to the SOURCE gap, applied to the relocated file at both call sites
-      (`move-to-file.ts`/`move-to-existing.ts`). SOURCE-FAITHFUL, no over-glue: the LS PRESERVES the gap
-      of a blank-line-DETACHED comment that travels with the symbol, so a blind collapse would wrongly
-      glue it; we remove only the spurious insertion (verified empirically — over-glue guard test).
-      Survives prettier (it preserves the gap). Oracle: `test/e2e/refactor-doc-adjacency.test.ts`
-      (extract + move_symbol adjacency, detached-no-glue guard, the `transaction([extract,extract])`
-      file-split = the literal amiro repro, cold-compile).
-- [x] **extract emits duplicate import lines from the SAME module in the new file** — FIXED
-      (2026-06-21), EXTRACT-ONLY. Fix: `refactor/normalize/fold-imports.ts` folds ≥2 same-module import
-      statements in the extracted new file into one, applied via `normalize/relocated-file.ts`
-      (`normalizeExtractedContent`). The concrete reproduced gap is **default + named** (`import def` +
-      `import { x }` → `import def, { x }`), which the LS leaves split and prettier does not merge.
-      The fold is EXTRACT-ONLY by deliberate scope choice (the move_symbol contract is a scoped edit —
-      see the deferred consolidation item — and the move_symbol-produced dup is tracked as a separate
-      open bug below). Honest note on the original report ("multiple `@tanstack/react-query` lines"):
-      react-query is named-only and **named+named ALWAYS merges** (the only LS-merge behaviour VERIFIED
-      here, incl. under `verbatimModuleSyntax`), so that exact shape does not reproduce; if amiro's real
-      case was **namespace+named** (`import * as RQ` + `import { x }`), that is the only LEGAL form
-      (unmergeable into one statement) and the LS is correct — NOT a bug. Residuals left unmerged by
-      design: namespace-present / bare-side-effect / two-distinct-default / **type-only-default**
-      (`import type D` + `import { x }` — folding would drop the `type` and add a runtime import under
-      verbatimModuleSyntax, a silent semantic change) groups, and two grouped imports sharing one source
-      line. Oracle: `test/e2e/refactor-import-fold.test.ts`.
 - [ ] **move_symbol PRODUCES a default+named same-module duplicate (open)** — the LS merges a moved
       NAMED import into a dest's existing DEFAULT line, but NOT the reverse (moved default into an
       existing named line) nor the both-from-source case (the moved symbol's default + named both come
@@ -741,14 +627,6 @@ SAFE (an unfaithful head — escapes, inner backtick, raw CR/LF — bails to glo
 false`certain`), but must conservatively drop legit prefixes the cooked value would keep. Proper
 fix: have `plugins/ts` `literalArgFields`emit`staticPrefix`from`arg0.head.text`(the cooked
 value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying field. `dx`·`med`·`cx:M`
-- [x] **FIXED — I-f — a no-substitution template `t(\`a.b\`)` is treated as dynamic** —
-      `literalArgFields` (`src/plugins/ts/call-scan-shared.ts`) classifies the first argument with
-      `ts.isStringLiteralLike` (= StringLiteral ∪ NoSubstitutionTemplateLiteral), so a backtick key with
-      NO interpolation reads as the static literal it provably is (`.text`), while an interpolated
-      `t(\`a.${x}\`)`(a`TemplateExpression`) stays `dynamic`. Single classification point for i18n
- (`literalCalls`→`forEachMatchedCall`→`literalArgFields`, both by-name and by-identity). Oracle
- test: `test/differential/i18n-scope-template.test.ts`(no-sub-static + interpolated-stays-dynamic).
-`bug`·`med`·`cx:M`
 
 ### impact / usages
 
@@ -785,14 +663,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       `1n` (`BigIntLiteral`) fall through to `other`/`dynamic`. Honest under-report (never a
       false-`certain`), rare in keys. Fix: extend the numeric branch to `+`-prefixed numerics and
       `BigIntLiteral`. `bug`·`low`·`cx:S`
-- [x] **FIXED — `list` has no `limit` / `pathInclude` / pagination** — `list {registry}` returned the
-      WHOLE registry (e.g. `components` = 652 entries on amiro), busting the 20KB render cap
-      (`!! OUTPUT CAPPED`), narrow-able only via `sql`. Added `limit` + `pathInclude`/`pathExclude`
-      (globs over the entry's decl file `span.file`) to `list`'s args, applied at the op level over `view.entries`
-      (reusing `common/glob/match.ts`): path filter always applies, the user `limit` caps with honest
-      `truncated {shown,total,hint}`. In sql-mode the user limit is replaced by `tableRowBound` (cap
-      exactly at the engine's MAX_TABLE_ROWS, never below — a short table feeding NOT IN lies, §11);
-      dropped entries report as `excludedByFilter` (never silent, §3.4). `feat`·`low`·`cx:S`
 - [ ] **`list` combineTruncation defensive branch desyncs with the path filter** — in `list.ts`
       `combineTruncation`, the `!opCapped` branch passes a plugin-reported `view.truncation`
       (`{shown,total}`) through VERBATIM. Those counts are PRE-path-filter (the plugin counts before the
@@ -923,18 +793,6 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       note + truncated-text `… N more` hint untested; `expand_type` `constituents` `covered()`
       substring-match has a theoretical false-positive (arm a substring of arm AB, head drops standalone
       a without `...`) needing a TS-format bug to trigger. `dx`·`low`·`cx:S`
-- [x] **FIXED (assert-hardened, real-spawn preserved) — real-spawn smoke timing-flake** —
-      `test/e2e/*-smoke.test.ts`. The concrete CI-evidenced flake (the changing test count) was the
-      `daemon-cli-smoke` restart-while-live assertion on the restart verb's own (flush-racy) stdout —
-      now asserts the load-independent lifecycle pid-change (see the entry above). The other two smokes
-      were already lifecycle-bounded: `bridge-singleton-smoke` (pid equality + bounded `waitFor` on
-      socket-gone) and `mcp-idle-exit-smoke` (exit code + elapsed ≥ TTL, stderr captured).
-      **Honest residual on a deterministic clock/socket seam:** intentionally NOT applied. These tests
-      drive a REAL subprocess on purpose — they catch lifetime/teardown/socket bugs the manual-clock
-      units can't — and you cannot inject a clock into a spawned process without replacing it with a
-      fake, which would neutralize exactly that coverage. The correct hardening is bounded `waitFor`
-      polling on a real lifecycle fact (pid / socket presence / exit), never a fixed sleep — which is
-      what all three now do. No remaining flaky timing-assert is known. `dx`·`med`·`cx:M`
 - [ ] **CLI `op --root <dir>` doesn't scope config / plugin-activation to the root** — `bin.ts` appears
       to load config from `cwd`, not the resolved `--root`, so on a cross-dir CLI run i18n reads
       inactive and scss reads the wrong root (MCP per-request `root` is fine). Dogfood friction; the CLI
@@ -945,25 +803,6 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       the **one-shot staleness banner** (op/batch re-warns only once). The banner half is FIXED
       (always-on prefix — see the FIXED HIGH item above); the socket half is being fixed on branch
       `socket-path-fix`. `bug`·`med`·`cx:M`
-- [x] **FIXED — arg-shape too strict → liberal intake (Postel) at the dispatch boundary** — dogfood
-      (amiro, 2026-06-21, `~/.codemaster/usage/fail.jsonl`). An INVISIBLE normalizer (`src/ops/intake/`)
-      runs in `runOne` BEFORE the canonical zod gate (via `daemon/resolve-args.ts`), mapping known
-      off-canonical spellings to each op's canonical shape; the canonical schema stays the SOLE validator
-      (a non-alias key still fails — now with a did-you-mean) and the only advertised truth
-      (`status`/`argsHint` cleaned of every `(alias: …)` annotation; `target` moved out of the canonical
-      `tsTargetShape` into the intake layer). Rewrites that fire are disclosed per-call as
-      `Result.intake` (`interpreted: symbol→name`), rendered in the cap-reserved envelope tail. Covered:
-      `symbol`→`name`, `path`/`file`→`module`, `symbols`/`sites`→`targets` (+ string elements →
-      target objects), scalar→array (`pathInclude`), OpFlags lifted from `args` (`apply`/`summaryOnly`/
-      `verbosity`/`format`/`debug`, type-validated), `name="path:line:col"`/`"ts:…"` smart-parse. Metadata
-      lives per-op on `OpDefinition.intake` (internal, never projected to status). Oracle tests:
-      `test/unit/intake.test.ts` (per-class bad-form == canonical-form + note; unknown-field reject;
-      catalogue tsTarget-intake invariant; anti-leak). KNOWN LIMIT: intake is dispatcher-level —
-      `transaction` sub-steps validate against the op schema directly (`ops/transaction.ts`), so they are
-      CANONICAL-ONLY (all canonical forms still work; the `target`/`symbol` aliases do not apply inside a
-      step). NB this is a deliberate NARROWING of the step surface: `target` USED to be a canonical
-      `tsTargetShape` field, so a transaction step `{target:…}` that once validated now rejects
-      (unrecognized → bad_args + did-you-mean→symbolId) — honest, not a silent change. `dx`·`med`·`cx:M`
 - [ ] **intake flag-precedence: a lifted-from-args flag overrides an explicit top-level flag** — when a
       call passes the SAME OpFlag both inside `args` AND at top level (e.g. `{apply:false, args:{apply:true}}`),
       the intake flag-lift (`engine.ts` `extractFlags({ ...req, ...resolved.flags })`) lets the args-placed
@@ -986,11 +825,6 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       a file not in the overlay/program set (likely a cross-program or unopened importer). No partial
       write (good), but the move is blocked. Investigate the program-membership of move-symbol edit
       targets. `bug`·`med`·`cx:M`
-- [x] **FIXED — `feedback` op hard-rejects title > 120 chars (bad_args) → wasted retry** — dogfood: a natural
-      one-line title easily exceeds 120; the op `bad_args`-rejects, costing a round-trip on the very
-      channel meant for low-friction capture. FIX: `src/ops/feedback.ts` removed the 120-char `title` cap
-      entirely — `title` is now `z.string().min(1)` (non-empty only) and recorded verbatim, no truncation.
-      `dx`·`low`·`cx:S`
 
 ---
 
@@ -1010,22 +844,6 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
       lists ABSOLUTE paths while every other path is repo-relative; (e) namespace-merge members flagged
       `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge). (d)/(e)
       are honesty/clarity. `bug`·`med`·`cx:M`
-- [x] **FIXED — `i18n_lookup` fatal on a single malformed locale file** — the fix is in the SHARED
-      parser (`parseLocaleKeys`), so all three i18n ops degrade-and-continue consistently. Note the
-      original premise was empirically off: the siblings were NOT error-tolerant — all three share the
-      strict `JSON.parse` gate and zero out identically on a single broken file; the siblings only
-      "indexed keys" in the real repo because OTHER well-formed locale files supplied them. The real
-      gap was that NO op recovered the broken file's OWN keys. `parseLocaleKeys` now recovers the
-      WELL-FORMED PREFIX (every property whose name precedes the first parse-error offset — the min of
-      `parseJsonText`'s parse diagnostics and the `JSON.parse` error position; a trailing comma, the
-      commonest case, has no TS diagnostic, so the `JSON.parse` position is essential) and returns it
-      alongside `ok:false`. Keys past the first error are dropped (parseJsonText re-nests them onto
-      mis-paths). `parseOne` still records the failure, so `failedLocaleIds`/`globalDemote`/`parseFailures`
-      keep recovered keys `partial` and surface the failure — never a silent `certain` over a broken
-      file. Delta: a single-broken-file repo now surfaces recovered keys as `partial`-dead (find_unused)
-      / `defs`+parseFailure (lookup) instead of empty. Oracle test:
-      `test/differential/i18n-parse-recovery.test.ts` (prefix==repaired-JSON / post-error-dropped /
-      early-brace-stays-partial / multi-locale-feeds-missing). `bug`·`med`·`cx:M`
 - [ ] **`find_usages symbols:[…]` does not accept a SymbolId** — passing a full id
       (`{"symbols":["ts:Button@…:54:10~d19d0f20"]}`) returns `no symbol named 'ts:Button@…'`, though
       the single-target `symbolId`/`target` form accepts it. Undercuts the "ids are chainable" premise
@@ -1056,13 +874,6 @@ whether those two belong in the full-collapse set, per-form.`dx`·`low`·`cx:S`
 - [ ] **`src/mcp/server.ts` is ~293 real lines (300 cap)** — the next edit forces a split; the natural
       seam is extracting the per-op `runOpTool` + the render helpers (`renderResults`/`renderBatch`)
       into a sibling `render-call.ts`. `dx`·`low`·`cx:S`
-- [x] **`expand_type` drops overload signatures everywhere** — FIXED. `expandTypeAt`
-      (`plugins/ts/type-expand.ts`) now lists EVERY call signature via `getSignaturesOfType(type,
-SignatureKind.Call)` in a `signatures[]` field (each NoTruncation, OUR explicit per-string cap),
-      for both pure overloaded functions and fn/namespace merges. Oracle test
-      `test/differential/expand-type.test.ts` "Bug B" (cold `ts.Program`, same getSignaturesOfType).
-      SCOPED TO `expand_type` only — the sibling `source`-shows-only-impl gap is tracked separately
-      below. `feat`·`med`·`cx:M`
 - [ ] **`source` shows only the impl signature for an overloaded function** — `source` on an
       overloaded `function coerce(...)` returns only the implementation declaration's span/body, never
       the overload signature decls that precede it (verified: only the impl line is rendered). The
@@ -1070,19 +881,6 @@ SignatureKind.Call)` in a `signatures[]` field (each NoTruncation, OUR explicit 
       overload set it should surface all signature decls. Split out of the `expand_type` overload fix
       (that fix covered `expand_type` only; `source` is `src/ops/source.ts`, a different surface).
       `feat`·`low`·`cx:M`
-- [x] **`expand_type` name+file resolution misses type aliases** — FIXED. `expand_type {name:"Span",
-file:"src/core/span.ts"}` returned `FAIL no symbol named 'Span'` while `{file,line,col}` on the same
-      decl resolved it: the `name`+`file` path ignored `file` and fell into workspace-wide fuzzy navto,
-      where case-insensitive `span` matches bury the exact type past the resolver's view cap. The
-      addressing track added a `name`+`file` → `resolveNameInFile` additive branch in the shared
-      `plugins/ts/resolve-target.ts` (rank-independent, scopes to the named file). Discriminating oracle
-      test `test/differential/expand-type.test.ts` "Bug C" (name+file ⇒ same view as file+line+col, with
-      a `span`-property flood fixture that reproduces the bury). `bug`·`med`·`cx:M`
-- [x] **`expand_type` truncates a function return type after the colon** — FIXED. The object-member
-      headline (`plugins/ts/type-expand.ts`) cut `function box(label: string): {` to `function box(label:
-string):` for a fn/namespace merge. A callable type now takes a headline cut at the first `(`
-      (`function box`) and carries the full call shape (return type included) in `signatures[]`. Oracle
-      test `test/differential/expand-type.test.ts` "Bug A". `bug`·`med`·`cx:S`
 - [ ] **`expand_type` enum members echo the member name and omit the value** — enum/const-enum members
       render `Low: Severity.Low` (a name echo) while the actual value (`Low=0`, `High='high'`) is not
       shown; the column should carry the value, not re-echo the name. `bug`·`low`·`cx:S`
