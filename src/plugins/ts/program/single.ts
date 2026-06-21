@@ -5,9 +5,12 @@
 // the tsconfig + globs the file list once; the program's types compute only when a query runs.
 //
 // The tsconfig parse is cached and re-run ONLY on a structural reindex (a re-glob IS the intent
-// then) — never on the LS hot path (`getCompilationSettings` is called every synchronize pass; a
-// per-call re-parse recursively directory-scans the whole tree → an unbounded HANG, the
-// backoffice2 incident; see ls-host-config-cache.test.ts).
+// then) — a structural change being either a new/renamed source file OR a `tsconfig*.json` edit in
+// the changed set (a widened `include` changes this program's file set; an edited `strict`/`paths`/…
+// changes its compilerOptions — both stale until `loadFileList` re-parses, the §3.5 staleness lie if
+// dropped). It is NEVER re-run on the LS hot path (`getCompilationSettings` is called every
+// synchronize pass; a per-call re-parse recursively directory-scans the whole tree → an unbounded
+// HANG, the backoffice2 incident; see ls-host-config-cache.test.ts).
 
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -17,6 +20,7 @@ import type { RepoRelPath } from '../../../core/brands.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
+import { isTsconfigBasename } from './discover.ts';
 
 /** One queryable TS program (an LS over a single tsconfig) plus the bookkeeping the host needs
  *  to keep it fresh. Public methods only; the LS host internals stay private. */
@@ -168,7 +172,17 @@ export function createSingleProgram(
         const abs = toPosix(path.join(root, rel));
         const entry = files.get(abs);
         if (entry !== undefined) entry.version++;
-        else if (isTsLike(abs)) structural = true; // a new/renamed source file (maybe ours)
+        else if (isTsLike(abs))
+          structural = true; // a new/renamed source file (maybe ours)
+        // A tsconfig change re-globs the file list AND re-reads compilerOptions: an edited
+        // `include`/`exclude` changes which files this program owns, and an edited `strict`/`paths`/…
+        // changes how it type-checks them — both stale until `loadFileList` re-parses. We trigger on
+        // ANY `tsconfig*.json`-named path in the changed set (not just our own `configPath`), which
+        // also catches a `tsconfig*.json`-named `extends` parent. An `extends` target with a
+        // NON-tsconfig basename (e.g. `./base.json`, `configs/strict.json`) is NOT detected → stale
+        // until an unrelated source add/remove (docs/backlog.md). The re-glob stays §19-bounded — it
+        // runs only here, on the reindex changed set, never on the LS hot path (`getCompilationSettings`).
+        else if (isTsconfigBasename(abs.slice(abs.lastIndexOf('/') + 1))) structural = true;
       }
       version++;
       if (structural) loadFileList();

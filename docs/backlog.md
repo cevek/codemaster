@@ -54,19 +54,35 @@ don't vanish.
     - [ ] **long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr** on
           the bridge/spawn path — the user sees only a silent in-process fallback, no message.
           Pre-existing. Surface the actionable "home too long" error to the client. `bug`·`low`·`cx:S`
-- [ ] **`tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
-      — `src/plugins/ts/program/single.ts:166-175` (`reindex` sets `structural` only via
-      `isTsLike`, which excludes `.json` at `:249`) → `loadFileList()` never re-runs on a tsconfig
-      edit; the host re-globs SIBLINGS but not the primary (`ls-host.ts`), and the config-eviction
-      fingerprint covers only `codemaster.config.*` (`config-load/resolve.ts:11-16`), never
-      `tsconfig.json`. After an `include`/`exclude`/`paths`/`strict`/`jsx` edit the primary keeps
-      its stale file list + compilerOptions; `find_usages`/`importers_of`/`find_unused_exports`/
-      `impact` silently omit real sites (or analyze under stale options) and report complete/
-      `certain`. Worse: the first drift reports `reindexed:1` → a freshness note claims absorption
-      that didn't happen (§3.5). Persistent (no self-correct until an unrelated source add/remove).
-      Test blind spot: `ls-host-tsconfig-invalidation.test.ts` covers only the discovery-memo
-      direction, never the primary re-glob. Fix: treat a change to this program's `configPath` as
-      structural → `loadFileList()`. `bug`·`high`·`cx:M`
+- [x] **FIXED — `tsconfig.json` edit never absorbed by the PRIMARY program — stale dressed as fresh**
+      — `src/plugins/ts/program/single.ts` `reindex` now treats any `tsconfig*.json` in the changed
+      set as STRUCTURAL → `loadFileList()` re-parses (fresh `parsed.options` + re-glob `fileNames` +
+      rebuilt `membership`). Any `tsconfig*.json`-named path (not just this program's own `configPath`)
+      triggers it, so a `tsconfig*.json`-named `extends` parent is covered too; an `extends` target with
+      a NON-tsconfig basename (e.g. `./base.json`) is NOT detected → stale (residual below). The host
+      needed no change (`ls-host.reindex` already
+      disposes+rebuilds siblings AND forwards the full changed set to `primary.reindex`, so the
+      asymmetry was entirely in `single.reindex`). §19-safe: the re-glob runs ONLY here, on the reindex
+      changed set, never on the LS hot path (`ls-host-config-cache.test.ts` stays green). Oracle test:
+      `test/differential/freshness-tsconfig.test.ts` — widened `include` (file-list) + edited `paths`
+      (options), both cold==warm, discriminating red→green. `bug`·`high`·`cx:M`
+  - residuals from the tsconfig-staleness fix review (low, none block the fix):
+    - [ ] **broken-tsconfig edit silently falls back to default options + glob-everything** —
+          `single.ts` `parseConfig`/`loadFileList` discard `parseJsonConfigFileContent` errors (and a
+          malformed-JSON edit yields `config ?? {}`), so an edit that breaks the tsconfig silently
+          re-globs under DEFAULT options instead of failing/noting. The result set changes with no
+          `FreshnessNote` — a silent behaviour swap (mild §3.5/§3.6 honesty gap). Surface a note (or
+          keep the prior parse) when the re-parse has `errors`. `bug`·`low`·`cx:S`
+    - [ ] **`parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)** — a throw
+          from `ts.parseJsonConfigFileContent` / `readConfigFile` would escape `reindex` to the agent,
+          against CONTRIBUTING "every external-tool call wrapped". Pre-existing, but now REACHABLE on a
+          tsconfig edit (the new structural trigger). Wrap → keep prior parse + honest note on failure.
+          `bug`·`low`·`cx:S`
+    - [ ] **a non-`tsconfig*.json`-named `extends` target is not detected** — the structural trigger
+          keys on `isTsconfigBasename`, so an `extends: "./base.json"` / `"configs/strict.json"` parent
+          edit does NOT re-glob the child → stale options until an unrelated source add/remove. Fix idea:
+          on warm, resolve+track each program's `extends` chain and trigger on any member's change (still
+          §19-bounded — resolved once per program, not per call). `bug`·`low`·`cx:S`
 - [x] **FIXED (2026-06-21) — envelope honesty channels (freshness / handle-rebind / truncation)
       silently cut by the char cap** — `src/format/render/render-result.ts`. `renderResult` used to
       append the `freshness` note, the `handle` rebind, and the `{shown,total,hint}` truncation line
