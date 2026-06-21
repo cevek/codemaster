@@ -210,6 +210,109 @@ test('#6 list: a MIXED confidence stays per-row (the variation is the signal)', 
   assert.match(renderResult(result, 'terse'), /· unresolved/, 'the non-certain row keeps its tail');
 });
 
+/** A registry of N entries, each declared in `dir/eI.ts` — lets a path filter discriminate by dir. */
+function dirRegistry(dirs: readonly string[]): ListView {
+  return {
+    registry: 'r',
+    entries: dirs.map((dir, i) => ({
+      name: `E${i}`,
+      kind: 'widget',
+      span: span(`${dir}/e${i}.ts`),
+      confidence: 'certain' as const,
+      provenance: { kind: 'heuristic' as const, by: 'demo' },
+    })),
+  };
+}
+
+test('limit caps the entry set and reports HONEST truncation {shown,total,hint} (not silent)', async () => {
+  const full = dirRegistry(['src/a', 'src/a', 'src/a', 'src/a', 'src/a']); // oracle: 5 entries
+  const reg = fakePlugin('demo', { r: full });
+  // Oracle — no limit returns the full ground-truth set.
+  const ground = dataOf(await listOp.run(ctxOf([reg]), { registry: 'r' }));
+  assert.equal((ground['entries'] as unknown[]).length, 5);
+  assert.equal(ground['truncated'], undefined);
+
+  const result = await listOp.run(ctxOf([reg]), { registry: 'r', limit: 2 });
+  assert.ok(isOk(result));
+  const data = result.data as Record<string, JsonValue>;
+  assert.equal((data['entries'] as unknown[]).length, 2, 'exactly limit shown');
+  const t = result.truncated as { shown: number; total: number; hint: string } | undefined;
+  assert.ok(t !== undefined, 'truncation present — never silent (§3.4)');
+  assert.equal(t.shown, 2);
+  assert.equal(t.total, 5, 'total = full ground-truth count');
+  assert.match(t.hint, /limit/);
+});
+
+test('pathInclude keeps only matching-dir entries; excludedByFilter counts the dropped', async () => {
+  const reg = fakePlugin('demo', { r: dirRegistry(['src/a', 'src/a', 'src/b', 'src/b', 'src/b']) });
+  const data = dataOf(await listOp.run(ctxOf([reg]), { registry: 'r', pathInclude: ['src/a/**'] }));
+  const entries = data['entries'] as Array<Record<string, JsonValue>>;
+  assert.equal(entries.length, 2, 'only the 2 src/a entries');
+  assert.ok(
+    entries.every((e) => String(e['file']).startsWith('src/a/')),
+    'every kept entry is under src/a',
+  );
+  assert.equal(data['excludedByFilter'], 3, 'the 3 src/b entries reported as excluded, not silent');
+});
+
+test('pathExclude drops matching-dir entries', async () => {
+  const reg = fakePlugin('demo', { r: dirRegistry(['src/a', 'src/b', 'src/b']) });
+  const data = dataOf(await listOp.run(ctxOf([reg]), { registry: 'r', pathExclude: ['src/b/**'] }));
+  const entries = data['entries'] as Array<Record<string, JsonValue>>;
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.['file'], 'src/a/e0.ts');
+  assert.equal(data['excludedByFilter'], 2);
+});
+
+test('sql-mode: the user limit is IGNORED — producer caps only at tableRowBound (§11)', async () => {
+  const reg = fakePlugin('demo', { r: dirRegistry(['src/a', 'src/a', 'src/a', 'src/a', 'src/a']) });
+  // tableRowBound (10) ABOVE the 5 entries: the user's limit:2 is ignored, all 5 flow uncapped.
+  const ctx: OpContext = { ...ctxOf([reg]), tableRowBound: 10 };
+  const result = await listOp.run(ctx, { registry: 'r', limit: 2 });
+  assert.ok(isOk(result));
+  const data = result.data as Record<string, JsonValue>;
+  assert.equal((data['entries'] as unknown[]).length, 5, 'all 5 — user limit not applied in sql');
+  assert.equal(result.truncated, undefined, 'no truncation — nothing was capped');
+});
+
+test('sql-mode: the engine bound (tableRowBound) IS honored and reported — never silently short (§11/§3.4)', async () => {
+  const reg = fakePlugin('demo', { r: dirRegistry(['src/a', 'src/a', 'src/a', 'src/a', 'src/a']) });
+  // tableRowBound (2) BELOW the 5 entries: the producer caps exactly where the engine would, and
+  // MUST report truncation so the sql table is marked partial (a short NOT IN table lies).
+  const ctx: OpContext = { ...ctxOf([reg]), tableRowBound: 2 };
+  const result = await listOp.run(ctx, { registry: 'r' });
+  assert.ok(isOk(result));
+  const entries = (result.data as Record<string, JsonValue>)['entries'] as unknown[];
+  assert.equal(entries.length, 2, 'capped at the engine bound');
+  const t = result.truncated as { shown: number; total: number } | undefined;
+  assert.ok(t !== undefined, 'engine-bound cap is reported, not silent');
+  assert.equal(t.shown, 2);
+  assert.equal(t.total, 5);
+});
+
+test('sql-mode: path filters STILL apply (an explicit WHERE, not a cap)', async () => {
+  const reg = fakePlugin('demo', { r: dirRegistry(['src/a', 'src/a', 'src/b', 'src/b', 'src/b']) });
+  const ctx: OpContext = { ...ctxOf([reg]), tableRowBound: 100 };
+  const data = dataOf(await listOp.run(ctx, { registry: 'r', pathInclude: ['src/a/**'] }));
+  const entries = data['entries'] as Array<Record<string, JsonValue>>;
+  assert.equal(entries.length, 2, 'path filter applied in sql-mode');
+  assert.ok(entries.every((e) => String(e['file']).startsWith('src/a/')));
+  assert.equal(data['excludedByFilter'], 3);
+});
+
+test('empty pathInclude/pathExclude array is rejected by the schema (no silent drop-all)', () => {
+  // An empty glob array matches nothing → matchesAnyGlob(f, []) === false → every entry dropped.
+  // `.min(1)` fails this meaningless intent fast instead of returning an empty result as if real.
+  assert.equal(listOp.argsSchema.safeParse({ registry: 'r', pathInclude: [] }).success, false);
+  assert.equal(listOp.argsSchema.safeParse({ registry: 'r', pathExclude: [] }).success, false);
+  // A non-empty array (and an omitted one) is accepted.
+  assert.equal(
+    listOp.argsSchema.safeParse({ registry: 'r', pathInclude: ['src/**'] }).success,
+    true,
+  );
+  assert.equal(listOp.argsSchema.safeParse({ registry: 'r' }).success, true);
+});
+
 test('registry name collision across plugins → reported, first-wins, never silent', async () => {
   const other = fakePlugin('other', {
     widgets: { registry: 'widgets', entries: [] },

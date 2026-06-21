@@ -723,14 +723,22 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       `1n` (`BigIntLiteral`) fall through to `other`/`dynamic`. Honest under-report (never a
       false-`certain`), rare in keys. Fix: extend the numeric branch to `+`-prefixed numerics and
       `BigIntLiteral`. `bug`·`low`·`cx:S`
-- [ ] **`list` has no `limit` / `pathInclude` / pagination** — `list {registry}` returns the WHOLE
-      registry (e.g. `components` = 652 entries on amiro). Each entry now condenses to one clickable
-      line (`condense.ts` ListEntry branch), but 652 lines still bust the 20KB `RENDER_CHAR_CAP` →
-      honest `!! OUTPUT CAPPED`, and the only way to narrow is `sql` (the op exposes a table). Other
-      list-shaped ops (`find_usages`, `find_unused_exports`) take `limit` + `pathInclude`/`pathExclude`;
-      `list` takes neither, so an agent can't scope by dir or page through. Fix: add `limit` +
-      `pathInclude`/`pathExclude` (globs over the entry's decl file) to `list`'s args, mirroring
-      find_usages' filter, and report the cap as truncation. `feat`·`low`·`cx:S`
+- [x] **FIXED — `list` has no `limit` / `pathInclude` / pagination** — `list {registry}` returned the
+      WHOLE registry (e.g. `components` = 652 entries on amiro), busting the 20KB render cap
+      (`!! OUTPUT CAPPED`), narrow-able only via `sql`. Added `limit` + `pathInclude`/`pathExclude`
+      (globs over the entry's decl file `span.file`) to `list`'s args, applied at the op level over `view.entries`
+      (reusing `common/glob/match.ts`): path filter always applies, the user `limit` caps with honest
+      `truncated {shown,total,hint}`. In sql-mode the user limit is replaced by `tableRowBound` (cap
+      exactly at the engine's MAX_TABLE_ROWS, never below — a short table feeding NOT IN lies, §11);
+      dropped entries report as `excludedByFilter` (never silent, §3.4). `feat`·`low`·`cx:S`
+- [ ] **`list` combineTruncation defensive branch desyncs with the path filter** — in `list.ts`
+      `combineTruncation`, the `!opCapped` branch passes a plugin-reported `view.truncation`
+      (`{shown,total}`) through VERBATIM. Those counts are PRE-path-filter (the plugin counts before the
+      op drops entries by `excludedByFilter`), so a plugin that sets `view.truncation` would report a
+      `shown`/`total` out of sync with the post-filter `entries`. No shipping plugin sets
+      `view.truncation` today (dead branch), so it never fires — but if one does, the count lies. Fix:
+      recompute the combined `total` against the post-filter matched set, or document that plugins must
+      report post-filter counts. `bug`·`low`·`cx:S`
 
 ---
 

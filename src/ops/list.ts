@@ -10,10 +10,47 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { ListEntry, ListView } from '../core/list.ts';
+import type { Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { matchesAnyGlob } from '../common/glob/match.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+
+const ROW_CAP_HINT = 'raise limit, or narrow with pathInclude/pathExclude';
+
+/** Path filter over the entry's DECLARATION file (`span.file`), glob-matched — mirrors
+ *  `find_usages`'s filter. pathInclude keeps only matching files; pathExclude drops matching
+ *  ones; the dropped count is returned so the filter never reads as completeness (§3.4). */
+function filterByPath(
+  entries: readonly ListEntry[],
+  include: readonly string[] | undefined,
+  exclude: readonly string[] | undefined,
+): { matched: ListEntry[]; excluded: number } {
+  if (include === undefined && exclude === undefined) return { matched: [...entries], excluded: 0 };
+  const matched = entries.filter((e) => {
+    const f = e.span.file;
+    if (include !== undefined && !matchesAnyGlob(f, include)) return false;
+    if (exclude !== undefined && matchesAnyGlob(f, exclude)) return false;
+    return true;
+  });
+  return { matched, excluded: entries.length - matched.length };
+}
+
+/** Fold the op-level `limit` cap with any plugin-reported cap (`view.truncation`, defensive —
+ *  no shipping plugin sets it) into ONE honest envelope: `total` is the larger of the two so a
+ *  combined cap never under-reports (§3.4). `undefined` when nothing was capped. */
+function combineTruncation(
+  shown: number,
+  matchedTotal: number,
+  opCapped: boolean,
+  pluginTrunc: ListView['truncation'],
+): Truncation | undefined {
+  if (opCapped) {
+    return { shown, total: Math.max(matchedTotal, pluginTrunc?.total ?? 0), hint: ROW_CAP_HINT };
+  }
+  return pluginTrunc !== undefined ? { ...pluginTrunc } : undefined;
+}
 
 /** Display form of a composite key (`['todos', <dynamic>]` → `todos / <dyn>`) or a plain
  *  name. A dynamic segment is shown as `<dyn>`, never a guessed literal (§3.3). */
@@ -158,7 +195,17 @@ const listTable: TableSpec<JsonValue> = {
   },
 };
 
-const argsSchema = z.strictObject({ registry: z.string() });
+const argsSchema = z.strictObject({
+  registry: z.string(),
+  /** Glob(s) over the entry's declaration file — keep only matching entries. `.min(1)`: an empty
+   *  array is a meaningless intent (it would match nothing → drop ALL entries), so it fails fast
+   *  rather than silently emptying the result. */
+  pathInclude: z.array(z.string()).min(1).optional(),
+  /** Glob(s) over the entry's declaration file — drop matching entries. `.min(1)` (see pathInclude). */
+  pathExclude: z.array(z.string()).min(1).optional(),
+  /** Cap the entry set; the cap is reported as truncation, never silent (§3.4). */
+  limit: z.number().int().positive().optional(),
+});
 
 /** Discover every registry the active plugins own → a `registry → owner` map (first-wins;
  *  a duplicate claim is recorded so a collision is reported, never silently shadowed). */
@@ -192,13 +239,14 @@ export const listOp = defineOp({
   mutating: false,
   requires: [],
   argsSchema,
-  argsHint: '{ registry: string }',
-  example: { args: { registry: 'components' } },
+  argsHint: '{ registry: string, pathInclude?: string[], pathExclude?: string[], limit?: number }',
+  example: { args: { registry: 'components', pathInclude: ['src/features/**'] } },
   notes: [
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',
     'an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).',
     'entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).',
     'density: a column CONSTANT across every entry (kind, provenance, confidence) is stated ONCE as `allKind`/`allProvenance`/`allConfidence` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is hoisted only when its uniform value is non-`certain` (a `certain` tail is invisible anyway). A mixed answer keeps the column per-row. `available` is shown only when the registry is NOT found (the did-you-mean list).',
+    'bounded: limit caps the entry set (the cap returns as truncation `{shown,total,hint}`, never silent §3.4); pathInclude/pathExclude are globs over the entry DECLARATION file — dropped entries are reported as `excludedByFilter`, so a filter never reads as completeness. In sql-mode the producer is UNCAPPED (limit ignored — a capped table feeding NOT IN would lie §11); path filters still apply (an explicit WHERE, not a cap).',
   ],
   table: listTable,
   async run(ctx, args) {
@@ -216,7 +264,17 @@ export const listOp = defineOp({
         });
       }
       const view: ListView = owner.list(args.registry);
-      const hoisted = hoistUniform(view.entries.map(serializeEntry));
+      // Op-level scoping (§5-L3: the entries are materialized in memory, so the path glob + cap run
+      // here, never in the plugin). Path filter ALWAYS applies (an explicit WHERE). The user's `limit`
+      // is IGNORED in sql-mode — the cap becomes `tableRowBound` (the SAME MAX_TABLE_ROWS the engine
+      // enforces), so the op caps exactly where the engine would and reports it (a producer capped
+      // BELOW that would feed NOT IN silently short, §11) — mirrors find_usages/importers_of.
+      const sqlMode = ctx.tableRowBound !== undefined;
+      const { matched, excluded } = filterByPath(view.entries, args.pathInclude, args.pathExclude);
+      const cap = sqlMode ? ctx.tableRowBound : args.limit;
+      const capped = cap === undefined ? matched : matched.slice(0, cap);
+      const opCapped = capped.length < matched.length;
+      const hoisted = hoistUniform(capped.map(serializeEntry));
       return ok(
         {
           registry: args.registry,
@@ -229,14 +287,18 @@ export const listOp = defineOp({
           ...(hoisted.allKind !== undefined ? { allKind: hoisted.allKind } : {}),
           ...(hoisted.allProvenance !== undefined ? { allProvenance: hoisted.allProvenance } : {}),
           ...(hoisted.allConfidence !== undefined ? { allConfidence: hoisted.allConfidence } : {}),
+          // Small load-bearing count BEFORE the row bulk (§12) — a filter dropped entries, never silent.
+          ...(excluded > 0 ? { excludedByFilter: excluded } : {}),
           entries: hoisted.entries.map((e) => tag('list-entry', e as Record<string, JsonValue>)),
           ...(view.note !== undefined ? { note: view.note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),
         },
-        // Surface a plugin-reported cap on the canonical §3.4 envelope field, so the renderer
-        // shows it and a sql producer marks its table `partial` — silent truncation reads as
-        // completeness.
-        view.truncation !== undefined ? { truncated: { ...view.truncation } } : undefined,
+        // Fold the op-level cap with any plugin-reported cap onto the canonical §3.4 envelope field,
+        // so the renderer shows it and a sql producer marks its table `partial` — never silent.
+        ((): { truncated: Truncation } | undefined => {
+          const t = combineTruncation(capped.length, matched.length, opCapped, view.truncation);
+          return t !== undefined ? { truncated: t } : undefined;
+        })(),
       );
     } catch (thrown) {
       return failFromThrown('list', thrown);

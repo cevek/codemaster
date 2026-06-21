@@ -73,13 +73,14 @@ ops (21):
     · pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.
     columns: name,file,line,col,confidence,note
     e.g. find_unused_scss_classes {"pathInclude":["src/features/**"]}
-  list { registry: string } — List a named registry (components, hooks, dialogs, routes, queries, …) — routed to the owning plugin
+  list { registry: string, pathInclude?: string[], pathExclude?: string[], limit?: number } — List a named registry (components, hooks, dialogs, routes, queries, …) — routed to the owning plugin
     · GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.
     · an unknown or inactive registry returns the honest available-list, never a guessed result (§3.6).
     · entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).
     · density: a column CONSTANT across every entry (kind, provenance, confidence) is stated ONCE as `allKind`/`allProvenance`/`allConfidence` and omitted from each row — read the effective value as `entry.kind ?? allKind`. Confidence is hoisted only when its uniform value is non-`certain` (a `certain` tail is invisible anyway). A mixed answer keeps the column per-row. `available` is shown only when the registry is NOT found (the did-you-mean list).
+    · bounded: limit caps the entry set (the cap returns as truncation `{shown,total,hint}`, never silent §3.4); pathInclude/pathExclude are globs over the entry DECLARATION file — dropped entries are reported as `excludedByFilter`, so a filter never reads as completeness. In sql-mode the producer is UNCAPPED (limit ignored — a capped table feeding NOT IN would lie §11); path filters still apply (an explicit WHERE, not a cap).
     columns: key,kind,name,file,line,col,confidence,provenance,detail
-    e.g. list {"registry":"components"}
+    e.g. list {"registry":"components","pathInclude":["src/features/**"]}
   rename_symbol [mutating] { symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)
     · dry-run (default) writes nothing — returns the unified diff, touched files, and the post-edit typecheck. apply:true is refused only if the edit INTRODUCES new typecheck errors (diffed against a pre-edit baseline); a repo’s pre-existing errors ride along as a preExisting count, never blocking.
     · apply rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.
