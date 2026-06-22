@@ -414,17 +414,6 @@ don't vanish.
       importers but leaves `export { X } from './source'` barrels (and default-export importers)
       dangling → the §2.8 gate honestly REFUSES the whole move. Close by supplementing the LS edits
       with codemaster's own barrel-specifier rewrite. `feat`·`med`·`cx:M`
-- [x] **move/extract: specifier style is LS-chosen, not alias-preserving** — FIXED (2026-06-22).
-      Root cause was NOT a missing post-process: `extract_symbol` drove the LS "Move to a new file"
-      action, which lets the LS pick the filename (forcing a re-target + an `emitSpecifier` re-emit
-      that mangled aliased importers to relative) and never mirrors each importer's convention.
-      `move_symbol` was already correct — it uses "Move to file". Fix: extract now drives the SAME
-      "Move to file" action with the requested `dest` as the not-yet-existing `targetFile`, so the LS
-      emits every importer/relink/dep specifier NATIVELY in the file's own convention (alias→alias,
-      relative→relative, no preference hardcode — which would break relative repos). No hand-reform.
-      The new file's verbatim-copied AMBIENT imports (`*.module.scss` — the LS can't relocate them)
-      are rebased for the source→dest dir shift by `imports/rebase-ambient.ts`. Oracle test:
-      `test/e2e/extract-specifier-convention.test.ts`.
 - [ ] **stale "Move to a new file" docs/test comments after the extract action-switch** — the
       action-switch (extract now drives "Move to file", not "Move to a new file") left present-state
       drift: `docs/spec-extract-completion.md` (Status: proposed) still describes the RETIRED mechanism
@@ -766,7 +755,40 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 ---
 
-## Wave-2 density — review residuals (post-merge, none a current lie)
+## Full-verbosity density — review residuals (post-merge 2026-06-23, none a current lie)
+
+> The full-verbosity density pass landed (`expand_type` name-token span → `at`-loc; `FULL_DISPOSITION.symbol`
+> flipped verbatim→collapse, fixing `find_usages.definition` / `search_symbol.matches` / `mergedDeclarations`;
+> `css_cascade` rules selector dedup; i18n evidence — dynamic `t()` template + dotted key — preserved at full;
+> `output-density.test.ts` now sweeps every op incl. config-gated at terse/normal/**full**, closing the
+> ts+scss-only forgot-to-`tag()` guard). 4 reviewers PASS (2 bug + trust + doc-sync); discrimination
+> independently confirmed (revert→RED per fix-group). Residuals below.
+
+- [ ] **`find_definition` full fallback can collapse a body-bearing sibling post-FLIP** — at full,
+      `render-result.ts:65-71` routes to `renderSource` only when `usable` (every definition has a non-empty
+      `decl` body); if ANY site lacks a `decl` object, the WHOLE result falls to `renderDense(condenseSpans)`,
+      where post-FLIP a body-bearing sibling's `decl` now collapses to `loc · firstline` instead of the full
+      body — violating `find_definition`'s own "full = whole body" note. Effectively DEAD today: both bug
+      reviewers could not make `declarationNodeOf` (`plugins/ts/declaration.ts`) return undefined for a real
+      definition site (overloads/merges/default-exports/re-export chains/lib types all resolve a decl). Guard:
+      a discriminating test (a find_definition with ≥2 sites, ≥1 no-decl + ≥1 body, at full) so a future
+      `declarationNodeOf` change or a new no-decl definition kind can't silently reintroduce the body-drop.
+      `bug`·`low`·`cx:S`
+- [ ] **`spanTextOf` first-line-only — "never a silently-dropped body" comment overstated** — the `symbol`
+      renderer's full-mode guardrail (`shapes/ts.ts` `declHeader` → `shapes/span-text.ts` `spanTextOf`) keeps
+      only `text.split('\n')[0]`, so a hypothetical body-bearing `symbol`-tagged row reaching `condense` at
+      full would lose lines 2..N (same first-line caveat for a multi-line dynamic template in `bareSpan`).
+      No present consumer triggers it (reaching symbol rows are decl-less; body-bearing forms are
+      renderSource-intercepted / `verbatim`-disposition). Correct the comment, or route such a future form
+      through `verbatim`. `dx`·`low`·`cx:S`
+- [ ] **`expand_type` `at`-loc correctness validated by neither suite** — `span-validity.test.ts` correctly
+      dropped `expand_type` from the proof-span sweep (it no longer emits a Span, only the `at` string), but
+      `expand-type.test.ts` oracle-checks members/signatures/type, NOT the location. The `at` derives from the
+      same `info.textSpan`/`spanFromRange` as the old validated span (drift unlikely), but the net is thinner.
+      Add a loc-correctness assert in `expand-type.test.ts`. `dx`·`low`·`cx:S`
+- [ ] **`expand_type` span→`at` agent-facing rename under-documented** — the data-shape changed
+      `span:{object}` → `at:"file:line:col"` (string); documented in the `span-validity` EXCLUSIONS comment but
+      not in the op's `notes`. Not a lie; add a 1-line op-note for the agent-facing rename. `doc`·`low`·`cx:S`
 
 > The 3 density tracks (mutating/ts-read/analyzers) landed. These are the review-surfaced follow-ups.
 
