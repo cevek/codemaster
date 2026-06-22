@@ -55,6 +55,7 @@ export const findMissingI18nKeysOp = defineOp({
   example: { args: {} },
   notes: [
     'one row per usage site, carrying missingLocales[] (the readable locales that lack the key) — never a row per (usage × locale). The sql/table projection stays flat (one row per usage × locale).',
+    'when every usage misses the SAME locale set, the per-row `· missing in […]` is hoisted to a `missing in [..] on all N usage(s)` header note (the locale list stays on each row in json/sql, untouched) — density only.',
     'dynamic usages (template/computed keys) can not be checked against locales — listed separately as unresolvable, never guessed.',
     'i18n.module identity match-model: see i18n_lookup. With it, a same-named t from another module no longer fabricates a missing row; if the configured i18n.module does not resolve, the analysis is flagged incomplete (no usage matched), never a silent "fully translated". Without it, the by-name model (alias-aware).',
   ],

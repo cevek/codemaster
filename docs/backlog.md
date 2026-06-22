@@ -728,11 +728,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       once in the header). DANGER: today the tag-less mis-resolve is LATENT (nothing strips); shipping
       half (2) without half (1) ACTIVATES it. The token win is also concentrated where it's least
       needed (json — the programmatic chaining path — already keeps the full id). `dx`·`med`·`cx:L`
-- [ ] **`expand_type verbosity:full` bloats the span block** — `full` renders the one-line span as a
-      multi-line `file=/line=/col=/endLine=/endCol=/text=` block (the condense span-collapse is
-      skipped at `full`). Minor; collapse the span even at `full` for a single-symbol answer.
-      `dx`·`low`·`cx:S`
-
 - [ ] **`construction_sites` floods on all-optional target types** — `ButtonProps` (a big
       intersection of `ButtonHTMLAttributes & ClassAttributes & VariantProps & {asChild?}`, every
       field optional) matched 5739 candidate literals across unrelated `scripts/openapi-codegen/**`
@@ -749,35 +744,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 > dispatcher) landed. Compile-time `Record<ShapeTag, renderer>` makes "forget a renderer" impossible.
 > These are the review-surfaced follow-ups, none a current lie.
 
-- [ ] **live forgot-to-`tag()` guard covers only ts+scss ops** — the coverage guard's live op-pipeline
-      (`output-density.test.ts` CASES) runs only ts+scss ops; the config-gated ops (i18n ×3 /
-      react-query / list / list_endpoints / find_usages text / mutating) rely on hand-written
-      `TAG_SAMPLES` that exercise the RENDERER, not the op's `tag()` call. So a future op that forgets
-      to call `tag()` on its rows would explode and CI would NOT catch it (compile-time closes "forgot
-      a renderer", not "forgot to tag a row"). All ops currently tag (verified). Fix: add the
-      config-gated ops to the live CASES via a configured fixture (kitchensink/react-query repos).
-      `dx`·`med`·`cx:M`
-- [ ] **`FULL_DISPOSITION` collapse drops span proof TEXT at full — re-examine the few forms where the
-      text IS the evidence** — the density-regression root (an opt-IN `COLLAPSE_AT_FULL` allowlist that
-      left every unlisted tag exploding at `full`) is CLOSED: `FULL_DISPOSITION` is now an exhaustive
-      `Record<ShapeTag,'collapse'|'verbatim'>` with `collapse` the default and `symbol` the lone
-      `verbatim` (see `format/render/shapes/index.ts`, §12). A consequence: a `collapse` row renders its
-      span loc-only at `full` (via `spanLoc`), dropping the span's verbatim TEXT. That is correct for
-      the vast majority (the text is a redundant name-token, or shown as a data field). The handful
-      where the dropped text WAS the evidence, to reconsider per-form: (a) `bare-span`
-      (`find_missing_i18n_keys` `dynamicUsages`, whose text is the dynamic `t()` template-literal
-      key expression — the evidence of the dynamic call); (b) `i18n-usage` / `i18n-missing-usage`
-      drop the echoed dotted KEY at full (`spanEchoes` matches the source token, but `spanLoc` no
-      longer renders it) — same class as the `scss-class` name-drop fixed in this pass (which now
-      keeps the name by checking the RENDERED loc, not the raw span text). Fold a `name` / `key`
-      survives positive assertion into the full-verbosity sweep when fixed. `dx`·`low`·`cx:S`
-- [ ] **`find_usages` `definition` passes verbatim at full but carries only a name-token span (watery)**
-      — `definition` is `tag('symbol', …)` → `verbatim` disposition, so at `full` it explodes into
-      `id=/name=/kind=/span{file=…}` instead of a compact body. For a `const` with no `decl` body that
-      is pure water (the name-token span repeats the id). `find_definition` full avoids this via the
-      `isDefinitionsData` → `renderSource` compact-body path (render-result.ts); `find_usages`'
-      `definition` does not. Route it through the same compact symbol-body path, or drop the name-token
-      span from the definition view. `dx`·`low`·`cx:S`
 - [ ] **shape renderers are not wrapped in try/catch** — `condense`'s tag-dispatch calls the renderer
       directly; a throwing renderer would escape to the agent (the "never crash" §3.6 contract formally
       relies on renderers being throw-free by construction — they are today: only `String()`/asArray
@@ -804,15 +770,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 
 > The 3 density tracks (mutating/ts-read/analyzers) landed. These are the review-surfaced follow-ups.
 
-- [ ] **`css_cascade` `rules (N):` section still duplicates the selector** — a contributing rule row
-      renders `[spec] loc · <span-text=.sel> · <selector=.sel> · …` — the span text equals the
-      `selector` field. The analyzer track de-duped the winner/loser/property views but the `rules`
-      section's `cssRule` renderer was out of scope. Apply the same span-loc-only dedup there.
-      `dx`·`low`·`cx:S`
-- [ ] **`find_missing_i18n_keys` op-note doesn't document the uniform `missing in [..] on all N` hoist**
-      — the analyzer track added an envelope `notes` header when every usage misses the same locale set,
-      but (unlike `list`'s `allConfidence` note) didn't add the op-note line. Additive + self-describing,
-      not a lie — add the 1-line present-state note for symmetry. `doc`·`low`·`cx:S`
 - [ ] **no dedicated sql-mode test for `list` `allConfidence` backfill** — `listTable.rows` fills
       `confidence` from `allConfidence` when hoisted (verified by reading); mirrors `allKind`/
       `allProvenance` which also lack a dedicated sql test. Add one. `dx`·`low`·`cx:S`

@@ -5,7 +5,7 @@
 
 import type { JsonValue } from '../../../core/json.ts';
 import type { ShapeRenderer } from './types.ts';
-import { confTail, flat, spanLoc } from './helpers.ts';
+import { confTail, flat, isObject, spanLoc } from './helpers.ts';
 import { spanLocOnly, spanTextOf, unquote } from './span-text.ts';
 import { HIDE_CONF_KEY, HIDE_MISSING_KEY } from './meta-keys.ts';
 
@@ -14,6 +14,16 @@ import { HIDE_CONF_KEY, HIDE_MISSING_KEY } from './meta-keys.ts';
  *  dropped. Terse carries no text, so this is false and both stay. */
 function spanEchoes(span: JsonValue | undefined, token: string): boolean {
   return unquote(spanTextOf(span)) === token;
+}
+
+/** True when the RENDERED `spanLoc(span)` already shows `token` — so a form whose key is its ONLY
+ *  identifier (i18n-usage / i18n-missing-usage drop the separate key when the span echoes it) keeps
+ *  the key whenever the span will NOT display it. A condensed STRING span (terse/normal) renders
+ *  `loc · text`, so an echoing text shows the key; a verbatim span OBJECT (full) renders loc-ONLY,
+ *  so the key is NOT shown and must stay. Checking the rendered form (not the raw text, which exists
+ *  at full too) is what stops the key vanishing at full — same fix as scss-class's `endsWith`. */
+function renderedSpanShows(span: JsonValue | undefined, token: string): boolean {
+  return !isObject(span) && spanEchoes(span, token);
 }
 
 const lastSegment = (key: string): string => key.split('.').at(-1) ?? key;
@@ -42,7 +52,7 @@ export const i18nDef: ShapeRenderer = (v) => {
 export const i18nUsage: ShapeRenderer = (v) => {
   const key = String(v['key']);
   const prov = v['provenance'] !== undefined ? ` · ${String(v['provenance'])}` : '';
-  const keyPart = spanEchoes(v['span'], key) ? '' : ` · ${key}`;
+  const keyPart = renderedSpanShows(v['span'], key) ? '' : ` · ${key}`;
   return `${spanLoc(v['span'])}${keyPart}${prov}`;
 };
 
@@ -58,7 +68,7 @@ export const i18nMissingPerKey: ShapeRenderer = (v) => {
  *  to a header note). */
 export const i18nMissingUsage: ShapeRenderer = (v) => {
   const key = String(v['key']);
-  const keyPart = spanEchoes(v['span'], key) ? '' : ` · ${key}`;
+  const keyPart = renderedSpanShows(v['span'], key) ? '' : ` · ${key}`;
   const locs = Array.isArray(v['missingLocales']) ? v['missingLocales'].join(',') : '';
   const miss = v[HIDE_MISSING_KEY] === true ? '' : ` · missing in [${locs}]`;
   return `${spanLoc(v['span'])}${keyPart}${miss}`;

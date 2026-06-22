@@ -33,10 +33,13 @@ export function condenseSpans(value: JsonValue, verbosity: Verbosity): JsonValue
     for (const [key, child] of Object.entries(value)) out[key] = condenseSpans(child, verbosity);
     const tagVal = out[SHAPE_KEY];
     if (typeof tagVal === 'string') {
-      // At full, a `verbatim`-disposition row passes through untouched (its value IS proof body —
-      // today only `symbol`'s decl); every other tag collapses to its dense one-liner even at full
-      // (the DEFAULT — a list/verdict row carries no verbatim body). FULL_DISPOSITION is exhaustive
-      // over ShapeTag, so a new tag defaults to neither: it must be classified or tsc fails.
+      // At full, a `verbatim`-disposition row passes through untouched (its value IS proof body);
+      // every other tag collapses to its dense one-liner even at full (the DEFAULT — a list/verdict
+      // row carries no verbatim body). NO tag currently elects `verbatim`: the decl-BODY payload is
+      // delivered by render-result's renderSource interception (find_definition / source) which fires
+      // before this, so this branch is retained infrastructure for a future proof-bearing form.
+      // FULL_DISPOSITION is exhaustive over ShapeTag, so a new tag defaults to neither: it must be
+      // classified or tsc fails.
       if (verbosity === 'full' && FULL_DISPOSITION[tagVal as ShapeTag] === 'verbatim') {
         // The renderer does NOT run here to consume them, so strip EVERY `~`-meta key — the
         // shape tag AND render-only hints (~subject/~sectioned/…) — so none reaches render-dense

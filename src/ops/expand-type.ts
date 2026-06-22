@@ -63,13 +63,24 @@ export const expandTypeOp = defineOp({
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
       }
       const view = outcome.view;
-      return ok(
-        {
-          ...view,
-          ...(view.members !== undefined ? { members: tagMembers(view.members) } : {}),
-        },
-        outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
-      );
+      // The name-token `span` is a LOCATION, not a proof body (the type text / signatures / members
+      // carry the proof). Left as a raw top-level Span it passes verbatim at `full` (§12 raw-span
+      // passthrough) and render-dense explodes it into a `file=/line=/col=` block — pure water for a
+      // single-symbol lookup. Project it to a clickable `at` loc IN PLACE (so insertion order — the
+      // §12 verdict-before-bulk contract — is preserved: `about`/`type` lead, `members` stays bulk-
+      // last), tagging members where they sit; everything else untouched.
+      const out: Record<string, JsonValue> = {};
+      for (const [k, val] of Object.entries(view)) {
+        if (k === 'span') {
+          if (view.span !== undefined)
+            out['at'] = `${view.span.file}:${view.span.line}:${view.span.col}`;
+        } else if (k === 'members') {
+          if (view.members !== undefined) out['members'] = tagMembers(view.members);
+        } else {
+          out[k] = val as JsonValue;
+        }
+      }
+      return ok(out, outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined);
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

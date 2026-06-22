@@ -4,22 +4,46 @@
 // child spans (to `file:line:col` strings at terse/normal). The id already carries
 // name + file:line:col, so keyed name/span fields are pure repetition and are dropped.
 
+import type { JsonValue } from '../../../core/json.ts';
 import type { ShapeRenderer } from './types.ts';
 import { asArray, confTail, flat, isObject, spanLoc, usageDeco } from './helpers.ts';
+import { spanLocOnly, spanTextOf } from './span-text.ts';
 
 /** SymbolView: { id, name, kind, span, decl?, container?, callable? }. The id encodes
  *  name + file:line:col and `span` is the name-token (== name) — both redundant, dropped.
  *  `callable` is ignored (it only feeds impact's dynamic-boundary check). `decl` condenses to
  *  a bare loc at terse (no header) and `loc · <first line>` at normal — the header rides a
  *  continuation line, never the redundant loc again. Covers find_usages' single `definition`
- *  (which also carries `callable` — the old key-set branches missed it → it exploded). */
+ *  (which also carries `callable` — the old key-set branches missed it → it exploded).
+ *
+ *  COLLAPSE disposition (FULL_DISPOSITION): the decl-BODY proof path is the renderSource
+ *  interception (find_definition / source, render-result.ts) which fires BEFORE condense, so
+ *  this renderer only ever runs on a no-body symbol-REF (find_usages.definition,
+ *  search_symbol.matches, mergedDeclarations) — a compact `id · kind` line at every verbosity.
+ *  At full, condense leaves a present `decl` as a verbatim span OBJECT, so the header is built
+ *  via `spanTextOf` (never `String(obj)` → `[object Object]`) — a future decl-bearing symbol-row
+ *  that reached condense would still surface `loc · firstline`, never a silently-dropped body. */
 export const symbol: ShapeRenderer = (v) => {
   const container = v['container'] !== undefined ? ` in ${String(v['container'])}` : '';
-  const declStr = v['decl'] !== undefined ? String(v['decl']) : '';
-  const sep = declStr.indexOf(' · ');
-  const header = sep >= 0 ? `\n  ${declStr.slice(sep + 3)}` : '';
+  const header = declHeader(v['decl']);
   return `${String(v['id'])} · ${String(v['kind'])}${container}${header}`;
 };
+
+/** The decl continuation line — `\n  <first line of the declaration>` — or '' when absent.
+ *  `decl` is an already-condensed STRING at terse/normal (`loc` / `loc · text`) and a verbatim
+ *  span OBJECT at full; both yield the body's first line without the redundant loc. */
+function declHeader(decl: JsonValue | undefined): string {
+  if (decl === undefined) return '';
+  const text = isObject(decl) ? spanTextOf(decl) : declTextOf(String(decl));
+  return text.length > 0 ? `\n  ${text}` : '';
+}
+
+/** First line of a condensed-string decl (`loc · <first line>`) — the part after the separator;
+ *  '' for a bare `loc` (terse, no text). */
+function declTextOf(declStr: string): string {
+  const sep = declStr.indexOf(' · ');
+  return sep >= 0 ? declStr.slice(sep + 3) : '';
+}
 
 /** UsageView: { span, role, confidence } (+ optional program/decls decorations). `role` is
  *  rendered only when present — a single-role filter HOISTS it to a `role=` header and drops it
@@ -94,9 +118,15 @@ export const typeRef: ShapeRenderer = (v) =>
 /** find_usages symbols-mode unresolved row: { name, reason }. */
 export const unresolvedName: ShapeRenderer = (v) => `${String(v['name'])} · ${flat(v['reason'])}`;
 
-/** A bare single-span object (e.g. find_missing `dynamicUsages: {span}[]`): the `span=` key is
- *  noise — render just the clickable location. Collapses at full. */
-export const bareSpan: ShapeRenderer = (v) => spanLoc(v['span']);
+/** A bare single-span object (find_missing `dynamicUsages: {span}[]`): the `span=` key is noise.
+ *  The span's verbatim TEXT is the evidence here — the dynamic `t(`…`)` template-literal key
+ *  expression that proves the call is dynamic — so it MUST survive at full. Render `loc · text`:
+ *  `spanTextOf` reads the (single-line) template from the condensed string (normal) or the verbatim
+ *  span object (full); terse carries no text → loc only. */
+export const bareSpan: ShapeRenderer = (v) => {
+  const text = spanTextOf(v['span']);
+  return text.length > 0 ? `${spanLocOnly(v['span'])} · ${text}` : spanLocOnly(v['span']);
+};
 
 /** target-ref — the identity a type-aware op reports FOR. impact's seed { id, name, kind }
  *  (id carries name + loc → `id · kind`); construction_sites' { kind, name, span } (no id →

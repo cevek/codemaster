@@ -67,7 +67,6 @@ const SWEEP: Record<string, JsonValue> = {
   search_symbol: { query: 'Button' },
   find_definition: { name: 'Button' },
   find_usages: { name: 'Button' },
-  expand_type: { name: 'Props' },
   // The target descriptor carries the type's name-token span — validated here; assignable
   // SITE spans (factory/array/var/call) are exhaustively span-checked in construction-sites.test.ts.
   construction_sites: { name: 'Props' },
@@ -87,6 +86,8 @@ const SWEEP: Record<string, JsonValue> = {
  *  port owns (spec §1 boundary — edit-safety is tested there, not re-tested here). */
 const EXCLUSIONS: Record<string, string> = {
   importers_of: 'emits compact `at:"file:line"` strings, not proof Spans — nothing to validate',
+  expand_type:
+    'emits a navigational `at:"file:line:col"` loc (the name-token span is density-water at full, §12), not a proof Span — the resolved type/members/signatures proof is the live checker, oracle-tested in expand-type.test.ts vs a cold Program',
   impact:
     'emits encloser rollups (file:line:col + chainable SymbolIds), like find_usages grouped mode — no verbatim Spans; closure correctness is oracle-tested in impact.test.ts',
   feedback: 'writes the global inbox; carries no source Spans',

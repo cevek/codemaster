@@ -55,21 +55,25 @@ export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
  *  carries NO verbatim proof body (a name-token span is a location, members are `name: type`, a
  *  verdict is a value), so it renders as its dense one-liner even at `full` — never an exploded
  *  multi-line `key=value` block. `verbatim` is the small opt-OUT for a proof-BEARING form whose
- *  full value IS meaningful source text. Today exactly one tag qualifies:
+ *  full value IS meaningful source text — the renderer is SKIPPED and the raw object passes to
+ *  render-dense (so it explodes unless an upstream interception reshapes it first).
  *
- *  - `symbol` — carries `decl`, a span whose verbatim text is the declaration BODY (the "show me
- *    the code" payload of find_definition / find_usages' definition / search_symbol). It is also
- *    FORCED verbatim: the `symbol` renderer reads `decl` as a pre-condensed STRING, so collapsing
- *    it at full (where `decl` is a verbatim span OBJECT) would yield `[object Object]` and drop the
- *    body. Every other tag's value is structural (locations / type-strings / verdicts / counts) —
- *    exactly the noise §12 collapses.
+ *  **No tag currently elects `verbatim`.** The "show me the code" payload (a symbol's declaration
+ *  BODY) is delivered by the renderSource COMPACT-BODY interception in render-result.ts, which
+ *  fires for find_definition / source BEFORE condense runs — so a decl-bearing symbol never reaches
+ *  this disposition. The symbol-tagged rows that DO reach condense (find_usages' `definition`,
+ *  search_symbol's `matches`, `mergedDeclarations`) are name-token-only REFS with no body, so
+ *  `verbatim` only ever exploded them; `symbol` is therefore `collapse` (its renderer is robust to a
+ *  full-mode decl OBJECT, surfacing `loc · firstline`, so the collapse can never silently drop a
+ *  body). The `verbatim` branch in `condense.ts` is retained as infrastructure for a future
+ *  proof-bearing form whose body is NOT routed through a renderSource-style interception.
  *
  *  EXHAUSTIVE over `ShapeTag` (a `Record`, not a Set) — so a NEW tag with no entry is a COMPILE
  *  error, the second half of the coverage guard (SHAPE_RENDERERS is the first). This is what keeps
  *  the density regression from recurring: a new row shape cannot silently default into the
  *  exploder — it must be classified, and the default it inherits when classified is `collapse`. */
 export const FULL_DISPOSITION: Record<ShapeTag, 'collapse' | 'verbatim'> = {
-  symbol: 'verbatim',
+  symbol: 'collapse',
   usage: 'collapse',
   'text-hit': 'collapse',
   'group-row': 'collapse',

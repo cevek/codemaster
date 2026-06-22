@@ -1,8 +1,10 @@
 // Full-verbosity density sweep (§12). The recurring regression: a list/verdict op rendered at
 // `verbosity:'full'` EXPLODES into watery multi-line `key=value` blocks instead of dense one-liners
 // (the `css_cascade … --verbosity full` repro). The root fix inverts the default — `FULL_DISPOSITION`
-// collapses every tag at full EXCEPT the proof-bearing `symbol` — so this guards the whole live-op
-// pipeline at full, not just the synthetic per-tag rows (output-density-tags.test.ts).
+// collapses EVERY tag at full (no tag elects `verbatim`); the "show me the code" decl BODY is
+// delivered by the renderSource interception in render-result.ts (find_definition / source), which
+// fires BEFORE condense. So this guards the whole live-op pipeline at full, not just the synthetic
+// per-tag rows (output-density.test.ts).
 //
 // Oracle (discriminating, NOT golden): the structural explosion detectors (`fallThrough` /
 // `topLevelExplosion` from helpers/density.ts) + a `[object Object]` scan — a renderer that reaches a
@@ -10,7 +12,7 @@
 // `[object Object]`, which the explosion guards alone miss. Plus a positive denseness assertion per
 // op (the row's identity is still present, not over-collapsed away). The CONTROL half proves we did
 // not collapse the proof body that full EXISTS to show: find_definition / source full still carry the
-// verbatim declaration, expand_type full still lists its (dense) signatures.
+// verbatim declaration (via the interception), expand_type full still lists its (dense) signatures.
 //
 // This test FAILS on the pre-inversion code: css_cascade / find_unused_exports / scss_classes etc.
 // passed their rows verbatim at full and exploded.
@@ -104,16 +106,16 @@ test('find_unused_exports / scss_classes / find_unused_scss_classes / constructi
   }
 });
 
-// ── find_usages: usages are collapse, the `definition` is the verbatim symbol exception. ────────
-test('find_usages at full — usage rows are dense one-liners (the definition body is the only verbatim part)', async () => {
+// ── find_usages: both the usage list AND the name-token `definition` ref collapse at full. ──────
+test('find_usages at full — usage rows AND the definition ref are dense one-liners (no verbatim block)', async () => {
   const p = await project(FILES);
   try {
     const out = await renderFull(p, 'find_usages', { name: 'helper' });
-    // Global object-stringify guard holds even though the definition passes verbatim.
-    assert.ok(!out.includes('[object Object]'), `find_usages full stringified an object:\n${out}`);
+    // `symbol` is collapse-disposition: the single `definition` is a name-token REF (no decl body),
+    // so it is one `id · kind` line — never an exploded `id=/name=/kind=/span{…}` verbatim block.
+    assertDense(out, 'find_usages');
     // The usage LIST is dense: each usage is `loc · role`, never an exploded `role=` / `confidence=`
-    // block (the pre-inversion shape). The verbatim `definition` carries no usage `role`, so these
-    // negatives can't false-trip on it.
+    // block (the pre-inversion shape).
     assert.match(out, /src\/app\.ts:2:\d+ · call/, 'a usage renders as a dense one-liner');
     assert.doesNotMatch(out, /\n\s+role=/, 'no exploded usage `role=` field');
     assert.doesNotMatch(out, /\n\s+confidence=certain/, 'no exploded usage `confidence=` field');
@@ -148,6 +150,8 @@ test('CONTROL — expand_type at full lists its signatures densely (members pres
   try {
     const out = await renderFull(p, 'expand_type', { name: 'helper' });
     assert.match(out, /\(x: number\): number/, 'the signature is present and dense at full');
+    // The name-token span collapses to an `at` loc — never a verbatim `file=/line=/endLine=` block.
+    assertDense(out, 'expand_type');
   } finally {
     await p.dispose();
   }

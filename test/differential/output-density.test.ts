@@ -4,10 +4,20 @@
 // test runs the at-risk ops over a real fixture and asserts NO result row falls through — so a
 // future op (or a row-shape change) that lacks a collapse case fails CI here instead of shipping
 // watery output. The oracle is structural: the precise fall-through signature, not "looks long".
+//
+// Coverage is EVERY reachable read op at terse/normal/FULL — ts+scss via the inline fixture below,
+// the config-gated ops (i18n ×3 / css_cascade / react-query / list / list_endpoints) via configured
+// fixtures (kitchensink/react-query repos + an inline schema). The full pass is what makes this the
+// discriminating density oracle (a row that collapses at normal can still EXPLODE at full when its
+// tag is `verbatim`-disposition — the `symbol`/`expand_type` regressions). Beyond no-explosion, the
+// targeted asserts below pin the two honesty-sensitive halves: EVIDENCE span text MUST survive at
+// full (i18n dynamic key / dotted key) and key INSERTION ORDER (verdict-before-bulk, §12) holds
+// where a fix reshaped the envelope.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
+import { projectFromDir } from '../helpers/repo-fixture.ts';
 import { renderResult } from '../../src/format/render/render-result.ts';
 import { summarizeQueryKey } from '../../src/format/render/condense.ts';
 import { renderKey } from '../../src/ops/react-query-invalidations-for.ts';
@@ -15,12 +25,59 @@ import { tag } from '../../src/common/shape-tag/tag.ts';
 import { fallThrough, leakedTag, renderRows, span, topLevelExplosion } from '../helpers/density.ts';
 import type { QueryKeyView } from '../../src/plugins/react-query/views.ts';
 import type { JsonValue } from '../../src/core/json.ts';
-import type { Result } from '../../src/core/result.ts';
+import type { Result, Verbosity } from '../../src/core/result.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
+import type { TestProject } from '../helpers/project.ts';
 
 function resultOf(r: OpResult): Result<JsonValue> {
   assert.ok('result' in r && r.result.ok, `op failed: ${JSON.stringify(r)}`);
   return r.result;
+}
+
+const VERBOSITIES: readonly Verbosity[] = ['terse', 'normal', 'full'];
+
+/** The watery-output guard at EVERY verbosity: no bulleted fall-through, no top-level object
+ *  explosion, no leaked `~shape` tag. Running it at `full` (not just terse/normal) is what catches a
+ *  `verbatim`-disposition row that collapses at normal but explodes at full. */
+function assertNoExplosion(result: Result<JsonValue>, name: string): void {
+  for (const v of VERBOSITIES) {
+    const text = renderResult(result, v);
+    assert.equal(
+      fallThrough(text),
+      undefined,
+      `${name} (${v}) fell through condense → watery block:\n${fallThrough(text)}`,
+    );
+    assert.equal(
+      topLevelExplosion(text),
+      undefined,
+      `${name} (${v}) exploded a top-level nested object:\n${topLevelExplosion(text)}`,
+    );
+    assert.equal(
+      leakedTag(text),
+      undefined,
+      `${name} (${v}) leaked a shape tag:\n${leakedTag(text)}`,
+    );
+  }
+}
+
+/** Run an op on a project, assert its named rows are non-vacuous, and sweep the explosion guards. */
+async function sweepOp(
+  p: TestProject,
+  name: string,
+  args: JsonValue,
+  rows: string,
+): Promise<Result<JsonValue>> {
+  const result = resultOf(await p.op(name, args));
+  const data = result.data as Record<string, JsonValue>;
+  const cell = data[rows];
+  const count = Array.isArray(cell)
+    ? cell.length
+    : cell !== null && typeof cell === 'object'
+      ? Object.keys(cell).length
+      : 0;
+  assert.ok(count > 0, `${name}: expected ≥1 row in '${rows}', got ${count} (vacuous)`);
+  assertNoExplosion(result, name);
+  return result;
 }
 
 /** A fixture that triggers every at-risk TS-domain op with real, non-empty results: a type with
@@ -43,14 +100,14 @@ function fixture() {
 }
 
 // op name → args, and the result field whose array must be non-empty (so the guard can never pass
-// vacuously on an empty answer). Covers EVERY reachable read op across ts + scss (the config-gated
-// i18n / react-query / schema / mutating shapes are exercised by TAG_SAMPLES below). Each row shape
-// previously either fell through OR is a dense control.
+// vacuously on an empty answer). Covers EVERY reachable read op across ts + scss; the config-gated
+// i18n / react-query / list / schema ops are swept against configured fixtures below.
 const CASES: { name: string; args: JsonValue; rows: string }[] = [
   { name: 'construction_sites', args: { name: 'Cfg' }, rows: 'sites' },
   { name: 'find_unused_exports', args: {}, rows: 'unused' },
   { name: 'find_usages', args: { name: 'Widget' }, rows: 'usages' },
   { name: 'find_usages', args: { name: 'Widget', groupBy: 'enclosing' }, rows: 'enclosers' },
+  { name: 'find_usages', args: { name: 'Widget', text: true }, rows: 'usages' },
   { name: 'find_definition', args: { name: 'Widget' }, rows: 'definitions' },
   { name: 'expand_type', args: { name: 'Cfg', depth: 2 }, rows: 'members' },
   { name: 'search_symbol', args: { query: 'Widget' }, rows: 'matches' },
@@ -61,45 +118,157 @@ const CASES: { name: string; args: JsonValue; rows: string }[] = [
   { name: 'css_cascade', args: { file: 'src/a.module.scss', class: 'used' }, rows: 'rules' },
 ];
 
-test('no op result row falls through condense into a watery key=value block', async () => {
+test('no ts/scss op result row falls through condense into a watery key=value block (terse/normal/full)', async () => {
   const p = await fixture();
   try {
-    for (const c of CASES) {
-      const r = await p.op(c.name, c.args);
-      const result = resultOf(r);
-      const rows = (result.data as Record<string, JsonValue>)[c.rows];
-      const count = Array.isArray(rows)
-        ? rows.length
-        : rows !== null && typeof rows === 'object'
-          ? Object.keys(rows).length
-          : 0;
-      assert.ok(count > 0, `${c.name}: expected ≥1 row in '${c.rows}', got ${count} (vacuous)`);
-      for (const verbosity of ['terse', 'normal'] as const) {
-        const text = renderResult(result, verbosity);
-        assert.equal(
-          fallThrough(text),
-          undefined,
-          `${c.name} (${verbosity}) fell through condense → watery block:\n${fallThrough(text)}`,
-        );
-        assert.equal(
-          topLevelExplosion(text),
-          undefined,
-          `${c.name} (${verbosity}) exploded a top-level nested object:\n${topLevelExplosion(text)}`,
-        );
-        assert.equal(
-          leakedTag(text),
-          undefined,
-          `${c.name} (${verbosity}) leaked a shape tag:\n${leakedTag(text)}`,
-        );
-      }
-      // The leaked-tag invariant holds at FULL too (a non-collapse row passes through with its tag
-      // STRIPPED; a collapse-at-full row is consumed) — a tag must never reach the agent's output.
-      assert.equal(
-        leakedTag(renderResult(result, 'full')),
-        undefined,
-        `${c.name} (full) leaked a shape tag`,
-      );
-    }
+    for (const c of CASES) await sweepOp(p, c.name, c.args, c.rows);
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The config-gated ops — i18n (×3) + css_cascade over the kitchensink repo (ts+scss+i18n), the
+// react-query ops over the react-query repo, list_endpoints over an inline openapi schema. These
+// close the "live forgot-to-`tag()` guard covers only ts+scss" gap (backlog): an op that forgot to
+// tag a row would explode and CI catches it HERE, on the real op pipeline, not just a synthetic row.
+test('config-gated i18n / css_cascade ops are dense at terse/normal/full (kitchensink)', async () => {
+  const p = await projectFromDir('kitchensink');
+  try {
+    await sweepOp(p, 'find_unused_i18n_keys', {}, 'unused');
+    await sweepOp(p, 'find_missing_i18n_keys', {}, 'missing');
+    await sweepOp(p, 'i18n_lookup', { key: 'widget.actions.save' }, 'defs');
+    await sweepOp(
+      p,
+      'css_cascade',
+      { file: 'src/features/widget/Widget.module.scss', class: 'title' },
+      'rules',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('config-gated react-query ops (list / invalidations_for) are dense at terse/normal/full', async () => {
+  const p = await projectFromDir('react-query');
+  try {
+    await sweepOp(p, 'list', { registry: 'mutations' }, 'entries');
+    await sweepOp(p, 'invalidations_for', { mutation: 'useCreateTodo' }, 'mutations');
+  } finally {
+    await p.dispose();
+  }
+});
+
+const SCHEMA_FIXTURE = {
+  'codemaster.config.ts':
+    "import { defineConfig } from 'codemaster';\n" +
+    "export default defineConfig({ schema: { entrypoint: 'src/api/openapi.d.ts', generator: 'openapi-typescript' } });\n",
+  'tsconfig.json': '{"compilerOptions":{"strict":true},"include":["src"]}',
+  'src/api/openapi.d.ts':
+    'export interface paths {\n' +
+    '  "/users/{id}": { get: operations["getUser"] };\n' +
+    '}\n' +
+    'export interface operations {\n' +
+    '  getUser: {\n' +
+    '    parameters: { path: { id: number } };\n' +
+    '    responses: { 200: { content: { "application/json": components["schemas"]["UserDto"] } } };\n' +
+    '  };\n' +
+    '}\n' +
+    'export interface components { schemas: { UserDto: { id: number; name: string } } }\n',
+};
+
+test('list_endpoints (schema plugin) endpoint cards are dense at terse/normal/full', async () => {
+  const p = await project(SCHEMA_FIXTURE);
+  try {
+    await sweepOp(p, 'list_endpoints', {}, 'endpoints');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// EVIDENCE survival (the other half of density): a few forms' span TEXT is itself the proof, so the
+// full-mode collapse must NOT drop it (that would be the §3 proof-out lie). Positive assertions —
+// the explosion guards above can't see a silently-dropped token.
+test('i18n evidence span text survives at full (dynamic key expression + dotted key)', async () => {
+  const p = await projectFromDir('kitchensink');
+  try {
+    const missing = renderResult(resultOf(await p.op('find_missing_i18n_keys', {})), 'full');
+    // The dynamic t(`…`) template literal IS the evidence the call is dynamic — kept at full.
+    assert.match(
+      missing,
+      /dashboard\.\$\{props\.section/,
+      'dynamicUsages template text present at full',
+    );
+    // A literal missing usage keeps its dotted key (the span renders loc-only at full, so the key
+    // must come through as its own token — the i18n-missing-usage echo-drop must not fire).
+    assert.match(missing, /absent\.key/, 'missing dotted key present at full');
+
+    const lookup = renderResult(
+      resultOf(await p.op('i18n_lookup', { key: 'widget.actions.save' })),
+      'full',
+    );
+    assert.match(lookup, /widget\.actions\.save/, 'i18n_lookup usage key present at full');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// WATERY fixes, pinned positively + with key-order (the density guards catch explosion, not order;
+// §12 verdict-before-bulk must hold where a fix reshaped the envelope).
+test('css_cascade rules do not duplicate the selector (807)', async () => {
+  const p = await projectFromDir('kitchensink');
+  try {
+    const out = renderResult(
+      resultOf(
+        await p.op('css_cascade', {
+          file: 'src/features/widget/Widget.module.scss',
+          class: 'title',
+        }),
+      ),
+      'normal',
+    );
+    // A contributing rule is `[spec] loc · .title… · {decls}` — the selector appears ONCE, never the
+    // `… · .title::before · .title::before · …` span-text/selector double (the 807 repro).
+    assert.doesNotMatch(out, /· (\.[\w:-]+) · \1 ·/, `selector duplicated in a rule row:\n${out}`);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('expand_type full: name-token span collapses to an `at` loc, order verdict-before-bulk (731)', async () => {
+  const p = await fixture();
+  try {
+    const out = renderResult(
+      resultOf(await p.op('expand_type', { name: 'Cfg', depth: 2 })),
+      'full',
+    );
+    assert.doesNotMatch(out, /\n\s+endLine=/, `name-token span exploded into a block:\n${out}`);
+    assert.match(out, /^at=src\/types\.ts:\d+:\d+$/m, 'clickable `at` loc present');
+    // Verdict (about/type) before the bulky member list; `at` (small loc) before `members` (bulk).
+    const iAbout = out.search(/^(about=|type:|type=)/m);
+    const iAt = out.indexOf('\nat=');
+    const iMembers = out.search(/^members \(/m);
+    assert.ok(iAbout >= 0 && iAbout < iMembers, 'type verdict precedes members');
+    assert.ok(iAt >= 0 && iAt < iMembers, '`at` loc precedes the bulky members');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_usages full: definition collapses (not a verbatim block) and precedes the usage list (774)', async () => {
+  const p = await fixture();
+  try {
+    const out = renderResult(resultOf(await p.op('find_usages', { name: 'Widget' })), 'full');
+    // The single `definition` is a name-token symbol REF (no decl body) → one `id · kind` line, never
+    // an `id=/name=/kind=/span{…}` block. `symbol` is now collapse-disposition (FULL_DISPOSITION).
+    assert.match(
+      out,
+      /^definition=ts:Widget@[^\n]*· function$/m,
+      'definition is a one-liner at full',
+    );
+    assert.doesNotMatch(out, /^\s+callable=/m, 'definition did not explode into a verbatim block');
+    const iDef = out.indexOf('definition=');
+    const iUsages = out.search(/^usages \(/m);
+    assert.ok(iDef >= 0 && iDef < iUsages, 'definition precedes the usage list');
   } finally {
     await p.dispose();
   }

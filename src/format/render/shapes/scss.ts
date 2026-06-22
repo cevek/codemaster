@@ -66,7 +66,9 @@ function declList(value: JsonValue | undefined): string {
     .join('; ');
 }
 
-/** CascadeRuleView (a contributing rule) — `[spec] span · selector [flags] · {decls}`. */
+/** CascadeRuleView (a contributing rule) — `[spec] loc · selector [flags] · {decls}`. The span
+ *  renders loc-ONLY: its verbatim text IS the selector (the next field), so `spanLoc` would echo
+ *  `.sel · .sel` at normal — same span-text dedup the winner/loser declRefLine already does. */
 export const cssRule: ShapeRenderer = (v) => {
   const flags: string[] = [];
   if (v['crossModule'] === true) flags.push('cross-module');
@@ -77,7 +79,7 @@ export const cssRule: ShapeRenderer = (v) => {
   const extra = asArray(v['requiresExtraClasses']);
   const extraStr = extra.length > 0 ? ` +.${extra.join('.')}` : '';
   const flagStr = flags.length > 0 ? ` · ${flags.join(',')}` : '';
-  return `[${String(v['specificity'])}] ${spanLoc(v['span'])} · ${String(v['selector'])}${extraStr}${flagStr} · {${declList(v['declarations'])}}`;
+  return `[${String(v['specificity'])}] ${spanLocOnly(v['span'])} · ${String(v['selector'])}${extraStr}${flagStr} · {${declList(v['declarations'])}}`;
 };
 
 /** CascadeProperty (the per-property verdict) — `prop: <winner>` + indented losers. */

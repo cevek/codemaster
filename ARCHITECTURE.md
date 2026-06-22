@@ -841,13 +841,22 @@ marker), never a silent fall-through.
   `collapse`. `collapse` means the tag renders as its dense one-liner even at `full` (a list/verdict
   row carries no verbatim body — a name-token span is a location, a member is `name: type`, a verdict
   is a value). `verbatim` is the small opt-OUT for a proof-BEARING form whose full value IS meaningful
-  source text: today exactly one tag — `symbol` (its `decl` span is the declaration body, the "show
-  me the code" payload). So `full` changes only that one proof form, never a list/verdict; a renderer
-  that reaches a span must use the object-safe `spanLoc` helpers (a collapse row meets a verbatim span
-  OBJECT at full). This default-collapse inversion is what stops the density regression recurring: a
-  new row shape cannot silently fall into the exploder — it must be classified, and collapse is what
-  it inherits. (Raw top-level spans — not tagged rows — still pass verbatim at full per `condense`,
-  which is the point of `full` for a single-symbol lookup.)
+  source text — the renderer is SKIPPED and the raw object passes to render-dense (so it explodes
+  unless an upstream interception reshapes it first). **No tag currently elects `verbatim`:** the
+  "show me the code" decl-BODY payload is delivered by the `renderSource` COMPACT-BODY interception in
+  [`render-result.ts`](src/format/render/render-result.ts) (find_definition / source), which fires
+  BEFORE `condense` — so a decl-bearing `symbol` never reaches this disposition, and the symbol-tagged
+  rows that DO reach it (find_usages' `definition`, search_symbol's `matches`, `mergedDeclarations`)
+  are name-token-only REFS with no body, which `verbatim` only ever exploded. So `symbol` is
+  `collapse` like every other tag; a renderer that reaches a span must use the object-safe `spanLoc` /
+  `spanTextOf` helpers (a collapse row meets a verbatim span OBJECT at full, never `[object Object]`).
+  The `verbatim` branch in `condense` is retained as infrastructure for a future proof-bearing form
+  whose body is NOT routed through a renderSource-style interception. This default-collapse inversion
+  is what stops the density regression recurring: a new row shape cannot silently fall into the
+  exploder — it must be classified, and collapse is what it inherits. (Raw top-level spans — not
+  tagged rows — still pass verbatim at full per `condense`, which is the point of `full` for a
+  single-symbol lookup; an op whose top-level span is a name-token LOCATION, not a body, projects it
+  to a clickable `at` loc instead — see `expand_type`.)
 
 ---
 
