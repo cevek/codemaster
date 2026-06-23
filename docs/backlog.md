@@ -389,7 +389,11 @@ don't vanish.
       config is NAMED (`demote()` in `unused-exports-classify.ts`) — never a silent false-`certain`-dead
       (§3.4). The floor is BLUNT (any undiscovered config demotes ALL otherwise-certain claims; e.g. on
       codemaster itself `test/fixtures/repos/kitchensink/tsconfig.json` demotes every dead `src` export
-      to partial — honest, but coarse). The stretch: load nested configs as real sibling programs (or an
+      to partial — honest, but coarse). PARTIAL read-path landing: `find_usages` / `importers_of` now do
+      file-driven NEAREST-config discovery (walk UP from the target file, load that one nested config lazily
+      for reads), so an in-repo nested config IS loaded and an alias-only usage is found, not floored. The
+      stretch (remaining): the EAGER all-nested version + the precise (non-blunt) floor + the mutation path.
+      Original framing — The stretch: load nested configs as real sibling programs (or an
       import-graph proxy) so usages are SEEN and only genuinely-undiscovered-reachable exports demote —
       precise, not blunt. Risk: slurping hermetic fixture/sub-project configs as siblings (cost + the
       reason discovery is conservative today); needs a "shares the import graph" test the cheap blunt
@@ -412,14 +416,27 @@ don't vanish.
       not a sibling re-warm), so the dispose branch runs only in production. Add a scenario that forces a
       cross-program build (a cross-program `find_usages`/dead-code read), THEN a post-warm tsconfig change,
       and asserts the rebuilt sibling reflects the new tree. `dx`·`low`·`cx:S`
-- [ ] **`find_usages` / `importers_of` under-report a usage living only in an UNDISCOVERED program** —
-      the parallel gap to the `find_unused_exports` floor above: a `src` symbol referenced ONLY from a
-      nested-package program codemaster doesn't load reads as having that usage MISSING (a completeness
-      under-report, the safe direction — never a false dead, but an incomplete usage set). Unlike
-      dead-code, a usage list has no per-row "confidence" to demote, so the honest fix is a `partial` +
-      a note naming the undiscovered config(s) (reuse `host.undiscoveredProgramLabels()`) when any
-      exists. Same root cause as the discovery gap; fixed wholesale by the real-nested-discovery stretch.
-      `bug`·`med`·`cx:M`
+- [ ] **`find_usages` / `importers_of` floor is BLUNT (repo-global, not symbol-scoped)** — the floor now
+      SHIPS (a usage living only in an undiscovered program no longer reads as a confident-`0`:
+      `complete:false` + named `undiscoveredPrograms` + a `!!` LOWER-BOUND note, and fix-A's nearest-config
+      discovery resolves most in-app cases first). But like the `find_unused_exports` floor it demotes
+      `complete:false` on EVERY call when ANY undiscovered config exists, even for a symbol that config
+      could not reference. Symbol-module-scoped demotion (flag only when an undiscovered program plausibly
+      imports the symbol's module) is precise but costlier. `imp`·`low`·`cx:M`
+- [ ] **nearest-config discovery resolves only the literal `tsconfig.json` basename** — `ensureProgramFor`
+      walks up via `ts.findConfigFile` (hardcoded `tsconfig.json`); a nested config with a non-standard name
+      (`tsconfig.app.json`) isn't loaded by the read-path fix, so its alias-only usages fall to the honest
+      floor (`complete:false`) rather than being found. Common `package/tsconfig.json` is covered. `imp`·`low`·`cx:S`
+- [ ] **`importers_of` row-dedup collapses two imports of one module on one source line** — the `(file:line)`
+      row-dedup merges two `import`s of the same module on the SAME line into one row (the second import's
+      detail is lost). Pathological; the importer-FILE count stays correct. `bug`·`low`·`cx:S`
+- [ ] **loose-root monorepo picks the wrong primary for MUTATION (read-path cousin)** — the file-driven
+      nearest-config fix is READ-ONLY: rename / change_signature fan out over `builtContaining` (built-only,
+      session-order-independent, §2.8-gate-consistent), so an alias-only caller resolving only via a nested
+      config is CONSISTENTLY not rewritten — a dangling-caller completeness gap in the SAFE always-cold
+      direction (never a session-dependent or un-gated edit). The mutation analogue of the read fix
+      (route/load the nearest config for the edit target AND join it to the §2.8 gate) is the cousin.
+      `imp`·`med`·`cx:L`
 - [ ] **Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op** —
       the per-program READ fan-outs (`getNavigateToItems`/`resolveModuleArg`/`findReferences`) aren't
       individually guarded, so a throwing sibling bubbles to the op-level catch and takes the PRIMARY
