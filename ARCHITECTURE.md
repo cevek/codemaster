@@ -262,7 +262,7 @@ Initial topics (each populated as Phase 0+ work demands):
   0-based offset bridge — the §16 invariant 1 hotspot).
 - **`confidence/`** — `worstOf` and other reducers, used by per-hop trace aggregation.
 - **`trace/`** — the domain-neutral trace-hop contract (`TraceNode` / `TraceHop` +
-  `makeNode` / `makeHop` / `dedupHops`). Every `trace_*` op (§6 build order Phase 6) emits this
+  `makeNode` / `makeHop` / `dedupHops`). Every `trace_*` op (§17 build order, Phase 6) emits this
   one shape; node identity is `SymbolId`-else-`kind@file:line:col`.
 - **`fingerprint/`** — `FileFingerprint` shape + comparators with the §19 mtime-tie
   hash semantics. The currency every plugin's `freshness()` deals in.
@@ -383,9 +383,9 @@ probing.
   (the `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not
   react policy); `firstParamTypeMembers` is a generic first-parameter TYPE-member read off the live
   checker (`getApparentType().getProperties()`, so `extends`/intersection flatten in) — not a memoized
-  syntactic scan like that precedent. It also exposes a generic **`classify(target)`** seam —
+  syntactic scan like that precedent. The react plugin also exposes a generic **`classify(target)`** seam —
   is the resolved declaration a component / hook / other, by the react conventions — which routes a
-  trace op walking a declaration chain (used by `trace_invalidation` today; the Wave-2b trace ops
+  trace op walking a declaration chain (used by `trace_invalidation` today; the other Phase 6 trace ops
   sit on it). It resolves THROUGH the LS (`findDefinition` → match `functionDeclarations`), never an
   id-string compare, so two SymbolIds minted by different paths for one decl classify alike.
 - **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
@@ -1007,7 +1007,7 @@ codemaster/
       ids/                   # SymbolId codec (encode/decode plugin-prefix-routed format)
       span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
       confidence/            # worstOf and per-hop reducers
-      trace/                 # domain-neutral trace-hop contract: TraceNode/TraceHop + makeNode/makeHop/dedupHops (§6 Phase 6)
+      trace/                 # domain-neutral trace-hop contract: TraceNode/TraceHop + makeNode/makeHop/dedupHops (§17 Phase 6)
       fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
       hash/                  # FNV-1a — rollups + short stable keys (never security)
       glob/                  # glob matching over RepoRelPath

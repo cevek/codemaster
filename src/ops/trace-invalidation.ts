@@ -86,7 +86,7 @@ export const traceInvalidationOp = defineOp({
     'mutation is resolved by its ENCLOSING declaration name (the hook holding useMutation), or a callId/SymbolId — like invalidations_for, which this builds on. 0 matches → found:0, never a faked empty trace.',
     'reRenderComponents counts the SUBSCRIBER hosts (the component holding useQuery, or the component consuming the custom hook that holds it) — NOT the mount sites. A `<Host/>` mount is the PARENT placement; the parent does not re-render from the invalidation, so a mounted-at hop is a LOCATION leaf, never counted.',
     'every hop carries per-hop confidence + provenance: invalidates/affects = heuristic:react-query, used-by = type (LS references), mounted-at = syntactic (JSX scan). A broad invalidateQueries(), a dynamic key segment, an opaque mount ref (alias/factory/spread), or a hook-chain past the depth cap is FLAGGED on its hop (note + non-certain confidence), never silently bridged or dropped.',
-    'hook→hook consumer chains are bounded (depth cap + per-path cycle set) and truncation is reported (truncated:true + a note); a component with no static mount site is an honest note (root / route element), not a guessed hop.',
+    'hook→hook consumer chains are bounded (depth cap + a global visited set) and truncation is reported (truncated:true + a note); a component with no static mount site is an honest note (root / route element), not a guessed hop.',
   ],
   table: traceTable,
   async run(ctx, args) {

@@ -1,5 +1,5 @@
 // The trace_invalidation traversal — the recipe that walks one resolved invalidation view into a
-// flat list of proof-carrying trace-hops (§3.3, §6 build order Phase 6). It composes three plugin
+// flat list of proof-carrying trace-hops (§3.3, §17 build order, Phase 6). It composes three plugin
 // surfaces and OWNS the per-hop honesty: every hop is flagged at the step its uncertainty arises
 // (a broad invalidate, a dynamic key, an opaque mount ref, a depth-cap / cycle), never silently
 // bridged. The chain:
