@@ -2,10 +2,12 @@
 // (`refactor.move.file`, with `interactiveRefactorArguments.targetFile` = the dest's abs path).
 // This is `move_symbol` — the delta vs `extract_symbol` (which drives the SAME "Move to file"
 // action with a not-yet-existing `targetFile`) is that here the dest ALREADY exists, so the LS
-// itself owns the hard part: merging the moved symbol's imports into
+// itself owns most of the hard part: merging the moved symbol's imports into
 // the dest's existing imports, handling existing-locals, rewriting every importer (including
-// aliased / re-export forms), and adding the source's back-reference. We apply its edits to the
-// tree and reuse `assemblePlan` (a moves-free, content-only tree → the plain plan) + the shared
+// aliased / re-export forms), and adding the source's back-reference. Its one gap — a BARE-specifier
+// (npm package) import the LS leaves as a separate statement instead of merging into dest's existing
+// line — is closed by a post-edit `foldSameModuleImports` guarded to the move's OWN dup (below). We
+// apply its edits to the tree and reuse `assemblePlan` (a moves-free, content-only tree → the plain plan) + the shared
 // §2.8 apply/typecheck/rollback machinery; the project's OWN LS post-typecheck gates apply, so
 // leaning on the LS refactor is safe even if an edit is imperfect (a bad result is refused).
 //
@@ -22,6 +24,7 @@ import type { RepoRelPath } from '../../../../core/brands.ts';
 import type { RefactorPlan, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
+import { foldSameModuleImports } from '../normalize/fold-imports.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
@@ -41,6 +44,28 @@ import { reattachLeadingDoc } from '../normalize/reattach-doc.ts';
 // write (bug-review). Accepting only `.ts(x)`/`.mts`/`.cts` keeps the edit-accept set == the
 // typecheck set, so every byte the move writes is gated. (move_symbol is a TS/React op.)
 const TS_DEST_RE = /\.(tsx?|mts|cts)$/;
+
+/** Module specifiers that ALREADY appear in ≥2 import statements of `content` — a duplicate that
+ *  pre-dates the move. The fold leaves these untouched: consolidating a pre-existing dest dup would
+ *  expand the diff past the moved symbol + its imports (the op's scoped-edit contract). */
+function preExistingDupModules(content: string): ReadonlySet<string> {
+  const sf = ts.createSourceFile(
+    '__pre__.tsx',
+    content,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TSX,
+  );
+  const counts = new Map<string, number>();
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    counts.set(spec, (counts.get(spec) ?? 0) + 1);
+  }
+  const dups = new Set<string>();
+  for (const [spec, n] of counts) if (n >= 2) dups.add(spec);
+  return dups;
+}
 
 /** Names of every top-level declaration in `sf` (for the dest collision pre-check). */
 function topLevelNames(sf: ts.SourceFile): Set<string> {
@@ -144,6 +169,11 @@ export function planMoveSymbolTo(
     }
   }
 
+  // Snapshot dest's PRE-MOVE duplicate modules (its current override if a prior transaction step
+  // touched it, else program text) so the post-edit fold below collapses only the duplication the
+  // move creates, never a duplicate that already lived in the dest.
+  const destPreDups = preExistingDupModules(destNode.contentOverride() ?? destSf.text);
+
   // Apply the LS edits to the tree (content overrides only — no file moves). Each file's base is
   // its current override (if an earlier fc already touched it) else the program text.
   for (const fc of edits.edits) {
@@ -171,14 +201,21 @@ export function planMoveSymbolTo(
     node.setContent(applyTsChanges(base, fc.textChanges));
   }
 
-  // Reattach the moved symbol's leading doc before the plan reads dest. Import folding is NOT applied
-  // here on purpose: the LS already merges the move's OWN imports into dest's existing lines, so the
-  // only thing a fold could do is consolidate PRE-EXISTING dest duplicates the move didn't create —
-  // an unrequested refactor that would expand the diff past the moved symbol (extract-only; backlog).
+  // Reattach the moved symbol's leading doc before the plan reads dest.
   const destContent = destNode.contentOverride();
   const gap = sourceLeadingGap(sf, stmt);
   if (destContent !== null && movedName !== undefined && gap !== undefined) {
     destNode.setContent(reattachLeadingDoc(destContent, movedName, gap));
+  }
+
+  // Fold the move's OWN newly-emitted same-module duplicate. The LS merges a move's own imports into
+  // dest's existing lines for relative/alias specifiers, but for a BARE specifier (npm package) it
+  // leaves a moved default + an existing named (or two fresh-dest statements) as separate lines — a
+  // typecheck-clean dup the §2.8 gate waves through. `destPreDups` excludes modules already duplicated
+  // before the move, so this collapses only the duplication the move created (scoped-edit contract).
+  const folded = destNode.contentOverride();
+  if (folded !== null) {
+    destNode.setContent(foldSameModuleImports(folded, { skipModules: destPreDups }));
   }
 
   const plan = assemblePlan(host, tree, options, overlay);

@@ -422,16 +422,13 @@ don't vanish.
       a non-`.tsx` JSX dest — a JSX body extracted to a `.mts`/`.cts` dest is created as-is and caught
       only by the §2.8 typecheck (a less pointed message). Parity-nit with `move_symbol`'s upfront JSX
       refusal. `dx`·`low`·`cx:S`
-- [ ] **move_symbol PRODUCES a default+named same-module duplicate (open)** — the LS merges a moved
-      NAMED import into a dest's existing DEFAULT line, but NOT the reverse (moved default into an
-      existing named line) nor the both-from-source case (the moved symbol's default + named both come
-      from the source into a fresh dest) — those leave TWO separate `import def from 'm'` / `import { x }
-from 'm'` statements in the dest. Typecheck-clean → §2.8 doesn't catch it → hand-tidy. The fold is
-      EXTRACT-ONLY (it can't tell a move-produced dup from a pre-existing one — see the consolidation
-      item — so consolidating would exceed the scoped-edit contract), so this is left open. NOT a
-      regression: main never folded move_symbol, so this is the long-standing status quo, surfaced
-      honestly. Close by folding ONLY the move's own newly-emitted dup (not pre-existing dest imports).
-      `bug`·`med`·`cx:M`
+- [ ] **move_symbol leaves a namespace+named same-module pair as two statements** — when dest has
+      `import * as M from 'm'` and the move brings a named `{ x }` from `m` (or vice-versa), the result
+      is two statements from `m`. This is NOT foldable — `import { x }, * as M from 'm'` is illegal
+      syntax, so two statements are mandatory (the import-fold's `hasNamespace` guard skips it). The only
+      consolidation possible would be rewriting the moved `{ x }` reference to `M.x` (use the existing
+      namespace binding) — a semantic rewrite of the moved body, well past the import-fold scope. Distinct
+      from the foldable default+named bare-specifier dup the fold handles; low-value. `bug`·`low`·`cx:M`
 - [ ] **`name+line` WITHOUT `file` silently ignores `line` → workspace-wide `resolveByName`** —
       `resolve-target.ts`. The col-less `file+line` and `name+file` branches both require `file`; a
       target carrying `name+line` but no `file` matches neither, falls through to `resolveByName(name)`,
@@ -457,12 +454,12 @@ from 'm'` statements in the dest. Typecheck-clean → §2.8 doesn't catch it →
       faithful repro needs real amiro inputs; the honest refusal + zero-write floor holds regardless.
       Reproduce against a path-form / duplicate-symbol fixture, then close the matching desync.
       `bug`·`med`·`cx:M`
-- [ ] **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred,
-      DISTINCT from the move-produced dup above. The extract fold is not run on move_symbol because a
-      whole-dest fold can't distinguish a same-module split the move PRODUCED from one that ALREADY
-      existed in the dest — consolidating the latter is an unrequested refactor that expands the diff
-      beyond the moved symbol + its imports, exceeding the op's scoped-edit contract. A future opt-in
-      "tidy dest imports" could do it; not this bug. `feat`·`low`·`cx:S`
+- [ ] **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred. The
+      guarded fold in `move-to-existing.ts` collapses only the duplication the move ITSELF created (its
+      `skipModules` set excludes modules dest already had ≥2 statements for), so a same-module split that
+      ALREADY existed in the dest is left untouched — consolidating it is an unrequested refactor that
+      expands the diff beyond the moved symbol + its imports, exceeding the op's scoped-edit contract. A
+      future opt-in "tidy dest imports" could drop the skip-set and fold the whole dest. `feat`·`low`·`cx:S`
 - [ ] **extract import-fold misses different-specifier-same-after-rewrite** —
       `foldSameModuleImports` runs BEFORE `assemblePlan`'s `rewriteImports`, so two imports that become
       same-module only AFTER a specifier rewrite (e.g. `'./a'` and `'@/a'` resolving to one moved file)
