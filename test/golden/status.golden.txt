@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (23):
+ops (24):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -143,6 +143,13 @@ ops (23):
     · STATIC trace only: a dynamic `import()` / `require()` of a changed module is NOT followed (inherited from importersOf) — a test that lazily imports it can be silently missed. `complete` does not cover runtime-dynamic loading.
     · test heuristic = path globs (default *.test.* / *.spec.* / test|tests|__tests__/**), STATED never proven; override with testGlobs. Bounded: a depth cap + a node budget over BOTH the changed-file fan-out and the transitive walk — exceeding either caps the set (complete:false). importersOf is an un-memoized O(files) scan, so a very large change set is slow-but-terminating.
     e.g. affected {"since":"main"}
+  trace_type_widening { symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — a VALUE (variable / parameter) whose precision to follow forward — Trace where a value's type WIDENS along assignments / calls / returns (literal→primitive, narrowed→T, →any/unknown, union-widen)
+    · target is the VALUE whose precision you follow (a variable / parameter — by name, file:line:col, or SymbolId). The source type is read at its OWN declaration, so a literal arg is not mis-read as the already-widened parameter type (the contextual-typing trap).
+    · one hop per forward flow-step (var-init / arg→param / return / reassignment). A WIDENED hop notes the kind (literal-widening / union-widened / to-any / to-unknown / narrowing-lost); a preserved hop is shown too so the whole path is visible. `widenings` counts the lost-precision hops.
+    · arg→param crosses INTO the callee (continues from the parameter); return / reassignment are leaves. An any/unknown/untyped boundary is flagged dynamic and STOPPED — precision is erased there, never bridged (§3.3).
+    · bounded: a visited-set (cycle/diamond), a depth cap, and a node cap — every truncation is reported (truncated:true + a note), never a silent stop. 0 flow-sinks is an honest empty trace, not a faked one.
+    columns: from,relation,to,to_loc,confidence,provenance,note
+    e.g. trace_type_widening {"name":"color","file":"src/paint.ts"}
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.
     · the daemon attaches timestamp/version/repo/plugins automatically; you supply only kind/title/detail (+ optional example call). Nothing else leaves the machine.

@@ -15,6 +15,7 @@ import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
 import { scanJsxCallSites } from './jsx-call-sites.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
+import { collectWideningSinks } from './type-widening.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
@@ -58,6 +59,7 @@ export type { CallMatchSpec, LiteralCallProvenance } from './call-scan-shared.ts
 export type { ConstructionSite, ConstructionTarget } from './construction-sites.ts';
 export type { JsxCallSite, JsxOpaqueRef, JsxCallSitesView } from './jsx-call-sites.ts';
 export type { ParamTypeMember, ParamTypeMembersView } from './first-param-members.ts';
+export type { WideningSink, WideningEndpoint } from './type-widening.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
@@ -197,6 +199,14 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
+    wideningSinksAt(target) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return missOf(resolved);
+      const view = collectWideningSinks(warm(), resolved.abs, resolved.offset);
+      if (typeof view === 'string') return view;
+      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
     cssModuleUsages: () => scanCssModuleUsages(warm()),
     rewriteExtractedCss: (fileName, content, rewrites) =>
       rewriteExtractedCss(fileName, content, rewrites),
@@ -293,13 +303,9 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       );
     },
 
-    gateAcross(files, scope) {
-      return warm().gateAcross(files, scope);
-    },
+    gateAcross: (files, scope) => warm().gateAcross(files, scope),
 
-    diagnosticsAcross(scope, restrictTo) {
-      return warm().diagnosticsAcross(scope, restrictTo);
-    },
+    diagnosticsAcross: (scope, restrictTo) => warm().diagnosticsAcross(scope, restrictTo),
 
     programTsFiles() {
       const h = warm();

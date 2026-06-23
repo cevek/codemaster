@@ -11,67 +11,14 @@
 // counts the subscriber hosts/consumers, NEVER the mount locations (stated in the notes below).
 
 import { z } from 'zod';
-import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
 import type { ReactQueryPluginApi } from '../plugins/react-query/plugin.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import type { Cell, TableSpec } from './registry.ts';
+import { traceHopTable } from './trace-hop-table.ts';
 import { walkInvalidationTrace } from './trace-invalidation-walk.ts';
-
-// Predicate form (not a value-returning narrower) — TS narrows a `JsonValue` to a record this way
-// but not via a ternary in return position (the readonly-array branch leaks); same idiom as
-// format/render/shapes/helpers.ts `isObject`.
-function isRecord(v: JsonValue | undefined): v is { [k: string]: JsonValue } {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function provStr(p: JsonValue | undefined): string {
-  if (!isRecord(p)) return String(p);
-  const by = p['by'];
-  return typeof by === 'string' && by.length > 0 ? `${String(p['kind'])}:${by}` : String(p['kind']);
-}
-
-function locStr(node: JsonValue | undefined): string {
-  if (!isRecord(node)) return '';
-  const span = node['span'];
-  if (!isRecord(span)) return '';
-  return `${String(span['file'])}:${String(span['line'])}:${String(span['col'])}`;
-}
-
-function labelOf(node: JsonValue | undefined): string {
-  return isRecord(node) ? String(node['label']) : String(node);
-}
-
-const traceTable: TableSpec<JsonValue> = {
-  columns: [
-    { name: 'from', type: 'text' },
-    { name: 'relation', type: 'text' },
-    { name: 'to', type: 'text' },
-    { name: 'to_loc', type: 'text' },
-    { name: 'confidence', type: 'text' },
-    { name: 'provenance', type: 'text' },
-    { name: 'note', type: 'text' },
-  ],
-  rows(data) {
-    const hops = (data as { hops?: Record<string, JsonValue>[] }).hops ?? [];
-    const out: (readonly Cell[])[] = [];
-    for (const h of hops) {
-      out.push([
-        labelOf(h['from']),
-        String(h['relation']),
-        labelOf(h['to']),
-        locStr(h['to']),
-        String(h['confidence']),
-        provStr(h['provenance']),
-        typeof h['note'] === 'string' ? h['note'] : null,
-      ]);
-    }
-    return out;
-  },
-};
 
 export const traceInvalidationOp = defineOp({
   name: 'trace_invalidation',
@@ -88,7 +35,7 @@ export const traceInvalidationOp = defineOp({
     'every hop carries per-hop confidence + provenance: invalidates/affects = heuristic:react-query, used-by = type (LS references), mounted-at = syntactic (JSX scan). A broad invalidateQueries(), a dynamic key segment, an opaque mount ref (alias/factory/spread), or a hook-chain past the depth cap is FLAGGED on its hop (note + non-certain confidence), never silently bridged or dropped.',
     'hook→hook consumer chains are bounded (depth cap + a global visited set) and truncation is reported (truncated:true + a note); a component with no static mount site is an honest note (root / route element), not a guessed hop.',
   ],
-  table: traceTable,
+  table: traceHopTable,
   async run(ctx, args) {
     const rq = ctx.plugins.get<ReactQueryPluginApi>('react-query');
     const react = ctx.plugins.get<ReactPluginApi>('react');

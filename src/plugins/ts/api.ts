@@ -22,6 +22,7 @@ import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './c
 import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { JsxCallSitesView } from './jsx-call-sites.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
+import type { WideningSinksView } from './type-widening.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
 import type { RenameOutcome } from './refactor/rename/rename-sites.ts';
@@ -117,6 +118,17 @@ export interface TsPluginApi extends Plugin {
   firstParamTypeMembers(
     target: TsTargetInput,
   ): { view: ParamTypeMembersView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** Cross-tier API (§5-L2, Phase 6): ONE forward flow step from the VALUE at `target` — its own
+   *  type plus every immediate sink it flows into (var-init / arg→param / return / reassignment)
+   *  with a per-sink widening verdict (literal→primitive, narrowed→declared, →any/unknown,
+   *  union-widen) + a `next` position to continue from. The `trace_type_widening` walk drives the
+   *  recursion (depth/visited/node-cap) over `next`. The source type is read at the value's OWN
+   *  declaration (never the arg position — contextual typing would hide every literal widening).
+   *  An `any`/`unknown` boundary is flagged `dynamic` and is a leaf (§3.3). A `string` when the
+   *  target is not a value with a symbol. */
+  wideningSinksAt(
+    target: TsTargetInput,
+  ): { view: WideningSinksView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A

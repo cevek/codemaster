@@ -254,6 +254,30 @@ export function coldDeclarationAt(
   };
 }
 
+/** Independent raw-type-string oracle for `trace_type_widening` (§16): the cold checker's
+ *  `typeToString` at the nth occurrence of an identifier — the GROUND TRUTH the op's widening
+ *  classifier is judged against (the op is the classifier under test; this is just the type strings
+ *  at each chain position, so the comparison is non-circular). Reads the type at the identifier's
+ *  OWN location, mirroring the op's "type at the value's own declaration" rule. */
+export function coldTypeStringAt(root: string, fileRel: string, needle: string, nth = 0): string {
+  const { program, checker } = coldProgram(root);
+  const sf = program.getSourceFile(path.join(root, fileRel));
+  assert.ok(sf !== undefined, `oracle could not load ${fileRel}`);
+  let found: ts.Identifier | undefined;
+  let count = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isIdentifier(n) && n.text === needle) {
+      if (count === nth) found = n;
+      count++;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  assert.ok(found !== undefined, `oracle could not find occurrence ${nth} of ${needle}`);
+  const type = checker.getTypeAtLocation(found);
+  return checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
+}
+
 /** Independent drift oracle for `construction_sites` (§16): every object literal a
  *  fresh-from-cold `ts.Program` deems assignable to the named type — `{file, line}` sorted for
  *  set comparison. Built with the SAME primitive the op uses (`isTypeAssignableTo` over the

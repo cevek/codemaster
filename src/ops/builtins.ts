@@ -33,6 +33,7 @@ import { impactTypeErrorOp } from './impact-type-error.ts';
 import { affectedOp } from './affected.ts';
 import { invalidationsForOp } from './react-query-invalidations-for.ts';
 import { traceInvalidationOp } from './trace-invalidation.ts';
+import { traceTypeWideningOp } from './trace-type-widening.ts';
 import { feedbackOp } from './feedback.ts';
 
 export function builtinOps(): readonly AnyOpDefinition[] {
@@ -66,6 +67,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     affectedOp,
     invalidationsForOp,
     traceInvalidationOp,
+    traceTypeWideningOp,
     feedbackOp,
   ];
 }
