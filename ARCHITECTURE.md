@@ -375,10 +375,12 @@ probing.
   `JSX-usage → passed props` (via the ts `jsxCallSites` seam), diffed with the §3 honesty
   demotion (a `{...spread}` / a factory or value reference like `memo(C)` / a capped site set
   makes the passed set unreadable → every verdict demotes to `partial`, never a false
-  `certain`-dead). The "first param = props" and "what is a component" policies live here; the
-  two seams are framework-neutral generic syntactic scans on the `ts` plugin (the
-  `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not react
-  policy).
+  `certain`-dead). The "first param = props" and "what is a component" policies live here; both
+  seams are framework-neutral on the `ts` plugin. `jsxCallSites` is a generic SYNTACTIC JSX scan
+  (the `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not
+  react policy); `firstParamTypeMembers` is a generic first-parameter TYPE-member read off the live
+  checker (`getApparentType().getProperties()`, so `extends`/intersection flatten in) — not a memoized
+  syntactic scan like that precedent.
 - **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
 - **`tanstack-router`** — depends on `ts`. Routes.
 - **`zustand`** — depends on `ts`. Stores.

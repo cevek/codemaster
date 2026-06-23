@@ -9,8 +9,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import type { ReactPluginApi } from '../plugins/react/plugin.ts';
-import type { UnusedProp } from '../plugins/react/unused-props.ts';
+import type { ReactPluginApi, UnusedProp } from '../plugins/react/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
@@ -71,7 +70,8 @@ export const findUnusedPropsOp = defineOp({
       const result = react.unusedProps(args.component, args.file);
       if (!result.ok) {
         // Honest non-result (not found / ambiguous / unresolvable) — never a fabricated success.
-        return ok({ component: args.component, found: 0, note: result.message });
+        // `notes` (plural) so it renders through the same table-notes channel as the demote reasons.
+        return ok({ component: args.component, found: 0, notes: [result.message] });
       }
       const view = result.view;
       const notes: string[] = [...view.demoteReasons];

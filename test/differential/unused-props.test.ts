@@ -73,6 +73,16 @@ function oracle(
           for (const a of n.attributes.properties) {
             if (ts.isJsxAttribute(a) && ts.isIdentifier(a.name)) passed.add(a.name.text);
           }
+          // Element CONTENT (`<C>body</C>`) passes `children` — independently re-derived here so
+          // the oracle catches the children blind spot, not shares it.
+          const parent = n.parent;
+          if (
+            ts.isJsxOpeningElement(n) &&
+            ts.isJsxElement(parent) &&
+            parent.children.some((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces))
+          ) {
+            passed.add('children');
+          }
         }
       }
       ts.forEachChild(n, visit);
@@ -182,6 +192,32 @@ test('spread <Button {...rest}/> demotes; extends/intersection props are flatten
   }
 });
 
+test('JSX content <C>body</C> passes the children prop — not a false certain-dead', async () => {
+  const p = await project({
+    'package.json': PKG,
+    'tsconfig.json': TSCONFIG,
+    // `children` is passed as CONTENT (not a `children={…}` attribute); `title` is passed; `dead`
+    // never. A self-closing-only reading would call `children` dead — the F1 regression.
+    'src/Panel.tsx':
+      'export const Panel = (props: { title: string; children?: unknown; dead?: number }) =>\n' +
+      '  <section>{props.children as never}</section>;\n',
+    'src/App.tsx':
+      "import { Panel } from './Panel';\n" +
+      'export const App = () => <Panel title="t"><span>hi</span></Panel>;\n',
+  });
+  try {
+    const r = await p.op('find_unused_props', { component: 'Panel' });
+    const d = data(r);
+    const o = oracle(p.root, 'Panel');
+    assert.ok(o.passed.has('children'), 'oracle: content passes children');
+    assert.deepEqual([...unusedNames(d)].sort(), [...o.unused].sort(), 'warm == oracle');
+    assert.deepEqual([...unusedNames(d)], ['dead'], 'children + title used; only dead unused');
+    assert.equal(d['demoted'], false);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('honest non-result: unknown component reports found:0 with a note, not an empty success', async () => {
   const p = await project({
     'package.json': PKG,
@@ -192,7 +228,7 @@ test('honest non-result: unknown component reports found:0 with a note, not an e
     const r = await p.op('find_unused_props', { component: 'Nope' });
     const d = data(r);
     assert.equal(d['found'], 0);
-    assert.ok(typeof d['note'] === 'string' && (d['note'] as string).includes('Nope'));
+    assert.ok((d['notes'] as string[]).some((n) => n.includes('Nope')), 'note names the component');
   } finally {
     await p.dispose();
   }

@@ -13,8 +13,7 @@
 import type { Confidence } from '../../core/span.ts';
 import type { Span } from '../../core/span.ts';
 import type { FunctionDecl } from '../ts/function-declarations.ts';
-import type { JsxCallSitesView } from '../ts/jsx-call-sites.ts';
-import type { ParamTypeMembersView } from '../ts/first-param-members.ts';
+import type { JsxCallSitesView, ParamTypeMembersView } from '../ts/plugin.ts';
 import { isComponentName } from './conventions.ts';
 
 export type UnusedProp = {

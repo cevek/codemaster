@@ -1,9 +1,10 @@
 // The `react` framework plugin (§5-L2), `deps: ['ts']`. It owns no parser and no file state
 // of its own (§4): every fact is DERIVED on demand from the `ts` plugin's framework-neutral
-// `functionDeclarations()` scan + `findUsages`, with the React conventions applied here
-// (detect.ts / dialogs.ts / conventions.ts). It exposes three registries through the optional
-// `listRegistries` / `list` members the generic `list` op routes to (core/list.ts) — no
-// react-specific op and no react-specific MCP surface.
+// seams (`functionDeclarations` + `findUsages` + the `jsxCallSites` / `firstParamTypeMembers`
+// scans the unused-props read-model consumes), with the React conventions applied here
+// (detect.ts / dialogs.ts / conventions.ts / unused-props.ts). It exposes three `list` registries
+// (routed by the generic `list` op, core/list.ts) and the `unusedProps` read-model behind the
+// `find_unused_props` op (its only react-specific op surface).
 //
 // Autodetected (loaded iff `react` is a `package.json` dependency, or `config.plugins` names
 // it — the composition root's framework gate, bin.ts). Because it holds no state, its
@@ -17,6 +18,10 @@ import type { TsTargetInput } from '../ts/plugin.ts';
 import { detectComponents, detectHooks, COMPONENTS_NOTE } from './detect.ts';
 import { detectDialogs } from './dialogs.ts';
 import { pickComponent, computeUnusedProps, type UnusedPropsResult } from './unused-props.ts';
+
+// Public surface for the unused-props read-model — ops depend on these, never on the internal
+// `unused-props.ts` module (§5-L3).
+export type { UnusedProp, UnusedPropsView, UnusedPropsResult } from './unused-props.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
 

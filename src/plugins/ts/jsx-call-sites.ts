@@ -123,6 +123,19 @@ function readJsxAttributes(
       names.push(ts.isIdentifier(prop.name) ? prop.name.text : prop.name.getText(sourceFile));
     }
   }
+  // JSX element CONTENT (`<C>body</C>`) passes the `children` prop — a separate channel from the
+  // `children={…}` attribute (already captured above). Without this a content-passed `children`
+  // reads as never-passed → a false certain-dead (a mass React pattern). A self-closing element has
+  // no content; whitespace-only text (`<C>\n</C>`) is not content.
+  const parent = opening.parent;
+  if (
+    ts.isJsxOpeningElement(opening) &&
+    ts.isJsxElement(parent) &&
+    parent.children.some((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces)) &&
+    !names.includes('children')
+  ) {
+    names.push('children');
+  }
   return { names, hasSpread };
 }
 
