@@ -203,10 +203,22 @@ don't vanish.
 > Walk plugin-to-plugin with per-hop `confidence`/`provenance`; dynamic hops flagged, never
 > silently bridged. Heaviest layer; depends on Phases 1/3/4 solid.
 
-- [ ] **`ops/trace-invalidation.ts`** — mutation → invalidates → useQuery sites → component mount
-      points. `feat`·`med`·`cx:L`
 - [ ] **other traces** — `trace-prop-through-tree`, `trace-field-to-render`,
       `trace-cache-key-to-http`, `trace-type-widening`. `feat`·`low`·`cx:L`
+- [ ] **trace_invalidation: hook-consumer role filter** — `expand` counts ANY `find_usages` ref to a
+      hook as a subscriber, so a value-read (`const f = useTodos`, no call) would falsely land in
+      `reRenderComponents` (over-claim). Mount-refs already filter opaque/value-read; mirror it for
+      hook-consumers (count call-role refs only). Theoretical (rules-of-hooks → hooks are called), but
+      the over-claim direction. `bug`·`low`·`cx:S`
+- [ ] **trace_invalidation: certain/partial re-render breakdown** — `reRenderComponents` is a scalar
+      count mixing certain and wrapped/indirect (non-certain) components; honesty rides per-hop, but the
+      headline number has no confidence split. Split the counters if an aggregator consumes them.
+      `imp`·`low`·`cx:S`
+- [ ] **trace_invalidation: queryKey-label placement** — the queryKey node's `label` is minted by
+      `summarizeQueryKey`, a format-layer helper, yet it ships in `format:'json'` and the sql `from`/`to`
+      columns (it is data, not just text). Move queryKey-label minting onto the react-query view (a
+      `keyLabel`) — the only node label borrowing from `format`; sql-skew is already closed by the
+      render-contract guard. `imp`·`low`·`cx:S`
 
 ---
 
