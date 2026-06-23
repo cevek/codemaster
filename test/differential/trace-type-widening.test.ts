@@ -5,10 +5,15 @@
 //
 // THE DISCRIMINATOR (red→green): fixtures A and B are byte-identical except the parameter type —
 // A widens (`'red'` → `string`), B preserves (`'red'` → `'red'`). The op MUST emit a widening hop
-// for A and NONE for B. This is also the contextual-typing-trap guard: if the source type were read
-// at the ARGUMENT position (not the value's own declaration), A's `'red'` would read as the already-
-// widened `string` and produce ZERO widenings — failing A. Fixture C asserts the any-boundary is
-// flagged `dynamic` and STOPPED (no hop continues past the `any`).
+// for A and NONE for B — this discriminates the widening CLASSIFIER. Fixture C asserts the
+// any-boundary is flagged `dynamic` and STOPPED (no hop continues past the `any`).
+//
+// (Design note, NOT exercised here: the op reads each value's type at its OWN declaration via
+// `getTypeOfSymbolAtLocation`, never at a use site — robust against contextual re-typing. These
+// fixtures can't reproduce that trap: for a NAMED value the declaration-site and argument-site
+// types coincide (`'red'` either way), so reading at the argument position would NOT change A's
+// verdict. The op's input domain is named value/parameter targets, so the choice is sound by
+// construction, not by this test. See type-widening.ts.)
 
 import assert from 'node:assert/strict';
 import test from 'node:test';

@@ -4,11 +4,14 @@
 // AST + checker live HERE (the op never touches the LS — §5-L3); the op-level walk drives the
 // recursion (depth / visited / node-cap) over the `next` positions this returns.
 //
-// THE CONTEXTUAL-TYPING TRAP (the silent-zero-hops bug the oracle guards): the source type is read
-// at the value's OWN declaration (`getTypeOfSymbolAtLocation(symbol, decl)`), NEVER at the argument
-// position — in a call-arg slot `getTypeAtLocation` returns the CONTEXTUAL (already-widened) param
-// type, so every literal would look "already string" and no widening would ever be reported. The
-// sink type is the sink declaration's own type; the comparison is src-at-its-decl vs sink-at-its-decl.
+// THE CONTEXTUAL-TYPING TRAP (a silent-zero-hops bug avoided BY DESIGN, not exercised by a test):
+// the source type is read at the value's OWN declaration (`getTypeOfSymbolAtLocation(symbol, decl)`),
+// NEVER at a use site — at a call-arg slot `getTypeAtLocation` returns the CONTEXTUAL (already-widened)
+// param type, so a fresh inline literal would look "already string" and no widening would be reported.
+// For this op's input domain (NAMED value / parameter targets) the declaration-site and use-site types
+// coincide, so the choice is sound by construction; the §16 fixtures discriminate the classifier, not
+// this trap. The sink type is the sink declaration's own type; the comparison is src-at-its-decl vs
+// sink-at-its-decl.
 
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
