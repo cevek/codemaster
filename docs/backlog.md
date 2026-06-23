@@ -859,7 +859,7 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       `runOpTool` + the render helpers (`renderResults`/`renderBatch`) into a sibling `render-call.ts`.
       `dx`·`low`·`cx:S`
 - [ ] **exit-seam masking test: orphaned `.gen.ts` child swept only on the NEXT run** — `exit-seam-
-  masking.test.ts` generates a pid-unique `exit-seam-child.<pid>.gen.ts` under `test/e2e/`, cleaned in
+masking.test.ts` generates a pid-unique `exit-seam-child.<pid>.gen.ts` under `test/e2e/`, cleaned in
       `finally` + a defensive sweep at the START of the next run. A hard-kill (SIGKILL) between generation
       and cleanup leaves a stray `.gen.ts` that an independent `npm run check` (tsc -p tsconfig.test.json /
       eslint `test/**/*.ts`) would glob before the next test run sweeps it. Narrow window, abs-path import
