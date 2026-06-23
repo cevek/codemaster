@@ -346,6 +346,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       }
       return out;
     },
+
+    undiscoveredProgramLabels() {
+      return warm().undiscoveredProgramLabels();
+    },
   };
 }
 /** The shared §6 miss chokepoint for every SymbolId-taking read method: a failed resolve

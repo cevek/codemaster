@@ -150,10 +150,13 @@ async function changeSet(
 }
 
 /** Build the bounded transitive-importer closure of the traced changed files, via one BFS
- *  whose super-seed fans out to every changed file's importers (one global node cap + one
- *  visited-set — honest cap accounting). A per-source `importersOf` that THROWS degrades
- *  that one module to a leaf and is recorded in `failed` (→ closure reported incomplete),
- *  never aborting the whole walk and never silently dropping its importers (§3.4/§3.6). */
+ *  whose super-seed fans out to every changed file's importers (one global node budget + one
+ *  visited-set). The SEED fan-out is itself bounded by the node budget: `importersOf` is an
+ *  un-memoized O(files) scan, so without a stop a huge change set would do O(changed × repo)
+ *  work BEFORE buildClosure's own per-add cap ever runs — the seed loop therefore stops
+ *  accumulating (and scanning) at the budget and signals the truncation (→ `hubTruncated`,
+ *  reported incomplete), never a silent drop. A per-source `importersOf` that THROWS degrades
+ *  that one module to a leaf, recorded in `failed` (§3.4/§3.6). */
 function importerClosure(
   ts: TsPluginApi,
   traced: readonly string[],
@@ -162,9 +165,12 @@ function importerClosure(
 ): { closure: ClosureResult; failed: string[] } {
   const failed: string[] = [];
   const expand: Expand = (id) => {
-    const sources = id === SEED_ID ? traced : [id];
+    const isSeed = id === SEED_ID;
+    const sources = isSeed ? traced : [id];
     const byFile = new Map<string, GroupRow>();
     for (const src of sources) {
+      // Bound the seed's changed-file fan-out by the node budget — stop scanning once full.
+      if (isSeed && byFile.size >= nodes) break;
       let view: ImportersView;
       try {
         view = ts.importersOf(src);
@@ -173,13 +179,22 @@ function importerClosure(
         continue;
       }
       for (const imp of view.importers) {
+        if (isSeed && byFile.size >= nodes) break;
         const file = importerFile(imp.at);
         if (file === id || byFile.has(file)) continue;
         byFile.set(file, moduleNode(file));
       }
     }
     const enclosers = [...byFile.values()];
-    return { ok: true, enclosers, groupTotal: enclosers.length, callableNatured: false };
+    // A truncated seed fan-out → `groupTotal > enclosers.length`, the signal buildClosure
+    // turns into `hubTruncated`; the op reports the closure incomplete on it.
+    const truncated = isSeed && byFile.size >= nodes;
+    return {
+      ok: true,
+      enclosers,
+      groupTotal: truncated ? enclosers.length + 1 : enclosers.length,
+      callableNatured: false,
+    };
   };
   const closure = buildClosure({ id: SEED_ID, name: SEED_ID }, expand, {
     maxDepth: depth,
@@ -199,8 +214,10 @@ export const affectedOp = defineOp({
   example: { args: { since: 'main' } },
   notes: [
     'changed set: `files` (explicit) > `since` ref (two-dot ref→working-tree, incl. uncommitted+untracked) > default (working tree vs HEAD). Affected = test files among the transitive importers of changed files, ∪ changed files that are themselves tests.',
-    'UNDER-report is fatal (a skipped test ships a bug): the set is `complete` only when no closure cap was hit AND no changed file was deleted or untraced. Otherwise `complete:false` + a `!!` note — the set is a LOWER BOUND, run the full suite.',
-    'test heuristic = path globs (default *.test.* / *.spec.* / test|tests|__tests__/**), STATED never proven; override with testGlobs. Bounded BFS: depth + global node cap (never-hang).',
+    'UNDER-report is fatal (a skipped test ships a bug): `complete:true` only when nothing blocked the trace — no node/depth cap, no fan-out truncation, no deleted/untraced/unqueryable changed file, no undiscovered nested-package tsconfig. Anything else → `complete:false` + a `!!` LOWER-BOUND note (run the full suite).',
+    '`complete` = TRACE-completeness, NOT glob-completeness: it attests the STATIC import graph over the LOADED programs within testGlobs. A test outside testGlobs is excluded even at `complete:true`; an undiscovered nested-package config forces `complete:false` and is named.',
+    'STATIC trace only: a dynamic `import()` / `require()` of a changed module is NOT followed (inherited from importersOf) — a test that lazily imports it can be silently missed. `complete` does not cover runtime-dynamic loading.',
+    'test heuristic = path globs (default *.test.* / *.spec.* / test|tests|__tests__/**), STATED never proven; override with testGlobs. Bounded: a depth cap + a node budget over BOTH the changed-file fan-out and the transitive walk — exceeding either caps the set (complete:false). importersOf is an un-memoized O(files) scan, so a very large change set is slow-but-terminating.',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -221,6 +238,10 @@ export const affectedOp = defineOp({
       const { mode, files, traced, untraced, deleted } = cs.data;
 
       const { closure, failed } = importerClosure(ts, traced, maxDepth, maxNodes);
+      // §3.4 floor: a nested-package tsconfig codemaster did NOT load is invisible to
+      // importersOf, so a test there is silently un-traced. Mirror find_unused_exports —
+      // demote `complete` and NAME the configs, never a silent false-complete.
+      const undiscovered = ts.undiscoveredProgramLabels();
 
       // Affected tests = test files among the transitive importers (closure nodes) ∪ the
       // ON-DISK changed files that are themselves tests (a changed test re-runs because it
@@ -236,11 +257,23 @@ export const affectedOp = defineOp({
 
       const complete =
         closure.capped === undefined &&
+        !closure.hubTruncated &&
         deleted.length === 0 &&
         untraced.length === 0 &&
-        failed.length === 0;
+        failed.length === 0 &&
+        undiscovered.length === 0;
 
       const notes: string[] = [];
+      if (closure.hubTruncated) {
+        notes.push(
+          `!! changed-file fan-out exceeded the node budget (${maxNodes}) — only the first ${maxNodes} importer module(s) were expanded; affected-test set is a LOWER BOUND — raise nodes: or narrow the change set.`,
+        );
+      }
+      if (undiscovered.length > 0) {
+        notes.push(
+          `!! ${undiscovered.length} repo tsconfig(s) NOT loaded as programs (nested package, not adjacent / referenced) — tests under them are invisible to the import graph and NOT traced; set is a LOWER BOUND — run the full suite. (${undiscovered.join(', ')})`,
+        );
+      }
       if (closure.capped?.by === 'nodes') {
         notes.push(
           `!! reached node cap (${maxNodes}) — importer graph INCOMPLETE (${closure.capped.boundaryNodes} node(s) un-expanded); affected-test set is a LOWER BOUND — run the full suite or raise nodes:.`,
@@ -277,6 +310,7 @@ export const affectedOp = defineOp({
           traced: traced.length,
           ...(untraced.length > 0 ? { untraced } : {}),
           ...(deleted.length > 0 ? { deleted } : {}),
+          ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
         },
         tests: testList,
       };

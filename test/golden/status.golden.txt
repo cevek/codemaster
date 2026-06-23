@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (22):
+ops (23):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -136,6 +136,13 @@ ops (22):
     · the dependent SET is the same bounded closure as `impact` (depth + node caps); a truncated closure means the typecheck scope is incomplete and is flagged `!!` — a dependent outside the scope, or in a program the gate could not check, is NEVER reported clean.
     · errors are the proof (file:line:message). Attribution is file-level (which dependent file went red), never a claimed precise symbol; an error in the edited file itself is flagged separately from the downstream blast radius.
     e.g. impact_type_error {"name":"createEngine","edit":{"remove":true}}
+  affected { since?: string (ref; default = working tree vs HEAD), files?: string[], depth?: 1-50 (default 25), nodes?: 1-5000 (default 1000), testGlobs?: string[] } — Changed files → the tests that must re-run (transitive importers via the ts import graph), proof-carrying, completeness-honest
+    · changed set: `files` (explicit) > `since` ref (two-dot ref→working-tree, incl. uncommitted+untracked) > default (working tree vs HEAD). Affected = test files among the transitive importers of changed files, ∪ changed files that are themselves tests.
+    · UNDER-report is fatal (a skipped test ships a bug): `complete:true` only when nothing blocked the trace — no node/depth cap, no fan-out truncation, no deleted/untraced/unqueryable changed file, no undiscovered nested-package tsconfig. Anything else → `complete:false` + a `!!` LOWER-BOUND note (run the full suite).
+    · `complete` = TRACE-completeness, NOT glob-completeness: it attests the STATIC import graph over the LOADED programs within testGlobs. A test outside testGlobs is excluded even at `complete:true`; an undiscovered nested-package config forces `complete:false` and is named.
+    · STATIC trace only: a dynamic `import()` / `require()` of a changed module is NOT followed (inherited from importersOf) — a test that lazily imports it can be silently missed. `complete` does not cover runtime-dynamic loading.
+    · test heuristic = path globs (default *.test.* / *.spec.* / test|tests|__tests__/**), STATED never proven; override with testGlobs. Bounded: a depth cap + a node budget over BOTH the changed-file fan-out and the transitive walk — exceeding either caps the set (complete:false). importersOf is an un-memoized O(files) scan, so a very large change set is slow-but-terminating.
+    e.g. affected {"since":"main"}
   feedback { kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> } — File a bug / wish / friction note — recorded to the global codemaster inbox
     · file it the moment you hit a bug, a missing capability, or a call that took several tries — that knowledge evaporates with the session otherwise.
     · the daemon attaches timestamp/version/repo/plugins automatically; you supply only kind/title/detail (+ optional example call). Nothing else leaves the machine.

@@ -49,7 +49,13 @@ const GRAPH = {
 interface AffectedData {
   summary: { affectedTests: number; changedFiles: number; complete: boolean };
   notes: string[];
-  changeSet: { mode: string; traced: number; untraced?: string[]; deleted?: string[] };
+  changeSet: {
+    mode: string;
+    traced: number;
+    untraced?: string[];
+    deleted?: string[];
+    undiscoveredPrograms?: string[];
+  };
   tests: string[];
 }
 
@@ -61,8 +67,12 @@ function dataOf(r: OpResult): AffectedData {
 /** Independent oracle: the test files transitively reachable (reverse imports) from
  *  `changed`, ∪ the changed files that are themselves tests. Built on a cold Program +
  *  raw module resolution — no codemaster code on the import-graph path. */
-function coldAffectedTests(root: string, changed: readonly string[]): string[] {
-  const configPath = path.join(root, 'tsconfig.json');
+function coldAffectedTests(
+  root: string,
+  changed: readonly string[],
+  configRel = 'tsconfig.json',
+): string[] {
+  const configPath = path.join(root, configRel);
   const json = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const parsed = ts.parseJsonConfigFileContent(json.config, ts.sys, root);
   const host = ts.createCompilerHost(parsed.options);
@@ -164,6 +174,45 @@ test('affected: untraced (non-TS) and deleted classification via files arg', asy
     assert.deepEqual(data.changeSet.deleted, ['src/ghost.ts']);
     assert.equal(data.summary.complete, false);
     assert.equal(data.tests.length, 0, 'neither input reaches a test');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('affected: §3.4 floor — a test in an UNDISCOVERED nested tsconfig is not traced → complete:false + named, never a silent skip', async () => {
+  // packages/app/tsconfig.json is neither adjacent to the root config nor referenced, so
+  // codemaster never loads it as a program → its test is invisible to importersOf.
+  const p = await project({
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["src"]}',
+    'src/a.ts': 'export const a = 1;\n',
+    'packages/app/tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"}}',
+    'packages/app/sub.test.ts': "import { a } from '../../src/a';\nexport const t = a;\n",
+  });
+  try {
+    const data = dataOf(await p.op('affected', { files: ['src/a.ts'], testGlobs: TEST_GLOBS }));
+
+    // The op CANNOT see the undiscovered test → it is absent from the traced set.
+    assert.ok(
+      !data.tests.includes('packages/app/sub.test.ts'),
+      'undiscovered test is not in the traced set (invisible to importersOf)',
+    );
+    // Independent oracle: a cold walk that DOES load the nested config finds the test —
+    // proving the gap is real and the op is honestly UNDER-reporting, not complete.
+    const oracle = coldAffectedTests(p.root, ['src/a.ts'], 'packages/app/tsconfig.json');
+    assert.deepEqual(
+      oracle,
+      ['packages/app/sub.test.ts'],
+      'cold ground truth: the undiscovered package DOES have a test depending on a.ts',
+    );
+    // The floor: complete:false and the config NAMED, never a silent false-complete.
+    assert.equal(data.summary.complete, false, 'undiscovered config forces complete:false');
+    assert.deepEqual(data.changeSet.undiscoveredPrograms, ['packages/app/tsconfig.json']);
+    assert.ok(
+      data.notes.some((n) => n.includes('NOT loaded as programs')),
+      'a named undiscovered-program note is present',
+    );
   } finally {
     await p.dispose();
   }

@@ -215,6 +215,12 @@ export interface TsPluginApi extends Plugin {
    *  the SAME bytes — a disk read would ignore an uncommitted overlay and make the introduced-error
    *  diff a lie. Generic VFS read: no edit policy here (that stays op-level, §5-L3). */
   fileText(path: RepoRelPath): string | undefined;
+  /** Labels of repo tsconfigs codemaster does NOT load as programs — a nested-package config
+   *  neither adjacent to the primary nor reached via `references`. Files under such a config are
+   *  invisible to `importersOf` / dead-code analysis, so a completeness-claiming op (§3.4 floor)
+   *  demotes to a non-`certain`/incomplete verdict and NAMES them, never a silent miss. Empty on
+   *  the common repo. Cached once (§19), invalidated when a `tsconfig*.json` lands in reindex. */
+  undiscoveredProgramLabels(): readonly string[];
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }
