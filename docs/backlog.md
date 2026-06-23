@@ -203,8 +203,39 @@ don't vanish.
 > Walk plugin-to-plugin with per-hop `confidence`/`provenance`; dynamic hops flagged, never
 > silently bridged. Heaviest layer; depends on Phases 1/3/4 solid.
 
-- [ ] **other traces** — `trace-prop-through-tree`, `trace-field-to-render`,
-      `trace-cache-key-to-http`, `trace-type-widening`. `feat`·`low`·`cx:L`
+- [ ] **other traces** — `trace-cache-key-to-http`. `feat`·`low`·`cx:L`
+- [ ] **`ts/plugin.ts` LS-read wiring split** — `plugin.ts` carries a temporary
+      `/* eslint-disable max-lines */` (the five `resolvedScan`-routed reads + the two other
+      symbol-anchored methods pushed it past 300). Extract the LS-read wiring into a sub-module so the
+      file fits under the cap, then remove the pragma. Behavior-preserving (the methods' existing tests
+      are the oracle). `imp`·`med`·`cx:M`
+- [ ] **trace_type_widening: literal→union kind label** — `'a'` → `'a' | 'b'` is classified
+      `kind:'literal-widening'`, not `'union-widened'` (the `isLiteral(src) && !isLiteral(sink)` check
+      runs before `sink.isUnion()`, and a union-of-literals is not `isLiteral`). The widened verdict is
+      CORRECT (certain, widened:true) — only the kind label contradicts the op's own taxonomy. Check
+      `sink.isUnion()` before the literal branch. `bug`·`low`·`cx:S`
+- [ ] **trace_type_widening: non-modeled flow caveat** — forward-flow models 4 relations (var-init /
+      arg→param / return / reassign). Flow through property-assign (`obj.f=c`), element (`[c]` / `push`),
+      spread, template → `resolveSink` returns undefined, silently not traced (safe — under-report, never
+      false-widening, documented as 4 relations). Add a caveat note when the value has ref-sites matching
+      none of the 4 sink types, so `0 widenings` isn't read as "no widening anywhere". `bug`·`low`·`cx:S`
+- [ ] **trace_prop_through_tree: children-position forwarding** — a prop passed as the `children` value
+      (`<Child>{prop}</Child>`) is not traced (the note now honestly scopes this to attribute-position
+      only; nested ELEMENT children ARE descended). Detect children-position forwarding to close the gap.
+      `feat`·`low`·`cx:M`
+- [ ] **trace_prop_through_tree: VALUE_TEXT_CAP truncation note** — a `derived`-branch attr whose value
+      text exceeds `VALUE_TEXT_CAP` (120) silently drops the `derives` hop with no per-attr truncation
+      note (only `SITE_CAP` truncation is surfaced). Narrow (recurse:false leaf only). Surface the cap.
+      `bug`·`low`·`cx:S`
+- [ ] **trace_field_to_render: non-visual host-attr over-claim** — an intrinsic-attr read is uniformly
+      `certain rendered-in` and counted in `renderedBy`, but `key={u.id}` / `ref` / `on*` handlers bind to
+      the host without VISUALLY rendering the value → over-claims "renders". Common case (value / aria /
+      alt / title / placeholder / href) is correct. Demote key/ref/on\* attr bindings to `partial` (or a
+      distinct relation). `bug`·`low`·`cx:S`
+- [ ] **trace_field_to_render: destructure-following** — `renderedBy` stops at `const {email}=u`
+      (destructure is the DOMINANT way a component reads a field), so it under-counts heavily — honest
+      (floored as LOWER BOUND), but a +1 hop following the destructured local to its render site would
+      cover the common path. The big completeness win for this op. `feat`·`med`·`cx:M`
 - [ ] **trace_invalidation: hook-consumer role filter** — `expand` counts ANY `find_usages` ref to a
       hook as a subscriber, so a value-read (`const f = useTodos`, no call) would falsely land in
       `reRenderComponents` (over-claim). Mount-refs already filter opaque/value-read; mirror it for
