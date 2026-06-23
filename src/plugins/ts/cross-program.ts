@@ -47,14 +47,17 @@ export function findReferencesAcross(
   host: TsProjectHost,
   abs: string,
   offset: number,
+  loadNearest = false,
 ): CrossReferences | undefined {
-  // Read-path completeness (§5-L2): if the decl's nearest enclosing tsconfig is a nested config
-  // the loose-root primary globs WITHOUT its alias, load it so this fan-out searches the program
-  // that actually resolves the alias-imports. Lazy + cached; a no-op for the common case (nearest
-  // config IS the primary/a sibling). Mutation's rename fan-out (findRenameLocationsAcross) does
-  // NOT call this — file-driven programs stay off the write path.
-  host.ensureProgramFor(abs);
-  const programs = host.programsContaining(abs);
+  // `loadNearest` is the READ-context opt-in (default OFF, so the write path is safe by default).
+  // Readers (find_usages / referenceSpans / merge / jsx-call-sites / field-render-sites) pass true:
+  // if the decl's nearest enclosing tsconfig is a nested config the loose-root primary globs WITHOUT
+  // its alias, load it (lazy + cached) and fan out over the file-driven-inclusive program set so the
+  // alias usages are found (§5-L2). A WRITE caller (change_signature's gatherSigRefs) passes false:
+  // no file-driven load, and the fan-out is BUILT-only — so the edit set is session-order-independent
+  // and stays consistent with the §2.8 gate (which runs over `built()`).
+  if (loadNearest) host.ensureProgramFor(abs);
+  const programs = loadNearest ? host.programsContaining(abs) : host.builtContaining(abs);
   // No program contains the decl file — fall back to the primary so a position that resolves only
   // via the primary (e.g. a `file+line+col` the caller already validated) still answers.
   const fanout = programs.length > 0 ? programs : host.programs().slice(0, 1);
@@ -118,17 +121,19 @@ export interface CrossRenameLocations {
 
 const RENAME_OPTS = { providePrefixAndSuffixTextForRename: true } as const;
 
-/** Union of `findRenameLocations(abs, offset)` over every loaded program containing `abs`,
- *  deduped by file+offset (primary preferred). The WRITE analogue of `findReferencesAcross`: a
- *  `src/**` symbol referenced from a `test/**` file under a sibling tsconfig yields its test
- *  rename site too, so the rename rewrites BOTH — not just the primary-program sites. `undefined`
- *  when no containing program can rename at the position (matches the single-program contract). */
+/** Union of `findRenameLocations(abs, offset)` over every BUILT program containing `abs`, deduped
+ *  by file+offset (primary preferred). The WRITE analogue of `findReferencesAcross`: a `src/**`
+ *  symbol referenced from a `test/**` file under a sibling tsconfig yields its test rename site too,
+ *  so the rename rewrites BOTH — not just the primary-program sites. Uses `builtContaining` (NOT the
+ *  file-driven-inclusive `programsContaining`): a rename must be session-order-independent and stay
+ *  consistent with the §2.8 gate (over `built()`), so a read-path-loaded nested program never adds
+ *  an un-gated rename site. `undefined` when no built program can rename at the position. */
 export function findRenameLocationsAcross(
   host: TsProjectHost,
   abs: string,
   offset: number,
 ): CrossRenameLocations | undefined {
-  const programs = host.programsContaining(abs);
+  const programs = host.builtContaining(abs);
   const fanout = programs.length > 0 ? programs : host.programs().slice(0, 1);
   return mergeRenameLocations(
     fanout.map((p) => ({

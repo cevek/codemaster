@@ -82,7 +82,7 @@ export function scanFieldRenderSites(
   abs: string,
   offset: number,
 ): FieldRenderSitesView | undefined {
-  const cross = findReferencesAcross(host, abs, offset);
+  const cross = findReferencesAcross(host, abs, offset, true);
   if (cross === undefined) return undefined;
   const multiProgram = host.programs().length > 1;
   const sites: FieldReadSite[] = [];

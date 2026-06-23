@@ -25,7 +25,7 @@ export function findUsagesMerged(
   let anyRefs = false;
 
   decls.forEach((d, index) => {
-    const cross = findReferencesAcross(host, d.abs, d.offset);
+    const cross = findReferencesAcross(host, d.abs, d.offset, true);
     if (cross === undefined) return;
     anyRefs = true;
     for (const ref of cross.refs) {

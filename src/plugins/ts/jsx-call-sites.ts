@@ -61,7 +61,7 @@ export function scanJsxCallSites(
   abs: string,
   offset: number,
 ): JsxCallSitesView | undefined {
-  const cross = findReferencesAcross(host, abs, offset);
+  const cross = findReferencesAcross(host, abs, offset, true);
   if (cross === undefined) return undefined;
   const multiProgram = host.programs().length > 1;
   const sites: JsxCallSite[] = [];

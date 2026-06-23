@@ -354,10 +354,14 @@ probing.
   nested config the loose-root primary globs WITHOUT its `paths`/`baseUrl` alias loads THAT config
   lazily as an extra read-only program (cached, idempotent, per-dir memoized — never a per-query
   repo walk, §19); the cross-program fan-out then merges its references, so a component used only via
-  the nested alias is found, not falsely read as `0` usages. Loaded ONLY from read paths
-  (`find_usages` / `referenceSpans` / `importers_of`); the mutation/typecheck path never calls it, so
-  the **primary stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is
-  a `docs/backlog.md` residual). A loaded config is subtracted from the undiscovered set (no
+  the nested alias is found, not falsely read as `0` usages. Loaded ONLY from read paths (the
+  `find_usages` family via `findReferencesAcross(loadNearest:true)`, and `importers_of`); **WRITE
+  paths (`rename_symbol` / `change_signature`) fan out over a BUILT-only containment set**
+  (`builtContaining` — primary + siblings, never the file-driven programs), so a mutation's edit set
+  is session-order-independent and consistent with the §2.8 gate (which runs over `built()`) — a
+  read-path-loaded nested program can never add an un-gated rename/caller rewrite. The **primary
+  stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is a
+  `docs/backlog.md` residual). A loaded config is subtracted from the undiscovered set (no
   over-demotion). (Precise per-export discovery is the remaining `docs/backlog.md` residual.)
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`

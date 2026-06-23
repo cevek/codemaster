@@ -85,9 +85,10 @@ export interface TsProjectHost {
    *  loaded-by-config set) — a repeat call never re-walks (§19). No-op when the nearest config is
    *  the primary or an already-discovered sibling. Loaded program joins `programs()` /
    *  `programsContaining` and is subtracted from `undiscoveredProgramLabels()`. Called ONLY from
-   *  read paths (find_usages / referenceSpans / importers_of); the mutation/typecheck path never
-   *  calls it, so PRIMARY (the edit target) is never changed (§5-L2 loose-root mutation cousin =
-   *  separate backlog item). */
+   *  READ paths (the find_usages family via `findReferencesAcross(loadNearest:true)`, and
+   *  `importers_of`); WRITE paths fan out over `builtContaining` and never call this, so a
+   *  file-driven program never reaches the mutation/typecheck path and PRIMARY (the edit target) is
+   *  never changed (§5-L2 loose-root mutation cousin = separate backlog item). */
   ensureProgramFor(absPosix: string): void;
   /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
    *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
@@ -99,9 +100,16 @@ export interface TsProjectHost {
   /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
    *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
   diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
-  /** Programs whose built program currently contains `absPosix` — the fan-out set for a decl: run
+  /** READ-context fan-out set for a decl: the built programs (primary + siblings) PLUS any
+   *  file-driven nested program already loaded, filtered to those containing `absPosix`. Run
    *  findReferences only where the declaration file actually lives. */
   programsContaining(absPosix: string): readonly TsProgram[];
+  /** WRITE-context fan-out set: the BUILT programs only (primary + siblings), NEVER the file-driven
+   *  read-path programs — so a mutation's edit-site computation is session-order-INDEPENDENT and
+   *  stays consistent with the §2.8 typecheck gate (which runs over `built()`). This is exactly the
+   *  pre-file-driven behavior; rename / change_signature use it, so file-driven programs can never
+   *  introduce an un-gated, read-history-dependent edit. */
+  builtContaining(absPosix: string): readonly TsProgram[];
   /** The first program (primary preferred) whose built program contains `absPosix`, with its
    *  source file — the cross-program resolution lookup (a test-declared symbol resolves too). */
   sourceFileAcross(absPosix: string): { sf: ts.SourceFile; program: TsProgram } | undefined;
@@ -293,9 +301,12 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
     programsContaining(absPosix) {
       // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested
-      // program already loaded for this file. The WRITE gate uses `built()` directly (gateCtx),
-      // never this, so a file-driven program never enters the mutation/typecheck path.
+      // program already loaded for this file. WRITE paths use `builtContaining` instead, so a
+      // file-driven program never enters the mutation/typecheck path.
       return [...built(), ...fileDriven.values()].filter((p) => p.containsFile(absPosix));
+    },
+    builtContaining(absPosix) {
+      return built().filter((p) => p.containsFile(absPosix));
     },
     sourceFileAcross(absPosix) {
       // Primary FIRST, and short-circuit before `built()` forces sibling construction — a

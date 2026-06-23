@@ -40,7 +40,7 @@ export function findUsages(
 ): UsagesView | undefined {
   // Fan out across every loaded program containing the decl (spec Task G): a `test/**` usage
   // under a sibling tsconfig counts, deduped against the src refs the primary already sees.
-  const cross = findReferencesAcross(host, abs, offset);
+  const cross = findReferencesAcross(host, abs, offset, true);
   if (cross === undefined) return undefined;
   const definition =
     cross.definition !== undefined ? buildDefinition(host, cross.definition) : undefined;
@@ -162,7 +162,7 @@ export function referenceSpans(
   abs: string,
   offset: number,
 ): Span[] | undefined {
-  const cross = findReferencesAcross(host, abs, offset);
+  const cross = findReferencesAcross(host, abs, offset, true);
   if (cross === undefined) return undefined;
   return cross.refs.map((ref) =>
     spanFromRange(ref.sourceFile, ref.rel, ref.start, ref.start + ref.length),
