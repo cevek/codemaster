@@ -129,16 +129,6 @@ don't vanish.
       bare error text with no banner (`src/mcp/server.ts`). Both are exception/edge paths (an empty
       results array from a non-failing outcome; an escaped throw), negligible in practice — flagged for
       completeness so the banner-coverage isn't mistaken as total. `bug`·`low`·`cx:S`
-- [ ] **serveMcp e2e: a `client.close()` makes the test process `exit(0)`, masking failures with a
-      vacuum-pass** — `serveMcp` wires `server.onclose → shutdown → exit(0)` (default `exit` is
-      `process.exit`, `src/mcp/server.ts`). A test that calls `await client.close()` therefore hard-
-      exits the spawned test FILE with code 0 mid-run; `node --test` trusts the child exit code and
-      reports the file as `ok` even when inner subtests already threw — a red test silently reads
-      green. Caught while building `test/e2e/self-staleness-banner.test.ts` (it falsely passed under a
-      deliberately-broken one-shot banner until the close was removed). This is honesty-of-tests: a
-      masked failure is the harness lying. Pattern: in serveMcp e2e tests DON'T call `client.close()`
-      (as `usage-log.test.ts` already avoids), OR inject `idle.exit` so shutdown never reaches
-      `process.exit` under test. `dx`·`med`·`cx:S`
 
 ## Roadmap — unbuilt phases
 

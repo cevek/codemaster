@@ -46,8 +46,18 @@ export interface ServeMcpOptions {
    *  no idle deadline (EOF/signal shutdown only). The `mcp` CLI path always supplies it. */
   idle?: IdleExitOptions;
   /** Transport seam (§16 determinism): defaults to stdio; tests inject an in-memory pair to
-   *  drive the real handler. */
+   *  drive the real handler. An injected transport ALSO flips the default `exit` to a no-op
+   *  (see `exit` below) — the structural guard that keeps an in-process test from hard-exiting
+   *  the runner. */
   transport?: Transport;
+  /** Process-exit seam for `shutdown` (onclose / stdin-EOF / SIGTERM / SIGINT / idle). The DEFAULT
+   *  is derived from `transport`, not hardcoded: real stdio (no `transport`) ⇒ `process.exit` (the
+   *  daemon MUST terminate — the `mcp` CLI path, bin.ts, is thus untouched); an injected `transport`
+   *  ⇒ a no-op (a test context — calling `process.exit` would hard-exit the test runner with code 0
+   *  mid-run, masking a failed subtest as a false-green vacuum-pass). So no per-test discipline can
+   *  reopen that hole. An explicit `exit` (or `idle.exit`) overrides the default — used by the
+   *  masking-arm of the discriminating test to force `process.exit` even over an injected transport. */
+  exit?: (code: number) => void;
   /** Usage telemetry sink (spec usage-telemetry): every call's request+response is recorded to
    *  `success.jsonl` / `fail.jsonl`. Default = no-op (a library default with no side effects); the
    *  composition root (`bin.ts`) injects the real file logger. Tests inject a capturing fake. */
@@ -111,7 +121,15 @@ export async function serveMcp(
   // Five triggers can call shutdown (onclose / stdin 'end' / SIGTERM / SIGINT / idle), so a
   // re-entry guard keeps it to one dispose+exit (dispose is idempotent anyway — this just
   // avoids the redundant calls).
-  const exit = options?.idle?.exit ?? ((code: number): void => process.exit(code));
+  // §1 never-hang ↔ §16 honest-tests, reconciled structurally: an injected `transport` is a test,
+  // where `process.exit` would kill the runner (false-green); real stdio is the daemon, which MUST
+  // terminate. Explicit `exit`/`idle.exit` override either (the test's masking-arm forces exit).
+  const exit =
+    options?.exit ??
+    options?.idle?.exit ??
+    (options?.transport !== undefined
+      ? (): void => undefined
+      : (code: number): void => process.exit(code));
   let shuttingDown = false;
   const shutdown = (): void => {
     if (shuttingDown) return;

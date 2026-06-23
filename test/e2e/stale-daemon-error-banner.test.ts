@@ -8,9 +8,10 @@
 // transport): a stub daemon synthesizes the `unknown_op` result (faithful — bridge-has-but-daemon-
 // lacks is exactly a per-result error the facade must mark) and a request-level failure.
 //
-// Foot-gun (backlog "serveMcp e2e vacuum-pass"): NEVER call `client.close()` here — serveMcp wires
-// onclose→exit(0), which hard-exits the test file mid-run and masks failures as a green vacuum-pass.
-// Mirror self-staleness-banner.test.ts: connect, assert, let the runner tear down.
+// Exit-seam (server.ts): `client.close()` is SAFE here — serveMcp derives its shutdown `exit` from
+// the transport, so an injected (in-memory) transport defaults to a NO-OP exit, never `process.exit`.
+// That structural guard is what stops onclose→exit(0) from hard-exiting the test file mid-run and
+// masking a failed subtest as a green vacuum-pass. Proven discriminatingly by exit-seam-masking.test.ts.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
