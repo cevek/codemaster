@@ -48,6 +48,12 @@ export function findReferencesAcross(
   abs: string,
   offset: number,
 ): CrossReferences | undefined {
+  // Read-path completeness (§5-L2): if the decl's nearest enclosing tsconfig is a nested config
+  // the loose-root primary globs WITHOUT its alias, load it so this fan-out searches the program
+  // that actually resolves the alias-imports. Lazy + cached; a no-op for the common case (nearest
+  // config IS the primary/a sibling). Mutation's rename fan-out (findRenameLocationsAcross) does
+  // NOT call this — file-driven programs stay off the write path.
+  host.ensureProgramFor(abs);
   const programs = host.programsContaining(abs);
   // No program contains the decl file — fall back to the primary so a position that resolves only
   // via the primary (e.g. a `file+line+col` the caller already validated) still answers.

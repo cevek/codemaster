@@ -46,7 +46,10 @@ function coldProgram(root: string, configRel = 'tsconfig.json'): ColdView {
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
   assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
-  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
+  // Base path is the CONFIG's own directory (how TS resolves a tsconfig), not the repo root — so a
+  // NESTED config's relative include/baseUrl resolves correctly. For a root-level config (every
+  // default caller) dirname === root, so behaviour is unchanged.
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, path.dirname(configPath));
   const program = ts.createProgram(parsed.fileNames, parsed.options, cachingHost(parsed.options));
   return { program, checker: program.getTypeChecker() };
 }
@@ -132,7 +135,9 @@ function coldLanguageService(
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
   assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
-  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
+  // Config-dir base (see coldProgram) so a nested config's relative include/baseUrl resolves; for a
+  // root-level config dirname === root, unchanged.
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, path.dirname(configPath));
   const fileNames = parsed.fileNames;
   const host: ts.LanguageServiceHost = {
     getScriptFileNames: () => fileNames,

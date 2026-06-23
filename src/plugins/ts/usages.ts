@@ -116,6 +116,12 @@ export function assembleView(
 
   const collapseField = importsCollapsed > 0 ? { importsCollapsed } : {};
   const breakdownField = roleActive ? { roleBreakdown: Object.fromEntries(breakdown) } : {};
+  // §3.4 floor: name the repo tsconfigs we did NOT search (a usage living only under one would be
+  // missed) — the op turns a non-empty set into `complete:false` + a `!!` LOWER-BOUND note, so a
+  // confident `0` over an alias-only-resolved symbol is impossible.
+  const undiscovered = host.undiscoveredProgramLabels();
+  const undiscoveredField =
+    undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {};
   const base = {
     ...(meta.definition !== undefined ? { definition: meta.definition } : {}),
     ...(meta.mergedDeclarations !== undefined
@@ -125,6 +131,7 @@ export function assembleView(
     excluded,
     ...collapseField,
     ...breakdownField,
+    ...undiscoveredField,
   };
 
   if (options.groupBy === 'enclosing') {

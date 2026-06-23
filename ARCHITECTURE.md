@@ -344,11 +344,21 @@ probing.
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
   Discovery is adjacent-`tsconfig*.json` + transitive `references`; a nested-package config
-  reachable by neither is **not** loaded, so `find_unused_exports` carries an honest floor — when
-  any such **undiscovered** config exists (a one-time cached repo walk), every otherwise-`certain`
-  claim is demoted to `partial` and the config is **named**, never a silent false-`certain`-dead
-  (§3.4). (Precise per-export discovery, and the same floor for `find_usages`/`importers_of`, are
-  `docs/backlog.md` residuals.)
+  reachable by neither is **not** loaded, so the read ops carry an honest floor — when any such
+  **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
+  otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level
+  `complete:false` + the **named** config + a `!!` LOWER-BOUND note (a count-only consumer sees the
+  incompleteness without parsing prose) — never a silent false-`certain`-dead / a confident-`0` over
+  a possibly-incomplete search (§3.4). **File-driven nearest-config discovery (read path).** Beyond
+  the adjacent/`references` siblings, a READ whose target file's _nearest enclosing_ tsconfig is a
+  nested config the loose-root primary globs WITHOUT its `paths`/`baseUrl` alias loads THAT config
+  lazily as an extra read-only program (cached, idempotent, per-dir memoized — never a per-query
+  repo walk, §19); the cross-program fan-out then merges its references, so a component used only via
+  the nested alias is found, not falsely read as `0` usages. Loaded ONLY from read paths
+  (`find_usages` / `referenceSpans` / `importers_of`); the mutation/typecheck path never calls it, so
+  the **primary stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is
+  a `docs/backlog.md` residual). A loaded config is subtracted from the undiscovered set (no
+  over-demotion). (Precise per-export discovery is the remaining `docs/backlog.md` residual.)
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`
   / `extract_symbol` repoint sibling-only importers via a disk read, and the §2.8 typecheck gate

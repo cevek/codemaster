@@ -8,9 +8,24 @@ import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type { ImporterRow } from '../plugins/ts/importers.ts';
+import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+
+/** §3.4 FLOOR (mirrors `affected` / `find_usages`): repo tsconfigs NOT scanned make the importer
+ *  list a LOWER BOUND. Returns the set-level machine-readable verdict (`complete:false` + the named
+ *  configs) so a count-only consumer sees incompleteness without parsing prose, plus a `!!` note for
+ *  the verdict position. Empty when every loaded program was scanned (the common case adds nothing). */
+function importersFloor(view: ImportersView): { fields: Record<string, JsonValue>; note?: string } {
+  const u = view.undiscoveredPrograms;
+  if (u === undefined || u.length === 0) return { fields: {} };
+  const named = u.slice(0, 3).join(', ');
+  const more = u.length > 3 ? `, +${u.length - 3} more` : '';
+  return {
+    fields: { complete: false, undiscoveredPrograms: u },
+    note: `!! LOWER BOUND — ${u.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); importers under them were NOT scanned. A module imported ONLY there reads as fewer/zero importers here — do NOT treat a low/zero count as proof nothing depends on it. Load/reference the config to recover a complete list.`,
+  };
+}
 
 /** Project importer rows (§3). `at` is the op's own stable `file:line` field — split on
  *  the last colon (repo-relative POSIX paths never contain one). Import edges read off
@@ -64,11 +79,18 @@ export const importersOfOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
       const view = ts.importersOf(args.module);
+      const floor = importersFloor(view);
       if (view.total === 0) {
+        // The false-`0` case: with an undiscovered config present, "no importers" is a LOWER BOUND,
+        // not proof. Lead with the `!!` floor note + the machine-readable verdict; otherwise keep
+        // the plain "check the specifier" hint.
         return ok({
+          ...floor.fields,
           module: view.module,
           importers: [],
-          note: 'no importers found — check the specifier (path or alias) against tsconfig',
+          note:
+            floor.note ??
+            'no importers found — check the specifier (path or alias) against tsconfig',
         });
       }
       // sql-mode (§2.3/§11): a capped producer feeding a NOT IN / a positive WHERE lies. The engine
@@ -85,7 +107,13 @@ export const importersOfOp = defineOp({
             }
           : undefined;
       return ok(
-        { module: view.module, importers: shown.map((r) => tag('importer', r)), total: view.total },
+        {
+          ...floor.fields,
+          ...(floor.note !== undefined ? { notes: [floor.note] } : {}),
+          module: view.module,
+          importers: shown.map((r) => tag('importer', r)),
+          total: view.total,
+        },
         truncated !== undefined ? { truncated } : undefined,
       );
     } catch (thrown) {

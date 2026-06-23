@@ -7,7 +7,6 @@
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
 import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
-import { programFileGroups } from './program/project-files.ts';
 
 export type ImporterRow = {
   /** Importing file + line of the import statement. */
@@ -21,6 +20,11 @@ export type ImportersView = {
   module: string;
   importers: ImporterRow[];
   total: number;
+  /** §3.4 FLOOR: repo tsconfigs NOT loaded as programs (nested-package config neither adjacent to
+   *  the primary nor `references`d, and not loaded by read-path nearest-config discovery). An
+   *  importer living ONLY under such a program is NOT scanned, so a non-empty set makes the list a
+   *  LOWER BOUND — the op surfaces `complete:false` + a named `!!` note, never a false `0`. */
+  undiscoveredPrograms?: string[];
 };
 
 export function findImporters(host: TsProjectHost, moduleArg: string): ImportersView {
@@ -29,33 +33,46 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
 
   // The target module is named once, resolved under the primary's options (the canonical config).
   const targetAbs = resolveModuleArg(host, moduleArg, primary.getCompilerOptions());
-  const importers: ImporterRow[] = [];
+  // Read-path completeness (§5-L2): load the target's nearest enclosing tsconfig, so a consumer the
+  // loose-root primary globs WITHOUT the alias is scanned under the nested config that defines it.
+  if (targetAbs !== undefined) host.ensureProgramFor(targetAbs);
 
-  // Fan out across every loaded program (spec Task G): a `test/**` file under a sibling tsconfig
-  // that imports the module is a real importer the primary never sees. Each file's specifier is
-  // resolved under ITS OWN program's options — so an import via a `paths`/`baseUrl` alias defined
-  // only in the sibling tsconfig still resolves (else a real importer is silently dropped, a §3.4
-  // completeness lie). Files shared by several programs are visited once (primary preferred).
-  for (const { program, files } of programFileGroups(host)) {
+  const importers: ImporterRow[] = [];
+  const seen = new Set<string>(); // `at` (file:line) — a statement two programs both see counts once
+
+  // Resolve EACH loaded program's OWN files under ITS OWN compilerOptions, then row-dedup by `at`.
+  // We deliberately do NOT use programFileGroups' primary-first FILE dedup: under a loose root the
+  // consumer file is globbed by BOTH the root (no alias → miss) and the nested config (alias →
+  // match); file-dedup would assign it to the root and silently drop the match (a §3.4 lie). Row
+  // dedup keeps the match whichever program resolved it and collapses a statement two programs both
+  // resolve to the target. A file is scanned once per containing program (bounded by program count,
+  // typically 2-3 — fileDriven adds at most one). Matching is by RESOLVED target (identity, not raw
+  // string), so a program whose options can't resolve the specifier yields no false row.
+  for (const p of host.programs()) {
+    const program = p.getProgram();
+    if (program === undefined) continue;
     const options = program.getCompilerOptions();
     const cache = new Map<string, string | undefined>(); // per-program: options differ
-    for (const sourceFile of files) {
+    for (const sourceFile of program.getSourceFiles()) {
+      if (sourceFile.fileName.includes('/node_modules/')) continue;
       for (const stmt of sourceFile.statements) {
         const spec = moduleSpecifierOf(stmt);
         if (spec === undefined) continue;
         if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache)) continue;
         const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
-        importers.push({
-          at: `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`,
-          imports: importedNames(stmt),
-        });
+        const at = `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`;
+        if (seen.has(at)) continue;
+        seen.add(at);
+        importers.push({ at, imports: importedNames(stmt) });
       }
     }
   }
+  const undiscovered = host.undiscoveredProgramLabels();
   return {
     module: targetAbs !== undefined ? host.relOf(targetAbs) : moduleArg,
     importers,
     total: importers.length,
+    ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
   };
 }
 

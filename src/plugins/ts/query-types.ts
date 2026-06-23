@@ -140,6 +140,13 @@ export type UsagesView = {
    *  unfiltered answer looked like — "0" must never be indistinguishable from "none
    *  exist", which is a §3.4-class lie. */
   roleBreakdown?: Record<string, number>;
+  /** §3.4 FLOOR: repo tsconfigs NOT loaded as programs (a nested-package config neither adjacent
+   *  to the primary nor `references`d, and not loaded by the read-path nearest-config discovery) —
+   *  a usage living ONLY under such a program is NOT searched, so this set being non-empty means
+   *  the usages are a LOWER BOUND, never provably complete. Set-level (the found usages are each
+   *  `certain`; incompleteness is a property of the SET, not any row), surfaced by the op as
+   *  `complete:false` + a named `!!` note. Absent/empty ⇒ every loaded program was searched. */
+  undiscoveredPrograms?: string[];
 };
 
 /** One structural member of an expanded type (§3.3). `inherited` marks a member that

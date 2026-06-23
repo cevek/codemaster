@@ -75,8 +75,20 @@ export interface TsProjectHost {
     fn: () => T,
   ): T;
   /** ALL loaded programs (primary first); siblings are discovered + built lazily on first call —
-   *  this is the cross-program warm point (§9 lazy). */
+   *  this is the cross-program warm point (§9 lazy). Includes any file-driven nested-config
+   *  programs already loaded by `ensureProgramFor` (read path). */
   programs(): readonly TsProgram[];
+  /** READ-PATH completeness (loose-root monorepo): ensure the NEAREST enclosing tsconfig of
+   *  `absPosix` is loaded as a program, so a file whose alias-imports resolve only under a nested
+   *  config (the primary globs it WITHOUT that config's `paths`/`baseUrl`) is searched under the
+   *  config that actually resolves them. Lazy, idempotent, cached (per-dir nearest-config memo +
+   *  loaded-by-config set) — a repeat call never re-walks (§19). No-op when the nearest config is
+   *  the primary or an already-discovered sibling. Loaded program joins `programs()` /
+   *  `programsContaining` and is subtracted from `undiscoveredProgramLabels()`. Called ONLY from
+   *  read paths (find_usages / referenceSpans / importers_of); the mutation/typecheck path never
+   *  calls it, so PRIMARY (the edit target) is never changed (§5-L2 loose-root mutation cousin =
+   *  separate backlog item). */
+  ensureProgramFor(absPosix: string): void;
   /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
    *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
    *  sibling-program dangle is caught. Builds the sibling programs (a write must verify them). */
@@ -127,17 +139,61 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
   // siblings `discover()` returns) — the UNDISCOVERED programs. Cached once (the repo walk is the
   // §19-bounded part); both sides are `toPosix`-canonical so the primary/siblings exclude cleanly
   // (a spelling mismatch would leave the primary in the set → universal false demotion).
-  let undiscovered: string[] | undefined;
+  // The base undiscovered set is the cached repo walk (the §19-bounded part) MINUS the statically
+  // loaded configs (primary + siblings) — stored as posix ABS PATHS so the dynamic file-driven
+  // subtraction below (which keys by config path) is exact. Labels are derived at call time.
+  let undiscoveredBase: string[] | undefined;
+  // The final labels are memoized too (not just the repo walk), so `undiscoveredProgramLabels()`
+  // returns a STABLE reference across a non-tsconfig reindex (the §19 no-re-walk guarantee, asserted
+  // by ls-host-tsconfig-invalidation.test). Invalidated whenever the base recomputes (a tsconfig
+  // change) OR `fileDriven` changes (fix-A loaded a config) — both below.
+  let undiscoveredMemo: string[] | undefined;
   const undiscoveredLabels = (): readonly string[] => {
-    if (undiscovered === undefined) {
-      const loaded = new Set<string>();
-      if (configPath !== undefined) loaded.add(toPosix(configPath));
-      for (const c of discover()) loaded.add(toPosix(c.path));
-      undiscovered = findRepoTsconfigs(root)
-        .filter((abs) => !loaded.has(abs))
+    if (undiscoveredMemo === undefined) {
+      if (undiscoveredBase === undefined) {
+        const loaded = new Set<string>();
+        if (configPath !== undefined) loaded.add(toPosix(configPath));
+        for (const c of discover()) loaded.add(toPosix(c.path));
+        undiscoveredBase = findRepoTsconfigs(root).filter((abs) => !loaded.has(abs));
+      }
+      // Subtract the file-driven nested-config programs we DID load (§5-L2 read-path completeness):
+      // a config fix-A loaded IS searched, so reporting it undiscovered would over-demote (a false
+      // LOWER-BOUND on an answer we can prove complete). Cheap filter; the repo walk stays cached.
+      undiscoveredMemo = undiscoveredBase
+        .filter((abs) => !fileDriven.has(abs))
         .map((abs) => relLabel(root, abs));
     }
-    return undiscovered;
+    return undiscoveredMemo;
+  };
+
+  // ── file-driven nearest-config discovery (read-path completeness) ──────────────────────────────
+  // A loose-root monorepo's PRIMARY config (the root tsconfig) may glob a nested package's files
+  // WITHOUT that package's `paths`/`baseUrl` alias, so the primary program can't resolve the
+  // alias-imports and a read anchored there finds ZERO references — a false-`certain`-dead (the
+  // fatal lie). The nested package's OWN tsconfig resolves the alias. So when a READ targets a file
+  // whose nearest enclosing tsconfig is neither the primary nor an already-discovered sibling, load
+  // THAT config lazily as an extra read-only program; the existing cross-program fan-out then
+  // merges + dedups its references (the broken primary view is absorbed, no double-count). PRIMARY
+  // is unchanged — only read paths call `ensureProgramFor`, so the mutation/typecheck target never
+  // grows (the loose-root MUTATION cousin is a separate backlog item).
+  const fileDriven = new Map<string, SingleProgram>(); // config posix path → its program
+  const dirConfig = new Map<string, string | undefined>(); // file dir → nearest enclosing config (memo)
+  const nearestConfig = (absPosix: string): string | undefined => {
+    const dir = path.posix.dirname(absPosix);
+    if (dirConfig.has(dir)) return dirConfig.get(dir);
+    const found = ts.findConfigFile(dir, ts.sys.fileExists, 'tsconfig.json');
+    const config = found !== undefined ? toPosix(found) : undefined;
+    dirConfig.set(dir, config);
+    return config;
+  };
+  const ensureProgramFor = (absPosix: string): void => {
+    const config = nearestConfig(toPosix(absPosix));
+    if (config === undefined) return;
+    if (configPath !== undefined && config === toPosix(configPath)) return; // the primary itself
+    if (fileDriven.has(config)) return; // already loaded
+    if (discover().some((c) => toPosix(c.path) === config)) return; // an already-discovered sibling
+    fileDriven.set(config, createSingleProgram(root, config, relLabel(root, config), registry));
+    undiscoveredMemo = undefined; // the loaded config drops out of the undiscovered set
   };
 
   let siblings: SingleProgram[] | undefined;
@@ -187,7 +243,8 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
       // on the next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed.
       if (changed.some(isTsconfigChange)) {
         discovered = undefined;
-        undiscovered = undefined;
+        undiscoveredBase = undefined;
+        undiscoveredMemo = undefined;
         // Dispose already-built siblings before dropping them: the set they were built from may no
         // longer match discover(), and an undisposed sibling LS would leak. They rebuild lazily
         // from the current tree on the next cross-program read.
@@ -195,11 +252,19 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
           for (const sibling of siblings) sibling.dispose();
           siblings = undefined;
         }
+        // A tsconfig add/remove also invalidates the file-driven nearest-config memo + its loaded
+        // programs (a config moved/deleted, or a now-discoverable sibling): drop them so the next
+        // read re-resolves the nearest config against the current tree.
+        dirConfig.clear();
+        for (const program of fileDriven.values()) program.dispose();
+        fileDriven.clear();
       }
       // Propagate to every BUILT program (each decides structural-ness against its OWN glob — a
       // new test file is structural for the test program, not the primary). Unbuilt siblings are
-      // untouched; they read the current tree when first warmed.
+      // untouched; they read the current tree when first warmed. File-driven programs reindex too,
+      // so a loaded nested program stays fresh (cold == warm across the read-path-loaded state).
       for (const program of builtSoFar()) program.reindex(changed);
+      for (const program of fileDriven.values()) program.reindex(changed);
       hostVersion++;
     },
     projectVersion: () => hostVersion,
@@ -222,11 +287,15 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
         }
       });
     },
-    programs: () => built(),
+    programs: () => [...built(), ...fileDriven.values()],
+    ensureProgramFor,
     gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
     diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
     programsContaining(absPosix) {
-      return built().filter((p) => p.containsFile(absPosix));
+      // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested
+      // program already loaded for this file. The WRITE gate uses `built()` directly (gateCtx),
+      // never this, so a file-driven program never enters the mutation/typecheck path.
+      return [...built(), ...fileDriven.values()].filter((p) => p.containsFile(absPosix));
     },
     sourceFileAcross(absPosix) {
       // Primary FIRST, and short-circuit before `built()` forces sibling construction — a
@@ -245,6 +314,7 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     undiscoveredProgramLabels: () => undiscoveredLabels(),
     dispose() {
       for (const program of builtSoFar()) program.dispose();
+      for (const program of fileDriven.values()) program.dispose();
     },
   };
 }

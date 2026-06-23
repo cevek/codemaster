@@ -26,6 +26,7 @@ import {
   listableField,
   hoistView,
   usageNotes,
+  usagesFloor,
 } from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 
@@ -150,9 +151,14 @@ export const findUsagesOp = defineOp({
           const notes = usageNotes(view, args.role, verbosity);
           const hoisted = hoistView(view, args.role, sqlMode);
           if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
+          // §3.4 floor: a non-empty undiscovered set makes this section a LOWER BOUND — the `!!`
+          // note leads (verdict-first), the fields ride as early machine-readable keys below.
+          const floor = usagesFloor(view);
+          if (floor.note !== undefined) notes.unshift(floor.note);
           resolvedNames.push(view.definition?.name ?? fallbackName);
           targets.push({
             symbol: sym,
+            ...floor.fields,
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
             ...(view.mergedDeclarations !== undefined
               ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
@@ -225,7 +231,13 @@ export const findUsagesOp = defineOp({
       }
       const hoisted = hoistView(view, args.role, sqlMode);
       if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
+      // §3.4 floor (verdict-first): a non-empty undiscovered set makes the usages a LOWER BOUND.
+      // `complete:false` + `undiscoveredPrograms` lead the data object so a count-only consumer
+      // reads the incompleteness without parsing prose; the `!!` note leads `notes`.
+      const floor = usagesFloor(view);
+      if (floor.note !== undefined) notes.unshift(floor.note);
       const data: Record<string, JsonValue> = {
+        ...floor.fields,
         ...(view.definition !== undefined ? { definition: tag('symbol', view.definition) } : {}),
         ...(view.mergedDeclarations !== undefined
           ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }

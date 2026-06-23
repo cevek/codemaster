@@ -122,6 +122,27 @@ export function hoistView(view: UsagesView, role: string | undefined, sqlMode: b
   return out;
 }
 
+/** §3.4 FLOOR (mirrors `affected`'s `complete:false`): when repo tsconfigs were NOT searched, the
+ *  usages are a LOWER BOUND. Returns the set-level machine-readable verdict fields (`complete:false`
+ *  + the named `undiscoveredPrograms`) so a count-only consumer sees incompleteness WITHOUT parsing
+ *  prose, plus a `!!` note for the VERDICT position. Empty when every loaded program was searched —
+ *  the common case then adds nothing (the result stays byte-identical). The found usages are each
+ *  `certain`; incompleteness is a property of the SET, never a per-row demotion (that would be a lie
+ *  — they are real refs). */
+export function usagesFloor(view: UsagesView): {
+  fields: Record<string, JsonValue>;
+  note?: string;
+} {
+  const u = view.undiscoveredPrograms;
+  if (u === undefined || u.length === 0) return { fields: {} };
+  const named = u.slice(0, 3).join(', ');
+  const more = u.length > 3 ? `, +${u.length - 3} more` : '';
+  return {
+    fields: { complete: false, undiscoveredPrograms: u },
+    note: `!! LOWER BOUND — ${u.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); usages under them were NOT searched. A symbol used ONLY there reads as fewer/zero usages here — do NOT treat a low/zero count as proof of deadness. Load/reference the config to recover a complete count.`,
+  };
+}
+
 /** Compose the advisory microtext for a usages view (§2.2/§2.3): the import-collapse
  *  count, and — when a role filter is active — what the role-unfiltered answer looked
  *  like. The generalized principle: an empty filtered answer must show what the
