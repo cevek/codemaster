@@ -22,6 +22,7 @@ import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './c
 import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { JsxCallSitesView } from './jsx-call-sites.ts';
 import type { JsxChildSitesView } from './jsx-child-sites.ts';
+import type { FieldRenderSitesView } from './field-render-sites.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { WideningSinksView } from './type-widening.ts';
 import type { ImportersView } from './importers.ts';
@@ -141,6 +142,16 @@ export interface TsPluginApi extends Plugin {
   jsxChildSites(
     target: TsTargetInput,
   ): { view: JsxChildSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** Cross-tier API (§5-L2): the member-read sites of the PROPERTY symbol at `target` — a different
+   *  projection of the same `findReferences` primitive `findUsages` rides (member-level by
+   *  construction: references of a property are its `obj.email` accesses, alias-safe), each tagged
+   *  with the TSX-language fact `trace_field_to_render` maps to a render verdict — the nearest
+   *  enclosing JSX position (intrinsic-host vs value-based element, child vs attribute) + the
+   *  enclosing declaration + a destructure flag. Zero framework policy here. Bounded: the reference
+   *  set is hard-capped (§19) and the cap reported as `truncated`. */
+  fieldRenderSites(
+    target: TsTargetInput,
+  ): { view: FieldRenderSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A

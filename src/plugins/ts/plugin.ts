@@ -2,6 +2,7 @@
 // warm), target resolution (SymbolId / file:line:col / name), proof-carrying rebind
 // (§6), and the cross-tier `cssModuleUsages` other plugins consume. Public API only;
 // internals (ls-host, queries) stay behind this module.
+/* eslint-disable max-lines -- temporary: LS-read wiring to be split into a sub-module, see docs/backlog.md */
 
 import * as path from 'node:path';
 import type { PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
@@ -15,6 +16,7 @@ import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
 import { scanJsxCallSites } from './jsx-call-sites.ts';
 import { scanJsxChildSites } from './jsx-child-sites.ts';
+import { scanFieldRenderSites } from './field-render-sites.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import type { UnresolvedTarget } from './query-types.ts';
@@ -207,6 +209,15 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
         target,
         collectWideningSinks,
         'no value at the resolved position',
+      ),
+
+    fieldRenderSites: (target) =>
+      resolvedScan(
+        resolve,
+        warm,
+        target,
+        scanFieldRenderSites,
+        'no symbol at the resolved position',
       ),
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),
