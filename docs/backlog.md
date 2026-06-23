@@ -161,17 +161,42 @@ don't vanish.
 > golden + oracle.
 
 - [ ] **component/feature composites** — `ops/component-card`, `feature-map`, `mount-path`,
-      `find-unused-props`, `why-this-line`, `recent-changes`, `changed-since-branch`,
+      `why-this-line`, `recent-changes`, `changed-since-branch`,
       `refactor-extract-container`. `feat`·`med`·`cx:L`
-- [ ] **`ops/affected.ts`** — changed files → impacted tests, via the `ts` import graph.
-      `feat`·`med`·`cx:M`
-- [ ] **impact: type-error blast radius** — beyond reference edges, simulate the change and report
-      the real `tsc` errors at each dependent (trial edit + `typecheckOverlay`). `feat`·`med`·`cx:L`
 - [ ] **impact: `batch+sql` table** — needs a "bounded-by-design, always-partial" table contract
       (a capped table feeding `NOT IN` would lie, §2.3). `feat`·`low`·`cx:M`
 - [ ] **impact: wall-clock deadline** — node-cap guarantees termination but there's no cumulative
       wall-clock budget → slow-but-finite on a huge repo. Needs a live `Clock` in `OpContext`
       (engine-level). `perf`·`med`·`cx:M`
+- [ ] **affected/impact super-seed: reverse-import map** — the `affected` super-seed fans `importersOf`
+      (un-memoized O(files) scan) per changed file; in sparse mode (import-leaf changes) the node-budget
+      break never fires → O(traced×files), slow-but-terminating (the op note states this honestly).
+      Build a reverse-import map once (one O(F) scan) + memoize `importersOf`. Same class as **impact:
+      wall-clock deadline**. `perf`·`med`·`cx:M`
+- [ ] **affected: dynamic-import tracing** — `importersOf` follows only static import/export; a test that
+      lazily `import('./x')`/`require()`s a changed module is silently skipped (the op honestly scopes
+      `complete` to the static trace, but the test is still missed). Tool-wide, inherited from
+      `importersOf`. `feat`·`low`·`cx:L`
+- [ ] **impact_type_error: clean-scope caveat note** — `clean:true` means "no introduced error WITHIN the
+      reference-closure scope"; a purely-structural breaker that never references the symbol by name (outside
+      the find_usages closure) is missed. Matches impact's reference-closure contract, but a standing
+      one-line scope-note on the clean verdict would stop `clean` being read wider than it is. `bug`·`low`·`cx:S`
+- [ ] **impact_type_error: editSiteDirty false-`!!` on line-shift** — if the edited declFile has a
+      pre-existing error AND the splice changes line count, the shifted old error resurfaces as
+      "introduced" in declFile → the editSiteDirty `!!` "parse cascade" note fires on a correct `replace`
+      with a real downstream list. Over-warning (conservative, not a lie); per-file diff can't tell a new
+      syntax error from a line-shifted old one. `bug`·`low`·`cx:M`
+- [ ] **impact_type_error: overlay-baseline doc wording** — the overlay-check doc (`ts/api.ts`) says "disk
+      baseline" but `collectFromService` reads the CURRENT program state (=VFS), not disk. Cosmetic doc
+      accuracy. `dx`·`low`·`cx:S`
+- [ ] **jsxCallSites: member-expression tagName `<C.Sub/>`** — a ref to `C` inside a member-expr tagName
+      (`<C.Sub foo/>`) is classified `jsx` and Sub's attributes read as passed to `C` → `find_unused_props`
+      may mask a dead prop on `C` (false-negative) or falsely mark it used. Rare (compound components).
+      `bug`·`low`·`cx:S`
+- [ ] **react read-model: `FunctionDecl` internal-reach** — `react/unused-props.ts` + `react/detect.ts`
+      import `FunctionDecl` from the ts plugin's internal `function-declarations.ts` rather than the public
+      `ts/plugin.ts` barrel (which re-exports `JsxCallSitesView`/`ParamTypeMembersView` but not
+      `FunctionDecl`). Re-export it for §5-L3 consistency. `imp`·`low`·`cx:S`
 
 ### Phase 6 — `trace` ops (data + control flow)
 
