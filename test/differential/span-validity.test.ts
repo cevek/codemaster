@@ -92,6 +92,8 @@ const EXCLUSIONS: Record<string, string> = {
     'emits encloser rollups (file:line:col + chainable SymbolIds), like find_usages grouped mode — no verbatim Spans; closure correctness is oracle-tested in impact.test.ts',
   impact_type_error:
     'emits a target-ref id + introduced tsc diagnostics (file:line:message), not proof Spans — the diagnostics ARE the proof, cross-checked against a cold ts.Program in impact-type-error.test.ts',
+  affected:
+    'emits changed-set + test file-path strings (no source Spans); the import-graph→tests trace is oracle-tested in affected.test.ts vs an independent cold reverse-import walk',
   feedback: 'writes the global inbox; carries no source Spans',
   list: 'generic registry dispatcher — emits Spans only when a registry-owning framework plugin is active (none in this fixture); span validity is exercised in react-detect.test.ts',
   invalidations_for:
