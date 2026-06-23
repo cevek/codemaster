@@ -311,3 +311,41 @@ export function coldDiagnostics(root: string, configRel = 'tsconfig.json'): stri
     .getPreEmitDiagnostics(program)
     .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
 }
+
+/** Independent oracle for `impact_type_error` (§16): the set of repo-relative files a
+ *  fresh-from-cold `ts.Program` reports a semantic error in WHEN `editRel`'s content is replaced
+ *  by `newContent` — the same trial edit the op overlays, but compiled by a SEPARATE whole-program
+ *  TS view (cold vs the op's warm overlay LS), so a red/green agreement is a real cross-check, not
+ *  the checker against itself. The op's downstream `brokenBy` (excluding the edited file) must equal
+ *  this set minus `editRel`. */
+export function coldDiagnosticFilesWithEdit(
+  root: string,
+  editRel: string,
+  newContent: string,
+  configRel = 'tsconfig.json',
+): string[] {
+  const configPath = path.join(root, configRel);
+  const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
+  const { config, error } = raw as { config: unknown; error?: unknown };
+  assert.ok(error === undefined, `oracle could not read tsconfig: ${JSON.stringify(error)}`);
+  const parsed = ts.parseJsonConfigFileContent(config, ts.sys, root);
+  const editAbs = path.resolve(path.join(root, editRel));
+  const host = cachingHost(parsed.options);
+  const inner = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, version, onError, shouldCreate) => {
+    if (path.resolve(fileName) === editAbs) {
+      const v = typeof version === 'object' ? version.languageVersion : version;
+      return ts.createSourceFile(fileName, newContent, v, true);
+    }
+    return inner(fileName, version, onError, shouldCreate);
+  };
+  const program = ts.createProgram(parsed.fileNames, parsed.options, host);
+  const files = new Set<string>();
+  for (const d of ts.getPreEmitDiagnostics(program)) {
+    if (d.file === undefined) continue;
+    const rel = path.relative(root, d.file.fileName).split(path.sep).join('/');
+    if (rel.startsWith('..') || path.isAbsolute(rel) || rel.includes('node_modules')) continue;
+    files.add(rel);
+  }
+  return [...files].sort();
+}

@@ -90,6 +90,8 @@ const EXCLUSIONS: Record<string, string> = {
     'emits a navigational `at:"file:line:col"` loc (the name-token span is density-water at full, §12), not a proof Span — the resolved type/members/signatures proof is the live checker, oracle-tested in expand-type.test.ts vs a cold Program',
   impact:
     'emits encloser rollups (file:line:col + chainable SymbolIds), like find_usages grouped mode — no verbatim Spans; closure correctness is oracle-tested in impact.test.ts',
+  impact_type_error:
+    'emits a target-ref id + introduced tsc diagnostics (file:line:message), not proof Spans — the diagnostics ARE the proof, cross-checked against a cold ts.Program in impact-type-error.test.ts',
   feedback: 'writes the global inbox; carries no source Spans',
   list: 'generic registry dispatcher — emits Spans only when a registry-owning framework plugin is active (none in this fixture); span validity is exercised in react-detect.test.ts',
   invalidations_for:

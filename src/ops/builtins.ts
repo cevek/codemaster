@@ -28,6 +28,7 @@ import { changeSignatureOp } from './change-signature.ts';
 import { codemodOp } from './codemod.ts';
 import { transactionOp } from './transaction.ts';
 import { impactOp } from './impact.ts';
+import { impactTypeErrorOp } from './impact-type-error.ts';
 import { invalidationsForOp } from './react-query-invalidations-for.ts';
 import { feedbackOp } from './feedback.ts';
 
@@ -57,6 +58,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     codemodOp,
     transactionOp,
     impactOp,
+    impactTypeErrorOp,
     invalidationsForOp,
     feedbackOp,
   ];

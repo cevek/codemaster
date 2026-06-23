@@ -19,27 +19,17 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { matchesAnyGlob } from '../common/glob/match.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type { GroupRow, UsageOptions, UsagesView } from '../plugins/ts/query-types.ts';
+import type { GroupRow, UsageOptions } from '../plugins/ts/query-types.ts';
 import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
-import {
-  buildClosure,
-  rolesDeclOnly,
-  rolesIncludeCallable,
-  type ClosureResult,
-  type Expand,
-} from './impact-closure.ts';
+import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
+import { outcomeFromView } from './impact-expand.ts';
 
 const DEFAULT_DEPTH = 3;
 const MAX_DEPTH = 12;
 const DEFAULT_NODES = 200;
 const MAX_NODES = 2000;
-
-/** Definition kinds whose value-only read is a meaningful dynamic-dispatch escape (a thing
- *  that is normally invoked/constructed). An arrow-bound `const` reads as kind `const`, so
- *  this is paired with a sibling call/jsx check — see `outcomeFromView`. */
-const CALLABLE_KINDS = new Set(['function', 'local function', 'method', 'class', 'constructor']);
 
 const argsSchema = z
   .strictObject({
@@ -73,32 +63,6 @@ function passesFilter(row: GroupRow, args: ImpactArgs): boolean {
   if (args.pathInclude !== undefined && !matchesAnyGlob(row.file, args.pathInclude)) return false;
   if (args.pathExclude !== undefined && matchesAnyGlob(row.file, args.pathExclude)) return false;
   return true;
-}
-
-/** Project a `find_usages` grouped view into an `ExpandOutcome`: drop the target's own
- *  decl-only rollup (its definition site is not a dependent), shrink `groupTotal` by the
- *  same count so the drop never looks like a hub truncation, and decide callable-nature
- *  from the parent's kind OR a sibling that calls/renders it. */
-function outcomeFromView(view: UsagesView): {
-  ok: true;
-  enclosers: readonly GroupRow[];
-  groupTotal: number;
-  callableNatured: boolean;
-} {
-  const all = view.groups ?? [];
-  const enclosers = all.filter((g) => !rolesDeclOnly(g.roles));
-  const droppedDecl = all.length - enclosers.length;
-  // `callable` (call/construct signature) catches an arrow/fn-expr `const` the kind check misses
-  // (its LS kind is `const`) — without it, a value-only-read of such a callable would not be flagged
-  // a dynamic boundary and the closure would falsely read `complete` (§3.3).
-  const callableByKind =
-    CALLABLE_KINDS.has(view.definition?.kind ?? '') || view.definition?.callable === true;
-  return {
-    ok: true,
-    enclosers,
-    groupTotal: (view.groupTotal ?? all.length) - droppedDecl,
-    callableNatured: callableByKind || enclosers.some((g) => rolesIncludeCallable(g.roles)),
-  };
 }
 
 /** Compose the load-bearing honesty notes (§12 verdict-before-bulk: these precede the node

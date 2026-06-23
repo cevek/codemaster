@@ -298,6 +298,13 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return out;
     },
 
+    fileText(p) {
+      const h = warm();
+      // sourceFileAcross prefers the primary program and only builds siblings if the file lives
+      // solely in one — so the read basis matches the gate's baseline (same VFS-parsed bytes).
+      return h.sourceFileAcross(h.absOf(p))?.sf.text;
+    },
+
     allProgramTsFiles() {
       // Union every loaded program's source files (primary + siblings), deduped — so a codemod's
       // whole-program gate scope spans a SIBLING-only importer (a `test/**` file the primary never

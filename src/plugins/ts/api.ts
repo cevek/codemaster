@@ -190,6 +190,12 @@ export interface TsPluginApi extends Plugin {
    *  the primary program never compiles). Passing the primary-only `programTsFiles` there would leave
    *  the sibling's broken importer out of the gate's check scope → a cross-program false-clean. */
   allProgramTsFiles(): readonly RepoRelPath[];
+  /** The CURRENT VFS-aware text of `path` (the same content the LS program parses — disk plus any
+   *  live overlay), or `undefined` when no loaded program contains it. The read basis a trial-edit
+   *  op (`impact_type_error`) splices against, so the spliced overlay and the gate's baseline read
+   *  the SAME bytes — a disk read would ignore an uncommitted overlay and make the introduced-error
+   *  diff a lie. Generic VFS read: no edit policy here (that stays op-level, §5-L3). */
+  fileText(path: RepoRelPath): string | undefined;
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }
