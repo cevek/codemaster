@@ -57,6 +57,8 @@ export type ShapeTag =
   | 'css-decl-ref'
   | 'css-left-behind'
   | 'css-coextract'
+  // react
+  | 'unused-prop'
   // react-query
   | 'rq-mutation'
   | 'rq-edge'

@@ -20,6 +20,8 @@ import type { ConstructionSitesOptions, ConstructionSitesView } from './construc
 import type { CssModuleUsages } from './css-modules.ts';
 import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
 import type { FunctionDeclarationsResult } from './function-declarations.ts';
+import type { JsxCallSitesView } from './jsx-call-sites.ts';
+import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
 import type { RenameOutcome } from './refactor/rename/rename-sites.ts';
@@ -98,6 +100,23 @@ export interface TsPluginApi extends Plugin {
    *  (PascalCase / `use*` live in plugins/react). The name-token span is a chainable target.
    *  MEMOIZED on `freshness()`. */
   functionDeclarations(): FunctionDeclarationsResult;
+  /** Cross-tier API (§5-L2): the JSX call-sites of the symbol at `target` — per `<Tag .../>`
+   *  reference, the named attributes passed + whether it `{...spreads}` — plus the references
+   *  that are NOT readable JSX elements (factory `createElement` calls, value reads/writes like
+   *  `memo(C)`), which obscure the passed set. Anchored on `findReferences` (alias-safe). The seam
+   *  the `react` plugin's unused-props read-model consumes; zero framework policy here. Bounded:
+   *  the reference set is hard-capped (§19) and the cap reported as `truncated`. */
+  jsxCallSites(
+    target: TsTargetInput,
+  ): { view: JsxCallSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** Cross-tier API (§5-L2): the apparent-type members of the FIRST parameter of the function at
+   *  `target` — the checker's own member-merge, so `extends`/intersection props arrive flattened
+   *  (what `expandType` cannot do — it dispatches a union/intersection to arm strings). The seam
+   *  the `react` plugin reads a component's DECLARED props from; "first param = props" is react's
+   *  policy, not here. Each member carries its declaration-name proof span. */
+  firstParamTypeMembers(
+    target: TsTargetInput,
+  ): { view: ParamTypeMembersView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A

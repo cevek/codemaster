@@ -13,6 +13,8 @@ import { findUsages, referenceSpans } from './usages.ts';
 import { findUsagesMerged } from './usages-merge.ts';
 import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
+import { scanJsxCallSites } from './jsx-call-sites.ts';
+import { firstParamTypeMembers } from './first-param-members.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
@@ -54,6 +56,8 @@ export type { UnusedExportView } from './unused-exports.ts';
 // files (§5-L2 / src/README rule 5).
 export type { CallMatchSpec, LiteralCallProvenance } from './call-scan-shared.ts';
 export type { ConstructionSite, ConstructionTarget } from './construction-sites.ts';
+export type { JsxCallSite, JsxOpaqueRef, JsxCallSitesView } from './jsx-call-sites.ts';
+export type { ParamTypeMember, ParamTypeMembersView } from './first-param-members.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
@@ -174,6 +178,22 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       if (!resolved.ok) return missOf(resolved);
       const view = findConstructionSites(warm(), resolved.abs, resolved.offset, options);
       if (typeof view === 'string') return view;
+      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
+    jsxCallSites(target) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return missOf(resolved);
+      const view = scanJsxCallSites(warm(), resolved.abs, resolved.offset);
+      if (view === undefined) return 'no symbol at the resolved position';
+      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
+    firstParamTypeMembers(target) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return missOf(resolved);
+      const view = firstParamTypeMembers(warm(), resolved.abs, resolved.offset);
+      if (view === undefined) return 'no type information at the resolved position';
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 

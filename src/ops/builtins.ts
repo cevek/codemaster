@@ -14,6 +14,7 @@ import { scssClassesOp } from './scss-classes.ts';
 import { cssCascadeOp } from './css-cascade.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedExportsOp } from './find-unused-exports.ts';
+import { findUnusedPropsOp } from './find-unused-props.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
 import { i18nLookupOp } from './i18n-lookup.ts';
 import { findUnusedI18nKeysOp } from './find-unused-i18n-keys.ts';
@@ -42,6 +43,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     sourceOp,
     importersOfOp,
     findUnusedExportsOp,
+    findUnusedPropsOp,
     scssClassesOp,
     cssCascadeOp,
     findUnusedScssClassesOp,

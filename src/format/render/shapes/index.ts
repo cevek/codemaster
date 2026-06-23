@@ -10,6 +10,7 @@ import * as diag from './diagnostics.ts';
 import * as mut from './mutating.ts';
 import * as i18n from './i18n.ts';
 import * as scss from './scss.ts';
+import * as react from './react.ts';
 import * as rq from './react-query.ts';
 import * as list from './list.ts';
 
@@ -44,6 +45,7 @@ export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
   'css-decl-ref': scss.cssDeclRef,
   'css-left-behind': scss.cssLeftBehind,
   'css-coextract': scss.cssCoExtract,
+  'unused-prop': react.unusedProp,
   'rq-mutation': rq.rqMutation,
   'rq-edge': rq.rqEdge,
   'rq-affected': rq.rqAffected,
@@ -103,6 +105,7 @@ export const FULL_DISPOSITION: Record<ShapeTag, 'collapse' | 'verbatim'> = {
   'css-decl-ref': 'collapse',
   'css-left-behind': 'collapse',
   'css-coextract': 'collapse',
+  'unused-prop': 'collapse',
   'rq-mutation': 'collapse',
   'rq-edge': 'collapse',
   'rq-affected': 'collapse',

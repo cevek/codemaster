@@ -13,12 +13,22 @@
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
 import type { ListView } from '../../core/list.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
+import type { TsTargetInput } from '../ts/plugin.ts';
 import { detectComponents, detectHooks, COMPONENTS_NOTE } from './detect.ts';
 import { detectDialogs } from './dialogs.ts';
+import { pickComponent, computeUnusedProps, type UnusedPropsResult } from './unused-props.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
 
-export function createReactPlugin(): Plugin {
+export interface ReactPluginApi extends Plugin {
+  /** Declared-but-never-passed props of the component named `component` (optionally scoped to
+   *  `file`). The read-model over the `ts` plugin's `firstParamTypeMembers` + `jsxCallSites`
+   *  seams; verdicts demote to `partial` when a spread / opaque reference / capped site set makes
+   *  the passed props unreadable. An honest message when the component isn't found / is ambiguous. */
+  unusedProps(component: string, file?: string): UnusedPropsResult;
+}
+
+export function createReactPlugin(): ReactPluginApi {
   let registry: PluginRegistry | undefined;
   const tsApi = (): TsPluginApi => {
     if (registry === undefined) throw new Error('react plugin not initialized');
@@ -47,6 +57,26 @@ export function createReactPlugin(): Plugin {
       return Promise.resolve();
     },
     pending: () => [],
+
+    unusedProps(component: string, file?: string): UnusedPropsResult {
+      const ts = tsApi();
+      const picked = pickComponent(ts.functionDeclarations().decls, component, file);
+      if (!picked.ok) return picked;
+      const { span } = picked.decl;
+      // Address the ts seams by the component's name-token position (precise, disambiguated by
+      // pickComponent) — never a fuzzy name re-search.
+      const target: TsTargetInput = { file: span.file, line: span.line, col: span.col };
+
+      const membersOut = ts.firstParamTypeMembers(target);
+      if (typeof membersOut === 'string') return { ok: false, message: membersOut };
+      if (!('view' in membersOut)) return { ok: false, message: membersOut.unresolved };
+
+      const jsxOut = ts.jsxCallSites(target);
+      if (typeof jsxOut === 'string') return { ok: false, message: jsxOut };
+      if (!('view' in jsxOut)) return { ok: false, message: jsxOut.unresolved };
+
+      return { ok: true, view: computeUnusedProps(picked.decl, membersOut.view, jsxOut.view) };
+    },
 
     listRegistries: () => REGISTRIES,
     list(registry: string): ListView {

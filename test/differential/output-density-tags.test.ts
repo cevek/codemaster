@@ -102,6 +102,14 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     moved: ['x'],
     leftBehind: [],
   },
+  'unused-prop': {
+    name: 'size',
+    optional: true,
+    inherited: true,
+    type: 'string',
+    confidence: 'partial',
+    span: SAMPLE_SPAN,
+  },
   'rq-mutation': { id: 'ts:m@a.ts:1:1', name: 'm', site: SAMPLE_SPAN, edges: [] },
   'rq-edge': {
     method: 'invalidate',

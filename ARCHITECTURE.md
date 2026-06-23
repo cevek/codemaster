@@ -370,7 +370,15 @@ probing.
 **Framework plugins** (autodetected, config-gated, can be shipped by anyone):
 
 - **`react`** — depends on `ts`. Component detection (a symbol returning JSX under React
-  conventions), hook identification, dialog/sheet conventions.
+  conventions), hook identification, dialog/sheet conventions, and the **unused-props**
+  read-model: `component → declared props` (via the ts `firstParamTypeMembers` seam) vs
+  `JSX-usage → passed props` (via the ts `jsxCallSites` seam), diffed with the §3 honesty
+  demotion (a `{...spread}` / a factory or value reference like `memo(C)` / a capped site set
+  makes the passed set unreadable → every verdict demotes to `partial`, never a false
+  `certain`-dead). The "first param = props" and "what is a component" policies live here; the
+  two seams are framework-neutral generic syntactic scans on the `ts` plugin (the
+  `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not react
+  policy).
 - **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
 - **`tanstack-router`** — depends on `ts`. Routes.
 - **`zustand`** — depends on `ts`. Stores.
