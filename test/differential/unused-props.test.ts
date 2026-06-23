@@ -228,7 +228,10 @@ test('honest non-result: unknown component reports found:0 with a note, not an e
     const r = await p.op('find_unused_props', { component: 'Nope' });
     const d = data(r);
     assert.equal(d['found'], 0);
-    assert.ok((d['notes'] as string[]).some((n) => n.includes('Nope')), 'note names the component');
+    assert.ok(
+      (d['notes'] as string[]).some((n) => n.includes('Nope')),
+      'note names the component',
+    );
   } finally {
     await p.dispose();
   }
