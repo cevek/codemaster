@@ -179,6 +179,23 @@ Describe the **present state**, never the path to it — git holds the history. 
 "previously / used to / now changed / resolved". Changing a decision means rewriting the
 doc as if it had always been so. Cross-reference ARCHITECTURE.md by `§`.
 
+## Backlog discipline (`docs/backlog.md` = only what's still open)
+
+`docs/backlog.md` is read by agents as live truth — a resolved item left as `- [ ]` is a
+lie about open work, and an agent will build against a bug that no longer exists. Two rules:
+
+- **Close in the same commit you fix.** A `fix(`/`feat(` that closes a tracked behaviour
+  MUST, in the same diff, remove (or `[x]`-tick) the matching open item — never defer it to
+  a later sweep. The gap between fix and sweep is a window where the backlog reads false.
+  Adding newly-found residuals in that commit is fine and encouraged — just don't leave the
+  one you closed standing. (Closed items are then dropped wholesale in periodic
+  `docs(backlog)` sweeps; git holds the history — see Docs above.)
+- **A dogfood finding enters the backlog only after a repro on current `main`.** A
+  hedged hypothesis ("appears to…") recorded as an open bug is the other source of false
+  entries — the behaviour may already be correct. Reproduce hermetically first (CLI
+  one-shot / fixture); if you can't, either omit it or tag it `UNVERIFIED` so the next
+  reader knows it's unconfirmed, not a known bug.
+
 ## Dependencies
 
 Lean — a new dependency needs a reason. A dependency declared ahead of its first use goes
@@ -189,5 +206,6 @@ imports it (knip will flag the entry as redundant).
 
 `fix-and-check` green · new behavior has an oracle-backed test · any new boundary is
 zod-validated · every external-tool call wrapped (no crash, no guess) · docs at present
-state · no new upward import · no file over 300 lines · no blocking the orchestrator
-(heavy work → the workspace engine, §2).
+state · the closed backlog item struck in the same commit (Backlog discipline) · no new
+upward import · no file over 300 lines · no blocking the orchestrator (heavy work → the
+workspace engine, §2).
