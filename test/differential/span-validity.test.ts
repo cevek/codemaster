@@ -104,6 +104,8 @@ const EXCLUSIONS: Record<string, string> = {
     'emits proof Spans only along a value’s forward flow-chain (assignment / call / return); the generic sweep fixture has no such chain to trace, so proof-span validity is oracle-tested in trace-type-widening.test.ts via assertSpansValid',
   find_unused_props:
     'requires the react plugin (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in unused-props.test.ts via assertSpansValid',
+  trace_prop_through_tree:
+    'requires the react plugin (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in trace-prop-through-tree.test.ts via assertSpansValid',
   rename_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_file: 'mutating — edit-safety is the refactor port’s domain (spec §1)',
   move_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',

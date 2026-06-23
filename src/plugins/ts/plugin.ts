@@ -14,6 +14,7 @@ import { findUsagesMerged } from './usages-merge.ts';
 import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
 import { scanJsxCallSites } from './jsx-call-sites.ts';
+import { scanJsxChildSites } from './jsx-child-sites.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import type { UnresolvedTarget } from './query-types.ts';
@@ -35,7 +36,7 @@ import {
   type TsTargetInput,
 } from './resolve-target.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
-import { createScanMemos, createPlanningHelpers } from './plugin-helpers.ts';
+import { createScanMemos, createPlanningHelpers, resolvedScan } from './plugin-helpers.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
 import type { TsPluginApi } from './api.ts';
 
@@ -58,6 +59,7 @@ export type { UnusedExportView } from './unused-exports.ts';
 export type { CallMatchSpec, LiteralCallProvenance } from './call-scan-shared.ts';
 export type { ConstructionSite, ConstructionTarget } from './construction-sites.ts';
 export type { JsxCallSite, JsxOpaqueRef, JsxCallSitesView } from './jsx-call-sites.ts';
+export type { JsxChildSite, JsxChildAttr, JsxChildSitesView } from './jsx-child-sites.ts';
 export type { ParamTypeMember, ParamTypeMembersView } from './first-param-members.ts';
 export type { WideningSink, WideningEndpoint } from './type-widening.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
@@ -183,29 +185,29 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
-    jsxCallSites(target) {
-      const resolved = resolve(target);
-      if (!resolved.ok) return missOf(resolved);
-      const view = scanJsxCallSites(warm(), resolved.abs, resolved.offset);
-      if (view === undefined) return 'no symbol at the resolved position';
-      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
-    },
+    jsxCallSites: (target) =>
+      resolvedScan(resolve, warm, target, scanJsxCallSites, 'no symbol at the resolved position'),
 
-    firstParamTypeMembers(target) {
-      const resolved = resolve(target);
-      if (!resolved.ok) return missOf(resolved);
-      const view = firstParamTypeMembers(warm(), resolved.abs, resolved.offset);
-      if (view === undefined) return 'no type information at the resolved position';
-      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
-    },
+    firstParamTypeMembers: (target) =>
+      resolvedScan(
+        resolve,
+        warm,
+        target,
+        firstParamTypeMembers,
+        'no type information at the resolved position',
+      ),
 
-    wideningSinksAt(target) {
-      const resolved = resolve(target);
-      if (!resolved.ok) return missOf(resolved);
-      const view = collectWideningSinks(warm(), resolved.abs, resolved.offset);
-      if (typeof view === 'string') return view;
-      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
-    },
+    jsxChildSites: (target) =>
+      resolvedScan(resolve, warm, target, scanJsxChildSites, 'no source at the resolved position'),
+
+    wideningSinksAt: (target) =>
+      resolvedScan(
+        resolve,
+        warm,
+        target,
+        collectWideningSinks,
+        'no value at the resolved position',
+      ),
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),
     rewriteExtractedCss: (fileName, content, rewrites) =>

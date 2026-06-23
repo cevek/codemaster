@@ -385,9 +385,13 @@ probing.
   checker (`getApparentType().getProperties()`, so `extends`/intersection flatten in) — not a memoized
   syntactic scan like that precedent. The react plugin also exposes a generic **`classify(target)`** seam —
   is the resolved declaration a component / hook / other, by the react conventions — which routes a
-  trace op walking a declaration chain (used by `trace_invalidation` today; the other Phase 6 trace ops
-  sit on it). It resolves THROUGH the LS (`findDefinition` → match `functionDeclarations`), never an
-  id-string compare, so two SymbolIds minted by different paths for one decl classify alike.
+  trace op walking a declaration chain (`trace_invalidation` and `trace_prop_through_tree` today; the
+  remaining Phase 6 trace ops sit on it). It resolves THROUGH the LS (`findDefinition` → match
+  `functionDeclarations`), never an id-string compare, so two SymbolIds minted by different paths for
+  one decl classify alike. The DOWN-the-tree walk (`trace_prop_through_tree`) adds one generic ts seam,
+  `jsxChildSites` — the JSX a declaration's body renders, per-attr value signal + `{...spread}` flag,
+  over-collecting callback / render-prop position so an indirect forward is not dropped (§3.4) — the
+  inverse of the symbol-anchored `jsxCallSites`; classification stays op-level via `classify`.
 - **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
 - **`tanstack-router`** — depends on `ts`. Routes.
 - **`zustand`** — depends on `ts`. Stores.

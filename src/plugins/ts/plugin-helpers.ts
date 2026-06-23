@@ -4,8 +4,11 @@
 
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
+import type { HandleRebind } from '../../core/ids.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import type { ResolvedTarget, TsTargetInput } from './resolve-target.ts';
+import type { UnresolvedTarget } from './query-types.ts';
 import { scanLiteralCalls } from './literal-calls.ts';
 import { scanCallArgShapes } from './call-arg-shape.ts';
 import { scanFunctionDeclarations } from './function-declarations.ts';
@@ -124,4 +127,30 @@ export function createPlanningHelpers(warm: () => TsProjectHost, root: string): 
       return runWithOverlay(overlay, () => body(h, t.tree, options));
     },
   };
+}
+
+/** Resolve→scan→wrap: the shared shape of every symbol-anchored scan read (`jsxCallSites`,
+ *  `firstParamTypeMembers`, `jsxChildSites`, `wideningSinksAt`). A failed resolve → its message
+ *  (`unresolved` + the §6 rebind when a held handle moved); a scan that returns its OWN miss
+ *  `string` → that message; an `undefined` scan (no symbol/type/source at the position) →
+ *  `undefinedMsg`; otherwise the view with the rebind attached. Keeps these reads to one expression
+ *  each in plugin.ts (the 300-line cap), all driving the one LS (§4 one parser). `V extends object`
+ *  so a `string` return is unambiguously the miss message, never a view. */
+export function resolvedScan<V extends object>(
+  resolve: (t: TsTargetInput) => ResolvedTarget,
+  warm: () => TsProjectHost,
+  target: TsTargetInput,
+  scan: (host: TsProjectHost, abs: string, offset: number) => V | string | undefined,
+  undefinedMsg: string,
+): { view: V; rebind?: HandleRebind } | UnresolvedTarget | string {
+  const resolved = resolve(target);
+  if (!resolved.ok) {
+    return resolved.rebind !== undefined
+      ? { unresolved: resolved.message, rebind: resolved.rebind }
+      : resolved.message;
+  }
+  const view = scan(warm(), resolved.abs, resolved.offset);
+  if (typeof view === 'string') return view; // the scan's own honest miss message
+  if (view === undefined) return undefinedMsg;
+  return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
 }

@@ -21,6 +21,7 @@ import type { CssModuleUsages } from './css-modules.ts';
 import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
 import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { JsxCallSitesView } from './jsx-call-sites.ts';
+import type { JsxChildSitesView } from './jsx-child-sites.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { WideningSinksView } from './type-widening.ts';
 import type { ImportersView } from './importers.ts';
@@ -129,6 +130,17 @@ export interface TsPluginApi extends Plugin {
   wideningSinksAt(
     target: TsTargetInput,
   ): { view: WideningSinksView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** Cross-tier API (§5-L2): the JSX elements rendered in the BODY of the declaration at `target` —
+   *  per `<Tag .../>`, its tag-name span (a chainable `classify` target), the named attributes with
+   *  their value source + a bare-identifier value flagged (`{ident}` — the as-is/rename forward
+   *  signal), and whether it `{...spreads}`. GENERIC syntactic scan (JSX is a TSX-language fact,
+   *  like `jsxCallSites`); zero framework policy — trace ops apply the react convention via
+   *  `classify` on the tag span. OVER-collects all body JSX (incl. callback / attr-value position):
+   *  a value can flow through a `.map(…)` closure or a render-prop, so under-collecting would lie
+   *  (§3.4). Bounded: single-body scan (§19), site set hard-capped and reported. */
+  jsxChildSites(
+    target: TsTargetInput,
+  ): { view: JsxChildSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A
