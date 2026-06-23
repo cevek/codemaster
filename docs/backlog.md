@@ -453,7 +453,9 @@ don't vanish.
       (cf. fail[9]) resolving the symbol into the wrong file. The amiro snapshot is destroyed, so a
       faithful repro needs real amiro inputs; the honest refusal + zero-write floor holds regardless.
       Reproduce against a path-form / duplicate-symbol fixture, then close the matching desync.
-      `bug`·`med`·`cx:M`
+      (2026-06-23: 4 hermetic sandbox repros on current main — duplicate-symbol, alias-vs-relative
+      importer, APFS case-variant import, nested-dir + re-export barrel — all NO-REPRO; apply succeeded,
+      the floor held. Likely already fixed; reopen only with captured amiro inputs.) `bug`·`med`·`cx:M`
 - [ ] **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred. The
       guarded fold in `move-to-existing.ts` collapses only the duplication the move ITSELF created (its
       `skipModules` set excludes modules dest already had ≥2 statements for), so a same-module split that
@@ -796,10 +798,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       note + truncated-text `… N more` hint untested; `expand_type` `constituents` `covered()`
       substring-match has a theoretical false-positive (arm a substring of arm AB, head drops standalone
       a without `...`) needing a TS-format bug to trigger. `dx`·`low`·`cx:S`
-- [ ] **CLI `op --root <dir>` doesn't scope config / plugin-activation to the root** — `bin.ts` appears
-      to load config from `cwd`, not the resolved `--root`, so on a cross-dir CLI run i18n reads
-      inactive and scss reads the wrong root (MCP per-request `root` is fine). Dogfood friction; the CLI
-      self-dev loop is misleading on a non-cwd repo. `bug`·`med`·`cx:M`
 - [ ] **self-staleness banner missed after `daemon restart`** — ROOT CAUSE NOW KNOWN (see the
       2026-06-21 bug-sweep HIGH items above): the "no daemon running" + stale-serving combo is the
       **socket-path env-divergence** (bridge in `/tmp`, restart in `$TMPDIR` → different sockets) PLUS
@@ -815,19 +813,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       field `symbols` is not in any op's `arrayFields`, so `symbols:"Foo"` (string) still rejects; the
       single-name path is `symbol`→`name` (or `name` directly), not `symbols`. Minor DX — add `symbols` to
       find_usages `arrayFields` if the scalar form shows up again in the fail log. `dx`·`low`·`cx:S`
-- [ ] **resolver: file+line WITHOUT col, and name+file+line, don't disambiguate** — split out of the
-      Postel item above (intake fixes the SHAPE, not resolution). Two dogfood fails: (a) `source`/
-      symbol-addressed ops given a `path:line` (no column) honestly reject "needs file+line+col" — should
-      instead resolve the declaration spanning that line; (b) `find_usages {name, file, line}` (no col)
-      resolves by NAME and reports ambiguous, ignoring the file+line the agent passed to disambiguate —
-      should use the position. One resolver enhancement (`plugins/ts/resolve-target.ts`): a file+line with
-      no col resolves the top-level decl on that line. `bug`·`med`·`cx:M`
-- [ ] **`move_symbol` emits edits targeting an unknown file** — dogfood (amiro, 2026-06-21): a
-      `move_symbol` into an existing `dest` (apply:true) failed at the ts-ls stage — "move-symbol:
-      edits target an unknown file …/PersonAvatar.tsx". The LS "Move to file" produced an edit against
-      a file not in the overlay/program set (likely a cross-program or unopened importer). No partial
-      write (good), but the move is blocked. Investigate the program-membership of move-symbol edit
-      targets. `bug`·`med`·`cx:M`
 
 ---
 
@@ -847,11 +832,6 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       lists ABSOLUTE paths while every other path is repo-relative; (e) namespace-merge members flagged
       `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge). (d)/(e)
       are honesty/clarity. `bug`·`med`·`cx:M`
-- [ ] **`find_usages symbols:[…]` does not accept a SymbolId** — passing a full id
-      (`{"symbols":["ts:Button@…:54:10~d19d0f20"]}`) returns `no symbol named 'ts:Button@…'`, though
-      the single-target `symbolId`/`target` form accepts it. Undercuts the "ids are chainable" premise
-      that justifies trimming the `~rootTag` from displayed ids — fix the symbols[] resolver to accept
-      a SymbolId per entry (it currently treats each entry as a bare name). `bug`·`med`·`cx:S`
 - [ ] **A refused-on-`apply` mutating op reports `mode=dry-run`** — `move_symbol … apply:true` that the
       typecheck gate refuses still renders `mode=dry-run` (+ `applied=false` + the reason). `mode` is
       conflating "was apply requested" with "did anything get written"; a refused apply is neither a
@@ -874,9 +854,17 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
 - [ ] **no test for the per-op `needs:<plugin>` description tag** — `buildOpToolDescriptor` adds a
       `[needs: i18n]`-style tag from `op.requires`, but no test asserts it appears (the e2e covers
       the call-time `unavailable`, not the advertised tag). `dx`·`low`·`cx:S`
-- [ ] **`src/mcp/server.ts` is ~293 real lines (300 cap)** — the next edit forces a split; the natural
-      seam is extracting the per-op `runOpTool` + the render helpers (`renderResults`/`renderBatch`)
-      into a sibling `render-call.ts`. `dx`·`low`·`cx:S`
+- [ ] **`src/mcp/server.ts` is ~299 real lines (300 cap) — one line of headroom** — the exit-seam track
+      pushed it to the cap; the next edit forces a split. The natural seam is extracting the per-op
+      `runOpTool` + the render helpers (`renderResults`/`renderBatch`) into a sibling `render-call.ts`.
+      `dx`·`low`·`cx:S`
+- [ ] **exit-seam masking test: orphaned `.gen.ts` child swept only on the NEXT run** — `exit-seam-
+  masking.test.ts` generates a pid-unique `exit-seam-child.<pid>.gen.ts` under `test/e2e/`, cleaned in
+      `finally` + a defensive sweep at the START of the next run. A hard-kill (SIGKILL) between generation
+      and cleanup leaves a stray `.gen.ts` that an independent `npm run check` (tsc -p tsconfig.test.json /
+      eslint `test/**/*.ts`) would glob before the next test run sweeps it. Narrow window, abs-path import
+      stays valid, low risk. Consider generating under `os.tmpdir()` instead, or a sweep in the check
+      script. `dx`·`low`·`cx:S`
 - [ ] **`source` shows only the impl signature for an overloaded function** — `source` on an
       overloaded `function coerce(...)` returns only the implementation declaration's span/body, never
       the overload signature decls that precede it (verified: only the impl line is rendered). The
