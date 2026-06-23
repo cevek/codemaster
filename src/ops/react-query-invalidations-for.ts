@@ -25,11 +25,6 @@ export function renderKey(key: QueryKeyView | undefined, all: boolean): string {
   return `[${segs.join(', ')}]`;
 }
 
-function edgeConfidence(all: boolean, key: QueryKeyView | undefined): string {
-  if (all || key === undefined) return 'dynamic';
-  return key.confidence;
-}
-
 const invalidationsForTable: TableSpec<JsonValue> = {
   columns: [
     { name: 'mutation', type: 'text' },
@@ -47,7 +42,7 @@ const invalidationsForTable: TableSpec<JsonValue> = {
         const key = renderKey(e.key, e.all);
         const broad = e.all ? 1 : 0;
         if (e.affects.length === 0) {
-          out.push([m.name, e.method, key, broad, null, edgeConfidence(e.all, e.key)]);
+          out.push([m.name, e.method, key, broad, null, e.confidence]);
         } else {
           for (const a of e.affects) out.push([m.name, e.method, key, broad, a.name, a.confidence]);
         }

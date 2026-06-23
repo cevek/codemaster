@@ -261,6 +261,9 @@ Initial topics (each populated as Phase 0+ work demands):
 - **`span/`** — `contains` / `intersects` / `equals`; `extractText` (1-based `Loc` ↔
   0-based offset bridge — the §16 invariant 1 hotspot).
 - **`confidence/`** — `worstOf` and other reducers, used by per-hop trace aggregation.
+- **`trace/`** — the domain-neutral trace-hop contract (`TraceNode` / `TraceHop` +
+  `makeNode` / `makeHop` / `dedupHops`). Every `trace_*` op (§6 build order Phase 6) emits this
+  one shape; node identity is `SymbolId`-else-`kind@file:line:col`.
 - **`fingerprint/`** — `FileFingerprint` shape + comparators with the §19 mtime-tie
   hash semantics. The currency every plugin's `freshness()` deals in.
 - **`plugin-registry/`** — topological sort + cycle detection, the algorithm the
@@ -380,7 +383,11 @@ probing.
   (the `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not
   react policy); `firstParamTypeMembers` is a generic first-parameter TYPE-member read off the live
   checker (`getApparentType().getProperties()`, so `extends`/intersection flatten in) — not a memoized
-  syntactic scan like that precedent.
+  syntactic scan like that precedent. It also exposes a generic **`classify(target)`** seam —
+  is the resolved declaration a component / hook / other, by the react conventions — which routes a
+  trace op walking a declaration chain (used by `trace_invalidation` today; the Wave-2b trace ops
+  sit on it). It resolves THROUGH the LS (`findDefinition` → match `functionDeclarations`), never an
+  id-string compare, so two SymbolIds minted by different paths for one decl classify alike.
 - **`react-query`** — depends on `ts`. Mutations, queries, queryKeys, `invalidates` relations.
 - **`tanstack-router`** — depends on `ts`. Routes.
 - **`zustand`** — depends on `ts`. Stores.
@@ -843,7 +850,10 @@ marker), never a silent fall-through.
   (the first half of the coverage guard; the runtime guard catches a forgotten `tag()` call).
 - **Ops own the tag.** Composing the answer, an op stamps `tag(<shape>, row)` on every renderable
   row it emits (the shape is the op's contract; the renderer is the format layer's). A row reused
-  across ops (a `GroupRow` in `find_usages` and `impact`) is tagged at each op's assembly.
+  across ops (a `GroupRow` in `find_usages` and `impact`) is tagged at each op's assembly. A
+  DOMAIN-NEUTRAL row reused across a whole op FAMILY shares ONE tag — every `trace_*` op emits the
+  single `trace-hop` tag (its `relation`/`kind` are open data, dispatched by the one tag, never a
+  per-trace tag), so the trace family adds capability without growing the tag registry.
 - **`full` is per-tag, and COLLAPSE is the default.** `FULL_DISPOSITION`
   ([`format/render/shapes`](src/format/render/shapes)) is an EXHAUSTIVE `Record<ShapeTag,
 'collapse' | 'verbatim'>` — so a new tag with no entry is a COMPILE error (the second half of the
@@ -997,6 +1007,7 @@ codemaster/
       ids/                   # SymbolId codec (encode/decode plugin-prefix-routed format)
       span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
       confidence/            # worstOf and per-hop reducers
+      trace/                 # domain-neutral trace-hop contract: TraceNode/TraceHop + makeNode/makeHop/dedupHops (§6 Phase 6)
       fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
       hash/                  # FNV-1a — rollups + short stable keys (never security)
       glob/                  # glob matching over RepoRelPath

@@ -4,6 +4,7 @@
 // a proven static prefix is `certain`; a dynamic segment or a broad invalidation is honest
 // uncertainty (`partial`/`dynamic`), never asserted certain (§3.3).
 
+import type { Confidence } from '../../core/span.ts';
 import { matchKey } from './query-key.ts';
 import type { RqState } from './registries.ts';
 import type {
@@ -11,6 +12,7 @@ import type {
   InvalidationEdge,
   InvalidationsForView,
   QueryEntry,
+  QueryKeyView,
   ResolvedInvalidation,
   ResolvedMutation,
 } from './views.ts';
@@ -43,7 +45,16 @@ function resolveEdge(edge: InvalidationEdge, queries: readonly QueryEntry[]): Re
     all: edge.all,
     exact: edge.exact,
     narrowed: edge.narrowed,
+    confidence: edgeConfidence(edge.all, edge.key),
     span: edge.span,
     affects,
   };
+}
+
+/** The edge's own confidence: a broad invalidation (`all`) or an opaque/absent key is `dynamic`
+ *  (it hits everything / we can't read the key); otherwise the key's classified confidence. The
+ *  single source both `invalidations_for` and `trace_invalidation` consume (§3.3). */
+function edgeConfidence(all: boolean, key: QueryKeyView | undefined): Confidence {
+  if (all || key === undefined) return 'dynamic';
+  return key.confidence;
 }

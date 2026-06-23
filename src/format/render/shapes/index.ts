@@ -12,6 +12,7 @@ import * as i18n from './i18n.ts';
 import * as scss from './scss.ts';
 import * as react from './react.ts';
 import * as rq from './react-query.ts';
+import * as trace from './trace.ts';
 import * as list from './list.ts';
 
 export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
@@ -49,6 +50,7 @@ export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
   'rq-mutation': rq.rqMutation,
   'rq-edge': rq.rqEdge,
   'rq-affected': rq.rqAffected,
+  'trace-hop': trace.traceHop,
   'list-entry': list.listEntry,
   'endpoint-card': list.endpointCard,
 };
@@ -109,6 +111,7 @@ export const FULL_DISPOSITION: Record<ShapeTag, 'collapse' | 'verbatim'> = {
   'rq-mutation': 'collapse',
   'rq-edge': 'collapse',
   'rq-affected': 'collapse',
+  'trace-hop': 'collapse',
   'list-entry': 'collapse',
   'endpoint-card': 'collapse',
 };

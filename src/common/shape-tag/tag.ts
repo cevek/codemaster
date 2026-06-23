@@ -63,6 +63,8 @@ export type ShapeTag =
   | 'rq-mutation'
   | 'rq-edge'
   | 'rq-affected'
+  // trace (domain-neutral — one tag for every trace_* op)
+  | 'trace-hop'
   // list / schema
   | 'list-entry'
   | 'endpoint-card';

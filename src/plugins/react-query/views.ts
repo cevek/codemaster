@@ -105,6 +105,10 @@ export type ResolvedInvalidation = {
   /** The filter narrows in a way we cannot evaluate (`predicate`/`type`/dynamic `exact`) — every
    *  match here is an upper bound, capped at `partial` (a runtime predicate may exclude it). */
   narrowed: boolean;
+  /** The EDGE's own confidence (distinct from a per-`affects` match): a broad `invalidateQueries()`
+   *  with no key, or an opaque key, is `dynamic`; otherwise the key's own confidence. Lifted onto
+   *  the view so `invalidations_for` and `trace_invalidation` read ONE source and cannot drift. */
+  confidence: Confidence;
   span: Span;
   affects: AffectedQuery[];
 };

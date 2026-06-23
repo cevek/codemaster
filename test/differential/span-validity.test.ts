@@ -98,6 +98,8 @@ const EXCLUSIONS: Record<string, string> = {
   list: 'generic registry dispatcher — emits Spans only when a registry-owning framework plugin is active (none in this fixture); span validity is exercised in react-detect.test.ts',
   invalidations_for:
     'requires the react-query plugin (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in react-query.test.ts via assertSpansValid',
+  trace_invalidation:
+    'requires the react-query + react plugins (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in trace-invalidation.test.ts via assertSpansValid',
   find_unused_props:
     'requires the react plugin (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in unused-props.test.ts via assertSpansValid',
   rename_symbol: 'mutating — edit-safety is the refactor port’s domain (spec §1)',

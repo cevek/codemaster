@@ -138,6 +138,14 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     provenance: 'heuristic:react',
   },
   'endpoint-card': { method: 'GET', path: '/x', pathParams: [], confidence: 'certain' },
+  'trace-hop': {
+    from: { kind: 'mutation', label: 'm', key: 'ts:m@a.ts:1:1', span: SAMPLE_SPAN },
+    to: { kind: 'queryKey', label: '["t"]', key: 'queryKey@a.ts:1:1', span: SAMPLE_SPAN },
+    relation: 'invalidates',
+    confidence: 'dynamic',
+    provenance: { kind: 'heuristic', by: 'react-query' },
+    note: 'broad invalidateQueries() with no key',
+  },
 };
 
 test('every emitted shape tag has a renderer that collapses (no leak, no explosion)', () => {

@@ -18,10 +18,12 @@ import type { TsTargetInput } from '../ts/plugin.ts';
 import { detectComponents, detectHooks, COMPONENTS_NOTE } from './detect.ts';
 import { detectDialogs } from './dialogs.ts';
 import { pickComponent, computeUnusedProps, type UnusedPropsResult } from './unused-props.ts';
+import { classifyDecl, declAt, type DeclClassification } from './classify.ts';
 
 // Public surface for the unused-props read-model — ops depend on these, never on the internal
 // `unused-props.ts` module (§5-L3).
 export type { UnusedProp, UnusedPropsView, UnusedPropsResult } from './unused-props.ts';
+export type { DeclClassification, DeclKind } from './classify.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
 
@@ -31,6 +33,10 @@ export interface ReactPluginApi extends Plugin {
    *  seams; verdicts demote to `partial` when a spread / opaque reference / capped site set makes
    *  the passed props unreadable. An honest message when the component isn't found / is ambiguous. */
   unusedProps(component: string, file?: string): UnusedPropsResult;
+  /** Classify the declaration a `target` resolves to (component / hook / other) by the react
+   *  conventions — the generic decl-routing seam trace ops walk a declaration chain through. A
+   *  string is an honest miss (target did not resolve to a declaration). */
+  classify(target: TsTargetInput): DeclClassification | string;
 }
 
 export function createReactPlugin(): ReactPluginApi {
@@ -81,6 +87,21 @@ export function createReactPlugin(): ReactPluginApi {
       if (!('view' in jsxOut)) return { ok: false, message: jsxOut.unresolved };
 
       return { ok: true, view: computeUnusedProps(picked.decl, membersOut.view, jsxOut.view) };
+    },
+
+    classify(target: TsTargetInput): DeclClassification | string {
+      const ts = tsApi();
+      const def = ts.findDefinition(target);
+      if (typeof def === 'string' || !('views' in def))
+        return 'target did not resolve to a declaration';
+      const view = def.views[0];
+      if (view === undefined) return 'target did not resolve to a declaration';
+      const decl = declAt(ts.functionDeclarations().decls, view.span);
+      // No function-like decl at the resolved loc → not a component/hook (a value/type/module);
+      // the walk stops there. Honest `other`, never a guessed component.
+      if (decl === undefined)
+        return { kind: 'other', name: view.name, span: view.span, confidence: 'certain' };
+      return classifyDecl(decl);
     },
 
     listRegistries: () => REGISTRIES,
