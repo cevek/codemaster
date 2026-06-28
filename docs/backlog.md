@@ -79,6 +79,12 @@ don't vanish.
 
 ### MED
 
+- [ ] **`find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter** —
+      `src/ops/find-unused-exports.ts` raises `filterMatchedNoFiles` when `scannedFiles===0`, so a
+      filter where SOME paths are typos but others match (`scannedFiles>0`) scans a partial scope
+      with no warning. Safe direction (no false-positive), but a partly-mistyped `pathInclude`
+      still under-scans silently. Consider a per-pattern match count → warn on any pattern that hit
+      0 files, named. `dx`·`low`·`cx:S`
 - [ ] **chokidar feeds absolute OS paths into the reindex pipeline** —
       `src/support/watch/chokidar.ts:48-51` (`pending.add(path)` collects chokidar's absolute path
       → `onChanged(batch)`). Plugins key by `RepoRelPath` (forward-slash, root-relative, case-folded,

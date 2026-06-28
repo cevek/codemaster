@@ -13,6 +13,11 @@ import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
+/** Shown (as the first data field + an sql note) when a pathInclude/pathExclude matched no
+ *  files: the scan examined nothing, so `unused (0)` is NOT proof that no exports are dead. */
+const FILTER_NO_FILES_WARNING =
+  'pathInclude/pathExclude matched 0 files — nothing was examined; this is NOT proof that no exports are dead. Check your path(s)/glob(s) against actual file paths.';
+
 const findUnusedExportsTable: TableSpec<JsonValue> = {
   columns: [
     { name: 'name', type: 'text' },
@@ -58,6 +63,11 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
         `examined ${t.examined} of ${t.candidates} candidate exports (cap hit) — narrow with pathInclude to cover the rest.`,
       );
     }
+    // The vacuous-filter warning (§3.4/§3.6) is an honesty channel, so it must reach the
+    // sql/table render too — sourced from the same data field the dense render shows, never
+    // a re-derived string.
+    const warn = (data as { filterMatchedNoFiles?: string }).filterMatchedNoFiles;
+    if (warn !== undefined) out.push(warn);
     return out;
   },
 };
@@ -101,8 +111,19 @@ export const findUnusedExportsOp = defineOp({
               hint: 'narrow with pathInclude / pathExclude, or raise limit, to examine the rest',
             }
           : undefined;
+      // False-clean guard (§3.4/§3.6): a pathInclude/pathExclude that matched ZERO files scanned
+      // NOTHING, so `unused (0)` is "nothing examined", not "no dead exports". Surfaced as the
+      // FIRST data field (verdict-first §12) so it renders loud and on top — an agent must never
+      // read a vacuous scan as clean. Gated on a filter being set AND scannedFiles===0:
+      // scannedExports===0 alone is legitimate (real files in scope that export nothing), so it
+      // would false-warn; scannedFiles===0 uniquely means the glob/path matched no file. An
+      // honest whole-repo zero (no filter set) is never flagged.
+      const filterSet = args.pathInclude !== undefined || args.pathExclude !== undefined;
+      const filterMatchedNoFiles =
+        filterSet && view.scannedFiles === 0 ? FILTER_NO_FILES_WARNING : undefined;
       return ok(
         {
+          ...(filterMatchedNoFiles !== undefined ? { filterMatchedNoFiles } : {}),
           unused: view.unused.map((u) => tag('unused-export', u)),
           scanned: { exports: view.scannedExports, files: view.scannedFiles },
           ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
