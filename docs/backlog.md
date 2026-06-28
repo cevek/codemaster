@@ -262,6 +262,15 @@ don't vanish.
       "simplify" the script back to the comma form. Re-check on a knip bump; collapse to the comma
       form (or upstream a fix) once it actually applies. `dx`·`low`·`cx:S`
 
+- [ ] **MCP connection instability over long sessions (UNVERIFIED — likely harness-side)** — dogfood
+      friction (amiro, 2026-06-28): during a long multi-agent session the codemaster MCP cycled
+      disconnect→reconnect several times, so the agent stopped trusting op calls and fell back to
+      grep/Read. **Not reproduced as a codemaster bug**, and the strong tell that it is client/harness-side
+      is that codegraph/playwright/chrome-devtools cycled in the SAME reminders — codemaster cannot fix a
+      client cycling every server. The codemaster-actionable mitigation (a reconnect "warm and ready"
+      signal) is tracked separately under Wishes. Keep here only as a watch-item; promote to a real bug
+      iff a repro pins the disconnect to the daemon (idle-evict racing a live bridge / socket teardown).
+      `bug`·`low`·`cx:M`
 - [ ] **Wedged-daemon recovery** — the singleton (spec-daemon-singleton, shipped) reaps orphans via
       the daemon's idle-exit + the bridge's per-request reply deadline, but a **permanently wedged
       daemon** (accepts connections but never replies — a wedged synchronous loop holding the socket)
@@ -993,3 +1002,9 @@ masking.test.ts` generates a pid-unique `exit-seam-child.<pid>.gen.ts` under `te
 - [ ] **Member-level `find_usages`** — trace readers of a specific object-type FIELD (e.g.
       `GroupRow.site`); today `find_usages` on a type finds the TYPE, not a named `.field` member
       (role:read/write is syntactic). Checker-backed. `feat`·`med`·`cx:L`
+- [ ] **`initialize`/reconnect "warm and ready (freshness:…)" line** — dogfood friction (amiro,
+      2026-06-28): after an MCP disconnect→reconnect the agent couldn't trust the first op would land,
+      so it fell back to grep. The MCP `initialize` response re-fires on every (re)connect (it's the
+      bridge re-attaching to the warm daemon) — emitting a one-line "warm and ready, roots=…,
+      freshness=…" there would rebuild trust on reconnect at near-zero cost. `mcp/` facade; own track.
+      `dx`·`med`·`cx:S`
