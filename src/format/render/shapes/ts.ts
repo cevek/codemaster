@@ -70,6 +70,16 @@ export const groupRow: ShapeRenderer = (v) => {
 /** ImporterRow: { at, imports }. */
 export const importer: ShapeRenderer = (v) => `${String(v['at'])} · ${String(v['imports'])}`;
 
+/** SUBTREE ImporterRow: { at, scope, target, imports } — scope (external=blocker / internal) plus
+ *  the specific file under the tree this importer pulls (per-row, varies). */
+export const subtreeImporter: ShapeRenderer = (v) =>
+  `${String(v['at'])} · ${String(v['scope'])} → ${String(v['target'])} · ${String(v['imports'])}`;
+
+/** SUBTREE UnconfirmedRef: { at, spec, reason } — an unresolvable spec lexically under the tree,
+ *  flagged (not raw-matched). */
+export const subtreeUnconfirmed: ShapeRenderer = (v) =>
+  `${String(v['at'])} · ${String(v['spec'])} · ${String(v['reason'])}`;
+
 /** ConstructionSiteView: { span, confidence, encloser:{id,kind,exported,…}, note? }. The
  *  encloser sub-object re-prints what `encloser.id` encodes — fold to `in <id> (kind[, exported])`. */
 export const constructionSite: ShapeRenderer = (v) => {

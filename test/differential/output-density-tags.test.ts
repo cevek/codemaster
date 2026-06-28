@@ -38,6 +38,8 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     site: SAMPLE_SPAN,
   },
   importer: { at: 'a.ts:1', imports: 'X' },
+  'subtree-importer': { at: 'a.ts:1', scope: 'external', target: 'src/dir/x.ts', imports: 'X' },
+  'subtree-unconfirmed': { at: 'a.ts:1', spec: '../dir/x.scss', reason: 'spec did not resolve' },
   'construction-site': {
     span: SAMPLE_SPAN,
     confidence: 'partial',

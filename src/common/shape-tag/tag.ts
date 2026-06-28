@@ -28,6 +28,8 @@ export type ShapeTag =
   | 'text-hit'
   | 'group-row'
   | 'importer'
+  | 'subtree-importer'
+  | 'subtree-unconfirmed'
   | 'construction-site'
   | 'unused-export'
   | 'type-member'

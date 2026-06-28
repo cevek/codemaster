@@ -5,19 +5,42 @@
 // the compiler sees them.
 
 import ts from 'typescript';
+import type { RepoRelPath } from '../../core/brands.ts';
+import { toPosix } from '../../support/fs/canonicalize.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
+import { findImportersSubtree } from './importers-subtree.ts';
 
 export type ImporterRow = {
   /** Importing file + line of the import statement. */
   at: string;
   /** What is imported: named/default/namespace bindings, or 're-export'. */
   imports: string;
+  /** SUBTREE mode only: the specific file UNDER the tree this importer pulls (per-row, varies). */
+  target?: string;
+  /** SUBTREE mode only: 'external' (importer's own file is OUTSIDE the tree = a deletion BLOCKER) |
+   *  'internal' (importer lives inside the tree — counted, not blocking). */
+  scope?: 'external' | 'internal';
+};
+
+/** SUBTREE mode: an import whose spec did NOT resolve to a file but whose LEXICAL target (a relative
+ *  `./`/`../` spec) lands under the tree — it cannot be CONFIRMED an importer (no raw-string match,
+ *  backlog 446a false-LIVE), so it is FLAGGED here, never silently dropped (§3.4) and never counted
+ *  as a confirmed blocker. */
+export type UnconfirmedRef = {
+  /** Importing file + line. */
+  at: string;
+  /** The unresolvable specifier. */
+  spec: string;
+  reason: string;
 };
 
 export type ImportersView = {
-  /** The module as resolved (repo-relative), or the raw specifier when unresolvable. */
+  /** The module as resolved (repo-relative), or the raw specifier when unresolvable; in SUBTREE
+   *  mode, the subtree directory (repo-relative). */
   module: string;
+  /** MODULE mode: the importers. SUBTREE mode: external ∪ internal (the full set, so a generic
+   *  consumer — `affected` — still sees every importer). */
   importers: ImporterRow[];
   total: number;
   /** §3.4 FLOOR: repo tsconfigs NOT loaded as programs (nested-package config neither adjacent to
@@ -25,11 +48,46 @@ export type ImportersView = {
    *  importer living ONLY under such a program is NOT scanned, so a non-empty set makes the list a
    *  LOWER BOUND — the op surfaces `complete:false` + a named `!!` note, never a false `0`. */
   undiscoveredPrograms?: string[];
+  // ── SUBTREE mode only (present iff the arg named a directory) ──────────────────────────────────
+  /** Set to `'subtree'` when the arg named a directory (`ts.sys.directoryExists` / trailing slash):
+   *  "who imports ANYTHING under this folder" — the explicit-in-output mode flag. */
+  mode?: 'subtree';
+  /** The subtree directory (repo-relative). */
+  subtree?: string;
+  /** Importers whose own file is OUTSIDE the tree — deletion BLOCKERS (the headline; 0 ⇒ candidate-safe). */
+  external?: ImporterRow[];
+  /** Importers whose own file is INSIDE the tree — counted + kept, not blocking. */
+  internal?: ImporterRow[];
+  /** Unresolvable specs lexically under the tree — flagged, never raw-matched (§fork2). */
+  unconfirmed?: UnconfirmedRef[];
 };
+
+/** Detect SUBTREE mode (§fork1, directory-wins): a trailing slash OR a real directory under the
+ *  repo root makes the arg a folder, checked BEFORE module resolution — so an index-bearing folder
+ *  is never collapsed to its barrel (which would silently drop deep importers, a §3.4 omission). The
+ *  dir/file collision (`foo` with both `foo/` and `foo.ts`) resolves to the DIRECTORY; name `foo.ts`
+ *  to target the file. Returns the repo-relative + canonical-abs dir, or `undefined` for a file/
+ *  out-of-repo arg. */
+function detectSubtree(
+  host: TsProjectHost,
+  moduleArg: string,
+): { rel: string; abs: string } | undefined {
+  const cleaned = moduleArg.replace(/\/+$/, '');
+  if (cleaned.length === 0) return undefined;
+  const abs = toPosix(host.absOf(cleaned as RepoRelPath));
+  if (!ts.sys.directoryExists(abs)) return undefined;
+  const rel = host.relOf(abs);
+  // Guard against a `../` arg escaping the repo root (relOf returns a non-repo-relative spelling).
+  if (rel.length === 0 || rel.startsWith('/') || rel.startsWith('..')) return undefined;
+  return { rel, abs };
+}
 
 export function findImporters(host: TsProjectHost, moduleArg: string): ImportersView {
   const primary = host.service.getProgram();
   if (primary === undefined) return { module: moduleArg, importers: [], total: 0 };
+
+  const sub = detectSubtree(host, moduleArg);
+  if (sub !== undefined) return findImportersSubtree(host, sub.rel, sub.abs);
 
   // The target module is named once, resolved under the primary's options (the canonical config).
   const targetAbs = resolveModuleArg(host, moduleArg, primary.getCompilerOptions());
@@ -76,7 +134,7 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
   };
 }
 
-function moduleSpecifierOf(stmt: ts.Statement): string | undefined {
+export function moduleSpecifierOf(stmt: ts.Statement): string | undefined {
   if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
     return stmt.moduleSpecifier.text;
   }
@@ -110,7 +168,7 @@ function matches(
   return spec === moduleArg;
 }
 
-function importedNames(stmt: ts.Statement): string {
+export function importedNames(stmt: ts.Statement): string {
   if (ts.isExportDeclaration(stmt)) return 're-export';
   if (!ts.isImportDeclaration(stmt)) return '';
   const clause = stmt.importClause;

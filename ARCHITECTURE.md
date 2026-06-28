@@ -343,6 +343,20 @@ probing.
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
+  **`importers_of` SUBTREE mode.** When the arg names a DIRECTORY (`ts.sys.directoryExists`, or a
+  trailing slash) rather than a file, `importers_of` answers "who imports ANYTHING under this folder"
+  — the "safe to delete this folder?" question — in one call. Detection is **directory-wins** (the
+  dir check runs BEFORE module resolution, so an index-bearing folder is never collapsed to its
+  barrel, which would silently drop the folder's deep importers — a §3.4 omission); a dir/file name
+  collision resolves to the directory (name `foo.ts` for the file). Matching is by RESOLVED target
+  path-containment under the tree (per-program options), **never** a raw-string compare. Importers
+  partition into **external** (own file outside the tree = deletion BLOCKERS, the headline `blockers`
+  count of distinct files) and **internal** (own file inside — counted + kept, non-blocking, never
+  silently dropped). An import whose spec does NOT resolve to a file but whose relative-lexical target
+  lands under the tree is FLAGGED `unconfirmed` (a `.scss` / unresolvable spec), never raw-matched
+  (no false-LIVE). `safe` is true only when `blockers=0 ∧ complete (all programs scanned) ∧
+unconfirmed=0`; the §3.4 undiscovered-program floor still applies. Engine in
+  `plugins/ts/importers-subtree.ts`.
   Discovery is adjacent-`tsconfig*.json` + transitive `references`; a nested-package config
   reachable by neither is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every

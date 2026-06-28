@@ -464,6 +464,13 @@ don't vanish.
       PRIMARY options, so a target named via a SIBLING-only alias drops real sibling importers
       (under-report). Both honest-incomplete. Fix: anchor relative args / per-program target.
       `bug`·`low`·`cx:M`
+- [ ] **`importers_of` SUBTREE mode: an unresolvable ALIAS spec under the tree is not flagged** — the
+      subtree `unconfirmed` flag (an unresolvable spec lexically under the folder, e.g. a `.scss`) only
+      lexically expands RELATIVE (`./`/`../`) specs; an `@/…` alias / bare spec that FAILS resolution is
+      not alias-expanded, so it is neither confirmed nor flagged → silently absent from `unconfirmed`.
+      Safe direction (UNDER-report of an unresolvable alias, never a raw-string false-LIVE), but a named
+      gap. Fix: lexically expand tsconfig `paths`/`baseUrl` for the unresolved-spec flag too.
+      `bug`·`low`·`cx:M`
 - [ ] **`find_usages` cross-program merge has no PER-OFFSET oracle** — the differential test pins the
       file SET against a cold `tsconfig.test.json` program, but not within-file ref counts/offsets or
       overload/merged-symbol dedup. Add a per-offset cross-program assertion + an overloaded-symbol
