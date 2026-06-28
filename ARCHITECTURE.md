@@ -803,7 +803,11 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   lives only for that call**, and one read-only `SELECT` runs across the aliased tables —
   relational algebra (anti-joins, negations, aggregates) over op outputs without the agent
   hand-merging. Producers run **uncapped** in sql-mode (a capped table feeding `NOT IN`
-  would lie); a per-table hard bound marks the result `partial` with the table named. The
+  would lie); a per-table hard bound marks the result `partial` with the table named. A
+  producer that errors / returns `ok:false` fails the **SELECT**, not the whole call — a
+  join over its missing table would lie, so the SELECT is skipped and the `sql` record is an
+  honest failure naming the failed producer; every independent, successful producer still
+  returns under `return:'all'` (never a silent drop, §3.4). The
   LS stays the only oracle — SQLite is a stateless evaluator over one call's freshly
   produced rows, never a cache or a second index (`support/sql/`, lazy `better-sqlite3`).
 

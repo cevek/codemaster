@@ -185,24 +185,46 @@ test('§7.7 envelope: freshness present; unresolved symbol surfaces as a note', 
   }
 });
 
-test('§7.7 envelope: a producer that returns ok:false fails the whole sql call (no joins over a missing table)', async () => {
+test('§11 envelope: a failed producer fails the SELECT (named), not its successful neighbours', async () => {
   const p = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
     'src/x.ts': `export const foo = 1;\n`,
   });
   try {
-    // The first producer resolves; the second targets an unresolvable symbol ⇒ ok:false.
-    // §5.2: the SQL never runs over a missing table — the call fails with that failure.
-    const results = await p.request(
+    // Producer `a` resolves; producer `b` targets an unresolvable symbol ⇒ ok:false. A join
+    // over `b`'s missing table would lie, so the SELECT is skipped — but `a` is independent
+    // and must survive. Default return:'sql' surfaces only the sql record: an honest failure
+    // NAMING the failed producer (§11, §3.4).
+    const sqlOnly = await p.request(
       [
         { name: 'search_symbol', as: 'a', args: { query: 'foo' } },
         { name: 'find_usages', as: 'b', args: { name: 'NoSuchSymbolAnywhere' } },
       ],
       { sql: 'SELECT * FROM a' },
     );
-    const r = results[0] as OpResult;
-    assert.ok('result' in r && !r.result.ok, 'the failing producer surfaces as a ToolFailure');
-    assert.equal((r.result as Extract<Result<unknown>, { ok: false }>).failure.tool, 'ts-ls');
+    assert.equal(sqlOnly.length, 1, 'default return:sql → only the sql record');
+    const sqlRec = sqlOnly[0] as OpResult;
+    assert.ok('result' in sqlRec && !sqlRec.result.ok, 'SELECT not run when a producer failed');
+    const failure = (sqlRec.result as Extract<Result<unknown>, { ok: false }>).failure;
+    assert.equal(failure.tool, 'sql');
+    assert.match(
+      failure.message,
+      /find_usages \(as b\)/,
+      'sql failure must name the failed producer',
+    );
+
+    // return:'all' → the independent, successful producer `a` still comes back (the dogfood
+    // silent-drop: previously only the failed producer + sql returned).
+    const all = await p.request(
+      [
+        { name: 'search_symbol', as: 'a', args: { query: 'foo' } },
+        { name: 'find_usages', as: 'b', args: { name: 'NoSuchSymbolAnywhere' } },
+      ],
+      { sql: 'SELECT * FROM a', return: 'all' },
+    );
+    assert.equal(all.length, 3, 'return:all → both producers + the sql record');
+    const a = all[0] as OpResult;
+    assert.ok('result' in a && a.result.ok, 'the successful neighbour `a` survives');
   } finally {
     await p.dispose();
   }

@@ -7,8 +7,10 @@
 // `OpContext.tableRowBound` = MAX_TABLE_ROWS, so an op caps exactly where the engine
 // signals partial) → project rows, enforce `MAX_TABLE_ROWS` → register tables → SELECT →
 // dispose → assemble the honesty envelope. A producer that errors or returns `ok:false`
-// fails the WHOLE call: running SQL over a missing table would silently produce wrong
-// joins (§5.2).
+// fails the SELECT, NOT the whole call: running SQL over a missing table would silently
+// produce wrong joins, so the SELECT is skipped — but every INDEPENDENT, successful
+// producer still returns under `return:'all'`, and the sql record is an honest failure
+// naming the failed producers (§11; §3.4 no-silent-drop).
 
 import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
@@ -64,19 +66,16 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
      *  this, a >MAX_TABLE_ROWS reference set would feed `NOT IN` silently (§2.3). */
     producerTruncated: boolean;
   }[] = [];
+  const failed: string[] = [];
   for (const item of plan.items) {
     const produced = await ctx.runProducer(item.req);
     perReq.push(produced);
-    if ('error' in produced) {
-      const error: DispatchError = {
-        kind: produced.error.kind,
-        message: `producer '${item.req.name}' (as ${item.alias}) failed — ${produced.error.message}`,
-      };
-      return finalize(ctx.returnMode, perReq, { name: 'sql', error });
-    }
-    if (!produced.result.ok) {
-      // §5.2: a failed producer fails the whole call — no SQL over a missing table.
-      return finalize(ctx.returnMode, perReq, { name: 'sql', result: produced.result });
+    // A producer that errors or returns ok:false fails the SELECT — never its INDEPENDENT
+    // neighbours. We run them all (they were already going to run; the cost is accepted)
+    // and gate only the SELECT, since a join over a missing table would silently lie (§11).
+    if ('error' in produced || !produced.result.ok) {
+      failed.push(`${item.req.name} (as ${item.alias})`);
+      continue;
     }
     producers.push({
       alias: item.alias,
@@ -86,7 +85,19 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
     });
   }
 
-  const sqlResult = assemble(producers, ctx);
+  // SELECT not run when any producer failed — but every successful neighbour still returns
+  // under `return:'all'`. The sql record is an honest failure naming the failed producers,
+  // pointing at the per-request results that carry each one's full failure (§3.4, §11).
+  const sqlResult: OpResult =
+    failed.length > 0
+      ? {
+          name: 'sql',
+          result: fail({
+            tool: 'sql',
+            message: `SELECT not run — producer(s) ${failed.join('; ')} failed; see per-request results (return:'all').`,
+          }),
+        }
+      : assemble(producers, ctx);
   return finalize(ctx.returnMode, perReq, sqlResult);
 }
 
