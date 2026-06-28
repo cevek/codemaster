@@ -73,8 +73,16 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
     // A producer that errors or returns ok:false fails the SELECT — never its INDEPENDENT
     // neighbours. We run them all (they were already going to run; the cost is accepted)
     // and gate only the SELECT, since a join over a missing table would silently lie (§11).
-    if ('error' in produced || !produced.result.ok) {
-      failed.push(`${item.req.name} (as ${item.alias})`);
+    // The cause is carried INLINE so `return:'sql'` (where per-request results are absent)
+    // still tells the agent both who failed and why, no re-run needed.
+    if ('error' in produced) {
+      failed.push(`'${item.req.name}' (as ${item.alias}) failed: ${produced.error.message}`);
+      continue;
+    }
+    if (!produced.result.ok) {
+      failed.push(
+        `'${item.req.name}' (as ${item.alias}) failed: ${produced.result.failure.message}`,
+      );
       continue;
     }
     producers.push({
@@ -86,15 +94,16 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
   }
 
   // SELECT not run when any producer failed — but every successful neighbour still returns
-  // under `return:'all'`. The sql record is an honest failure naming the failed producers,
-  // pointing at the per-request results that carry each one's full failure (§3.4, §11).
+  // under `return:'all'`. The sql record is an honest failure naming the failed producers
+  // WITH their causes inline; under `return:'all'` the per-request results carry the full
+  // failure too (§3.4, §11).
   const sqlResult: OpResult =
     failed.length > 0
       ? {
           name: 'sql',
           result: fail({
             tool: 'sql',
-            message: `SELECT not run — producer(s) ${failed.join('; ')} failed; see per-request results (return:'all').`,
+            message: `SELECT not run — producer(s) ${failed.join('; ')}. Under return:'all' the per-request results above carry each full failure.`,
           }),
         }
       : assemble(producers, ctx);

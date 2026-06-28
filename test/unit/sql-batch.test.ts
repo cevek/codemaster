@@ -144,7 +144,7 @@ test('return:sql + a failed producer → single sql failure naming the producer'
     argsSchema: z.strictObject({}),
     argsHint: '{}',
     table: { columns: [{ name: 'n', type: 'int' }], rows: () => [] },
-    run: () => Promise.resolve(fail({ tool: 'ts-ls', message: 'ambiguous' })),
+    run: () => Promise.resolve(fail({ tool: 'ts-ls', message: "'StatusPill' ambiguous" })),
   });
   const ok1 = tableStub('keep1', 1);
   const byName: Record<string, AnyOpDefinition> = { boom: failing, keep1: ok1 };
@@ -166,7 +166,10 @@ test('return:sql + a failed producer → single sql failure naming the producer'
   assert.equal(results.length, 1, 'return:sql → only the sql record');
   const sql = results[0];
   assert.ok(sql !== undefined && 'result' in sql && !sql.result.ok, 'SELECT must fail');
-  assert.match(sql.result.failure.message, /boom|\ba\b/, 'must name the failed producer');
+  // Under return:'sql' there ARE no per-request results, so the sql failure must carry both
+  // WHO failed and WHY inline — no re-run needed (honesty channel, bug-reviewer nit).
+  assert.match(sql.result.failure.message, /'boom' \(as a\)/, 'must name the failed producer');
+  assert.match(sql.result.failure.message, /'StatusPill' ambiguous/, 'must carry the cause inline');
 });
 
 test('all producers succeed → SELECT runs (no regression)', async () => {

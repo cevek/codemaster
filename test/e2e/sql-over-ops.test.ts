@@ -209,8 +209,8 @@ test('§11 envelope: a failed producer fails the SELECT (named), not its success
     assert.equal(failure.tool, 'sql');
     assert.match(
       failure.message,
-      /find_usages \(as b\)/,
-      'sql failure must name the failed producer',
+      /'find_usages' \(as b\) failed: /,
+      'sql failure must name the failed producer with its cause inline',
     );
 
     // return:'all' → the independent, successful producer `a` still comes back (the dogfood
