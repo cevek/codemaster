@@ -98,7 +98,7 @@ test('subtree: internal importer is counted + kept, marked non-blocking (never s
   }
 });
 
-test('subtree: per-row target varies (each importer pulls the SPECIFIC file under the tree, §fork4)', async () => {
+test('subtree: per-row target varies (each importer pulls the SPECIFIC file under the tree, fork4)', async () => {
   const p = await project(FEATURE);
   try {
     const d = await subtree(p, 'src/feature');
@@ -242,6 +242,38 @@ test('subtree spans sibling programs: a test-file importer under the tree is an 
       1,
       `dual-program importer dedups to one row, got ${appRows.length}`,
     );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// ── §19 path-canon: a mis-cased dir arg on a case-INSENSITIVE volume must NOT read as false-safe.
+//    `ts.sys.directoryExists` is case-insensitive (APFS/NTFS), but containment is case-sensitive
+//    `startsWith` — without canonicalizing the dir's on-disk casing, subtree mode triggers yet
+//    matches ZERO files → a FALSE `safe:true`. ──────────────────────────────────────────────────
+test('subtree: a mis-cased dir arg is canonicalized to on-disk casing — never a false `safe:true`', async () => {
+  const p = await project({
+    'tsconfig.json': `{"compilerOptions":${COMPILER},"include":["src"]}`,
+    'src/feature/sub.ts': 'export const sub = 1;\n',
+    'src/app/usesSub.ts': "import { sub } from '../feature/sub';\nexport const u = sub;\n",
+  });
+  try {
+    // control: correct casing finds the blocker
+    const lower = await subtree(p, 'src/feature');
+    assert.equal(lower.blockers, 1, 'correct-casing control');
+    assert.equal(lower.safe, false);
+
+    // the bug: a mis-cased arg must NOT silently read as safe-to-delete
+    const mis = await subtree(p, 'src/Feature');
+    assert.notEqual(mis.safe, true, 'mis-cased dir must NEVER be a false `safe:true`');
+    // on a case-insensitive volume the dir resolves → subtree mode → it must find the SAME blocker
+    if (mis.mode === 'subtree') {
+      assert.equal(
+        mis.blockers,
+        1,
+        'canonicalized to on-disk casing → same blocker as the lower-case arg',
+      );
+    }
   } finally {
     await p.dispose();
   }

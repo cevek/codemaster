@@ -355,8 +355,10 @@ probing.
   silently dropped). An import whose spec does NOT resolve to a file but whose relative-lexical target
   lands under the tree is FLAGGED `unconfirmed` (a `.scss` / unresolvable spec), never raw-matched
   (no false-LIVE). `safe` is true only when `blockers=0 ∧ complete (all programs scanned) ∧
-unconfirmed=0`; the §3.4 undiscovered-program floor still applies. Engine in
-  `plugins/ts/importers-subtree.ts`.
+unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmative `safe` verdict
+  discloses the scan's limit — **static import/export only; a dynamic `import()`/`require()` of a
+  file under the tree is NOT traced** (inherited from `importersOf`, as `affected` discloses the same
+  for its transitive walk). Engine in `plugins/ts/importers-subtree.ts`.
   Discovery is adjacent-`tsconfig*.json` + transitive `references`; a nested-package config
   reachable by neither is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every

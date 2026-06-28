@@ -90,7 +90,7 @@ const importersOfTable: TableSpec<JsonValue> = {
 
 const DEFAULT_LIMIT = 200;
 
-/** SUBTREE-mode result (§fork3/4/5): EXTERNAL importers (own file outside the tree) are the
+/** SUBTREE-mode result: EXTERNAL importers (own file outside the tree) are the
  *  deletion BLOCKERS — the headline; INTERNAL are counted + kept, non-blocking; UNCONFIRMED refs
  *  are flagged. The `safe` verdict is gated on `blockers===0 ∧ complete ∧ unconfirmed===0` — an
  *  undiscovered config or an unconfirmed ref is a LOWER BOUND, never proof of safety. Verdict scalars
@@ -154,7 +154,9 @@ function subtreeNote(
   internal: number,
 ): string {
   if (safe) {
-    return `SAFE to delete — 0 external importers, all repo programs scanned, 0 unconfirmed refs. ${internal} internal importer(s) move/delete with the tree.`;
+    // Affirmative safe must disclose the scan's limit: only STATIC import/export are traced (a
+    // dynamic `import()`/`require()` is invisible — inherited from importersOf, cf. affected.ts).
+    return `SAFE to delete — 0 external importers, all repo programs scanned, 0 unconfirmed refs. ${internal} internal importer(s) move/delete with the tree. CAVEAT: static import/export only — a dynamic import()/require() of a file under the tree is NOT traced.`;
   }
   const parts: string[] = [];
   if (blockers > 0) parts.push(`${blockers} EXTERNAL importer file(s) block deletion`);
@@ -185,7 +187,8 @@ const argsSchema = z.strictObject({
 
 export const importersOfOp = defineOp({
   name: 'importers_of',
-  summary: 'Files that import or re-export from a module (tsconfig-paths aware)',
+  summary:
+    'Files that import or re-export from a module — or, for a DIRECTORY arg, who imports under that subtree ("safe to delete this folder?") (tsconfig-paths aware)',
   mutating: false,
   requires: ['ts'],
   argsSchema,

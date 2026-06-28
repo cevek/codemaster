@@ -40,7 +40,7 @@ ops (24):
     · one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.
     · unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.
     e.g. source {"targets":[{"name":"createEngine"},{"symbolId":"ts:Button@src/Button.tsx:1:14"}]}
-  importers_of { module: string, limit?: number } — a file (module mode) OR a directory (subtree mode: 'who imports under this folder') — Files that import or re-export from a module (tsconfig-paths aware)
+  importers_of { module: string, limit?: number } — a file (module mode) OR a directory (subtree mode: 'who imports under this folder') — Files that import or re-export from a module — or, for a DIRECTORY arg, who imports under that subtree ("safe to delete this folder?") (tsconfig-paths aware)
     · module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.
     · importers are found across ALL loaded programs (a `test/**` importer under a sibling tsconfig too) — see concepts: cross-program-read.
     · DIRECTORY arg (e.g. 'src/plugins/ts', or a trailing slash) ⇒ SUBTREE mode — answers 'safe to delete this folder?': EXTERNAL importers (file outside the tree) are the blockers (`blockers` count), INTERNAL ones (file inside) are counted+kept but non-blocking, and an unresolvable spec lexically under the tree is FLAGGED `unconfirmed` (never raw-matched). `safe` is true ONLY when blockers=0 ∧ all programs scanned (complete) ∧ unconfirmed=0. directory-wins on a dir/file name collision; pass `foo.ts` to target the file.

@@ -72,7 +72,7 @@ export type {
 } from './plugins/ts/query-types.ts';
 export type { SearchFilter, SearchView } from './plugins/ts/search.ts';
 export type { UsageRole } from './plugins/ts/usage-roles.ts';
-export type { ImporterRow, ImportersView } from './plugins/ts/importers.ts';
+export type { ImporterRow, ImportersView, UnconfirmedRef } from './plugins/ts/importers.ts';
 export type { CssModuleAccess, CssModuleUsages } from './plugins/ts/css-modules.ts';
 export type {
   ScssPluginApi,

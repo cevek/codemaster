@@ -5,6 +5,7 @@
 // the compiler sees them.
 
 import ts from 'typescript';
+import { realpathSync } from 'node:fs';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { toPosix } from '../../support/fs/canonicalize.ts';
 import type { TsProjectHost } from './ls-host.ts';
@@ -58,11 +59,11 @@ export type ImportersView = {
   external?: ImporterRow[];
   /** Importers whose own file is INSIDE the tree — counted + kept, not blocking. */
   internal?: ImporterRow[];
-  /** Unresolvable specs lexically under the tree — flagged, never raw-matched (§fork2). */
+  /** Unresolvable specs lexically under the tree — flagged, never raw-matched (no false-LIVE). */
   unconfirmed?: UnconfirmedRef[];
 };
 
-/** Detect SUBTREE mode (§fork1, directory-wins): a trailing slash OR a real directory under the
+/** Detect SUBTREE mode (fork1, directory-wins): a trailing slash OR a real directory under the
  *  repo root makes the arg a folder, checked BEFORE module resolution — so an index-bearing folder
  *  is never collapsed to its barrel (which would silently drop deep importers, a §3.4 omission). The
  *  dir/file collision (`foo` with both `foo/` and `foo.ts`) resolves to the DIRECTORY; name `foo.ts`
@@ -74,8 +75,20 @@ function detectSubtree(
 ): { rel: string; abs: string } | undefined {
   const cleaned = moduleArg.replace(/\/+$/, '');
   if (cleaned.length === 0) return undefined;
-  const abs = toPosix(host.absOf(cleaned as RepoRelPath));
-  if (!ts.sys.directoryExists(abs)) return undefined;
+  const rawAbs = toPosix(host.absOf(cleaned as RepoRelPath));
+  if (!ts.sys.directoryExists(rawAbs)) return undefined;
+  // §19 path-canon: `ts.sys.directoryExists` is case-INSENSITIVE on APFS/NTFS, but the containment
+  // scan in `findImportersSubtree` is a case-SENSITIVE `startsWith` — so a mis-cased dir arg
+  // ('src/Feature' for 'src/feature') would enable subtree mode yet match ZERO on-disk files → a
+  // FALSE `safe:true`. Fold to the true on-disk casing (the root is already realpath-canonicalized,
+  // §19, so `relOf` stays consistent). `realpathSync.native` also resolves symlinks; a vanished
+  // path mid-call keeps the syntactic form (directoryExists just passed) rather than crashing.
+  let abs = rawAbs;
+  try {
+    abs = toPosix(realpathSync.native(rawAbs));
+  } catch {
+    /* race: dir removed between the existence check and realpath — keep the syntactic form */
+  }
   const rel = host.relOf(abs);
   // Guard against a `../` arg escaping the repo root (relOf returns a non-repo-relative spelling).
   if (rel.length === 0 || rel.startsWith('/') || rel.startsWith('..')) return undefined;
