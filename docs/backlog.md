@@ -909,10 +909,12 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       the intake flag-lift (`engine.ts` `extractFlags({ ...req, ...resolved.flags })`) lets the args-placed
       value win. Harmless today (no agent double-specifies) and arguably the right call (the args-placed one
       is the more explicit intent), but undocumented; pick a precedence and state it. `dx`·`low`·`cx:S`
-- [ ] **intake: `find_usages` scalar `symbols:"Foo"` not coerced to array** — the bare-name multi-target
-      field `symbols` is not in any op's `arrayFields`, so `symbols:"Foo"` (string) still rejects; the
-      single-name path is `symbol`→`name` (or `name` directly), not `symbols`. Minor DX — add `symbols` to
-      find_usages `arrayFields` if the scalar form shows up again in the fail log. `dx`·`low`·`cx:S`
+- [ ] **intake: scalar→array coercion is TOP-LEVEL only — a pure-array field nested inside `filter{}`
+      is not coerced** — the auto-coercion (`arrayFieldsOf` over `op.argsSchema`) reads only top-level
+      schema fields, so `find_usages {filter:{pathInclude:"src"}}` (a scalar under the nested `filter`
+      object) still rejects; the top-level `pathInclude`/`pathExclude` of the 9 list-shaped ops, and
+      `find_usages.symbols`, ARE coerced. Recurse into nested object fields if the nested-scalar form
+      shows up in the fail log. `dx`·`low`·`cx:S`
 
 ---
 

@@ -576,7 +576,11 @@ visible. The **canonical** per-op zod shape is the single advertised truth: it i
 Behind it, an **invisible normalizer** (`src/ops/intake/`, run in `runOne` via
 `daemon/resolve-args.ts` BEFORE the canonical parse) maps known off-canonical spellings to the
 canonical shape: per-op aliases (`symbol`→`name`, `path`/`file`→`module`, `symbols`/`sites`→
-`targets`, the `target`→`symbolId` SymbolId spelling), scalar→array coercion, OpFlag keys
+`targets`, the `target`→`symbolId` SymbolId spelling), scalar→array coercion (a bare scalar on a
+field the op's schema declares as a pure array → a one-element array — **derived from `argsSchema`
+itself** (`arrayFieldsOf`), not a per-op allowlist, so it applies uniformly to every op's array
+field and can't silently miss one; a `union` field that already accepts a scalar is left untouched;
+top-level fields only), OpFlag keys
 mis-placed inside `args` lifted up to the request (type-validated), and a `name` string that is
 really a `path:line:col` / `ts:…` SymbolId smart-parsed to the right field. The canonical schema
 stays the **sole gate** — a key that is _not_ a known alias still fails (with a did-you-mean),

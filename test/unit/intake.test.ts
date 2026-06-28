@@ -9,8 +9,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, type TestProject } from '../helpers/project.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
+import type { JsonValue } from '../../src/core/json.ts';
 import { builtinOps } from '../../src/ops/builtins.ts';
-import { canonicalKeys } from '../../src/ops/intake/shape-keys.ts';
+import { canonicalKeys, arrayFieldsOf } from '../../src/ops/intake/shape-keys.ts';
+import { z } from 'zod';
 
 const FILES = {
   'tsconfig.json': '{"compilerOptions":{"strict":true,"jsx":"react-jsx"}}',
@@ -138,6 +140,67 @@ test('class D — scalar coerced to array for an array field (construction_sites
     const scalar = await p.op('construction_sites', { name: 'Props', pathInclude: 'src' });
     assert.equal(dataJson(scalar), dataJson(canon), 'scalar pathInclude == one-element array');
     assert.ok(okResult(scalar).intake.includes('pathInclude→[…]'));
+  } finally {
+    await p.dispose();
+  }
+});
+
+// class D is no longer an opt-in allowlist: the coercion is DERIVED from each op's argsSchema
+// (a pure ZodArray field), so it fires for ops that never declared `arrayFields`. Oracle =
+// equality of the scalar call vs the explicit one-element-array call (the canonical form), per
+// op. RED before the fix (each scalar → `bad_args: expected array, received string`).
+const AUTO_ARRAY_CASES: ReadonlyArray<{
+  op: string;
+  base: Record<string, JsonValue>;
+  field: string;
+}> = [
+  { op: 'find_unused_scss_classes', base: {}, field: 'pathInclude' },
+  { op: 'search_symbol', base: { query: 'getInitials' }, field: 'pathInclude' },
+  { op: 'find_unused_exports', base: {}, field: 'pathExclude' },
+];
+for (const { op, base, field } of AUTO_ARRAY_CASES) {
+  test(`class D (auto) — ${op} ${field} scalar coerced from schema (no per-op allowlist)`, async () => {
+    const p: TestProject = await project(FILES);
+    try {
+      const canon = await p.op(op, { ...base, [field]: ['src'] });
+      const scalar = await p.op(op, { ...base, [field]: 'src' });
+      assert.equal(dataJson(scalar), dataJson(canon), `scalar ${field} == one-element array`);
+      assert.ok(okResult(scalar).intake.includes(`${field}→[…]`), 'rewrite disclosed');
+    } finally {
+      await p.dispose();
+    }
+  });
+}
+
+test('arrayFieldsOf — detects pure ZodArray (incl. optional/default/nullable wraps), skips union/scalar', () => {
+  const schema = z.strictObject({
+    plain: z.array(z.string()),
+    opt: z.array(z.string()).optional(),
+    def: z.array(z.string()).default([]),
+    nul: z.array(z.string()).nullable(),
+    nested: z.array(z.string()).default([]).optional(),
+    // a field that ALREADY accepts a scalar — must NOT be coerced (would break the legit scalar)
+    union: z.union([z.string(), z.array(z.string())]).optional(),
+    scalar: z.string().optional(),
+    obj: z.strictObject({ pathInclude: z.array(z.string()) }).optional(),
+  });
+  const fields = arrayFieldsOf(schema);
+  assert.deepEqual([...fields].sort(), ['def', 'nested', 'nul', 'opt', 'plain']);
+  assert.ok(!fields.has('union'), 'a scalar|array union field is left untouched');
+  assert.ok(!fields.has('scalar') && !fields.has('obj'), 'non-array fields are not coerced');
+});
+
+test('arrayFieldsOf — a non-object (union) schema yields the empty set, never throws', () => {
+  assert.equal(arrayFieldsOf(z.union([z.string(), z.number()])).size, 0);
+});
+
+test('class D (auto) — find_usages bare-name `symbols:"X"` scalar coerced to array', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const canon = await p.op('find_usages', { symbols: ['getInitials'] });
+    const scalar = await p.op('find_usages', { symbols: 'getInitials' });
+    assert.equal(dataJson(scalar), dataJson(canon), 'scalar symbols == one-element array');
+    assert.ok(okResult(scalar).intake.includes('symbols→[…]'), 'rewrite disclosed');
   } finally {
     await p.dispose();
   }

@@ -85,7 +85,7 @@ export const constructionSitesOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: `${TS_TARGET_HINT} (the TYPE) — plus { pathInclude?: string[], pathExclude?: string[], limit?: number }`,
-  intake: { ...tsTargetIntake, arrayFields: ['pathInclude', 'pathExclude'] },
+  intake: tsTargetIntake,
   example: { args: { name: 'User' } },
   notes: [
     'the complement to find_usages: find_usages finds who REFERENCES a symbol; construction_sites finds object literals that BUILD a type T (anywhere the checker proves assignability) — answer to "I added a required field to T, which construction sites break?".',

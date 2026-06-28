@@ -87,9 +87,6 @@ export interface OpIntake {
    *  `{ path: 'module', file: 'module' }` for importers_of). Applied only when the canonical
    *  key is not already present (an explicit canonical value never gets clobbered). */
   readonly aliases?: Readonly<Record<string, string>>;
-  /** Canonical fields that are arrays but are commonly passed as a bare scalar — coerced
-   *  `x` → `[x]` (e.g. `pathInclude`). Top-level keys only. */
-  readonly arrayFields?: readonly string[];
   /** This op addresses a TS symbol via the shared `{symbolId|name|file+line+col}` shape:
    *  enable smart-string parsing of `name` — a `ts:…@…:L:C` SymbolId → `symbolId`, a
    *  `path:line:col` string → `file/line/col`. */

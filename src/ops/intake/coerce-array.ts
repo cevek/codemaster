@@ -1,7 +1,8 @@
 // Coerce a bare scalar into a one-element array for a field the op's schema declares as an
 // array (§7 Postel) — the dogfood fail `construction_sites {pathInclude: "local-api"}` meant
-// `["local-api"]`. Top-level fields only; the op names them in `OpDefinition.intake.arrayFields`.
-// An existing array (or an absent field) is left untouched.
+// `["local-api"]`. Top-level fields only; the array fields are derived from the op's
+// `argsSchema` (a pure ZodArray field — see `arrayFieldsOf`), not a per-op allowlist, so the
+// coercion can never silently miss an op. An existing array (or an absent field) is left untouched.
 
 export interface CoerceArrayResult {
   notes: string[];

@@ -9,7 +9,7 @@
 
 import type { OpFlags } from '../contracts.ts';
 import type { AnyOpDefinition } from '../registry.ts';
-import { canonicalKeys } from './shape-keys.ts';
+import { canonicalKeys, arrayFieldsOf } from './shape-keys.ts';
 import { liftFlags } from './lift-flags.ts';
 import { applyAliases } from './aliases.ts';
 import { coerceArrayFields } from './coerce-array.ts';
@@ -60,7 +60,12 @@ export function normalizeArgs(op: AnyOpDefinition, rawArgs: unknown): Normalized
 
   const intake = op.intake;
   notes.push(...applyAliases(args, intake?.aliases).notes);
-  notes.push(...coerceArrayFields(args, intake?.arrayFields).notes);
+  // Array-fields are derived from the schema itself (a pure ZodArray field), not a per-op
+  // allowlist (§7) — except the targetArray field, which `coerceTargetArray` owns (its
+  // elements are target objects/strings, not bare scalars) so it is excluded to avoid a
+  // double coercion.
+  const arrayFields = [...arrayFieldsOf(op.argsSchema)].filter((f) => f !== intake?.targetArray);
+  notes.push(...coerceArrayFields(args, arrayFields).notes);
   if (intake?.locationTarget === true) notes.push(...smartName(args));
   notes.push(...coerceTargetArray(args, intake?.targetArray).notes);
 

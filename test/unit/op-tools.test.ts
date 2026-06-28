@@ -54,13 +54,14 @@ test('every op argsSchema exposes a readable object shape — the collision guar
 test('no op arg OR intake-alias collides with a reserved request/flag key (facade-blind-extract guard)', () => {
   const reserved = new Set<string>(OP_TOOL_RESERVED_KEYS);
   for (const op of builtinOps()) {
-    // `splitReserved` runs BEFORE intake, so an off-canonical alias/arrayField/targetArray key an
-    // agent passes is also subject to the blind extraction — it must not collide either, or the
-    // input is silently stripped as a route key before intake sees it (the §3 input-lost lie).
+    // `splitReserved` runs BEFORE intake, so an off-canonical alias/targetArray key an agent
+    // passes is also subject to the blind extraction — it must not collide either, or the input
+    // is silently stripped as a route key before intake sees it (the §3 input-lost lie). The
+    // scalar→array coerced fields are schema fields (covered by `canonicalKeys`), not a separate
+    // allowlist, so they need no extra entry here.
     const keys = new Set<string>([
       ...canonicalKeys(op.argsSchema),
       ...Object.keys(op.intake?.aliases ?? {}),
-      ...(op.intake?.arrayFields ?? []),
       ...(op.intake?.targetArray !== undefined ? [op.intake.targetArray] : []),
     ]);
     const collisions = [...keys].filter((k) => reserved.has(k));
