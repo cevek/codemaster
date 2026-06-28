@@ -85,6 +85,13 @@ don't vanish.
       with no warning. Safe direction (no false-positive), but a partly-mistyped `pathInclude`
       still under-scans silently. Consider a per-pattern match count → warn on any pattern that hit
       0 files, named. `dx`·`low`·`cx:S`
+- [ ] **`find_unused_exports` false-clean on a broken program (no filter)** — when the LS program is
+      `undefined` (`src/plugins/ts/unused-exports.ts:87`) and NO pathInclude/pathExclude is set, the op
+      returns `unused(0)` / `scanned 0 files` with NO warning — the vacuous-filter guard gates on
+      `filterSet`, so a broken/empty program reads as "nothing dead" (a §3.4 false-clean in the
+      no-filter path the filter guard doesn't cover). Rare (needs a program-load failure), surfaced in
+      T2 review. Fix: warn on `scannedFiles===0` regardless of filter, or on `program===undefined`.
+      `bug`·`low`·`cx:S`
 - [ ] **chokidar feeds absolute OS paths into the reindex pipeline** —
       `src/support/watch/chokidar.ts:48-51` (`pending.add(path)` collects chokidar's absolute path
       → `onChanged(batch)`). Plugins key by `RepoRelPath` (forward-slash, root-relative, case-folded,
@@ -922,6 +929,22 @@ value) when`ts.isTemplateExpression(arg0)`; i18n consumes that proof-carrying fi
       object) still rejects; the top-level `pathInclude`/`pathExclude` of the 9 list-shaped ops, and
       `find_usages.symbols`, ARE coerced. Recurse into nested object fields if the nested-scalar form
       shows up in the fail log. `dx`·`low`·`cx:S`
+- [ ] **intake: `arrayFieldsOf` is coupled to zod-v4 internals (`.def.type`/`.def.innerType`)** — the
+      schema introspection that derives array-coercion fields reads zod-v4's internal `def` shape; a zod
+      major bump could silently return an empty set, so scalar→array coercion quietly falls back to
+      `bad_args` (a DX regression, NOT a lie — the canonical gate still rejects honestly). Guarded: the
+      `arrayFieldsOf` unit reddens on a shape change. Re-check on a zod bump; consider a public-API
+      introspection path if zod exposes one. `dx`·`low`·`cx:S`
+- [ ] **intake: `invalidations_for {name}` could alias to `mutation` (Postel)** — the canonical arg is
+      `{mutation}` (a declaration name); an agent reached for `{name}` (fail log, 06-28) and got an
+      honest reject. `name→mutation` fits the Postel spirit (it IS a declaration name) but is a judgment
+      call, not a clear bug — add `intake:{aliases:{name:'mutation'}}` only if the off-canonical spelling
+      recurs. `dx`·`low`·`cx:S`
+- [ ] **doc-hygiene: dangling decimal-`§` refs in `src/` comments** — several code comments cite
+      old decimal spec numbering (`§4.6`/`§5.5`/`§2.3`/`§4.1`/`§5.1` in `sql-batch.ts`, `multi-root.ts`,
+      `registry.ts`) that doesn't resolve to ARCHITECTURE.md's flat `§1..§19`. Read as internal
+      task-shorthand. Sweep to real `§` anchors or drop the sigil so the cross-ref convention stays
+      meaningful. `dx`·`low`·`cx:S`
 
 ---
 
