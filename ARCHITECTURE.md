@@ -477,9 +477,9 @@ A small number of ops ship by default:
 | `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`) |
 | `search_symbol`            | `ts.searchSymbol` (LS workspace symbol provider)          |
 | `expand_type`              | `ts.expandType`                                           |
-| `assignability`            | `ts.assignability`                                        |
+| `construction_sites`       | `ts` (type-aware "what object literals build type T")     |
 | `list`                     | dispatches to the plugin owning the requested registry    |
-| `trace`                    | walks plugin-to-plugin via their public APIs              |
+| `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)  |
 | `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`   |
 | `move_file`                | `ts` plugin + `support/text-edits`                        |
 | `extract_symbol`           | `ts` plugin + `support/text-edits`                        |
@@ -488,8 +488,9 @@ A small number of ops ship by default:
 | `codemod`                  | ast-grep matcher + `support/text-edits`                   |
 | `find_unused_scss_classes` | `ts` + `scss`                                             |
 | `find_unused_i18n_keys`    | `ts` + `i18n`                                             |
-| `component_card`           | `ts` + `react` + adapter plugins (token-saver composite)  |
-| `impact`                   | `ts` (type-aware blast radius)                            |
+| `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)    |
+| `impact`                   | `ts` (type-aware reference blast radius)                  |
+| `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck         |
 | `affected`                 | `ts` import graph + `support/git`                         |
 
 The table is illustrative, not exhaustive — `status` is authoritative for the per-repo
@@ -1082,11 +1083,11 @@ codemaster/
     ops/                     # L3 — public, named, parameterized ops (compose plugins)
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
-      find-definition.ts  find-usages.ts  expand-type.ts  assignability.ts
-      list.ts  trace.ts
-      rename-symbol.ts  move-file.ts  move-symbol.ts  codemod.ts
+      find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
+      search-symbol.ts  source.ts  list.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
-      component-card.ts  impact.ts  affected.ts  …
+      impact.ts  impact-type-error.ts  affected.ts  …
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch
     format/                  # dense formatter, codes, json mode
@@ -1115,7 +1116,7 @@ codemaster/
 Because "never lie" is the product, **every test needs an independent oracle** —
 fixtures are only inputs; the comparison to ground truth is the test.
 
-**Oracles.** `expand_type` / `assignability` → a fresh-from-cold `ts.Program`.
+**Oracles.** `expand_type` / `construction_sites` → a fresh-from-cold `ts.Program`.
 `find_usages` → the LS itself, compared **cold-rebuild vs warm-daemon** (validating
 `find_usages` against `findReferences` when `find_usages` _is_ `findReferences` is
 circular — see the invariants below). Mutating ops → `git` (byte-exact rollback) +
@@ -1213,7 +1214,7 @@ phase — there is no graph.
   (§13); honesty harness skeleton (§16). **No plugin yet** — Phase 0 exit is "daemon
   responds to `status` round-trips through MCP".
 - **Phase 1 — `ts` plugin (the heavy one).** VFS, long-lived LS (lazy warm),
-  module-resolve. Ops: `find_definition`, `find_usages`, `expand_type`, `assignability`,
+  module-resolve. Ops: `find_definition`, `find_usages`, `expand_type`, `construction_sites`,
   `search_symbol`. Per-plugin freshness (file fingerprints); per-plugin invariants
   (§16): `find_usages` vs cold LS, proof-span validity. The plugin-DAG bottom is in.
 - **Phase 2 — mutating ops on `ts` plugin.** `rename_symbol`, `move_file`,
