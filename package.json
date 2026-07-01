@@ -4,7 +4,7 @@
   "description": "Stateful, always-on codebase inspector for TypeScript/React repos — structural + semantic + refactor queries for AI agents, dense and proof-carrying.",
   "type": "module",
   "bin": {
-    "codemaster": "./dist/bin.js"
+    "codemaster": "./src/bin.ts"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
