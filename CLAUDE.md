@@ -11,6 +11,10 @@ AI agents. It indexes a project, keeps a live TypeScript Language Service warm, 
 structural / semantic / refactor queries densely and **proof-carryingly** — so agents stop
 grepping. Output is for agents, not humans.
 
+## task-manager
+
+This project's backlog lives in task-manager (MCP task-manager). Call its help tool first to learn the commands + query DSL; explain_config for the field schema. Use the MCP tools — don't hand-edit task files.
+
 ## Docs — where things live (read, don't duplicate)
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — source of truth: north star (§1), trust contract
