@@ -267,12 +267,16 @@ test('move_symbol: a type alias moves; a type-only importer is repointed and sta
   }
 });
 
-test('move_symbol: an edit targeting a gitignored-but-compiled importer → honest refusal, zero write', async () => {
-  // git-tree↔program desync: the move-tree is git's listing (ls-files: tracked + untracked-not-
-  // ignored), but the TS program ALSO compiles GITIGNORED files. The LS "Move to file" repoints
-  // the gitignored importer → an edit to a file the plan/rollback machinery has no node for. That
-  // must be an HONEST refusal that NAMES the file (and is actionable), never a half-move or a
-  // silent edit-to-nowhere (the fail[10] class). Independent oracle: git stays byte-clean.
+test('move_symbol: a root-globbed gitignored importer is out of scope — the move succeeds, no desync', async () => {
+  // The git-tree↔program desync that used to force a refusal here is eliminated at the source
+  // (t-019044): a gitignored file — regenerable, NOT project source — is now excluded from BOTH git's
+  // listing AND the TS program file-set, so `move_symbol`'s move-tree and the LS program AGREE. The
+  // LS never sees the gitignored importer, so it never repoints an edit-to-nowhere; the move succeeds
+  // and touches only real (tracked / untracked-not-ignored) files. The gitignored importer is left
+  // byte-unchanged — its now-stale import is the project's to regenerate, never a reason to
+  // over-refuse a legitimate refactor. (A gitignored file pulled into the program TRANSITIVELY — via
+  // an import from a tracked file — is a different case the refusal machinery still covers.)
+  // Independent oracle: git shows exactly the intended src/ edits; the gitignored file is untouched.
   const before = {
     source:
       'export const helper = (x: number): number => x * 2;\nexport const other = (): number => 1;\n',
@@ -284,7 +288,7 @@ test('move_symbol: an edit targeting a gitignored-but-compiled importer → hone
     '.gitignore': 'generated/\n',
     'src/source.ts': before.source,
     'src/dest.ts': 'export const existing = 1;\n',
-    // Gitignored, so EXCLUDED from git ls-files, yet compiled by the default tsconfig include.
+    // Gitignored + root-globbed but imported by NO tracked file → excluded from the program (§10).
     'generated/consumer.ts': before.consumer,
   });
   try {
@@ -292,20 +296,14 @@ test('move_symbol: an edit targeting a gitignored-but-compiled importer → hone
       { name: 'move_symbol', args: { name: 'helper', dest: 'src/dest.ts' }, apply: true },
     ]);
     assert.ok(
-      r !== undefined && 'result' in r && !r.result.ok,
-      `desync edit must refuse, got ${JSON.stringify(r)}`,
+      r !== undefined && 'result' in r && r.result.ok,
+      `a root-globbed gitignored importer must not block the move, got ${JSON.stringify(r)}`,
     );
-    if ('result' in r && !r.result.ok) {
-      assert.match(r.result.failure.message, /generated\/consumer\.ts/, 'names the offending file');
-      assert.match(
-        r.result.failure.message,
-        /untracked|git-track|excludes/i,
-        'the refusal is actionable, not an opaque "unknown file"',
-      );
-    }
-    // Zero write — git stays clean (covers every TRACKED file), and the GITIGNORED importer (which
-    // git can't see, the one the desync edit targeted) is byte-unchanged too.
-    assert.equal(p.git('status', '--porcelain'), '', 'no tracked file written');
+    // The real edit landed: helper left source, arrived in dest.
+    assert.doesNotMatch(readFileSync(path.join(p.root, 'src/source.ts'), 'utf8'), /helper/);
+    assert.match(readFileSync(path.join(p.root, 'src/dest.ts'), 'utf8'), /helper/);
+    // The gitignored importer is out of scope — untouched (codemaster neither edits nor refuses over
+    // junk it does not index; the stale import is the project's to regenerate).
     assert.equal(readFileSync(path.join(p.root, 'generated/consumer.ts'), 'utf8'), before.consumer);
   } finally {
     await p.dispose();

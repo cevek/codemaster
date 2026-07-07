@@ -12,8 +12,7 @@ import type { Plugin } from '../core/plugin.ts';
 import type { ListEntry, ListView } from '../core/list.ts';
 import type { Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
-import { matchesAnyGlob } from '../common/glob/match.ts';
-import { expandDirGlobs } from '../common/glob/expand-dir.ts';
+import { matchesPathFilter } from '../common/glob/path-filter.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -29,14 +28,12 @@ function filterByPath(
   exclude: readonly string[] | undefined,
 ): { matched: ListEntry[]; excluded: number } {
   if (include === undefined && exclude === undefined) return { matched: [...entries], excluded: 0 };
-  // A wildcard-less entry (`src/features`) also matches `src/features/**` — the intended
-  // directory-prefix reading (expand-dir.ts), so a bare dir isn't a self-defeating filter (§3.4).
-  const inc = include !== undefined ? expandDirGlobs(include) : undefined;
-  const exc = exclude !== undefined ? expandDirGlobs(exclude) : undefined;
+  // Routed through the shared path-filter chokepoint — a bare dir (`src/features`) also matches
+  // `src/features/**` and a literal special-char dir (`src/(auth)`) is escaped (§3.4, path-filter.ts).
   const matched = entries.filter((e) => {
     const f = e.span.file;
-    if (inc !== undefined && !matchesAnyGlob(f, inc)) return false;
-    if (exc !== undefined && matchesAnyGlob(f, exc)) return false;
+    if (include !== undefined && !matchesPathFilter(f, include)) return false;
+    if (exclude !== undefined && matchesPathFilter(f, exclude)) return false;
     return true;
   });
   return { matched, excluded: entries.length - matched.length };

@@ -6,7 +6,7 @@
 import { watch as chokidarWatch } from 'chokidar';
 import type { Clock } from '../../common/async/clock.ts';
 import { debounce } from '../../common/async/debounce.ts';
-import { DEFAULT_IGNORED_DIRS, DEFAULT_IGNORED_FILES } from '../fs/walk.ts';
+import { DEFAULT_IGNORED_DIRS, DEFAULT_IGNORED_FILES } from '../fs/ignored-paths.ts';
 import type { Watcher, WatcherHandle } from './seam.ts';
 
 const WATCH_DEBOUNCE_MS = 120;

@@ -746,9 +746,22 @@ generator), `plugins` (which framework plugins to enable, autodetect overrides),
 (verbosity, limits), `daemon` (idle eviction, path-existence sweep interval), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
-all it still works: TS indexing (and `codemod` / text-search) drives off git `ls-files`, which
-honors `.gitignore` (nested + `!` negation); the `scss`/`i18n`/`schema` plugins and the non-git
-freshness fallback instead use a built-in ignore set — `node_modules`/`dist`/`build`/`.next`,
+all it still works: `codemod` / text-search drive off git `ls-files` (the `.gitignore`-aware
+listing — nested + `!` negation). The **TS program file-set** is the project's own tsconfig
+`include` globs, then INTERSECTED with two exclusions so a loose `include: ["**/*"]` never indexes
+junk as project symbols (a minified `dist/*.js` bundle surfacing as a symbol, a `.claude/worktrees`
+copy phantom-doubling every declaration into a `find_usages` "ambiguous" — the never-lie violation):
+(1) the ignored-**directory** names below (`node_modules`/`dist`/`.next`/`.claude`/… — a segment
+match, NOT the `>1 MB`/editor-temp file filters, which stay on the `walkFiles` path) — the reliable
+excluder for a nested VCS checkout (`.claude/worktrees/<id>`, a whole-tree copy with its OWN `.git`
+the outer `.gitignore` can't see across the working-tree boundary); (2) the files git itself marks
+ignored (a bounded SYNC
+`git ls-files --others --ignored`, memoized once per structural reindex — never the LS hot path,
+§19). Ignore-SEMANTICS, not tracked-only: tracked AND freshly-written untracked-not-ignored source
+are both kept, only ignored files drop; a non-git root degrades to the name set. A file reached only
+by an `import` is unaffected either way (TS still resolves an import INTO an excluded path — only
+ROOT-globbed junk nothing imports drops out). The `scss`/`i18n`/`schema` plugins and the non-git
+freshness fallback use ONLY the name-based ignore set — `node_modules`/`dist`/`build`/`.next`,
 tool/agent state dirs (`.idea`/`.vscode`/`.claude`/…), and files > 1 MB — not a full
 `.gitignore` evaluation (a repo gitignoring e.g. `generated/` would still have its SCSS indexed;
 honoring arbitrary `.gitignore` in those plugins is a deferred follow-up). See
@@ -1061,7 +1074,7 @@ codemaster/
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
-      git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files, blame, log
+      git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
       debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod

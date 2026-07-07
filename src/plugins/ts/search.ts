@@ -5,8 +5,7 @@
 // vs shown so a cap never reads as completeness (§3.4).
 
 import type ts from 'typescript';
-import { matchesAnyGlob } from '../../common/glob/match.ts';
-import { expandDirGlobs } from '../../common/glob/expand-dir.ts';
+import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import type { SymbolView } from './query-types.ts';
@@ -50,10 +49,8 @@ export function searchSymbols(
   // A wildcard-less path entry (`src/daemon`) is expanded to ALSO match `src/daemon/**` — the
   // intended directory-prefix reading — so a bare dir isn't a self-defeating filter; an exact FILE
   // path still matches itself, a patterned entry is untouched (§3.4 ergonomics, expand-dir.ts).
-  const include =
-    filter?.pathInclude !== undefined ? expandDirGlobs(filter.pathInclude) : undefined;
-  const exclude =
-    filter?.pathExclude !== undefined ? expandDirGlobs(filter.pathExclude) : undefined;
+  const include = filter?.pathInclude;
+  const exclude = filter?.pathExclude;
   const pathFiltered = include !== undefined || exclude !== undefined;
   const views: SymbolView[] = [];
   const seen = new Set<string>(); // `fileName|textSpan.start` — one declaration counted once
@@ -76,8 +73,8 @@ export function searchSymbols(
       seen.add(key);
       const rel = host.relOf(item.fileName);
       const droppedByPath =
-        (exclude !== undefined && matchesAnyGlob(rel, exclude)) ||
-        (include !== undefined && !matchesAnyGlob(rel, include));
+        (exclude !== undefined && matchesPathFilter(rel, exclude)) ||
+        (include !== undefined && !matchesPathFilter(rel, include));
       if (droppedByPath) {
         filteredOutByPath++;
         continue;

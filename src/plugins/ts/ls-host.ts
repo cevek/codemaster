@@ -17,6 +17,7 @@ import { mintRepoRelPath, toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
+import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
   discoverSiblingConfigs,
   findRepoTsconfigs,
@@ -128,13 +129,29 @@ export interface TsProjectHost {
   dispose(): void;
 }
 
-export function createTsProjectHost(root: string, tsconfigOverride?: string): TsProjectHost {
+export function createTsProjectHost(
+  root: string,
+  tsconfigOverride?: string,
+  deps?: { computeIgnored?: IgnoredComputer },
+): TsProjectHost {
   // One DocumentRegistry shared across every stock-TS program: files common to two configs
   // (src/** in both the app and the test config) parse once. The §4 rescue fork keeps its own
   // registry inside each SingleProgram — the two TS namespaces must never cross-feed.
   const registry = ts.createDocumentRegistry();
   const configPath = resolveConfigPath(root, tsconfigOverride);
-  const primary = createSingleProgram(root, configPath, primaryLabel(root, configPath), registry);
+
+  // The `.gitignore`-aware junk set (t-019044) — computed once per structural reindex, shared by
+  // every program's `loadFileList` (cleared in `reindex`). Its memoization lives in ./program/ignored-set.
+  const ignoredSet = createIgnoredSet(root, deps?.computeIgnored);
+  const ignored = ignoredSet.get;
+
+  const primary = createSingleProgram(
+    root,
+    configPath,
+    primaryLabel(root, configPath),
+    registry,
+    ignored,
+  );
 
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
   // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
@@ -200,14 +217,19 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     if (configPath !== undefined && config === toPosix(configPath)) return; // the primary itself
     if (fileDriven.has(config)) return; // already loaded
     if (discover().some((c) => toPosix(c.path) === config)) return; // an already-discovered sibling
-    fileDriven.set(config, createSingleProgram(root, config, relLabel(root, config), registry));
+    fileDriven.set(
+      config,
+      createSingleProgram(root, config, relLabel(root, config), registry, ignored),
+    );
     undiscoveredMemo = undefined; // the loaded config drops out of the undiscovered set
   };
 
   let siblings: SingleProgram[] | undefined;
   const built = (): readonly SingleProgram[] => {
     if (siblings === undefined) {
-      siblings = discover().map((c) => createSingleProgram(root, c.path, c.label, registry));
+      siblings = discover().map((c) =>
+        createSingleProgram(root, c.path, c.label, registry, ignored),
+      );
     }
     return [primary, ...siblings];
   };
@@ -254,6 +276,11 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
     relOf,
     isTracked: (rel) => primary.isTracked(toPosix(path.join(root, rel))),
     reindex(changed) {
+      // Drop the memoized `.gitignore` junk set so the NEXT structural `loadFileList` recomputes it
+      // exactly once (a new/removed file or an edited `.gitignore` may change what git ignores). A
+      // NON-structural reindex clears it but triggers no `loadFileList`, so no git call fires until
+      // the next structural re-glob — the once-per-structural-reindex cadence the test asserts (§19).
+      ignoredSet.clear();
       // A tsconfig add/remove/edit in the changed set may change the discovered-sibling SET and the
       // undiscovered SET — both host-lifetime memos that §3.5 content-fingerprint freshness can NOT
       // see (it fingerprints file CONTENT, not the tsconfig set). Left stale, a `git checkout` that

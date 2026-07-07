@@ -15,7 +15,7 @@
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
-import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { classifyExport, collectModuleEdges } from './unused-exports-classify.ts';
 
@@ -156,8 +156,8 @@ function scopePredicate(
   const inc = filter?.pathInclude;
   const exc = filter?.pathExclude;
   return (rel) => {
-    if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(rel, inc)) return false;
-    if (exc !== undefined && exc.length > 0 && matchesAnyGlob(rel, exc)) return false;
+    if (inc !== undefined && inc.length > 0 && !matchesPathFilter(rel, inc)) return false;
+    if (exc !== undefined && exc.length > 0 && matchesPathFilter(rel, exc)) return false;
     return true;
   };
 }

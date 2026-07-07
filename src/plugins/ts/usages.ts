@@ -6,7 +6,7 @@
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
-import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import { classifyRole, type UsageRole } from './usage-roles.ts';
@@ -77,8 +77,8 @@ export function assembleView(
     // `</X>` is the second token of an element already counted at `<X`.
     if (role === 'jsx-closing') continue;
     const pathPass =
-      !(options.pathExclude !== undefined && matchesAnyGlob(rel, options.pathExclude)) &&
-      !(options.pathInclude !== undefined && !matchesAnyGlob(rel, options.pathInclude));
+      !(options.pathExclude !== undefined && matchesPathFilter(rel, options.pathExclude)) &&
+      !(options.pathInclude !== undefined && !matchesPathFilter(rel, options.pathInclude));
     // Breakdown reflects the role-unfiltered answer WITH the same path filters.
     if (pathPass) breakdown.set(role, (breakdown.get(role) ?? 0) + 1);
     const roleMatch = !roleActive || role === options.role;

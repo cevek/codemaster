@@ -11,30 +11,7 @@ import type { Result } from '../../core/result.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { partial, ok } from '../../common/result/construct.ts';
 import { toPosix } from './canonicalize.ts';
-
-export const DEFAULT_IGNORED_DIRS: ReadonlySet<string> = new Set([
-  '.git',
-  'node_modules',
-  'dist',
-  'build',
-  '.next',
-  '.codemaster',
-  // Other tools' state dirs — may contain sockets/locks that must not be watched.
-  '.codegraph',
-  '.idea',
-  '.vscode',
-  '.turbo',
-  '.cache',
-  // Agent state — `.claude/worktrees/<id>` holds whole-tree COPIES of the repo; walking
-  // them indexes every source file N times over (a `find_unused_*` answer turns to noise,
-  // a per-query freshness stat-walk balloons). This is the non-git fallback's blind spot:
-  // the git `ls-files` listing already excludes it via `.gitignore`, but the plugins on
-  // this raw walk (scss/i18n/schema) and the freshness backstop do not — so exclude it here.
-  '.claude',
-]);
-
-/** Editor atomic-save / swap / backup churn (§19). */
-export const DEFAULT_IGNORED_FILES = /(\.swp|\.swx|~|\.tmp)$/;
+import { DEFAULT_IGNORED_DIRS, DEFAULT_IGNORED_FILES } from './ignored-paths.ts';
 
 const DEFAULT_MAX_FILE_BYTES = 1024 * 1024;
 

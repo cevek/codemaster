@@ -17,7 +17,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import { matchesAnyGlob } from '../common/glob/match.ts';
+import { matchesPathFilter } from '../common/glob/path-filter.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageOptions } from '../plugins/ts/query-types.ts';
 import { omitGroupSite } from '../plugins/ts/group-row.ts';
@@ -60,8 +60,9 @@ type ImpactArgs = z.infer<typeof argsSchema>;
 function passesFilter(row: GroupRow, args: ImpactArgs): boolean {
   if (args.kind !== undefined && row.kind !== args.kind) return false;
   if (args.exportedOnly === true && !row.exported) return false;
-  if (args.pathInclude !== undefined && !matchesAnyGlob(row.file, args.pathInclude)) return false;
-  if (args.pathExclude !== undefined && matchesAnyGlob(row.file, args.pathExclude)) return false;
+  if (args.pathInclude !== undefined && !matchesPathFilter(row.file, args.pathInclude))
+    return false;
+  if (args.pathExclude !== undefined && matchesPathFilter(row.file, args.pathExclude)) return false;
   return true;
 }
 

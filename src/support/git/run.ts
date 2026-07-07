@@ -2,7 +2,7 @@
 // wrapped; a failure is an honest `ToolFailure`, never an escaped exception, never a
 // guessed result). Everything else in `support/git/` goes through this.
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 
@@ -29,4 +29,27 @@ export function runGit(cwd: string, args: readonly string[]): Promise<Result<str
       },
     );
   });
+}
+
+/** SYNCHRONOUS git through the same one chokepoint — for the rare caller that is itself synchronous
+ *  and off the hot path (the TS file-set's `.gitignore` junk scan, run once per structural reindex).
+ *  `timeout` bounds it (§1 never-hang; a timeout THROWS like ENOENT/non-zero exit and is caught
+ *  here), so it can't spin. Prefer async `runGit` everywhere else. */
+export function runGitSync(
+  cwd: string,
+  args: readonly string[],
+  options?: { timeoutMs?: number },
+): Result<string> {
+  try {
+    const stdout = execFileSync('git', args, {
+      cwd,
+      maxBuffer: MAX_BUFFER_BYTES,
+      encoding: 'utf8',
+      ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+    });
+    return ok(stdout);
+  } catch (thrown) {
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    return fail({ tool: 'git', message: `git ${args.join(' ')}: ${message}` });
+  }
 }

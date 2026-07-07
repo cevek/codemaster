@@ -18,6 +18,7 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../../core/brands.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
+import { hasIgnoredDirSegment } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
 import { isTsconfigBasename } from './discover.ts';
@@ -72,6 +73,11 @@ export function createSingleProgram(
   configPath: string | undefined,
   label: string,
   registry: ts.DocumentRegistry,
+  /** Repo-relative posix paths the project's `.gitignore` declares junk (host-memoized, computed
+   *  ONCE per structural reindex — §19). Complements the name-based §10 set applied here; together
+   *  they keep a loose tsconfig `include` from indexing build output / nested VCS checkouts as
+   *  project symbols (the never-lie file-set fix). */
+  ignored: () => ReadonlySet<string>,
 ): SingleProgram {
   let files = new Map<string, { version: number }>(); // abs posix → version
   let version = 1;
@@ -83,8 +89,26 @@ export function createSingleProgram(
   const loadFileList = (): void => {
     parsed = parseConfig(root, configPath); // (re-)glob: picks up added/removed files
     membership = buildMembership(parsed, configDir, root); // glob predicate, rebuilt on re-glob
+    const ignoredJunk = ignored(); // host-memoized: one git call per structural reindex (§19)
+    const rootPrefix = `${toPosix(root)}/`;
     const next = new Map<string, { version: number }>();
-    for (const abs of parsed.fileNames.map(toPosix).filter((f) => !f.includes('/node_modules/'))) {
+    for (const abs of parsed.fileNames.map(toPosix)) {
+      if (abs.includes('/node_modules/')) continue;
+      // §10 file-set honesty: exclude build output / nested VCS checkouts / agent state (the
+      // name-based set — the reliable excluder for a nested `.claude/worktrees` whole-tree copy the
+      // outer `.gitignore` can't see across the working-tree boundary) AND anything the project's
+      // own `.gitignore` declares junk (the git set — arbitrary main-tree `generated/`/`coverage/`
+      // dirs no fixed name covers). Without this a loose `include:['**/*']` surfaces a minified
+      // bundle as a symbol and phantom-doubles a real declaration (find_usages → 'ambiguous'). A
+      // transitively-IMPORTED file is unaffected — TS still resolves an import INTO an excluded
+      // path; only ROOT-globbed junk that nothing imports drops out.
+      // Scoped to files UNDER the root: a file outside it isn't THIS repo's junk (and can't be in
+      // the repo-relative git-ignored set), and running the name-segment check on its absolute path
+      // could false-match an ancestor dir (`/home/me/build/…`) — the hazard hasIgnoredDirSegment warns of.
+      if (abs.startsWith(rootPrefix)) {
+        const rel = abs.slice(rootPrefix.length);
+        if (hasIgnoredDirSegment(rel) || ignoredJunk.has(rel)) continue;
+      }
       next.set(abs, files.get(abs) ?? { version: 1 });
     }
     files = next;
@@ -183,6 +207,12 @@ export function createSingleProgram(
         // until an unrelated source add/remove (docs/backlog.md). The re-glob stays §19-bounded — it
         // runs only here, on the reindex changed set, never on the LS hot path (`getCompilationSettings`).
         else if (isTsconfigBasename(abs.slice(abs.lastIndexOf('/') + 1))) structural = true;
+        // A `.gitignore` edit changes which files are junk (the §10 git-ignore exclusion in
+        // `loadFileList`): un-ignoring `generated/` must re-glob those files back IN. The host cleared
+        // the memoized ignore set on this reindex, but only a re-glob re-applies it — so treat any
+        // `.gitignore` in the changed set as structural (else the un-ignored files stay dropped until
+        // an unrelated source add/remove — a silent completeness gap, §3.4).
+        else if (abs.slice(abs.lastIndexOf('/') + 1) === '.gitignore') structural = true;
       }
       version++;
       if (structural) loadFileList();

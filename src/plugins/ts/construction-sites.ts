@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
-import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId, moduleName } from './symbol-id.ts';
 import { mintEncloserId } from './encloser-id.ts';
@@ -246,8 +246,8 @@ function scopePredicate(
   const inc = options.pathInclude;
   const exc = options.pathExclude;
   return (rel) => {
-    if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(rel, inc)) return false;
-    if (exc !== undefined && exc.length > 0 && matchesAnyGlob(rel, exc)) return false;
+    if (inc !== undefined && inc.length > 0 && !matchesPathFilter(rel, inc)) return false;
+    if (exc !== undefined && exc.length > 0 && matchesPathFilter(rel, exc)) return false;
     return true;
   };
 }
