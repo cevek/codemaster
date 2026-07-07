@@ -1,8 +1,10 @@
 ---
 id: t-000160
-title: "expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)"
+title: expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)
 status: backlog
 priority: medium
+tags:
+  - dogfood-jul
 type: bug
 importance: medium
 complexity: M
@@ -23,3 +25,15 @@ matches bury the exact `Span` past the cap) — FIXED by the addressing track's 
 lists ABSOLUTE paths while every other path is repo-relative; (e) namespace-merge members flagged
 `inherited=true` (per the different-decl-node rule, misleading for a fn/namespace merge). (d)/(e)
 are honesty/clarity. `bug`·`med`·`cx:M`
+
+---
+**Dogfood-jul cross-ref (2026-07):** this (c) shared-resolver fix is the home for the bare-name
+resolution-inconsistency family reported across ops: `expand_type {name:'Node'}` flat-missing an
+exported interface (entry 7), `construction_sites {name:'Node'}` "no symbol" on an ambiguous type
+(entry 11), `source {name:'Backlog'}` missing an exported type search_symbol finds (entry 26). Re-probed
+on current `main` 2026-07-08: `expand_type`/`source`/`find_usages` on an ambiguous name now return the
+**candidate declaration list** (not a flat "no symbol"), and `construction_sites {name:'Plugin'}`
+resolves the interface — so the family is largely closed. Residual UNVERIFIED, re-check per-op: the
+UNIQUE-exported-but-flat-missed case (entry 26 `source{Backlog}`), which the resolve-target.ts navto
+path may still bury under case-insensitive matches; distinct from the member-by-name-without-file gap
+tracked in t-000095.
