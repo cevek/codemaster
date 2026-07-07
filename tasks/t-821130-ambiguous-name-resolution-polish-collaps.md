@@ -3,11 +3,10 @@ id: t-821130
 title: 'Ambiguous-name resolution polish: collapse a pure re-export chain to its one underlying decl ("alias of …"), and rank the exported/production decl first'
 status: backlog
 priority: low
-tags:
-  - dogfood-jul
 type: dx
 complexity: M
 area: impact-usages
+source: dogfood-jul
 created: '2026-07-07T20:06:53.245Z'
 ---
 Inbox entries 5, 13, 45(part), 112, 117, 280, 2026-07-02→06. `find_usages`/`source`/`expand_type` on an ambiguous bare name error with the candidate list. Two polish asks on top of the already-shipped `find_usages {mergeDeclarations:true}` (which unions all same-named decls' usages — largely covers the "I want ALL refs across decls" case, entries 1, 32):

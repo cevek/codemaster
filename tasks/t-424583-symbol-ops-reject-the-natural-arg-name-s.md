@@ -4,11 +4,11 @@ title: Symbol ops reject the natural arg name — search_symbol wants `query` (n
 status: done
 priority: high
 tags:
-  - dogfood-jul
   - intake
 type: dx
 complexity: S
 area: render
+source: dogfood-jul
 created: '2026-07-07T20:04:03.405Z'
 ---
 **The single most-recurring dogfood friction (7 inbox entries, ≥6 sessions, 2026-07-04→07).** The op-map/spec describe these ops by their *intent* ("fuzzy-find a symbol **by name**", "does X exist → list") but the canonical arg is different, so the intuitive first call hard-fails and costs a round-trip **every fresh session**.

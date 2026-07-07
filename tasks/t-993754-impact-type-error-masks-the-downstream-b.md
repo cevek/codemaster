@@ -3,11 +3,10 @@ id: t-993754
 title: impact_type_error masks the downstream blast radius when a trial edit degrades the edited symbol's OWN inferred type to `any` (zod value-type widening)
 status: done
 priority: medium
-tags:
-  - dogfood-jul
 type: bug
 complexity: M
 area: impact-usages
+source: dogfood-jul
 created: '2026-07-07T20:05:47.132Z'
 ---
 Inbox entry 29 (`task-manager/track-f-config`), 2026-07-06. `impact_type_error` on `fieldSpecSchema` replacing `values: z.array(z.string()).optional()` with `values: z.array(z.union([z.string(), z.object({…})])).optional()` collapsed zod's inference of the whole `configSchema.superRefine((cfg,ctx)=>…)`: reported **14 introduced errors, all intra-file** (`cfg`/`ctx`/`spec`/`s` implicitly `any`, an index error) with `brokenFiles=0` downstream. The tool correctly warned `!! trial edit introduced error(s) in the edited file ITSELF — may be PARSE CASCADE`.

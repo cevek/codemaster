@@ -3,11 +3,10 @@ id: t-815425
 title: 'Markdown/doc plugin: §-cross-ref + relative-link resolution, heading outline (`list registry:sections`), doc↔code drift anchors; + `status` should report TS source-file count'
 status: backlog
 priority: low
-tags:
-  - dogfood-jul
 type: feat
 complexity: L
 area: docs
+source: dogfood-jul
 created: '2026-07-07T20:07:21.815Z'
 ---
 Inbox entries 16, 17, 18, 19, 139, 144, 146, 151 (`task-manager`, docs-heavy/greenfield sessions), 2026-07-03. Architecture-doc reviews fit codemaster's proof-carrying model but have zero applicable ops today (all ops are TS/React-symbol-shaped), so the whole session runs on Read + manual cross-referencing.

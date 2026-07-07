@@ -5,11 +5,10 @@ status: backlog
 priority: medium
 depends_on:
   - t-993754
-tags:
-  - dogfood-jul
 type: bug
 complexity: M
 area: impact-usages
+source: dogfood-jul
 created: '2026-07-07T21:30:24.499Z'
 ---
 Residual split off from t-993754 (Case B). t-993754's Level-1 fix flags the masking when the trial edit produces an INTRA-FILE error cascade that collapses the edited symbol's inferred type (`editSiteBroke`/`downstreamTrusted` + loud note). But a CLEAN widen-to-any — e.g. `export const model: any = {…}` with NO intra-file error — is a FUNDAMENTAL limit of the diff-diagnostics approach: widening to `any` produces FEWER downstream errors, so "introduced errors vs baseline" can never catch it; the op still reports `clean:true`, zero notes (purest masking).

@@ -3,11 +3,10 @@ id: t-614260
 title: Ops with an absolute `file`/`symbolId` inside a worktree FAIL "file not in the TS project" unless a redundant `root` is also passed — infer root from the absolute path
 status: done
 priority: medium
-tags:
-  - dogfood-jul
 type: dx
 complexity: S
 area: platform
+source: dogfood-jul
 created: '2026-07-07T20:05:53.628Z'
 ---
 **Absolute-path normalization bug (the reproduced defect).** An absolute `file`/`symbolId` path FAILed "file not in the TS project" — and it did so EVEN WITH a matching `--root` (the original "unless a redundant root is also passed" framing was wrong; triage + fix confirmed it fails with root too). Root cause: `absOf` in src/plugins/ts/ls-host.ts did `path.join(root, absPath)`, double-joining an already-absolute path into a nonexistent path.

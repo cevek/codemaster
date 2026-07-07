@@ -3,11 +3,10 @@ id: t-513259
 title: find_unused_scss_classes lists 100% of a GLOBAL (non-module) stylesheet's classes as unused-partial — string-literal classNames unresolved, reads as actionable dead code
 status: done
 priority: medium
-tags:
-  - dogfood-jul
 type: bug
 complexity: M
 area: scss
+source: dogfood-jul
 created: '2026-07-07T20:05:39.627Z'
 ---
 Inbox entry 21 (`task-manager/t5-web/web`, Vite+React+SCSS SPA), 2026-07-04. One global `src/styles/app.scss` imported for side effects (`import './styles/app.scss'`); components apply classes via plain JSX `className` string literals (`<div className="board">`, `` className={`column${…?' column--unknown':''}`} ``). `find_unused_scss_classes` flagged **all 69 classes** unused, each `partial`, `globalModules=[app.scss]` — false positives (`board`/`card`/`overlay` are all live).

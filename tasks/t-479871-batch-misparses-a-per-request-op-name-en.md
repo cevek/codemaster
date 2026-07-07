@@ -3,11 +3,10 @@ id: t-479871
 title: '`batch` misparses a per-request `{op, name}` envelope — dispatches the `name` VALUE as the op ("unknown op ''<symbol>''")'
 status: done
 priority: high
-tags:
-  - dogfood-jul
 type: bug
 complexity: S
 area: correctness
+source: dogfood-jul
 created: '2026-07-07T20:04:30.680Z'
 ---
 **Confirmed on current `main` via the MCP `batch` tool, 2026-07-08.** (inbox entry 36.)

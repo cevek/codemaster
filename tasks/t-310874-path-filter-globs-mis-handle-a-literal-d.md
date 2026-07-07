@@ -6,8 +6,8 @@ priority: medium
 depends_on:
   - t-994174
 tags:
-  - dogfood-jul
   - intake
+source: dogfood-jul
 created: '2026-07-07T21:13:09.008Z'
 ---
 Surfaced by bug-review of Track A (t-994174 fix, 2026-07-08). NOT a lie — the honesty note still fires (`filteredOutByPath>0` → "NOT a symbol absence") — but a literal directory whose name contains glob-special chars has NO working path-filter incantation.

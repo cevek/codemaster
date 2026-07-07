@@ -45,6 +45,11 @@ fields:
       - schema
       - docs
       - correctness
+  source:
+    type: enum
+    values:
+      - dogfood-jul
+    required: false
 web:
   host: 127.0.0.1
   port: 57345

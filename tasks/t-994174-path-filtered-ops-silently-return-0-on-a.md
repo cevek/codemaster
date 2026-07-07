@@ -3,11 +3,10 @@ id: t-994174
 title: Path-filtered ops silently return 0 on a bare-dir `pathInclude` — reads as symbol absence (search_symbol has no `filterMatchedNoFiles` warning)
 status: done
 priority: high
-tags:
-  - dogfood-jul
 type: bug
 complexity: S
 area: render
+source: dogfood-jul
 created: '2026-07-07T20:04:23.454Z'
 ---
 **Confirmed on current `main`, 2026-07-08.** A bare directory in `pathInclude` (no `/**`) matches 0 files and, for `search_symbol`, is reported as a plausible **symbol absence** rather than a filter miss — a completeness lie (an agent concludes the symbol doesn't exist). Inbox entries 20, 27, 172-ish, 237, 394.

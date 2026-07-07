@@ -3,11 +3,10 @@ id: t-000160
 title: expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)
 status: backlog
 priority: medium
-tags:
-  - dogfood-jul
 type: bug
 complexity: M
 area: correctness
+source: dogfood-jul
 created: '2026-07-08T00:02:39.000Z'
 ---
 **expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)**

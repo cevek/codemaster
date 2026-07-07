@@ -3,11 +3,10 @@ id: t-019044
 title: Warm index picks up nested `.claude/worktrees/**` checkouts and `dist/`/build output — every encloser doubles, minified bundles surface as symbols
 status: done
 priority: high
-tags:
-  - dogfood-jul
 type: bug
 complexity: M
 area: multi-program
+source: dogfood-jul
 created: '2026-07-07T20:04:15.412Z'
 ---
 **Recurring on `claude-ui` (4 inbox entries: 33, 43, 51, + bug 35), 2026-07-06→07.** `find_usages`/`importers_of`/`search_symbol` return every encloser **twice** — once at the real path (`apps/web/src/…/DraftChatView.tsx`) and once at a mirrored copy under `.claude/worktrees/chat-model/apps/web/…` (same content-hash) — roughly doubling the blast radius and making a deletion-safety / true-usage count hard to read. Separately, `search_symbol` surfaces **minified `apps/web/dist/assets/index-*.js`** symbols (mangled class names `qi`, useless spans).

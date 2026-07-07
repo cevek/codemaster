@@ -5,11 +5,10 @@ status: backlog
 priority: low
 depends_on:
   - t-019044
-tags:
-  - dogfood-jul
 type: bug
 complexity: S
 area: ts-refactor
+source: dogfood-jul
 created: '2026-07-07T22:24:34.717Z'
 ---
 Residual from t-019044. The wave-2 file-set fix aligned the TS program with git's listing (tracked + untracked-not-ignored), which eliminated the git-tree↔program desync for a ROOT-globbed gitignored importer (that case now cleanly succeeds — the old e2e test was rewritten to assert the new correct behavior). BUT a gitignored file pulled into the program TRANSITIVELY (imported by a tracked file) can STILL desync move_symbol's git-tree vs program — the refusal/actionable-error machinery still applies to that case but is now UNTESTED (the old test only covered the root-globbed case).

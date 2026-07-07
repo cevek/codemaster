@@ -3,11 +3,10 @@ id: t-000073
 title: '**Sibling-tsconfig discovery is adjacent-dir + `references` only'
 status: backlog
 priority: high
-tags:
-  - dogfood-jul
 type: imp
 complexity: L
 area: multi-program
+source: dogfood-jul
 created: '2026-07-08T00:01:12.000Z'
 ---
 **Sibling-tsconfig discovery is adjacent-dir + `references` only — real nested discovery (the

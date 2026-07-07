@@ -5,11 +5,10 @@ status: backlog
 priority: medium
 depends_on:
   - t-019044
-tags:
-  - dogfood-jul
 type: bug
 complexity: S
 area: correctness
+source: dogfood-jul
 created: '2026-07-07T22:24:28.793Z'
 ---
 Residual from t-019044/t-310874. The wave-2 fix added a single path-filter chokepoint `common/glob/path-filter.ts` `matchesPathFilter` (bare-dir→prefix expand + glob-special-char escape) and routed the ts-plugin + ops sites (find_usages/unused_exports/construction_sites/impact/search/list) through it. But three sites still use raw `matchesAnyGlob` and thus retain the bare-dir silent-no-op + special-char bugs:
