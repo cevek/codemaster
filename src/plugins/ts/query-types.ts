@@ -184,9 +184,17 @@ export type TypeView = {
    *  function/namespace merge it carries the call shape while `members` carries the namespace
    *  exports — neither truncating the other (§3.4). */
   signatures?: string[];
-  /** Honest caveats: member list capped (`… N more`), depth cap reached, type string
-   *  elided — never a silent `…` (§3.4). */
+  /** Honest caveats: depth cap reached, a member's type string elided, a nested object-literal
+   *  member list capped — never a silent `…` (§3.4). The TOP-LEVEL member-list cap does NOT land
+   *  here; it rides the structured `membersTruncated` below (→ `Result.truncated`) so a count-only
+   *  consumer sees it. Nested (depth>1) overflow stays a soft note — `Truncation` is a single
+   *  `{shown,total}` and can't carry multiple nested caps; a known, deliberate structured-channel gap. */
   notes?: string[];
+  /** Top-level member-list cap (`memberLimit`): members shown vs the type's total property count.
+   *  Present ONLY when the list was truncated; the op lifts it onto `Result.truncated` (the honest
+   *  truncation channel), never a soft `notes` line. At `verbosity:'full'` the cap is unbounded, so
+   *  this is absent unless an explicit `memberLimit` was passed. */
+  membersTruncated?: { shown: number; total: number };
 };
 
 /** Depth + member bounds for structural type expansion (§3.3). */

@@ -316,7 +316,7 @@ test('Bug C: a type alias resolves by name+file exactly as by file+line+col (res
   }
 });
 
-test('member cap is explicit, never silent', async () => {
+test('member cap is explicit, never silent — rides Result.truncated, not a soft note', async () => {
   const wide = `export interface Wide { ${Array.from({ length: 8 }, (_, i) => `f${i}: number;`).join(' ')} }\n`;
   const p = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
@@ -327,9 +327,20 @@ test('member cap is explicit, never silent', async () => {
     assert.ok('result' in r && r.result.ok);
     const view = r.result.data as View;
     assert.equal((view.members ?? []).length, 3, 'only memberLimit members listed');
+    // The overflow rides the STRUCTURED truncation channel (a count-only consumer sees it),
+    // never a soft `notes:` line (§3.4).
+    assert.deepEqual(
+      r.result.truncated,
+      {
+        shown: 3,
+        total: 8,
+        hint: 'raise memberLimit or use verbosity:full for the complete member list',
+      },
+      'the 5 hidden members are reported via Result.truncated {shown,total,hint}',
+    );
     assert.ok(
-      (view.notes ?? []).some((n) => /… 5 more member\(s\) \(raise memberLimit\)/.test(n)),
-      'the 5 hidden members are reported, never silently dropped',
+      !(view.notes ?? []).some((n) => /more member/.test(n)),
+      'the member-count overflow is NOT re-reported as a soft note',
     );
   } finally {
     await p.dispose();

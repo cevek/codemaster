@@ -1,7 +1,7 @@
 ---
 id: t-375096
 title: expand_type truncates object members with "… N more …" even at verbosity:full — no `!! OUTPUT CAPPED` marker, and `full` should be complete
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood-jul

@@ -251,8 +251,12 @@ async function main(): Promise<number> {
         }
       }
       const orchestrator = buildOrchestrator();
+      // Thread verbosity into the REQUEST (not just the render), so an op that shapes its DATA by
+      // density — expand_type lifts its member cap at full (§3.4 completeness) — sees it in
+      // `ctx.flags`. The MCP path already carries it; without this the CLI would render `full` over
+      // data the op capped at the terse default. Ops that ignore verbosity are unaffected.
       const outcome = await orchestrator.request(process.cwd(), root, [
-        { name, args: opArgs as never, apply, summaryOnly },
+        { name, args: opArgs as never, apply, summaryOnly, verbosity: v },
       ]);
       if (!outcome.ok) {
         process.stderr.write(`${outcome.message}\n`);

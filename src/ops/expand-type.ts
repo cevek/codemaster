@@ -40,7 +40,7 @@ export const expandTypeOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40) }`,
+  argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40; uncapped at verbosity:full) }`,
   intake: tsTargetIntake,
   example: {
     args: { symbolId: 'ts:Engine@src/daemon/engine.ts:70:7' },
@@ -48,14 +48,20 @@ export const expandTypeOp = defineOp({
   },
   notes: [
     'object types list members (name/optional/type, inherited flagged); unions/intersections list constituents; enums list members.',
-    'depth (1-3) expands nested anonymous object literals; memberLimit caps the list and overflow is reported, never silently dropped.',
+    'depth (1-3) expands nested anonymous object literals; verbosity:full lists ALL members (the default 40-cap is lifted); an explicit memberLimit caps the list and the overflow rides the truncated channel, never silently dropped.',
   ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
+      // `full` means COMPLETE (§3.4): lift the default 40-cap so no member is dropped — the
+      // RENDER_CHAR_CAP `!! OUTPUT CAPPED` is the honest size backstop, and enumeration is finite
+      // (bounded by the type). An EXPLICIT `memberLimit` is a deliberate cap and always wins, even
+      // at full — its overflow then rides `Result.truncated` (below), never a soft note.
+      const full = ctx.flags.verbosity === 'full';
+      const memberLimit = args.memberLimit ?? (full ? Number.POSITIVE_INFINITY : 40);
       const outcome = ts.expandType(args, {
         depth: args.depth ?? 1,
-        memberLimit: args.memberLimit ?? 40,
+        memberLimit,
       });
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
       if ('unresolved' in outcome) {
@@ -76,11 +82,30 @@ export const expandTypeOp = defineOp({
             out['at'] = `${view.span.file}:${view.span.line}:${view.span.col}`;
         } else if (k === 'members') {
           if (view.members !== undefined) out['members'] = tagMembers(view.members);
+        } else if (k === 'membersTruncated') {
+          // Rides the envelope's `Result.truncated` channel (below), not `data` — so a count-only
+          // consumer sees the incompleteness; drop it from the projected data.
         } else {
           out[k] = val as JsonValue;
         }
       }
-      return ok(out, outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined);
+      // The member-list cap is the honest truncation channel (§3.4), never a soft `notes` line: a
+      // structured `{shown,total}` that renders into the reserved tail AND survives `format:'json'`.
+      const cap = view.membersTruncated;
+      const truncated =
+        cap !== undefined
+          ? {
+              shown: cap.shown,
+              total: cap.total,
+              hint: full
+                ? 'raise memberLimit for the complete member list'
+                : 'raise memberLimit or use verbosity:full for the complete member list',
+            }
+          : undefined;
+      return ok(out, {
+        ...(outcome.rebind !== undefined ? { handle: outcome.rebind } : {}),
+        ...(truncated !== undefined ? { truncated } : {}),
+      });
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);
     }

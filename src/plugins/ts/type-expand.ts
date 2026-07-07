@@ -95,6 +95,9 @@ export function expandTypeAt(
   // EXCEPT under exactOptionalPropertyTypes, where an explicit `| undefined` is a DISTINCT type
   // (assignable `undefined` vs merely absent) and dropping it would be a lie (§3 / density audit).
   const stripOptUndefined = program.getCompilerOptions().exactOptionalPropertyTypes !== true;
+  // Top-level overflow is captured structurally (→ `Result.truncated`), not as a soft note; the
+  // recursion still soft-notes NESTED (depth>1) caps (see `top` param on expandMembers).
+  const overflow: { members?: { shown: number; total: number } } = {};
   const members = expandMembers(
     checker,
     type,
@@ -104,6 +107,8 @@ export function expandTypeAt(
     new Set(),
     notes,
     stripOptUndefined,
+    overflow,
+    true,
   );
   if (members === undefined) {
     // A pure function / overload set has no object members — quick-info describes one signature;
@@ -132,6 +137,7 @@ export function expandTypeAt(
     ...(signatures !== undefined ? { signatures } : {}),
     members,
     ...(notes.length > 0 ? { notes } : {}),
+    ...(overflow.members !== undefined ? { membersTruncated: overflow.members } : {}),
   };
 }
 
@@ -162,6 +168,8 @@ function expandMembers(
   seen: Set<ts.Type>,
   notes: string[],
   stripOptUndefined: boolean,
+  overflow: { members?: { shown: number; total: number } },
+  top: boolean,
 ): MemberView[] | undefined {
   const apparent = checker.getApparentType(type);
   const props = apparent.getProperties();
@@ -169,7 +177,10 @@ function expandMembers(
   const ownDecls = new Set(type.getSymbol()?.declarations ?? []);
   const shown = props.slice(0, memberLimit);
   if (props.length > shown.length) {
-    notes.push(`… ${props.length - shown.length} more member(s) (raise memberLimit)`);
+    // Top-level cap → structured (the op lifts it onto `Result.truncated`); nested cap → soft note
+    // (§3.4: a single `Truncation` can't carry multiple nested overflows — a deliberate gap).
+    if (top) overflow.members = { shown: shown.length, total: props.length };
+    else notes.push(`… ${props.length - shown.length} more nested member(s) (raise memberLimit)`);
   }
   return shown.map((prop) => {
     const propType = checker.getTypeOfSymbolAtLocation(prop, node);
@@ -192,6 +203,8 @@ function expandMembers(
         seen,
         notes,
         stripOptUndefined,
+        overflow,
+        false,
       );
       if (nested !== undefined) member.members = nested;
     } else if (depth === 1 && isAnonymousObject(propType)) {
