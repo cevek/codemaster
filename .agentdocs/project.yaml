@@ -1,0 +1,11 @@
+# codemaster — подписка на общак agent-docs.
+# База (fragments/**) даёт generic-скелет; проектную специфику несёт .agentdocs/tail/**.
+name: codemaster
+targets: [claude]
+
+# стек-теги (react/vitest/pnpm) не подходят: тут node + npm + node:test + TS-daemon.
+# Включаем то, что реально описывает репо и гейтит блоки claude-md:
+profile: [task-manager, codemaster]
+
+# facts не заданы: ни один фрагмент общака сейчас не содержит {{плейсхолдеров}},
+# так что определять test.cmd/run.cmd и т.п. нечего (agentdocs пометил бы их «не используется»).
