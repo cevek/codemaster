@@ -13,6 +13,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 import { project, type TestProject } from '../helpers/project.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
@@ -89,6 +91,55 @@ test('name+file+line scopes the line to that name (line-scoped, not a workspace 
     // Line 2 is ambiguous bare, but `name:'gamma'` picks the gamma declarator on it.
     const id = defId(await p.op('find_usages', { name: 'gamma', file: 'src/m.ts', line: 2 }));
     assert.match(id, /gamma@src\/m\.ts:2:24/, 'name filter selected gamma on the shared line');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// ── absolute file addressing (§19 chokepoint / t-614260) ─────────────────────────────────────────
+// An agent pastes an ABSOLUTE `file` (a grep/editor hit), not only a repo-relative one. The
+// absolute path must brand — through the SAME §19 canonicalization chokepoint (`mintRepoRelPath`:
+// realpath + case-fold + symlink/pnpm policy) the relative form reaches — to the SAME symbol. On
+// main it double-joined onto the root (`path.join(root, absPath)`) → a nonexistent path → a false
+// "file not in the TS project", EVEN with a matching `root` passed. Oracle: the relative form's
+// SymbolId (identity by declaration site, §16) — no second LS.
+
+test('absolute file path resolves identically to the relative form (§19 chokepoint)', async () => {
+  const p: TestProject = await project(M);
+  try {
+    const rel = defId(await p.op('find_usages', { file: 'src/m.ts', line: 1 }));
+    const abs = defId(await p.op('find_usages', { file: path.join(p.root, 'src/m.ts'), line: 1 }));
+    assert.equal(abs, rel, 'absolute file address == relative file address (same symbol)');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('an absolute file OUTSIDE the repo root fails honestly, never guessed', async () => {
+  const p: TestProject = await project(M);
+  try {
+    // A sibling of the repo root (`../not-this-repo/…`) resolves outside → the mint refuses it and
+    // absOf passes it through, so `sourceFileAcross` misses and the resolver fails honestly.
+    const outside = path.join(path.dirname(p.root), 'not-this-repo', 'src', 'm.ts');
+    const msg = failMsg(await p.op('find_usages', { file: outside, line: 1 }));
+    assert.match(msg, /file not in the TS project/, 'out-of-root abspath → honest not-in-project');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a case-variant absolute path folds to the same symbol on a case-insensitive volume', async () => {
+  const p: TestProject = await project(M);
+  try {
+    // The §19 case-fold, end-to-end through absOf's mint routing. Only meaningful on a
+    // case-INSENSITIVE volume (APFS/NTFS); probed at runtime so a case-sensitive CI volume skips
+    // cleanly rather than failing on a genuinely-absent path. (The fold itself is unit-tested
+    // against an injected realpath in support.test.ts; here we prove absOf ROUTES to it.)
+    const variant = path.join(p.root, 'SRC', 'M.ts');
+    if (!existsSync(variant)) return; // case-sensitive volume — the variant path is truly absent
+    const rel = defId(await p.op('find_usages', { file: 'src/m.ts', line: 1 }));
+    const folded = defId(await p.op('find_usages', { file: variant, line: 1 }));
+    assert.equal(folded, rel, 'a differently-cased abspath brands to the true on-disk key');
   } finally {
     await p.dispose();
   }

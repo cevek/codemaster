@@ -13,7 +13,7 @@
 import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
-import { toPosix } from '../../support/fs/canonicalize.ts';
+import { mintRepoRelPath, toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
@@ -223,7 +223,20 @@ export function createTsProjectHost(root: string, tsconfigOverride?: string): Ts
 
   const rootTag = fnv1a64Hex(toPosix(root)).slice(0, 8);
 
-  const absOf = (rel: RepoRelPath): string => path.join(root, rel);
+  // An agent addresses a file by REPO-RELATIVE path (`src/x.ts`) or an ABSOLUTE one (a
+  // grep/editor paste, `/repo/src/x.ts`). A relative path joins onto the canonical root; an
+  // absolute one must NOT be re-joined (`path.join(root, abs)` double-joins into a nonexistent
+  // path → a false "file not in the TS project"). Funnel the absolute case through the §19
+  // minting chokepoint (`mintRepoRelPath`: realpath + case-fold + symlink/pnpm policy, `root`
+  // being the canonical root from `canonicalizeRoot`) so it brands to the SAME repo-relative key
+  // a relative spelling of the same file reaches — then join that. An absolute path resolving
+  // OUTSIDE the root can't be a repo file: pass it through normalized so the caller's
+  // `sourceFileAcross` misses and fails honestly ("file not in the TS project"), never guessed.
+  const absOf = (rel: RepoRelPath): string => {
+    if (!path.isAbsolute(rel)) return path.join(root, rel);
+    const minted = mintRepoRelPath(root, rel);
+    return minted.ok ? path.join(root, minted.path) : path.normalize(rel);
+  };
   const relOf = (abs: string): RepoRelPath => {
     const posix = toPosix(abs);
     const prefix = `${toPosix(root)}/`;
