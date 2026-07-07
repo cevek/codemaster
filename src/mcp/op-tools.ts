@@ -90,6 +90,47 @@ export function buildPerOpRequest(opName: string, rawArgs: unknown): PerOpReques
   };
 }
 
+/** Normalize a batch request ENVELOPE (§7/§11). The canonical envelope is `{name:'<op>', args:{…}}`,
+ *  but an agent naturally writes the FLAT per-op form `{op:'find_usages', name:'Plugin', …}` (the
+ *  standalone tools take flat args) — where the envelope schema (`z.object`) would silently strip the
+ *  unknown `op` key and dispatch the request's `name` VALUE (`'Plugin'`) as the op. So when a request
+ *  carries an `op` key we treat it as the flat form: `op` is the op name, reserved keys lift to the
+ *  request, and the remainder becomes `args` (unless a lone canonical `args` object is present). A
+ *  request WITHOUT `op` is passed through untouched — the canonical `{name,args}` envelope still
+ *  validates exactly as before. The op's own arg intake (symbol→name, …) still runs downstream on
+ *  `args`; this only fixes the envelope. `transaction` sub-steps do not pass through here (§7). */
+export function normalizeBatchEnvelope(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  if (!('op' in obj)) return raw;
+  const { op, ...restAll } = obj;
+  const { reserved, rest } = splitReserved(restAll);
+  const restKeys = Object.keys(rest);
+  // A lone canonical `args` object (the mixed `{op, args:{…}}` form) is used directly; otherwise the
+  // flat top-level keys ARE the args (the natural `{op, name, …}` form). A mixed shape with both an
+  // `args` key and stray keys folds everything into `args` and fails the op schema honestly (§3).
+  const args =
+    restKeys.length === 1 &&
+    restKeys[0] === 'args' &&
+    rest['args'] !== null &&
+    typeof rest['args'] === 'object' &&
+    !Array.isArray(rest['args'])
+      ? rest['args']
+      : rest;
+  return { name: op, args, ...reserved };
+}
+
+/** Normalize a whole `batch` tool call's raw arguments: rewrite each request's flat `{op,…}`
+ *  envelope to canonical `{name,args}` (normalizeBatchEnvelope) BEFORE zod validation, so the natural
+ *  flat form dispatches correctly instead of the schema silently stripping `op` (§7/§11). Anything
+ *  not shaped `{requests:[…]}` passes through untouched — the schema then reports the real error. */
+export function normalizeBatchArguments(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj['requests'])) return raw;
+  return { ...obj, requests: obj['requests'].map(normalizeBatchEnvelope) };
+}
+
 /** Split a per-op tool's flat `arguments` into the reserved request/flag keys and the op's own
  *  args. Blind by key-name — safe because the anti-drift test guarantees no op arg shares a
  *  reserved name (the facade-blind-extract decision: the test IS the guarantee, §3). */

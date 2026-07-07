@@ -26,6 +26,9 @@ export const moveFileOp = defineOp<MoveArgs, JsonValue>({
   requires: ['ts'],
   argsSchema: moveArgsSchema,
   argsHint: '{ source: RepoRelPath, dest: RepoRelPath (full new path), dirtyOk?: boolean }',
+  // §7 Postel: `from`/`to` is the intuitive spelling of the canonical `source`/`dest` (a recurring
+  // miscall). Disclosed via Result.intake; the canonical schema stays the sole gate.
+  intake: { aliases: { from: 'source', to: 'dest' } },
   example: { args: { source: 'src/old/Button.tsx', dest: 'src/ui/Button.tsx' } },
   notes: [
     'dest is the full new path, not a directory. git mv preserves history; a .module.scss/.css sibling is carried with the file.',

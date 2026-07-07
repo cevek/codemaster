@@ -13,6 +13,7 @@ import type { ListEntry, ListView } from '../core/list.ts';
 import type { Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { matchesAnyGlob } from '../common/glob/match.ts';
+import { expandDirGlobs } from '../common/glob/expand-dir.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
@@ -28,10 +29,14 @@ function filterByPath(
   exclude: readonly string[] | undefined,
 ): { matched: ListEntry[]; excluded: number } {
   if (include === undefined && exclude === undefined) return { matched: [...entries], excluded: 0 };
+  // A wildcard-less entry (`src/features`) also matches `src/features/**` — the intended
+  // directory-prefix reading (expand-dir.ts), so a bare dir isn't a self-defeating filter (§3.4).
+  const inc = include !== undefined ? expandDirGlobs(include) : undefined;
+  const exc = exclude !== undefined ? expandDirGlobs(exclude) : undefined;
   const matched = entries.filter((e) => {
     const f = e.span.file;
-    if (include !== undefined && !matchesAnyGlob(f, include)) return false;
-    if (exclude !== undefined && matchesAnyGlob(f, exclude)) return false;
+    if (inc !== undefined && !matchesAnyGlob(f, inc)) return false;
+    if (exc !== undefined && matchesAnyGlob(f, exc)) return false;
     return true;
   });
   return { matched, excluded: entries.length - matched.length };
@@ -240,6 +245,10 @@ export const listOp = defineOp({
   requires: [],
   argsSchema,
   argsHint: '{ registry: string, pathInclude?: string[], pathExclude?: string[], limit?: number }',
+  // §7 Postel: `list {query:'components'}` is a recurring intuitive miscall — the canonical arg is
+  // `registry`, and a registry name IS the "query" here, so `query`→`registry` resolves it.
+  // Disclosed via Result.intake; the canonical schema stays the sole gate.
+  intake: { aliases: { query: 'registry' } },
   example: { args: { registry: 'components', pathInclude: ['src/features/**'] } },
   notes: [
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',

@@ -32,6 +32,7 @@ import {
   statusToolSchema,
 } from './schema.ts';
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
+import { normalizeBatchArguments } from './op-tools.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -177,7 +178,9 @@ export async function serveMcp(
         return ok(text(renderStatus(view, { brief: parsed.data.brief, op: parsed.data.op })));
       }
       case 'batch': {
-        const parsed = batchToolSchema.safeParse(request.params.arguments ?? {});
+        // §7/§11: normalize each request's flat `{op,…}` envelope to canonical `{name,args}` before
+        // the schema strips `op` (which would misdispatch the request's `name` VALUE as the op).
+        const parsed = batchToolSchema.safeParse(normalizeBatchArguments(request.params.arguments));
         if (!parsed.success) return fail(badArgs('batch', parsed.error.message));
         const { sql, return: returnMode, format, verbosity } = parsed.data;
         const ops = parsed.data.requests.map((r) => r.name);

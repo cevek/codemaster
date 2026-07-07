@@ -6,6 +6,7 @@
 
 import type ts from 'typescript';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { expandDirGlobs } from '../../common/glob/expand-dir.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import type { SymbolView } from './query-types.ts';
@@ -17,6 +18,13 @@ export type SearchView = {
    *  when the cap hit; the op surfaces that as explicit truncation (§3.4). The LS
    *  itself was asked for a bounded set, so this is a floor, not a guess. */
   total: number;
+  /** Query+kind+export matches that were dropped SOLELY by pathInclude/pathExclude. Present only
+   *  when a path filter was set. On `matches.length === 0` with this > 0, the empty answer is a
+   *  self-defeating FILTER, not a symbol absence — the op surfaces that as a verdict-first note so
+   *  a false "no such symbol" is never read (§3.4). Distinguishes a real typo'd path (matches
+   *  nothing → note fires) from a genuine no-such-symbol (this is 0 → honest absence). Like `total`
+   *  it is a navto-budget-bounded FLOOR (navto runs before the path filter), never over-reported. */
+  filteredOutByPath?: number;
 };
 
 export type SearchFilter = {
@@ -39,9 +47,18 @@ export function searchSymbols(
   // several programs). excludeDtsFiles: with it off, the LS spends the whole budget on lib.d.ts /
   // node_modules declarations and a small limit comes back EMPTY after our filter (an honest-
   // looking lie); project-local .d.ts symbols are out of search scope for now (Phase 3 schema).
+  // A wildcard-less path entry (`src/daemon`) is expanded to ALSO match `src/daemon/**` — the
+  // intended directory-prefix reading — so a bare dir isn't a self-defeating filter; an exact FILE
+  // path still matches itself, a patterned entry is untouched (§3.4 ergonomics, expand-dir.ts).
+  const include =
+    filter?.pathInclude !== undefined ? expandDirGlobs(filter.pathInclude) : undefined;
+  const exclude =
+    filter?.pathExclude !== undefined ? expandDirGlobs(filter.pathExclude) : undefined;
+  const pathFiltered = include !== undefined || exclude !== undefined;
   const views: SymbolView[] = [];
   const seen = new Set<string>(); // `fileName|textSpan.start` — one declaration counted once
   let total = 0;
+  let filteredOutByPath = 0;
   for (const p of host.programs()) {
     const program = p.getProgram();
     if (program === undefined) continue;
@@ -53,17 +70,25 @@ export function searchSymbols(
       if (filter?.exportedOnly === true && !item.kindModifiers.split(',').includes('export')) {
         continue;
       }
-      const rel = host.relOf(item.fileName);
-      if (filter?.pathExclude !== undefined && matchesAnyGlob(rel, filter.pathExclude)) continue;
-      if (filter?.pathInclude !== undefined && !matchesAnyGlob(rel, filter.pathInclude)) continue;
+      // A query+kind+export candidate — counted exactly once (dedup by declaration site). The path
+      // filter then routes it to `matches` or the dropped tally, so a self-defeating path filter is
+      // observable (an empty `matches` with `filteredOutByPath > 0` is a filter miss, not absence).
       seen.add(key);
+      const rel = host.relOf(item.fileName);
+      const droppedByPath =
+        (exclude !== undefined && matchesAnyGlob(rel, exclude)) ||
+        (include !== undefined && !matchesAnyGlob(rel, include));
+      if (droppedByPath) {
+        filteredOutByPath++;
+        continue;
+      }
       total++;
       if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
       const view = navigateToView(host, program, item);
       if (view !== undefined) views.push(view);
     }
   }
-  return { matches: views, total };
+  return { matches: views, total, ...(pathFiltered ? { filteredOutByPath } : {}) };
 }
 
 function navigateToView(

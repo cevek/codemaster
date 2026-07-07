@@ -1,7 +1,7 @@
 ---
 id: t-994174
 title: Path-filtered ops silently return 0 on a bare-dir `pathInclude` — reads as symbol absence (search_symbol has no `filterMatchedNoFiles` warning)
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood-jul

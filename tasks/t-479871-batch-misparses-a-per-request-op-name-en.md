@@ -1,7 +1,7 @@
 ---
 id: t-479871
 title: '`batch` misparses a per-request `{op, name}` envelope — dispatches the `name` VALUE as the op ("unknown op ''<symbol>''")'
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood-jul

@@ -1,7 +1,7 @@
 ---
 id: t-424583
 title: Symbol ops reject the natural arg name — search_symbol wants `query` (not `name`), list wants `registry` (not `query`), move_file wants `source`/`dest` (not `from`/`to`)
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood-jul

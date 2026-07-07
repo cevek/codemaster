@@ -35,7 +35,10 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
   argsSchema: moveSymbolArgsSchema,
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath (an existing file), dirtyOk?: boolean }",
-  intake: tsTargetIntake,
+  // The shared symbol-target intake (symbol→name, target→symbolId, name smart-string) PLUS the
+  // §7 `to`→`dest` alias for the destination path (the intuitive spelling; there is no `source`
+  // path here — the target IS the symbol, so `from` does not apply).
+  intake: { ...tsTargetIntake, aliases: { ...tsTargetIntake.aliases, to: 'dest' } },
   example: { args: { name: 'helper', dest: 'src/lib/util.ts' } },
   notes: [
     'dest must be an EXISTING file in the project — the moved symbol is merged into it (the LS folds its imports into dest’s where it can, every importer repointed, the source keeps a back-import if it still uses the symbol). To move into a NEW file use extract_symbol; to relocate MANY symbols into one module atomically, chain extract_symbol + move_symbol steps in a single `transaction` (one gate, all-or-nothing).',
