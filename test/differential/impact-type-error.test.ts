@@ -15,7 +15,14 @@ import type { OpResult } from '../../src/ops/contracts.ts';
 type TypeErrorData = {
   target: { id: string; name: string; kind: string };
   simulated: string;
-  verdict: { dependents: number; filesChecked: number; brokenFiles: number; clean: boolean };
+  verdict: {
+    dependents: number;
+    filesChecked: number;
+    brokenFiles: number;
+    editSiteBroke: boolean;
+    downstreamTrusted: boolean;
+    clean: boolean;
+  };
   notes?: string[];
   brokenBy?: string[];
 };
@@ -200,6 +207,95 @@ test('ill-formed {replace}: edit-site errors are flagged `!!` — downstream is 
     );
   } finally {
     await p.dispose();
+  }
+});
+
+test('edit collapsing the edited symbol to `any` masks a downstream break — downstreamTrusted:false separates it from a genuine clean', async () => {
+  // The masking (t-993754): a trial edit that degrades the EDITED symbol's own inferred type to
+  // `any` (here via an intra-file error — the zod-superRefine cascade shape) makes the dependents
+  // see `any`, so their would-be breaks stop erroring and `brokenFiles` under-counts. The discriminating
+  // pair: the SAME downstream dependency, one edit genuinely breaks it (CONTROL), one masks it (COLLAPSE)
+  // — only `downstreamTrusted` tells them apart, so brokenFiles=0 under a collapse is never sold as clean.
+  const files = {
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/model.ts': 'export const model = { a: 1 };\n',
+    // Reads `model.a` as a number — baseline clean; goes RED iff `a` is really retyped to a string.
+    'src/reader.ts': "import { model } from './model';\nexport const r: number = model.a;\n",
+  };
+
+  const control = await project(files);
+  try {
+    const d = dataOf(
+      await control.op('impact_type_error', {
+        // Well-formed precise retype: model.a becomes a string → the reader genuinely breaks.
+        name: 'model',
+        edit: { replace: "export const model = { a: 'x' };" },
+      }),
+    );
+    const oracle = coldDiagnosticFilesWithEdit(
+      control.root,
+      'src/model.ts',
+      "export const model = { a: 'x' };\n",
+    ).filter((f) => f !== 'src/model.ts');
+    assert.deepEqual(
+      oracle,
+      ['src/reader.ts'],
+      'oracle: the precise retype really breaks the reader',
+    );
+
+    assert.equal(d.verdict.editSiteBroke, false, 'a well-formed edit does not break the edit site');
+    assert.equal(
+      d.verdict.downstreamTrusted,
+      true,
+      'a well-formed edit → the downstream count is trustworthy',
+    );
+    assert.equal(d.verdict.brokenFiles, 1, 'the genuine downstream break is reported');
+    assert.deepEqual((d.brokenBy ?? []).slice().sort(), ['src/reader.ts']);
+  } finally {
+    await control.dispose();
+  }
+
+  const collapse = await project(files);
+  try {
+    const d = dataOf(
+      await collapse.op('impact_type_error', {
+        // Collapses `model` to `any` via an intra-file error (undefined name) — the reader now sees
+        // `any` and its break is MASKED. Same downstream dependency as CONTROL.
+        name: 'model',
+        edit: { replace: 'export const model = JSON.parse(rawUnknown);' },
+      }),
+    );
+    // The op faithfully reflects tsc — the cold oracle ALSO shows the reader clean (masked). So the
+    // honesty cannot come from the diagnostics diff; it must come from the verdict flag.
+    const oracle = coldDiagnosticFilesWithEdit(
+      collapse.root,
+      'src/model.ts',
+      'export const model = JSON.parse(rawUnknown);\n',
+    ).filter((f) => f !== 'src/model.ts');
+    assert.deepEqual(
+      oracle,
+      [],
+      'oracle: the reader break is MASKED — tsc reports 0 downstream errors',
+    );
+
+    assert.equal(
+      d.verdict.brokenFiles,
+      0,
+      'the masked downstream break does not surface as an error',
+    );
+    assert.equal(d.verdict.editSiteBroke, true, 'the collapse broke the edited file itself');
+    assert.equal(
+      d.verdict.downstreamTrusted,
+      false,
+      'brokenFiles=0 under a collapse is flagged UNTRUSTWORTHY, never sold as a clean downstream',
+    );
+    assert.equal(d.verdict.clean, false, 'the edit-site error keeps the whole verdict non-clean');
+    assert.ok(
+      (d.notes ?? []).some((n) => n.includes('!!') && /LOWER BOUND|UNTRUSTWORTHY/.test(n)),
+      'a loud `!!` note explains brokenFiles is a lower bound, not a clean downstream',
+    );
+  } finally {
+    await collapse.dispose();
   }
 });
 

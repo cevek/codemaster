@@ -14,6 +14,13 @@
 // silently clean. A program the gate could not check (a degraded sibling) is flagged, never read as
 // clean (§3.4). The splice reads the SAME VFS bytes the gate's baseline reads (`ts.fileText`), so
 // the introduced-error diff is purely the edit's effect, not a disk/overlay skew.
+//
+// One more masking hazard the verdict makes honest (§3): when the trial edit breaks the edited file
+// ITSELF (`editSiteBroke`), an intra-file error can collapse an inferred type the dependents rely on
+// (e.g. the edited symbol degrading to `any`) — the dependents then see `any`, their would-be breaks
+// stop erroring, and `brokenFiles` UNDER-counts. So `downstreamTrusted:false` marks the count a LOWER
+// BOUND, never letting `brokenFiles=0` read as a proven-clean downstream. (A clean widen-to-`any` that
+// introduces NO edit-site error is a distinct, deferred case — diff-of-diagnostics cannot see it.)
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
@@ -117,7 +124,7 @@ function notesFor(
   }
   if (editSiteDirty) {
     notes.push(
-      `!! ${declFile}: the trial edit introduced error(s) in the edited file ITSELF — edit-site/intra-file, and if your replacement is ill-formed the downstream breaks may be PARSE CASCADE, not a true blast radius. Verify the replacement parses before trusting the downstream list.`,
+      `!! ${declFile}: the trial edit introduced error(s) in the edited file ITSELF — the DOWNSTREAM blast radius is UNTRUSTWORTHY (downstreamTrusted:false). An edit-site error can collapse an inferred type the dependents depend on (e.g. the edited symbol degrading to \`any\`), so a downstream break stops erroring and is silently MASKED. Treat brokenFiles as a LOWER BOUND — real breaks may be hidden, and brokenFiles=0 is NOT proof of a clean downstream. Fix the edit-site error (verify the replacement parses / infers) before trusting the downstream list.`,
     );
   }
   notes.push(...gateCoverageNotes(programs, degraded));
@@ -152,7 +159,7 @@ export const impactTypeErrorOp = defineOp({
     'simulates the edit by overlaying it on the declaration span (NO write to disk), then runs the cross-program typecheck over the dependent files and reports the diagnostics the edit INTRODUCED (diffed against a pre-edit baseline, so pre-existing repo errors are never blamed on the edit).',
     "edit is applied VERBATIM: { replace } substitutes new declaration source, { remove } deletes the declaration. Express make-required / drop-param / retype by writing the new source — no mutation DSL (that's `change_signature`'s job).",
     'the dependent SET is the same bounded closure as `impact` (depth + node caps); a truncated closure means the typecheck scope is incomplete and is flagged `!!` — a dependent outside the scope, or in a program the gate could not check, is NEVER reported clean.',
-    'errors are the proof (file:line:message). Attribution is file-level (which dependent file went red), never a claimed precise symbol; an error in the edited file itself is flagged separately from the downstream blast radius.',
+    'errors are the proof (file:line:message). Attribution is file-level (which dependent file went red), never a claimed precise symbol; an error in the edited file itself (editSiteBroke) sets downstreamTrusted:false — an edit-site error can collapse an inferred type the dependents rely on, so a downstream break stops erroring and is MASKED. When downstreamTrusted is false, brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a clean downstream), not a true blast radius.',
   ],
   async run(ctx, args: TypeErrorArgs): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -250,6 +257,13 @@ export const impactTypeErrorOp = defineOp({
           // it includes the edit site; a misleading "dependentFiles" would over-count by one).
           filesChecked: checkPaths.length,
           brokenFiles: brokenFiles.length,
+          // Did the trial edit break the edited file ITSELF (one CAUSE of an untrustworthy
+          // downstream — an intra-file error can collapse an inferred type the dependents rely on).
+          editSiteBroke: editSiteDirty,
+          // The general "can you trust brokenFiles?" verdict: false when the analysis basis is
+          // compromised, so brokenFiles is a LOWER BOUND (breaks may be masked), never a clean
+          // signal. Fired regardless of the count — a positive count is still a lower bound.
+          downstreamTrusted: !editSiteDirty,
           clean: proof.clean,
         },
         ...(notes.length > 0 ? { notes } : {}),
