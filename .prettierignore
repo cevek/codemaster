@@ -6,3 +6,4 @@ package-lock.json
 
 # Fixture repos carry intentional formatting that tests must observe — leave them be.
 test/fixtures
+tasks/

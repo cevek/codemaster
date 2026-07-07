@@ -48,7 +48,7 @@ backlog — реально ли сделано (сверь с кодом), не 
 ## Present-state доки codemaster
 
 **В скоупе:** `ARCHITECTURE.md`, `src/README.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `test/README.md`,
-`docs/backlog.md`. **Вне скоупа (НЕ флагай):** `docs/about-ru.md` (ручной human-нарратив),
+бэклог в `tasks/` (task-manager). **Вне скоупа (НЕ флагай):** `docs/about-ru.md` (ручной human-нарратив),
 `docs/wishlist.md` (будущее, намеренно не present-state).
 
 Проверяй в порядке приоритета:
@@ -63,8 +63,9 @@ backlog — реально ли сделано (сверь с кодом), не 
 3. **Дерево ↔ реальность.** Дерево §15 и таблица слоёв src/README ↔ `find src test -type f`; лови
    listed-but-absent и present-but-unlisted.
 4. **Present-state.** Нет «previously / used to / now changed / resolved / formerly / originally».
-5. **Backlog.** `docs/backlog.md` — только открытые `[ ]` (флагай инверсию: айтем уже зашипан в коде,
-   но висит); тег-тройка `type·imp·cx`; «In flight»-указатели → реальный `docs/spec-*.md`.
+5. **Backlog.** Бэклог = `task-manager` (`tasks/*.md`) — только открытые задачи (флагай инверсию:
+   задача уже зашипана в коде, но `status: backlog`/`todo`); поля `type·imp·cx·area`; «In flight»-
+   указатели → реальный `docs/spec-*.md`. `docs/backlog.md` теперь указатель-заглушка на этот тул.
 6. **Внутренние противоречия** — две доки, или дока и контракт, утверждают противоположное.
 7. **`knip.jsonc`** — зависимость в `ignoreDependencies` как «declared ahead of use», которую уже
    реально импортят (пора убрать), или наоборот.

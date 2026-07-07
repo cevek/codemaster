@@ -1,0 +1,50 @@
+version: 1
+id:
+  prefix: t
+  length: 6
+  alphabet: digits # base32 (default) | alpha (a-z) | hex (0-9a-f) | digits (0-9)
+statuses:
+  - { name: backlog, actionable: true }
+  - { name: todo, actionable: true }
+  - { name: in-progress }
+  - { name: review }
+  - { name: done, terminal: true }
+priorities: [low, medium, high, urgent]
+defaults:
+  status: backlog
+  priority: low
+maxDepth: 2
+archive:
+  mode: manual
+# Fields mirror the backlog's own taxonomy: `type · imp · cx` + the subsystem section.
+fields:
+  # work class — the first tag token in the old `- [ ]` items
+  type: { type: enum, values: [bug, feat, perf, dx, infra, doc, imp] }
+  # imp — lies/data-loss/blocks-common-workflow = high; med; rare/cosmetic = low
+  importance: { type: enum, values: [low, medium, high] }
+  # cx — S (hours) · M (a PR) · L (a fat task / design needed); declared ascending
+  complexity: { type: enum, values: [S, M, L] }
+  # subsystem — the section the item lived under in docs/backlog.md
+  area:
+    type: enum
+    values:
+      - bug-sweep
+      - phase-4
+      - phase-5
+      - phase-6
+      - platform
+      - multi-program
+      - ts-refactor
+      - transaction
+      - scss
+      - i18n
+      - impact-usages
+      - framework-seams
+      - density
+      - render-contract
+      - full-density
+      - correctness
+      - wish
+web:
+  host: 127.0.0.1
+  port: 57345

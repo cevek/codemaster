@@ -377,8 +377,8 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   is session-order-independent and consistent with the §2.8 gate (which runs over `built()`) — a
   read-path-loaded nested program can never add an un-gated rename/caller rewrite. The **primary
   stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is a
-  `docs/backlog.md` residual). A loaded config is subtracted from the undiscovered set (no
-  over-demotion). (Precise per-export discovery is the remaining `docs/backlog.md` residual.)
+  `task-manager` backlog residual). A loaded config is subtracted from the undiscovered set (no
+  over-demotion). (Precise per-export discovery is the remaining `task-manager` backlog residual.)
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`
   / `extract_symbol` repoint sibling-only importers via a disk read, and the §2.8 typecheck gate
@@ -640,7 +640,7 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > **apply is refused** when non-empty, exactly like the typecheck gate. The #1 design risk is
 > **over-refusal** (a false capture on a legitimate refactor is worse than the rare silent bug), so
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
-> Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in `docs/backlog.md`.)
+> Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in the `task-manager` backlog.)
 
 ---
 
@@ -1103,8 +1103,10 @@ codemaster/
       scenarios/             # *.scenario.ts transcripts (stateful sequences)
     differential/            # the oracle-backed invariants (§16)
     golden/                  # output snapshots
+  tasks/                     # the backlog — one .md per task (task-manager: MCP + `tm` CLI)
+    config.yml               # task schema — fields mirror the old type·imp·cx tags + area
   docs/
-    backlog.md               # open-items backlog — tagged type·imp·cx (§17)
+    backlog.md               # pointer stub → the task-manager backlog (content migrated to tasks/)
     about-ru.md              # long-form human guide (RU) — the "why" + big picture
     wishlist.md              # parked ideas, not yet scoped
 ```

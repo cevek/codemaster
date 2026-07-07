@@ -1,8 +1,9 @@
 # codemaster — большой разбор для людей
 
 > Этот документ — единственный в проекте, написанный **для людей и подробно**. Все
-> остальные доки (`ARCHITECTURE.md`, `src/README.md`, `CONTRIBUTING.md`, `CLAUDE.md`,
-> `docs/backlog.md`) намеренно плотные и сжатые — их читают AI-агенты, и там экономят токены.
+> остальные доки (`ARCHITECTURE.md`, `src/README.md`, `CONTRIBUTING.md`, `CLAUDE.md`) и
+> бэклог (`task-manager`, файлы в `tasks/`) намеренно плотные и сжатые — их читают AI-агенты,
+> и там экономят токены.
 > Здесь наоборот: можно открыть через год, прочитать спокойно и сразу понять, что это за
 > проект, зачем он, как устроена архитектура и **почему** принято каждое ключевое решение.
 >
@@ -422,9 +423,10 @@ codemaster/
   ARCHITECTURE.md            — source of truth, плотно, для агентов
   README.md                  — короткая визитка
   CLAUDE.md  CONTRIBUTING.md — правила работы
+  tasks/                     — бэклог открытых пунктов (task-manager: MCP + `tm`), теги → поля type·imp·cx·area
   docs/
     about-ru.md              — этот файл (long-form RU)
-    backlog.md               — бэклог открытых пунктов, теги type·imp·cx (§17 ARCH)
+    backlog.md               — указатель-заглушка → бэклог в task-manager (контент переехал в tasks/)
     wishlist.md              — отложенные идеи
   examples/codemaster.config.example.ts
   src/
@@ -463,6 +465,6 @@ Roadmap (§17 ARCH) plugin-incremental:
 - **Phase 5** — compound ops (composite recipes — `component_card`, `impact`, `affected`).
 - **Phase 6** — `trace` ops (control + data flow через плагины).
 
-Detail per box — в [`docs/backlog.md`](backlog.md). Идеи на потом (отложенные deferral'ы,
+Detail per box — в бэклоге `task-manager` (`tm list` / файлы в `tasks/`). Идеи на потом (отложенные deferral'ы,
 включая cooperative cancellation, opt-in disk persistence, off-heap plugin storage) — в
 [`docs/wishlist.md`](wishlist.md).

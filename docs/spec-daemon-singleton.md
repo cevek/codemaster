@@ -4,7 +4,7 @@ Status: **implemented** (Stage 1 + Stage 2). Realizes the process topology ARCHI
 the §19 "daemon singleton" decision. The `Transport` seam lives in `support/transport/`
 (unix-socket impl + NDJSON framing); the daemon in `daemon/daemon-server.ts`, the bridge +
 convergence in `bin.ts` (`mcp` command) + `daemon/connect-or-spawn.ts` + `daemon/remote-orchestrator.ts`.
-The one residual — reaping a **permanently wedged** daemon — is tracked in `docs/backlog.md` and needs
+The one residual — reaping a **permanently wedged** daemon — is tracked in the `task-manager` backlog and needs
 process-mode engine isolation (§9), out of scope here.
 
 ## 1. Problem & evidence
