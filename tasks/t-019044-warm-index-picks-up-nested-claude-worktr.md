@@ -1,10 +1,9 @@
 ---
 id: t-019044
 title: Warm index picks up nested `.claude/worktrees/**` checkouts and `dist/`/build output — every encloser doubles, minified bundles surface as symbols
-status: backlog
+status: done
 priority: high
 tags:
-  - UNVERIFIED
   - dogfood-jul
 type: bug
 complexity: M

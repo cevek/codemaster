@@ -1,7 +1,7 @@
 ---
 id: t-310874
 title: Path-filter globs mis-handle a literal dir containing glob-special chars (src/(auth), src/@scope) — no working incantation
-status: backlog
+status: done
 priority: medium
 depends_on:
   - t-994174
