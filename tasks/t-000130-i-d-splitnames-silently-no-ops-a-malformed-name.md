@@ -1,10 +1,9 @@
 ---
 id: t-000130
-title: "I-d — `splitNames` silently no-ops a malformed name"
+title: I-d — `splitNames` silently no-ops a malformed name
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: i18n
 created: '2026-07-08T00:02:09.000Z'

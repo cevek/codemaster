@@ -1,10 +1,9 @@
 ---
 id: t-000031
-title: "affected/impact super-seed: reverse-import map"
+title: 'affected/impact super-seed: reverse-import map'
 status: backlog
 priority: medium
 type: perf
-importance: medium
 complexity: M
 area: phase-5
 created: '2026-07-08T00:00:30.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000020
-title: "react-query v4 positional hook signatures"
+title: react-query v4 positional hook signatures
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: S
 area: phase-4
 created: '2026-07-08T00:00:19.000Z'

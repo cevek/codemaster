@@ -1,10 +1,9 @@
 ---
 id: t-000057
-title: "transport.connect()` has no explicit timeout"
+title: transport.connect()` has no explicit timeout
 status: backlog
 priority: low
 type: perf
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:56.000Z'

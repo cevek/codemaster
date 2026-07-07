@@ -1,10 +1,9 @@
 ---
 id: t-000065
-title: "watcher-bridge as its own seam consumer"
+title: watcher-bridge as its own seam consumer
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:01:04.000Z'

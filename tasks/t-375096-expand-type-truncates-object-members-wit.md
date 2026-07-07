@@ -6,7 +6,6 @@ priority: medium
 tags:
   - dogfood-jul
 type: bug
-importance: medium
 complexity: S
 area: full-density
 created: '2026-07-07T20:06:40.729Z'

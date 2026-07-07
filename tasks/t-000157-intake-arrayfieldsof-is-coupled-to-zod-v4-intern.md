@@ -1,10 +1,9 @@
 ---
 id: t-000157
-title: "intake: `arrayFieldsOf` is coupled to zod-v4 internals (`.def.type`/`.def.innerType`)"
+title: 'intake: `arrayFieldsOf` is coupled to zod-v4 internals (`.def.type`/`.def.innerType`)'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:36.000Z'

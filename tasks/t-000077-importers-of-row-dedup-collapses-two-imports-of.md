@@ -1,10 +1,9 @@
 ---
 id: t-000077
-title: "importers_of` row-dedup collapses two imports of one module on one source line"
+title: importers_of` row-dedup collapses two imports of one module on one source line
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:16.000Z'

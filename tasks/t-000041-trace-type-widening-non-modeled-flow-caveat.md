@@ -1,10 +1,9 @@
 ---
 id: t-000041
-title: "trace_type_widening: non-modeled flow caveat"
+title: 'trace_type_widening: non-modeled flow caveat'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:40.000Z'

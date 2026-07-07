@@ -1,10 +1,9 @@
 ---
 id: t-000079
-title: "Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op"
+title: Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:18.000Z'

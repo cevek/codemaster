@@ -1,10 +1,9 @@
 ---
 id: t-000101
-title: "fold-imports.ts` git-classified as BINARY"
+title: fold-imports.ts` git-classified as BINARY
 status: backlog
 priority: low
 type: infra
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:40.000Z'

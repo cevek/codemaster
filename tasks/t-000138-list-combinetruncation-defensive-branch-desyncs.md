@@ -1,10 +1,9 @@
 ---
 id: t-000138
-title: "list` combineTruncation defensive branch desyncs with the path filter"
+title: list` combineTruncation defensive branch desyncs with the path filter
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: framework-seams
 created: '2026-07-08T00:02:17.000Z'

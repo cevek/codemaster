@@ -1,10 +1,9 @@
 ---
 id: t-000147
-title: "expand_type` `at`-loc correctness validated by neither suite"
+title: expand_type` `at`-loc correctness validated by neither suite
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:26.000Z'

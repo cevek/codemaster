@@ -1,10 +1,9 @@
 ---
 id: t-000093
-title: "extract JSX-dest coercion misses `.mts`/`.cts"
+title: extract JSX-dest coercion misses `.mts`/`.cts
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:32.000Z'

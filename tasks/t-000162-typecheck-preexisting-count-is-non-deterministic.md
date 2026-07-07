@@ -1,10 +1,9 @@
 ---
 id: t-000162
-title: "typecheck.preExisting` count is non-deterministic across identical runs"
+title: typecheck.preExisting` count is non-deterministic across identical runs
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: M
 area: correctness
 created: '2026-07-08T00:02:41.000Z'

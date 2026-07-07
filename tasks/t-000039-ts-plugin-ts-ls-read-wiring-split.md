@@ -1,10 +1,9 @@
 ---
 id: t-000039
-title: "ts/plugin.ts` LS-read wiring split"
+title: ts/plugin.ts` LS-read wiring split
 status: backlog
 priority: medium
 type: imp
-importance: medium
 complexity: M
 area: phase-6
 created: '2026-07-08T00:00:38.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000008
-title: "**`SPAN_TEXT_CEILING == RENDER_CHAR_CAP` (20_000)"
+title: '**`SPAN_TEXT_CEILING == RENDER_CHAR_CAP` (20_000)'
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:07.000Z'

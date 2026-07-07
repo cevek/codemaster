@@ -1,10 +1,9 @@
 ---
 id: t-000170
-title: "find_unused_exports.undiscoveredPrograms` lists ABSOLUTE paths"
+title: find_unused_exports.undiscoveredPrograms` lists ABSOLUTE paths
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:49.000Z'

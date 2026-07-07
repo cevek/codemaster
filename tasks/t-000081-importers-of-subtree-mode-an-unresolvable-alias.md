@@ -1,10 +1,9 @@
 ---
 id: t-000081
-title: "importers_of` SUBTREE mode: an unresolvable ALIAS spec under the tree is not flagged"
+title: 'importers_of` SUBTREE mode: an unresolvable ALIAS spec under the tree is not flagged'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:20.000Z'

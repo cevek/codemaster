@@ -1,10 +1,9 @@
 ---
 id: t-000142
-title: "looksLikeSpan` short-circuits before tag-dispatch"
+title: looksLikeSpan` short-circuits before tag-dispatch
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: render-contract
 created: '2026-07-08T00:02:21.000Z'

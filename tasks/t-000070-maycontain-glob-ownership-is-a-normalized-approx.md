@@ -1,10 +1,9 @@
 ---
 id: t-000070
-title: "mayContain` glob-ownership is a normalized approximation"
+title: mayContain` glob-ownership is a normalized approximation
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:09.000Z'

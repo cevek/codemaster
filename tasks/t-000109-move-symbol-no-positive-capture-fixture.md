@@ -1,10 +1,9 @@
 ---
 id: t-000109
-title: "move_symbol: no positive capture fixture"
+title: 'move_symbol: no positive capture fixture'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:48.000Z'

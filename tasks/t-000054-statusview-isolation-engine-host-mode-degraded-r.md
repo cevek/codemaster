@@ -1,10 +1,9 @@
 ---
 id: t-000054
-title: "StatusView.isolation` репортит engine-host-mode, бессмысленный на degraded remote-пути"
+title: StatusView.isolation` репортит engine-host-mode, бессмысленный на degraded remote-пути
 status: backlog
 priority: low
 type: infra
-importance: low
 complexity: M
 area: platform
 created: '2026-07-08T00:00:53.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000011
-title: "find_unused_exports` false-clean on a broken program (no filter)"
+title: find_unused_exports` false-clean on a broken program (no filter)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:10.000Z'

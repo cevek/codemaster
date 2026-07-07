@@ -1,10 +1,9 @@
 ---
 id: t-000152
-title: "find-usages.ts` is at exactly 300 real lines (the cap, no headroom)"
+title: find-usages.ts` is at exactly 300 real lines (the cap, no headroom)
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:31.000Z'

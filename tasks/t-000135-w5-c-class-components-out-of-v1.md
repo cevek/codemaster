@@ -1,10 +1,9 @@
 ---
 id: t-000135
-title: "W5-c — class components out of v1"
+title: W5-c — class components out of v1
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: framework-seams
 created: '2026-07-08T00:02:14.000Z'

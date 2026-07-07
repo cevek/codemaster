@@ -1,10 +1,9 @@
 ---
 id: t-000080
-title: "importers_of` residuals (safe direction)"
+title: importers_of` residuals (safe direction)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:19.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000072
-title: "absOf` is `path.join` (OS-sep), not posix — Windows-latent path-form skew in the gate"
+title: absOf` is `path.join` (OS-sep), not posix — Windows-latent path-form skew in the gate
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:11.000Z'

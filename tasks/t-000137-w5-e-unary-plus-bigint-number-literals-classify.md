@@ -1,10 +1,9 @@
 ---
 id: t-000137
-title: "W5-e — unary-plus / bigint number literals classify as `other"
+title: W5-e — unary-plus / bigint number literals classify as `other
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: framework-seams
 created: '2026-07-08T00:02:16.000Z'

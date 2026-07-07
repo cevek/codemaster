@@ -1,10 +1,9 @@
 ---
 id: t-000140
-title: "construction_sites` floods on all-optional target types"
+title: construction_sites` floods on all-optional target types
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: density
 created: '2026-07-08T00:02:19.000Z'

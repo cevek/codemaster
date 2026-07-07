@@ -6,7 +6,6 @@ priority: low
 tags:
   - dogfood-jul
 type: feat
-importance: low
 complexity: S
 area: phase-4
 created: '2026-07-08T00:00:25.000Z'

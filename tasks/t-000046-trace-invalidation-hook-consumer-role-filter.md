@@ -1,10 +1,9 @@
 ---
 id: t-000046
-title: "trace_invalidation: hook-consumer role filter"
+title: 'trace_invalidation: hook-consumer role filter'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:45.000Z'

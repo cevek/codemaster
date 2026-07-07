@@ -1,10 +1,9 @@
 ---
 id: t-000114
-title: "E-h — dry-run doesn't preview the capture/collision/dirty REFUSAL verdict"
+title: E-h — dry-run doesn't preview the capture/collision/dirty REFUSAL verdict
 status: backlog
 priority: medium
 type: dx
-importance: medium
 complexity: M
 area: transaction
 created: '2026-07-08T00:01:53.000Z'

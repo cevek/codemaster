@@ -1,10 +1,9 @@
 ---
 id: t-000139
-title: "**`~<rootTag>` printed on every SymbolId"
+title: '**`~<rootTag>` printed on every SymbolId'
 status: backlog
 priority: medium
 type: dx
-importance: medium
 complexity: L
 area: density
 created: '2026-07-08T00:02:18.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000100
-title: "reattach-doc gap rebuild is LF-only"
+title: reattach-doc gap rebuild is LF-only
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:39.000Z'

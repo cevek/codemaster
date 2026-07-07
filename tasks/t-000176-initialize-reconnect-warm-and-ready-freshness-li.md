@@ -1,10 +1,9 @@
 ---
 id: t-000176
-title: "initialize`/reconnect \"warm and ready (freshness:…)\" line"
+title: initialize`/reconnect "warm and ready (freshness:…)" line
 status: backlog
 priority: medium
 type: dx
-importance: medium
 complexity: S
 area: wish
 created: '2026-07-08T00:02:55.000Z'

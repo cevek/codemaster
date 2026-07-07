@@ -1,10 +1,9 @@
 ---
 id: t-000145
-title: "find_definition` full fallback can collapse a body-bearing sibling post-FLIP"
+title: find_definition` full fallback can collapse a body-bearing sibling post-FLIP
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:24.000Z'

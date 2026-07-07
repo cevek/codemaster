@@ -1,10 +1,9 @@
 ---
 id: t-000141
-title: "shape renderers are not wrapped in try/catch"
+title: shape renderers are not wrapped in try/catch
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: render-contract
 created: '2026-07-08T00:02:20.000Z'

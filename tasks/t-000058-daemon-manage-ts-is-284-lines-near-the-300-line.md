@@ -1,10 +1,9 @@
 ---
 id: t-000058
-title: "daemon/manage.ts` is ~284 lines — near the 300 line-cap"
+title: daemon/manage.ts` is ~284 lines — near the 300 line-cap
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:57.000Z'

@@ -1,6 +1,6 @@
 ---
 id: t-000016
-title: "json op/batch consumers never see daemon self-staleness"
+title: json op/batch consumers never see daemon self-staleness
 status: backlog
 priority: low
 type: imp

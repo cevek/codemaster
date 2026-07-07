@@ -1,10 +1,9 @@
 ---
 id: t-000078
-title: "loose-root monorepo picks the wrong primary for MUTATION (read-path cousin)"
+title: loose-root monorepo picks the wrong primary for MUTATION (read-path cousin)
 status: backlog
 priority: medium
 type: imp
-importance: medium
 complexity: L
 area: multi-program
 created: '2026-07-08T00:01:17.000Z'

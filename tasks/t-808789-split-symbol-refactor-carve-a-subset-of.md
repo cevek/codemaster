@@ -6,7 +6,6 @@ priority: low
 tags:
   - dogfood-jul
 type: feat
-importance: low
 complexity: L
 area: ts-refactor
 created: '2026-07-07T20:07:03.365Z'

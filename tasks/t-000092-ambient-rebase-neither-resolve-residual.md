@@ -1,10 +1,9 @@
 ---
 id: t-000092
-title: "ambient-rebase neither-resolve residual"
+title: ambient-rebase neither-resolve residual
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:31.000Z'

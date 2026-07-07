@@ -1,10 +1,9 @@
 ---
 id: t-000120
-title: "co-extract path-scrub is untested"
+title: co-extract path-scrub is untested
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: scss
 created: '2026-07-08T00:01:59.000Z'

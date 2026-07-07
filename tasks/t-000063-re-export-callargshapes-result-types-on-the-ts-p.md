@@ -1,10 +1,9 @@
 ---
 id: t-000063
-title: "re-export `callArgShapes` result types on the `ts` public surface"
+title: re-export `callArgShapes` result types on the `ts` public surface
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:01:02.000Z'

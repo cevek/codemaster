@@ -1,10 +1,9 @@
 ---
 id: t-000159
-title: "doc-hygiene: dangling decimal-`§` refs in `src/` comments"
+title: 'doc-hygiene: dangling decimal-`§` refs in `src/` comments'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:38.000Z'

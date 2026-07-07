@@ -1,10 +1,9 @@
 ---
 id: t-000082
-title: "find_usages` cross-program merge has no PER-OFFSET oracle"
+title: find_usages` cross-program merge has no PER-OFFSET oracle
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:21.000Z'

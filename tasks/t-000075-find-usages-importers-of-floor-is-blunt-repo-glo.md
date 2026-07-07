@@ -1,10 +1,9 @@
 ---
 id: t-000075
-title: "find_usages` / `importers_of` floor is BLUNT (repo-global, not symbol-scoped)"
+title: find_usages` / `importers_of` floor is BLUNT (repo-global, not symbol-scoped)
 status: backlog
 priority: low
 type: imp
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:14.000Z'

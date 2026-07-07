@@ -4,7 +4,6 @@ title: "FAIL envelopes repeat the `file it: feedback({kind:'bug'…})` footer"
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:42.000Z'

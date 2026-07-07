@@ -1,10 +1,9 @@
 ---
 id: t-000029
-title: "impact: `batch+sql` table"
+title: 'impact: `batch+sql` table'
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: phase-5
 created: '2026-07-08T00:00:28.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000122
-title: "scss/plugin.ts` near the 300-line cap"
+title: scss/plugin.ts` near the 300-line cap
 status: backlog
 priority: low
 type: dx
-importance: low
 area: scss
 created: '2026-07-08T00:02:01.000Z'
 ---

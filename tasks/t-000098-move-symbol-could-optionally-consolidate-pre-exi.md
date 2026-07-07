@@ -1,10 +1,9 @@
 ---
 id: t-000098
-title: "move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports"
+title: move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:37.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000124
-title: ":local(.a, .b)` paren-comma list under-reports in cascade"
+title: :local(.a, .b)` paren-comma list under-reports in cascade
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: scss
 created: '2026-07-08T00:02:03.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000126
-title: "cross-file source order is unknown"
+title: cross-file source order is unknown
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: L
 area: scss
 created: '2026-07-08T00:02:05.000Z'

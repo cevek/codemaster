@@ -1,10 +1,9 @@
 ---
 id: t-000086
-title: "codemod: introduced-identifier capture"
+title: 'codemod: introduced-identifier capture'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:25.000Z'

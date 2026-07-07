@@ -1,10 +1,9 @@
 ---
 id: t-000087
-title: "codemod: out-of-span re-resolution"
+title: 'codemod: out-of-span re-resolution'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:26.000Z'

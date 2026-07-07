@@ -1,10 +1,9 @@
 ---
 id: t-000090
-title: "move_symbol: re-export barrels not repointed"
+title: 'move_symbol: re-export barrels not repointed'
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:29.000Z'

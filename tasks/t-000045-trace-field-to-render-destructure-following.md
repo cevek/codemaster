@@ -1,10 +1,9 @@
 ---
 id: t-000045
-title: "trace_field_to_render: destructure-following"
+title: 'trace_field_to_render: destructure-following'
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: M
 area: phase-6
 created: '2026-07-08T00:00:44.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000125
-title: ":global` bare-prefix handling is best-effort syntactic"
+title: :global` bare-prefix handling is best-effort syntactic
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: scss
 created: '2026-07-08T00:02:04.000Z'

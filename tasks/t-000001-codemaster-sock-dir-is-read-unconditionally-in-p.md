@@ -1,10 +1,9 @@
 ---
 id: t-000001
-title: "CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)"
+title: CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:00.000Z'

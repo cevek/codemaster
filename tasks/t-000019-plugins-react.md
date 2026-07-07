@@ -1,10 +1,9 @@
 ---
 id: t-000019
-title: "plugins/react"
+title: plugins/react
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: L
 area: phase-4
 created: '2026-07-08T00:00:18.000Z'

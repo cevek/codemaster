@@ -1,10 +1,9 @@
 ---
 id: t-000171
-title: "namespace/function-merge members flagged `inherited=true"
+title: namespace/function-merge members flagged `inherited=true
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:50.000Z'

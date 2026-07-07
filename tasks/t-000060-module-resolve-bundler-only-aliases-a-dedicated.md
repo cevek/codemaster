@@ -1,10 +1,9 @@
 ---
 id: t-000060
-title: "module-resolve`: bundler-only aliases + a dedicated module"
+title: 'module-resolve`: bundler-only aliases + a dedicated module'
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: platform
 created: '2026-07-08T00:00:59.000Z'

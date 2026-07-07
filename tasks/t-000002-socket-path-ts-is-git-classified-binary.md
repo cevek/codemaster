@@ -1,10 +1,9 @@
 ---
 id: t-000002
-title: "socket-path.ts` is git-classified BINARY"
+title: socket-path.ts` is git-classified BINARY
 status: backlog
 priority: low
 type: infra
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:01.000Z'

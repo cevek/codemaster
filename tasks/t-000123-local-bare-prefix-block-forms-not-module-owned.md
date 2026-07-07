@@ -1,10 +1,9 @@
 ---
 id: t-000123
-title: ":local` bare-prefix / block forms not module-owned"
+title: :local` bare-prefix / block forms not module-owned
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: scss
 created: '2026-07-08T00:02:02.000Z'

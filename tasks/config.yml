@@ -9,7 +9,7 @@ statuses:
   - { name: in-progress }
   - { name: review }
   - { name: done, terminal: true }
-priorities: [low, medium, high, urgent]
+priorities: [ low, medium, high, urgent ]
 defaults:
   status: backlog
   priority: low
@@ -19,11 +19,9 @@ archive:
 # Fields mirror the backlog's own taxonomy: `type · imp · cx` + the subsystem section.
 fields:
   # work class — the first tag token in the old `- [ ]` items
-  type: { type: enum, values: [bug, feat, perf, dx, infra, doc, imp] }
-  # imp — lies/data-loss/blocks-common-workflow = high; med; rare/cosmetic = low
-  importance: { type: enum, values: [low, medium, high] }
+  type: { type: enum, values: [ bug, feat, perf, dx, infra, doc, imp ] }
   # cx — S (hours) · M (a PR) · L (a fat task / design needed); declared ascending
-  complexity: { type: enum, values: [S, M, L] }
+  complexity: { type: enum, values: [ S, M, L ] }
   # subsystem — the section the item lived under in docs/backlog.md
   area:
     type: enum

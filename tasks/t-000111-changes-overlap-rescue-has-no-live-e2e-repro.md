@@ -1,10 +1,9 @@
 ---
 id: t-000111
-title: "Changes overlap` rescue has no live e2e repro"
+title: Changes overlap` rescue has no live e2e repro
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:50.000Z'

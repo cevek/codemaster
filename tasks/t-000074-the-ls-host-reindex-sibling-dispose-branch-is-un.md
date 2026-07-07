@@ -1,10 +1,9 @@
 ---
 id: t-000074
-title: "The `ls-host` reindex sibling-dispose branch is uncovered by tests"
+title: The `ls-host` reindex sibling-dispose branch is uncovered by tests
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:13.000Z'

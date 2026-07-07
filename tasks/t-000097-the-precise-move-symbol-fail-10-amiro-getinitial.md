@@ -1,10 +1,9 @@
 ---
 id: t-000097
-title: "**the precise move_symbol fail[10] (amiro `getInitials`→`src/lib/utils.ts`, \"edits target"
+title: '**the precise move_symbol fail[10] (amiro `getInitials`→`src/lib/utils.ts`, "edits target'
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:36.000Z'

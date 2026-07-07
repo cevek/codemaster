@@ -1,10 +1,9 @@
 ---
 id: t-000164
-title: "per-op tool accepts `sql` on a non-table op"
+title: per-op tool accepts `sql` on a non-table op
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:43.000Z'

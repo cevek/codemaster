@@ -1,10 +1,9 @@
 ---
 id: t-000052
-title: "process`-mode engine isolation"
+title: process`-mode engine isolation
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: L
 area: platform
 created: '2026-07-08T00:00:51.000Z'

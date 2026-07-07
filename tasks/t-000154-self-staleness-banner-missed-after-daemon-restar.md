@@ -1,10 +1,9 @@
 ---
 id: t-000154
-title: "self-staleness banner missed after `daemon restart"
+title: self-staleness banner missed after `daemon restart
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: M
 area: full-density
 created: '2026-07-08T00:02:33.000Z'

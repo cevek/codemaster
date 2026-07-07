@@ -1,10 +1,9 @@
 ---
 id: t-000110
-title: "DRY: consolidate the two mutating-op envelope builders"
+title: 'DRY: consolidate the two mutating-op envelope builders'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:49.000Z'

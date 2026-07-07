@@ -1,10 +1,9 @@
 ---
 id: t-000050
-title: "MCP connection instability over long sessions (UNVERIFIED — likely harness-side)"
+title: MCP connection instability over long sessions (UNVERIFIED — likely harness-side)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: platform
 created: '2026-07-08T00:00:49.000Z'

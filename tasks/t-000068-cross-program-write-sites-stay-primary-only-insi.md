@@ -1,10 +1,9 @@
 ---
 id: t-000068
-title: "Cross-program WRITE sites stay PRIMARY-only inside a `transaction"
+title: Cross-program WRITE sites stay PRIMARY-only inside a `transaction
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:07.000Z'

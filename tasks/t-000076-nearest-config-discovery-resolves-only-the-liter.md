@@ -1,10 +1,9 @@
 ---
 id: t-000076
-title: "nearest-config discovery resolves only the literal `tsconfig.json` basename"
+title: nearest-config discovery resolves only the literal `tsconfig.json` basename
 status: backlog
 priority: low
 type: imp
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:15.000Z'

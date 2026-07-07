@@ -1,10 +1,9 @@
 ---
 id: t-000015
-title: "sql text-table renderer lacks the `~`-meta-key strip the generic/json paths have"
+title: sql text-table renderer lacks the `~`-meta-key strip the generic/json paths have
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:14.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000037
-title: "react read-model: `FunctionDecl` internal-reach"
+title: 'react read-model: `FunctionDecl` internal-reach'
 status: backlog
 priority: low
 type: imp
-importance: low
 complexity: S
 area: phase-5
 created: '2026-07-08T00:00:36.000Z'

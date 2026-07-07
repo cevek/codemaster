@@ -1,10 +1,9 @@
 ---
 id: t-000091
-title: "stale \"Move to a new file\" docs/test comments after the extract action-switch"
+title: stale "Move to a new file" docs/test comments after the extract action-switch
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:30.000Z'

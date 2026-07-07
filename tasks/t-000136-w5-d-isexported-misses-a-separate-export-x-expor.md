@@ -1,10 +1,9 @@
 ---
 id: t-000136
-title: "W5-d — `isExported` misses a separate `export { X }` / `export default X` statement"
+title: W5-d — `isExported` misses a separate `export { X }` / `export default X` statement
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: framework-seams
 created: '2026-07-08T00:02:15.000Z'

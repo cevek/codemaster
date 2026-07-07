@@ -1,10 +1,9 @@
 ---
 id: t-000106
-title: "move_symbol: renamed default-import under-detection"
+title: 'move_symbol: renamed default-import under-detection'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:45.000Z'

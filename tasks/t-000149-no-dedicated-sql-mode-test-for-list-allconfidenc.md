@@ -1,10 +1,9 @@
 ---
 id: t-000149
-title: "no dedicated sql-mode test for `list` `allConfidence` backfill"
+title: no dedicated sql-mode test for `list` `allConfidence` backfill
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:28.000Z'

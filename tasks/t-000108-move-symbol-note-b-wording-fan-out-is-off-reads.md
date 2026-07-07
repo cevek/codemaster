@@ -1,10 +1,9 @@
 ---
 id: t-000108
-title: "move_symbol note(b) wording — \"fan-out is OFF\" reads as a disable-able mechanism"
+title: move_symbol note(b) wording — "fan-out is OFF" reads as a disable-able mechanism
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:47.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000048
-title: "trace_invalidation: queryKey-label placement"
+title: 'trace_invalidation: queryKey-label placement'
 status: backlog
 priority: low
 type: imp
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:47.000Z'

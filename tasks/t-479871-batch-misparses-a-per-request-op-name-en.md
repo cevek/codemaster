@@ -6,7 +6,6 @@ priority: high
 tags:
   - dogfood-jul
 type: bug
-importance: high
 complexity: S
 area: correctness
 created: '2026-07-07T20:04:30.680Z'

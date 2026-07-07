@@ -1,10 +1,9 @@
 ---
 id: t-000030
-title: "impact: wall-clock deadline"
+title: 'impact: wall-clock deadline'
 status: backlog
 priority: medium
 type: perf
-importance: medium
 complexity: M
 area: phase-5
 created: '2026-07-08T00:00:29.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000004
-title: "long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr"
+title: long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:03.000Z'

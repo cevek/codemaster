@@ -1,10 +1,9 @@
 ---
 id: t-000069
-title: "Write-gate check scope misses a gitignored-but-sibling-compiled file"
+title: Write-gate check scope misses a gitignored-but-sibling-compiled file
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:08.000Z'

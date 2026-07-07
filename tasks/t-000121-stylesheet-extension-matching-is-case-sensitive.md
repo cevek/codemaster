@@ -1,10 +1,9 @@
 ---
 id: t-000121
-title: "stylesheet-extension matching is case-sensitive"
+title: stylesheet-extension matching is case-sensitive
 status: backlog
 priority: low
 type: bug
-importance: low
 area: scss
 created: '2026-07-08T00:02:00.000Z'
 ---

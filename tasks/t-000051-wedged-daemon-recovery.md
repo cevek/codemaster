@@ -1,10 +1,9 @@
 ---
 id: t-000051
-title: "Wedged-daemon recovery"
+title: Wedged-daemon recovery
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: L
 area: platform
 created: '2026-07-08T00:00:50.000Z'

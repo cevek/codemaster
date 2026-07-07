@@ -1,10 +1,9 @@
 ---
 id: t-000071
-title: "Write-gate `introduced` list can double-count under OVERLAPPING globs"
+title: Write-gate `introduced` list can double-count under OVERLAPPING globs
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: multi-program
 created: '2026-07-08T00:01:10.000Z'

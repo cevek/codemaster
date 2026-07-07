@@ -1,10 +1,9 @@
 ---
 id: t-000161
-title: "A refused-on-`apply` mutating op reports `mode=dry-run"
+title: A refused-on-`apply` mutating op reports `mode=dry-run
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:40.000Z'

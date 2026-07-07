@@ -1,10 +1,9 @@
 ---
 id: t-000047
-title: "trace_invalidation: certain/partial re-render breakdown"
+title: 'trace_invalidation: certain/partial re-render breakdown'
 status: backlog
 priority: low
 type: imp
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:46.000Z'

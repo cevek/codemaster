@@ -1,10 +1,9 @@
 ---
 id: t-000061
-title: "freshness `statDirty` stats the FULL dirty set incl. `--untracked-files=all"
+title: freshness `statDirty` stats the FULL dirty set incl. `--untracked-files=all
 status: backlog
 priority: low
 type: perf
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:01:00.000Z'

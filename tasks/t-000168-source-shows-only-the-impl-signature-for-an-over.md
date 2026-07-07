@@ -1,10 +1,9 @@
 ---
 id: t-000168
-title: "source` shows only the impl signature for an overloaded function"
+title: source` shows only the impl signature for an overloaded function
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: correctness
 created: '2026-07-08T00:02:47.000Z'

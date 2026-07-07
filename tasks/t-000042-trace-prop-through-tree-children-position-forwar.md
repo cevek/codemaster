@@ -1,10 +1,9 @@
 ---
 id: t-000042
-title: "trace_prop_through_tree: children-position forwarding"
+title: 'trace_prop_through_tree: children-position forwarding'
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: phase-6
 created: '2026-07-08T00:00:41.000Z'

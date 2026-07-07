@@ -1,10 +1,9 @@
 ---
 id: t-000169
-title: "expand_type` enum members echo the member name and omit the value"
+title: expand_type` enum members echo the member name and omit the value
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:48.000Z'

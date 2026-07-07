@@ -1,10 +1,9 @@
 ---
 id: t-000017
-title: "facade-level rejects (pre-dispatch) stay banner-free on a stale daemon"
+title: facade-level rejects (pre-dispatch) stay banner-free on a stale daemon
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:16.000Z'

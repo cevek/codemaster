@@ -1,10 +1,9 @@
 ---
 id: t-000131
-title: "I-e — dynamic-prefix re-derives template parsing from raw source (§4 boundary)"
+title: I-e — dynamic-prefix re-derives template parsing from raw source (§4 boundary)
 status: backlog
 priority: medium
 type: dx
-importance: medium
 complexity: M
 area: i18n
 created: '2026-07-08T00:02:10.000Z'

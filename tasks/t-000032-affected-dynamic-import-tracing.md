@@ -1,10 +1,9 @@
 ---
 id: t-000032
-title: "affected: dynamic-import tracing"
+title: 'affected: dynamic-import tracing'
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: L
 area: phase-5
 created: '2026-07-08T00:00:31.000Z'

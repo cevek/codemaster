@@ -1,10 +1,9 @@
 ---
 id: t-000133
-title: "W5-a — `new QueryClient()` receiver not bound"
+title: W5-a — `new QueryClient()` receiver not bound
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: framework-seams
 created: '2026-07-08T00:02:12.000Z'

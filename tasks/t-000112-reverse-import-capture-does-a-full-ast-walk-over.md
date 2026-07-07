@@ -1,10 +1,9 @@
 ---
 id: t-000112
-title: "Reverse import-capture does a full-AST walk over the program"
+title: Reverse import-capture does a full-AST walk over the program
 status: backlog
 priority: low
 type: perf
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:51.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000146
-title: "spanTextOf` first-line-only — \"never a silently-dropped body\" comment overstated"
+title: spanTextOf` first-line-only — "never a silently-dropped body" comment overstated
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:25.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000006
-title: "parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)"
+title: parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:05.000Z'

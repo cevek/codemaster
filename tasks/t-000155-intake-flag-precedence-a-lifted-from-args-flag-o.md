@@ -1,10 +1,9 @@
 ---
 id: t-000155
-title: "intake flag-precedence: a lifted-from-args flag overrides an explicit top-level flag"
+title: 'intake flag-precedence: a lifted-from-args flag overrides an explicit top-level flag'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:34.000Z'

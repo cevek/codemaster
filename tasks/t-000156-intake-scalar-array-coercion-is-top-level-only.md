@@ -1,10 +1,9 @@
 ---
 id: t-000156
-title: "**intake: scalar→array coercion is TOP-LEVEL only"
+title: '**intake: scalar→array coercion is TOP-LEVEL only'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:35.000Z'

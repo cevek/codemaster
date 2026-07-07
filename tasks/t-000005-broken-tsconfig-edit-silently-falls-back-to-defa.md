@@ -1,10 +1,9 @@
 ---
 id: t-000005
-title: "broken-tsconfig edit silently falls back to default options + glob-everything"
+title: broken-tsconfig edit silently falls back to default options + glob-everything
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:04.000Z'

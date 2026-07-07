@@ -1,10 +1,9 @@
 ---
 id: t-000103
-title: "extract/move_symbol: cosmetic double blank line after the import block (no-doc case)"
+title: 'extract/move_symbol: cosmetic double blank line after the import block (no-doc case)'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:42.000Z'

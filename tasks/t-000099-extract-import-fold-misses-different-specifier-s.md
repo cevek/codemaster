@@ -1,10 +1,9 @@
 ---
 id: t-000099
-title: "extract import-fold misses different-specifier-same-after-rewrite"
+title: extract import-fold misses different-specifier-same-after-rewrite
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:38.000Z'

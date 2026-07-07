@@ -1,10 +1,9 @@
 ---
 id: t-000023
-title: "dynamicKeyedQueries` note wording"
+title: dynamicKeyedQueries` note wording
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-4
 created: '2026-07-08T00:00:22.000Z'

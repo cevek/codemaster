@@ -1,10 +1,9 @@
 ---
 id: t-000067
-title: "Cross-program capture detection is PRIMARY-only (all symbol-anchored ops)"
+title: Cross-program capture detection is PRIMARY-only (all symbol-anchored ops)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: multi-program
 created: '2026-07-08T00:01:06.000Z'

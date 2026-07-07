@@ -1,10 +1,9 @@
 ---
 id: t-000173
-title: "runtime result-note §N citations"
+title: runtime result-note §N citations
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:52.000Z'

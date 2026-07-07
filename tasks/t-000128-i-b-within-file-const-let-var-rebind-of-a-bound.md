@@ -1,12 +1,11 @@
 ---
 id: t-000128
-title: "I-b — within-file `const`/`let`/`var` REBIND of a bound name fabricates a missing row"
+title: I-b — within-file `const`/`let`/`var` REBIND of a bound name fabricates a missing row
 status: backlog
 priority: low
 tags:
   - fabrication
 type: bug
-importance: low
 complexity: M
 area: i18n
 created: '2026-07-08T00:02:07.000Z'

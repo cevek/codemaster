@@ -1,10 +1,9 @@
 ---
 id: t-000102
-title: "fold-imports leaves an own-line leading comment of a deleted duplicate import hanging"
+title: fold-imports leaves an own-line leading comment of a deleted duplicate import hanging
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:41.000Z'

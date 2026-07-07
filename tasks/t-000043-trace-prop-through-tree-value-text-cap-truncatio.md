@@ -1,10 +1,9 @@
 ---
 id: t-000043
-title: "trace_prop_through_tree: VALUE_TEXT_CAP truncation note"
+title: 'trace_prop_through_tree: VALUE_TEXT_CAP truncation note'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:42.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000014
-title: "schema endpoint card reads `certain` while its body/response type is unresolvable"
+title: schema endpoint card reads `certain` while its body/response type is unresolvable
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:13.000Z'

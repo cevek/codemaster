@@ -1,10 +1,9 @@
 ---
 id: t-000127
-title: "scss css-module shadow-skip is decl-only"
+title: scss css-module shadow-skip is decl-only
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: scss
 created: '2026-07-08T00:02:06.000Z'

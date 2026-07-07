@@ -1,10 +1,9 @@
 ---
 id: t-000132
-title: "K-b — a naked type-parameter target is labelled `value"
+title: K-b — a naked type-parameter target is labelled `value
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: impact-usages
 created: '2026-07-08T00:02:11.000Z'

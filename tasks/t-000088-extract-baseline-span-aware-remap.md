@@ -1,10 +1,9 @@
 ---
 id: t-000088
-title: "extract baseline: span-aware remap"
+title: 'extract baseline: span-aware remap'
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: L
 area: ts-refactor
 created: '2026-07-08T00:01:27.000Z'

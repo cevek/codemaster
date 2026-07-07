@@ -1,10 +1,9 @@
 ---
 id: t-000009
-title: "**the envelope `head` segment is no longer capped"
+title: '**the envelope `head` segment is no longer capped'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:08.000Z'

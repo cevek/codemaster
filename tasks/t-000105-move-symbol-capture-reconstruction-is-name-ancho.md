@@ -1,10 +1,9 @@
 ---
 id: t-000105
-title: "move_symbol: capture reconstruction is name-anchored"
+title: 'move_symbol: capture reconstruction is name-anchored'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:44.000Z'

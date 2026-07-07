@@ -1,10 +1,9 @@
 ---
 id: t-000012
-title: "chokidar feeds absolute OS paths into the reindex pipeline"
+title: chokidar feeds absolute OS paths into the reindex pipeline
 status: backlog
 priority: medium
 type: bug
-importance: medium
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:11.000Z'

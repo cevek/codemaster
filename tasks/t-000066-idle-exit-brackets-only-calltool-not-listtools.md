@@ -1,10 +1,9 @@
 ---
 id: t-000066
-title: "idle-exit brackets only `CallTool`, not `ListTools"
+title: idle-exit brackets only `CallTool`, not `ListTools
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:01:05.000Z'

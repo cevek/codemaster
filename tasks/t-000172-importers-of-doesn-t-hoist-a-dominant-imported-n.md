@@ -1,10 +1,9 @@
 ---
 id: t-000172
-title: "importers_of` doesn't hoist a dominant imported name"
+title: importers_of` doesn't hoist a dominant imported name
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:51.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000049
-title: "knip --fix-type` comma form silently no-ops (knip@6.15)."
+title: knip --fix-type` comma form silently no-ops (knip@6.15).
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:48.000Z'

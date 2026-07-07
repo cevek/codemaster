@@ -1,10 +1,9 @@
 ---
 id: t-000028
-title: "component/feature composites"
+title: component/feature composites
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: L
 area: phase-5
 created: '2026-07-08T00:00:27.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000035
-title: "impact_type_error: overlay-baseline doc wording"
+title: 'impact_type_error: overlay-baseline doc wording'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: phase-5
 created: '2026-07-08T00:00:34.000Z'

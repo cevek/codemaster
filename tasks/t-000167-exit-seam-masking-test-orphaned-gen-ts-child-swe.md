@@ -1,10 +1,9 @@
 ---
 id: t-000167
-title: "exit-seam masking test: orphaned `.gen.ts` child swept only on the NEXT run"
+title: 'exit-seam masking test: orphaned `.gen.ts` child swept only on the NEXT run'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: correctness
 created: '2026-07-08T00:02:46.000Z'

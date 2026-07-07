@@ -1,10 +1,9 @@
 ---
 id: t-000119
-title: "indented `.sass` → parse failure (half-support)"
+title: indented `.sass` → parse failure (half-support)
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: scss
 created: '2026-07-08T00:01:58.000Z'

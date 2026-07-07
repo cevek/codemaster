@@ -1,10 +1,9 @@
 ---
 id: t-000059
-title: "No wall-time bound on synchronous TS ops"
+title: No wall-time bound on synchronous TS ops
 status: backlog
 priority: medium
 type: perf
-importance: medium
 complexity: L
 area: platform
 created: '2026-07-08T00:00:58.000Z'

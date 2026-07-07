@@ -1,10 +1,9 @@
 ---
 id: t-000150
-title: "mutating envelope: `DiffstatEntry` type name + \"for the diffstat\" comment are stale"
+title: 'mutating envelope: `DiffstatEntry` type name + "for the diffstat" comment are stale'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:29.000Z'

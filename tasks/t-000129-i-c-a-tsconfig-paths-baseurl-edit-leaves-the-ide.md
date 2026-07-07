@@ -1,10 +1,9 @@
 ---
 id: t-000129
-title: "I-c — a `tsconfig` `paths`/`baseUrl` edit leaves the identity scan on STALE compiler options"
+title: I-c — a `tsconfig` `paths`/`baseUrl` edit leaves the identity scan on STALE compiler options
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: i18n
 created: '2026-07-08T00:02:08.000Z'

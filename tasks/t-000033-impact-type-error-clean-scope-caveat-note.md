@@ -1,10 +1,9 @@
 ---
 id: t-000033
-title: "impact_type_error: clean-scope caveat note"
+title: 'impact_type_error: clean-scope caveat note'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-5
 created: '2026-07-08T00:00:32.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000158
-title: "intake: `invalidations_for {name}` could alias to `mutation` (Postel)"
+title: 'intake: `invalidations_for {name}` could alias to `mutation` (Postel)'
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:37.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000053
-title: "convergence hardening — liveness-probe-before-unlink / bind-first"
+title: convergence hardening — liveness-probe-before-unlink / bind-first
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:52.000Z'

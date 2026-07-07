@@ -1,10 +1,9 @@
 ---
 id: t-000094
-title: "move_symbol leaves a namespace+named same-module pair as two statements"
+title: move_symbol leaves a namespace+named same-module pair as two statements
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:33.000Z'

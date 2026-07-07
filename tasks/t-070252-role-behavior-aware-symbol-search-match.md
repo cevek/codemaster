@@ -6,7 +6,6 @@ priority: low
 tags:
   - dogfood-jul
 type: feat
-importance: low
 complexity: M
 area: wish
 created: '2026-07-07T20:07:14.248Z'

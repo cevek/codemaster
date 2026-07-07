@@ -1,10 +1,9 @@
 ---
 id: t-000055
-title: "daemon bind sets `process.umask(0o177)` process-globally"
+title: daemon bind sets `process.umask(0o177)` process-globally
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:54.000Z'

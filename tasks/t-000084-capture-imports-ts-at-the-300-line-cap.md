@@ -1,10 +1,9 @@
 ---
 id: t-000084
-title: "capture/imports.ts` at the 300-line cap"
+title: capture/imports.ts` at the 300-line cap
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:23.000Z'

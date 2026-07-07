@@ -1,10 +1,9 @@
 ---
 id: t-000085
-title: "codemod: full ast-grep RULE object"
+title: 'codemod: full ast-grep RULE object'
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:24.000Z'

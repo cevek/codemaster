@@ -1,10 +1,9 @@
 ---
 id: t-000089
-title: "extract_symbol`: complete the import/export edits the LS leaves (KS-2/KS-3)"
+title: 'extract_symbol`: complete the import/export edits the LS leaves (KS-2/KS-3)'
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: L
 area: ts-refactor
 created: '2026-07-08T00:01:28.000Z'

@@ -1,10 +1,9 @@
 ---
 id: t-000034
-title: "impact_type_error: editSiteDirty false-`!!` on line-shift"
+title: 'impact_type_error: editSiteDirty false-`!!` on line-shift'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: phase-5
 created: '2026-07-08T00:00:33.000Z'

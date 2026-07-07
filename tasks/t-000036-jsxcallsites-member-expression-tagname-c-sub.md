@@ -1,10 +1,9 @@
 ---
 id: t-000036
-title: "jsxCallSites: member-expression tagName `<C.Sub/>"
+title: 'jsxCallSites: member-expression tagName `<C.Sub/>'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-5
 created: '2026-07-08T00:00:35.000Z'

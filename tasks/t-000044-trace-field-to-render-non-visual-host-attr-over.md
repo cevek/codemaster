@@ -1,10 +1,9 @@
 ---
 id: t-000044
-title: "trace_field_to_render: non-visual host-attr over-claim"
+title: 'trace_field_to_render: non-visual host-attr over-claim'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:43.000Z'

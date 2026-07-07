@@ -1,10 +1,9 @@
 ---
 id: t-000056
-title: "bridge spawn-wait budget is 5s"
+title: bridge spawn-wait budget is 5s
 status: backlog
 priority: low
 type: perf
-importance: low
 complexity: S
 area: platform
 created: '2026-07-08T00:00:55.000Z'

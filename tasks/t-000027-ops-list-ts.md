@@ -1,10 +1,9 @@
 ---
 id: t-000027
-title: "ops/list.ts"
+title: ops/list.ts
 status: backlog
 priority: medium
 type: feat
-importance: medium
 complexity: M
 area: phase-4
 created: '2026-07-08T00:00:26.000Z'

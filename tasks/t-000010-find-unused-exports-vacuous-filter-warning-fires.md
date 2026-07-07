@@ -1,10 +1,9 @@
 ---
 id: t-000010
-title: "find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter"
+title: find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: bug-sweep
 created: '2026-07-08T00:00:09.000Z'

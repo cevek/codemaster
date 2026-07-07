@@ -1,10 +1,9 @@
 ---
 id: t-000144
-title: "unit byte-identity assertions use `assert.match` (contains), not exact"
+title: unit byte-identity assertions use `assert.match` (contains), not exact
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: render-contract
 created: '2026-07-08T00:02:23.000Z'

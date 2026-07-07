@@ -1,10 +1,9 @@
 ---
 id: t-000113
-title: "E-g residual — in-transaction REVERSE import-capture is not overlay-aware"
+title: E-g residual — in-transaction REVERSE import-capture is not overlay-aware
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: M
 area: transaction
 created: '2026-07-08T00:01:52.000Z'

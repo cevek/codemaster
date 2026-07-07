@@ -1,10 +1,9 @@
 ---
 id: t-000116
-title: "E-b — CSS co-extract not supported inside a transaction `extract_symbol` step"
+title: E-b — CSS co-extract not supported inside a transaction `extract_symbol` step
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: transaction
 created: '2026-07-08T00:01:55.000Z'

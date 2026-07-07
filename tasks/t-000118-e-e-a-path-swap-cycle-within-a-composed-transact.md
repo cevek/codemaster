@@ -1,10 +1,9 @@
 ---
 id: t-000118
-title: "E-e — a path swap/cycle within a composed transaction"
+title: E-e — a path swap/cycle within a composed transaction
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: transaction
 created: '2026-07-08T00:01:57.000Z'

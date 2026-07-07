@@ -1,10 +1,9 @@
 ---
 id: t-000107
-title: "move_symbols({names:[],dest})` bulk-move sugar (optional)"
+title: move_symbols({names:[],dest})` bulk-move sugar (optional)
 status: backlog
 priority: low
 type: feat
-importance: low
 complexity: M
 area: ts-refactor
 created: '2026-07-08T00:01:46.000Z'

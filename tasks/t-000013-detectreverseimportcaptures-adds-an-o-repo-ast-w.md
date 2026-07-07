@@ -1,10 +1,9 @@
 ---
 id: t-000013
-title: "detectReverseImportCaptures` adds an O(repo) AST walk to every `move_file`/`extract_symbol"
+title: detectReverseImportCaptures` adds an O(repo) AST walk to every `move_file`/`extract_symbol
 status: backlog
 priority: medium
 type: perf
-importance: medium
 complexity: M
 area: bug-sweep
 created: '2026-07-08T00:00:12.000Z'

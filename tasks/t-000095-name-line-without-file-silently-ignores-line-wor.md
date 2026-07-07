@@ -1,10 +1,9 @@
 ---
 id: t-000095
-title: "name+line` WITHOUT `file` silently ignores `line` → workspace-wide `resolveByName"
+title: name+line` WITHOUT `file` silently ignores `line` → workspace-wide `resolveByName
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:34.000Z'

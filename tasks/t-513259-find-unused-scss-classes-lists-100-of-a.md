@@ -7,7 +7,6 @@ tags:
   - UNVERIFIED
   - dogfood-jul
 type: bug
-importance: medium
 complexity: M
 area: scss
 created: '2026-07-07T20:05:39.627Z'

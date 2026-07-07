@@ -1,10 +1,9 @@
 ---
 id: t-000083
-title: "construction-sites.ts` exceeds the 300-line cap"
+title: construction-sites.ts` exceeds the 300-line cap
 status: backlog
 priority: low
 type: dx
-importance: low
 complexity: S
 area: ts-refactor
 created: '2026-07-08T00:01:22.000Z'

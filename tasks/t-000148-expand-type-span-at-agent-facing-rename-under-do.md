@@ -1,10 +1,9 @@
 ---
 id: t-000148
-title: "expand_type` span→`at` agent-facing rename under-documented"
+title: expand_type` span→`at` agent-facing rename under-documented
 status: backlog
 priority: low
 type: doc
-importance: low
 complexity: S
 area: full-density
 created: '2026-07-08T00:02:27.000Z'

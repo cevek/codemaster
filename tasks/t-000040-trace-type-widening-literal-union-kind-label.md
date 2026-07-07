@@ -1,10 +1,9 @@
 ---
 id: t-000040
-title: "trace_type_widening: literal→union kind label"
+title: 'trace_type_widening: literal→union kind label'
 status: backlog
 priority: low
 type: bug
-importance: low
 complexity: S
 area: phase-6
 created: '2026-07-08T00:00:39.000Z'
