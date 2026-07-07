@@ -46,7 +46,7 @@ const findUnusedScssClassesTable: TableSpec<JsonValue> = {
     const globalModules = (data as { globalModules?: string[] }).globalModules ?? [];
     if (globalModules.length > 0) {
       out.push(
-        `${globalModules.length} global (non-.module.*) stylesheet(s) — string classNames are unchecked, so their classes cannot be proven unused: ${globalModules.join(', ')}`,
+        `${globalModules.length} global (non-.module.*) stylesheet(s) with class(es) not found in any JSX className/clsx literal — may be applied via HTML/DOM/dynamic string, cannot be proven unused: ${globalModules.join(', ')}`,
       );
     }
     return out;
@@ -56,7 +56,7 @@ const findUnusedScssClassesTable: TableSpec<JsonValue> = {
 export const findUnusedScssClassesOp = defineOp({
   name: 'find_unused_scss_classes',
   summary:
-    'SCSS/CSS classes with no usage observed in TS/TSX (css-modules); dynamic access + global (non-.module.*) sheets demote to partial',
+    'SCSS/CSS classes with no usage observed in TS/TSX (css-module `s.foo` + global string `className`/clsx literals); dynamic access + unmatched global classes demote to partial',
   mutating: false,
   requires: ['ts', 'scss'],
   argsSchema: z.strictObject({
@@ -67,7 +67,7 @@ export const findUnusedScssClassesOp = defineOp({
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
     'a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
-    'only css-MODULE sheets (`.module.scss`/`.module.css`/`.module.sass`, accessed as `s.foo`) can read `certain` unused. A flat/global `.scss`/`.css`/`.sass` is referenced via string `className="foo"` codemaster cannot resolve, so its classes demote to partial ("global stylesheet — string classNames unchecked").',
+    'only css-MODULE sheets (`.module.scss`/`.module.css`/`.module.sass`, accessed as `s.foo`) can read `certain` unused. A flat/global `.scss`/`.css`/`.sass` is applied via string `className="foo"` (resolved: JSX className + clsx/classnames literals); a class matched there is dropped, but one NOT matched stays partial ("may be applied via HTML/DOM/dynamic string, cannot prove dead") — never certain.',
     'pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.',
   ],
   table: findUnusedScssClassesTable,

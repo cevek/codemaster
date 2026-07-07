@@ -56,8 +56,9 @@ export type UnusedScssView = {
   /** Modules whose importers use computed access — their classes can't be proven
    *  unused (§3.3: dynamic is flagged, never bridged). */
   dynamicModules: string[];
-  /** Flat (non-`.module.*`) stylesheets — referenced via string `className="…"` codemaster
-   *  can't resolve, so their classes are never provably dead (demoted `partial`, §3.3). */
+  /** Flat (non-`.module.*`) stylesheets that still carry an unproven class after resolving string
+   *  `className`/clsx literals — an unmatched global class may be applied via HTML/DOM/dynamic
+   *  string codemaster can't see, so it is never provably dead (demoted `partial`, §3.3). */
   globalModules: string[];
   scannedModules: number;
   scannedClasses: number;
@@ -211,6 +212,15 @@ export function createScssPlugin(root: string): ScssPluginApi {
       };
       const ts = registry.get<TsPluginApi>('ts');
       const usages = ts.cssModuleUsages();
+      // GLOBAL (non-`.module.*`) sheets are applied via string `className="foo"`, not `s.foo`.
+      // Resolve those tokens from the ts plugin (JSX className + clsx-family literals), lazily —
+      // computed only if a global sheet is actually in scope. A class found here is live; one that
+      // is NOT stays `partial` (index.html/`classList.add`/DOM/dynamic strings are unseen, §3.3).
+      let cachedGlobalTokens: ReadonlySet<string> | undefined;
+      const globalTokens = (): ReadonlySet<string> => {
+        if (cachedGlobalTokens === undefined) cachedGlobalTokens = ts.classNameLiterals().tokens;
+        return cachedGlobalTokens;
+      };
 
       // Cross-sheet `composes: x from './other'` linkage (spec-scss-css-honesty follow-up):
       // a class reached only because ANOTHER sheet composes it is not provably dead. Resolve
@@ -248,11 +258,12 @@ export function createScssPlugin(root: string): ScssPluginApi {
         const accesses = usages.byModule.get(rel) ?? [];
         const hasDynamic = accesses.some((a) => a.confidence === 'dynamic');
         if (hasDynamic) dynamicModules.push(rel);
-        // A flat (non-`.module.*`) sheet is a GLOBAL stylesheet: classes are referenced via
-        // string `className="…"` codemaster can't resolve, so none is provably dead (§3.3).
+        // A flat (non-`.module.*`) sheet is a GLOBAL stylesheet: classes are applied via string
+        // `className="…"`, not `s.foo`. Union the ts-observed className tokens into the used set so
+        // a live global class is not falsely reported dead; an unmatched one still demotes (§3.3).
         const isGlobal = !isCssModuleFile(rel);
-        if (isGlobal && sheet.classes.length > 0) globalModules.push(rel);
         const used = new Set(accesses.filter((a) => a.className !== '').map((a) => a.className));
+        if (isGlobal) for (const t of globalTokens()) used.add(t);
         const { entangledOnly } = sheet.reachability;
         const crossReach = crossSheetReachable.get(rel);
         // Union the sheet's own linkage with cross-sheet + unresolvable composed names.
@@ -275,8 +286,10 @@ export function createScssPlugin(root: string): ScssPluginApi {
           else prev.partial = prev.partial || c.partial;
         }
 
+        let sheetUnused = 0;
         for (const [name, { rep, partial }] of collapsed) {
           if (used.has(name)) continue;
+          sheetUnused++;
           const demoted = demote(
             name,
             partial,
@@ -291,6 +304,9 @@ export function createScssPlugin(root: string): ScssPluginApi {
             ...(demoted.note !== undefined ? { note: demoted.note } : {}),
           });
         }
+        // Name the sheet in the envelope's global section only when it still contributes an
+        // unproven class — a fully className-resolved global sheet is not flagged.
+        if (isGlobal && sheetUnused > 0) globalModules.push(rel);
       }
       return { unused, dynamicModules, globalModules, scannedModules, scannedClasses };
     },
@@ -329,8 +345,9 @@ export function createScssPlugin(root: string): ScssPluginApi {
 }
 
 /** Decide an unused class's honest confidence + reason. "Could not prove dead" is `partial`,
- *  never `certain` unused (§3.3/§3.4). A flat (non-`.module.*`) GLOBAL sheet's classes are
- *  referenced via string `className` codemaster can't see (`isGlobal`); a computed access
+ *  never `certain` unused (§3.3/§3.4). A flat (non-`.module.*`) GLOBAL sheet class that no JSX
+ *  `className`/clsx literal referenced (`isGlobal`) may still be applied via HTML/DOM/dynamic
+ *  string codemaster can't see, so it stays `partial`; a computed access
  *  anywhere in the module (`hasDynamic`) demotes the whole module; a class reachable via
  *  `composes:`/`@extend`, or one living only in an entangled contextual/compound/nested
  *  selector, or declared via interpolation, is likewise not provably dead. Only a genuinely
@@ -346,7 +363,7 @@ function demote(
   if (isGlobal) {
     return {
       confidence: 'partial',
-      note: 'global stylesheet — string classNames unchecked, cannot prove unused',
+      note: 'global stylesheet — not found in any JSX className/clsx literal; may be applied via HTML/DOM/dynamic string, cannot prove dead',
     };
   }
   if (hasDynamic) {

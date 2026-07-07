@@ -22,6 +22,7 @@ import { collectWideningSinks } from './type-widening.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
+import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
 import { findUnusedExports } from './unused-exports.ts';
 import { computeRename } from './refactor/rename/rename-sites.ts';
@@ -221,6 +222,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       ),
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),
+    classNameLiterals: () => scanClassNameLiterals(warm()),
     rewriteExtractedCss: (fileName, content, rewrites) =>
       rewriteExtractedCss(fileName, content, rewrites),
 

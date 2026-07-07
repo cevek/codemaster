@@ -18,6 +18,7 @@ import type {
 import type { SearchFilter, SearchView } from './search.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
 import type { CssModuleUsages } from './css-modules.ts';
+import type { ClassNameLiteralsView } from './class-name-literals.ts';
 import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
 import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { JsxCallSitesView } from './jsx-call-sites.ts';
@@ -72,6 +73,11 @@ export interface TsPluginApi extends Plugin {
   ): { view: ConstructionSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Cross-tier API for the scss plugin (§5-L2). */
   cssModuleUsages(): CssModuleUsages;
+  /** Cross-tier API for the scss plugin (§5-L2): class tokens applied via string `className="…"`
+   *  (and `clsx`/`classnames` string args / object keys) across every program — how a GLOBAL
+   *  (non-`.module.*`) sheet's classes are referenced. A generic SYNTACTIC scan; a dynamic
+   *  className contributes no token (never guessed). Whole-program, bounded. */
+  classNameLiterals(): ClassNameLiteralsView;
   /** Scope-aware rewrite of the extracted file's css imports for co-extract (§2.5): repoint
    *  each import at its new sheet, inject a `<name>Legacy` import, and repoint left-behind
    *  `s.X` refs to it. Pure — operates on the given content string. */
