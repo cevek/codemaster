@@ -1,10 +1,9 @@
 ---
 id: t-993754
 title: impact_type_error masks the downstream blast radius when a trial edit degrades the edited symbol's OWN inferred type to `any` (zod value-type widening)
-status: backlog
+status: done
 priority: medium
 tags:
-  - UNVERIFIED
   - dogfood-jul
 type: bug
 complexity: M

@@ -1,10 +1,9 @@
 ---
 id: t-513259
 title: find_unused_scss_classes lists 100% of a GLOBAL (non-module) stylesheet's classes as unused-partial — string-literal classNames unresolved, reads as actionable dead code
-status: backlog
+status: done
 priority: medium
 tags:
-  - UNVERIFIED
   - dogfood-jul
 type: bug
 complexity: M
