@@ -3,8 +3,6 @@ id: t-000128
 title: I-b — within-file `const`/`let`/`var` REBIND of a bound name fabricates a missing row
 status: backlog
 priority: low
-tags:
-  - fabrication
 type: bug
 complexity: M
 area: i18n

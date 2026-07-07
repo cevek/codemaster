@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: multi-program
 created: '2026-07-08T00:00:05.000Z'
 ---
 **`parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)** — a throw

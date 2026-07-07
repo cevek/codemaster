@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:24.000Z'
 ---
 **`find_definition` full fallback can collapse a body-bearing sibling post-FLIP** — at full,

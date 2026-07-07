@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: M
-area: framework-seams
+area: framework
 created: '2026-07-08T00:02:13.000Z'
 ---
 **W5-b — anonymous default-export component not reported** — `functionDeclarations` reports only

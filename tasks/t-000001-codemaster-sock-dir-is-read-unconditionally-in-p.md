@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:00.000Z'
 ---
 **`CODEMASTER_SOCK_DIR` is read unconditionally in prod (`bin.ts:141/165/195`)** — if a user

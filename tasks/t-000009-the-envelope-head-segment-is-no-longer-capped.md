@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: render
 created: '2026-07-08T00:00:08.000Z'
 ---
 **the envelope `head` segment is no longer capped — a pathological `failure.message` escapes

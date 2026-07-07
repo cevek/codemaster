@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: phase-4
+area: framework
 created: '2026-07-08T00:00:22.000Z'
 ---
 **`dynamicKeyedQueries` note wording** — for a BROAD edge (`invalidateQueries()` with no key)

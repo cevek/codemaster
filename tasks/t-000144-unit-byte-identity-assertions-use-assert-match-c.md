@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: render-contract
+area: render
 created: '2026-07-08T00:02:23.000Z'
 ---
 **unit byte-identity assertions use `assert.match` (contains), not exact** — the hermetic

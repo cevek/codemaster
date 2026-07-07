@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: dx
 complexity: S
-area: wish
+area: platform
 created: '2026-07-08T00:02:55.000Z'
 ---
 **`initialize`/reconnect "warm and ready (freshness:…)" line** — dogfood friction (amiro,

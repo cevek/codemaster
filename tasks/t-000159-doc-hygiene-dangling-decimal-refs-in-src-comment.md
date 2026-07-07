@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:38.000Z'
 ---
 **doc-hygiene: dangling decimal-`§` refs in `src/` comments** — several code comments cite

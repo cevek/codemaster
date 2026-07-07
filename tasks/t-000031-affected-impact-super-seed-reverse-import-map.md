@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: perf
 complexity: M
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:30.000Z'
 ---
 **affected/impact super-seed: reverse-import map** — the `affected` super-seed fans `importersOf`

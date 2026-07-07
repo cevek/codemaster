@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: feat
 complexity: M
-area: phase-4
+area: framework
 created: '2026-07-08T00:00:26.000Z'
 ---
 **`ops/list.ts`** — dispatches to the plugin owning the requested registry; DAG enforcement +

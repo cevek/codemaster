@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: phase-6
+area: trace
 created: '2026-07-08T00:00:39.000Z'
 ---
 **trace_type_widening: literal→union kind label** — `'a'` → `'a' | 'b'` is classified

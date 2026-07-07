@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: feat
 complexity: M
-area: phase-6
+area: trace
 created: '2026-07-08T00:00:41.000Z'
 ---
 **trace_prop_through_tree: children-position forwarding** — a prop passed as the `children` value

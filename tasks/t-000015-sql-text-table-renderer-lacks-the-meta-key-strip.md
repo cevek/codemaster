@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: bug
 complexity: S
-area: bug-sweep
+area: render
 created: '2026-07-08T00:00:14.000Z'
 ---
 **sql text-table renderer lacks the `~`-meta-key strip the generic/json paths have** —

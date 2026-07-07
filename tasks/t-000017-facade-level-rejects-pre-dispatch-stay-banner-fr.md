@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:16.000Z'
 ---
 **facade-level rejects (pre-dispatch) stay banner-free on a stale daemon** — two per-op paths

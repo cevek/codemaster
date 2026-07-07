@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:34.000Z'
 ---
 **impact_type_error: overlay-baseline doc wording** — the overlay-check doc (`ts/api.ts`) says "disk

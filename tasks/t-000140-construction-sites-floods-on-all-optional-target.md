@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: M
-area: density
+area: render
 created: '2026-07-08T00:02:19.000Z'
 ---
 **`construction_sites` floods on all-optional target types** — `ButtonProps` (a big

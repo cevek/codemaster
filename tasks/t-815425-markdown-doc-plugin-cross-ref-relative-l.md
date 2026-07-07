@@ -7,7 +7,7 @@ tags:
   - dogfood-jul
 type: feat
 complexity: L
-area: wish
+area: docs
 created: '2026-07-07T20:07:21.815Z'
 ---
 Inbox entries 16, 17, 18, 19, 139, 144, 146, 151 (`task-manager`, docs-heavy/greenfield sessions), 2026-07-03. Architecture-doc reviews fit codemaster's proof-carrying model but have zero applicable ops today (all ops are TS/React-symbol-shaped), so the whole session runs on Read + manual cross-referencing.

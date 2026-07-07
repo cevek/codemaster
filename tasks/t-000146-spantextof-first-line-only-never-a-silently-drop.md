@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:25.000Z'
 ---
 **`spanTextOf` first-line-only — "never a silently-dropped body" comment overstated** — the `symbol`

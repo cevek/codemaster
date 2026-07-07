@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:11.000Z'
 ---
 **chokidar feeds absolute OS paths into the reindex pipeline** —

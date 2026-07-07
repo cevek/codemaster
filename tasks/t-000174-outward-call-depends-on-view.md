@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: feat
 complexity: L
-area: wish
+area: impact-usages
 created: '2026-07-08T00:02:53.000Z'
 ---
 **Outward-call / `depends_on` view** — the dual of `find_usages`/`impact`: "what does this

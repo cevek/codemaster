@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:32.000Z'
 ---
 **misc density test-coverage gaps** — `dominant=sibling` prog-hoist case (symbol mostly in

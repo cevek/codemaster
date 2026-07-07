@@ -7,7 +7,7 @@ tags:
   - dogfood-jul
 type: bug
 complexity: S
-area: full-density
+area: render
 created: '2026-07-07T20:06:40.729Z'
 ---
 Inbox entry 45 (`backoffice2`), 2026-07-06. `expand_type` on a 29-member `const UserRole` at `verbosity:'full'` rendered the `type:` block as `readonly Admin:"admin"; … (15 shown) … ; … 13 more …; readonly TPReviewer:"tp-reviewer";` — dropping 13 of 29 members mid-object. `expand_type` is the op you reach for precisely to see the RESOLVED members, and a reader who misses the `… N more …` marker concludes those members don't exist.

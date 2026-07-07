@@ -7,7 +7,7 @@ tags:
   - dogfood-jul
 type: feat
 complexity: L
-area: wish
+area: impact-usages
 created: '2026-07-08T00:02:54.000Z'
 ---
 **Member-level `find_usages`** — trace readers of a specific object-type FIELD (e.g.

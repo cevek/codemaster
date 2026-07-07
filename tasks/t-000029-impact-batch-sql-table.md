@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: feat
 complexity: M
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:28.000Z'
 ---
 **impact: `batch+sql` table** — needs a "bounded-by-design, always-partial" table contract

@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: feat
 complexity: S
-area: phase-4
+area: framework
 created: '2026-07-08T00:00:19.000Z'
 ---
 **react-query v4 positional hook signatures** — `useQuery(key, fn)` / `useMutation(fn, opts)`

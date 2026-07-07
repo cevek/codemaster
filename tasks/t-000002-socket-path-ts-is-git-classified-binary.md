@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: infra
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:01.000Z'
 ---
 **`socket-path.ts` is git-classified BINARY** (numstat `- -`, `Bin` in diff) despite 0 NUL /

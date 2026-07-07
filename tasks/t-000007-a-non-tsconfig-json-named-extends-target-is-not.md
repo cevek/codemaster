@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: multi-program
 created: '2026-07-08T00:00:06.000Z'
 ---
 **a non-`tsconfig*.json`-named `extends` target is not detected** — the structural trigger

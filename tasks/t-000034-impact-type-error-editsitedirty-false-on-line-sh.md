@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: M
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:33.000Z'
 ---
 **impact_type_error: editSiteDirty false-`!!` on line-shift** — if the edited declFile has a

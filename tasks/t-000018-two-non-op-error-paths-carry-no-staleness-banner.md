@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:17.000Z'
 ---
 **two non-op error paths carry no staleness banner** — `runOpTool`'s `result === undefined` ("no

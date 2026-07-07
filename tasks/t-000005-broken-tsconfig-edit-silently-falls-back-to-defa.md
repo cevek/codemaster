@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: multi-program
 created: '2026-07-08T00:00:04.000Z'
 ---
 **broken-tsconfig edit silently falls back to default options + glob-everything** —

@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: imp
 complexity: S
-area: phase-5
+area: framework
 created: '2026-07-08T00:00:36.000Z'
 ---
 **react read-model: `FunctionDecl` internal-reach** — `react/unused-props.ts` + `react/detect.ts`

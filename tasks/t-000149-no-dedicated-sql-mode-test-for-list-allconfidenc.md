@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:28.000Z'
 ---
 **no dedicated sql-mode test for `list` `allConfidence` backfill** — `listTable.rows` fills

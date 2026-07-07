@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: phase-6
+area: trace
 created: '2026-07-08T00:00:42.000Z'
 ---
 **trace_prop_through_tree: VALUE_TEXT_CAP truncation note** — a `derived`-branch attr whose value

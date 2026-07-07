@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: feat
 complexity: L
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:31.000Z'
 ---
 **affected: dynamic-import tracing** — `importersOf` follows only static import/export; a test that

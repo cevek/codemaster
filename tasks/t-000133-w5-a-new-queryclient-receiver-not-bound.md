@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: feat
 complexity: M
-area: framework-seams
+area: framework
 created: '2026-07-08T00:02:12.000Z'
 ---
 **W5-a — `new QueryClient()` receiver not bound** — `callArgShapes` matches a member call

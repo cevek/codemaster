@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: phase-6
+area: trace
 created: '2026-07-08T00:00:43.000Z'
 ---
 **trace_field_to_render: non-visual host-attr over-claim** — an intrinsic-attr read is uniformly

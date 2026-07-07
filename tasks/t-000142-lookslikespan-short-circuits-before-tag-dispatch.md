@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: render-contract
+area: render
 created: '2026-07-08T00:02:21.000Z'
 ---
 **`looksLikeSpan` short-circuits before tag-dispatch** — `condenseSpans` renders a top-level

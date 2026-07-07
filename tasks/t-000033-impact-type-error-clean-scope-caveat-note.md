@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: phase-5
+area: impact-usages
 created: '2026-07-08T00:00:32.000Z'
 ---
 **impact_type_error: clean-scope caveat note** — `clean:true` means "no introduced error WITHIN the

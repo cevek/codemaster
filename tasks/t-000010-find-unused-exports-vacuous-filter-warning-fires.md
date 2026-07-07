@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: bug-sweep
+area: impact-usages
 created: '2026-07-08T00:00:09.000Z'
 ---
 **`find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter** —

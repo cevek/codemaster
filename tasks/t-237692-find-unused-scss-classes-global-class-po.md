@@ -5,7 +5,6 @@ status: backlog
 priority: low
 tags:
   - dogfood-jul
-  - scss
 type: bug
 complexity: M
 area: scss

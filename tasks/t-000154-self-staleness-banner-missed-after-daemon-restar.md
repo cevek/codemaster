@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: bug
 complexity: M
-area: full-density
+area: render
 created: '2026-07-08T00:02:33.000Z'
 ---
 **self-staleness banner missed after `daemon restart`** — ROOT CAUSE NOW KNOWN (see the

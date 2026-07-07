@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:03.000Z'
 ---
 **long/network home → `assertSocketPathLength` throw lands in discarded daemon stderr** on

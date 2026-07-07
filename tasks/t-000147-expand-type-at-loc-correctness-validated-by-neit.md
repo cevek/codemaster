@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:26.000Z'
 ---
 **`expand_type` `at`-loc correctness validated by neither suite** — `span-validity.test.ts` correctly

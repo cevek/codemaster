@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:35.000Z'
 ---
 **intake: scalar→array coercion is TOP-LEVEL only — a pure-array field nested inside `filter{}`

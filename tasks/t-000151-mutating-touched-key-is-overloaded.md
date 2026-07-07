@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: M
-area: full-density
+area: render
 created: '2026-07-08T00:02:30.000Z'
 ---
 **mutating `touched` key is overloaded** — `string[]` in full mode, structured

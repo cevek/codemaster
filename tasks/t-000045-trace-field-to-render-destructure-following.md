@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: feat
 complexity: M
-area: phase-6
+area: trace
 created: '2026-07-08T00:00:44.000Z'
 ---
 **trace_field_to_render: destructure-following** — `renderedBy` stops at `const {email}=u`

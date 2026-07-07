@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:34.000Z'
 ---
 **intake flag-precedence: a lifted-from-args flag overrides an explicit top-level flag** — when a

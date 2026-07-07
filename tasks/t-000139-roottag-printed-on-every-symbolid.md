@@ -5,7 +5,7 @@ status: backlog
 priority: medium
 type: dx
 complexity: L
-area: density
+area: render
 created: '2026-07-08T00:02:18.000Z'
 ---
 **`~<rootTag>` printed on every SymbolId — two-halves task (resolver-semantics THEN render-strip,

@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: imp
 complexity: M
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:15.000Z'
 ---
 **json op/batch consumers never see daemon self-staleness** — the always-on staleness banner

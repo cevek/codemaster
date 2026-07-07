@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: bug-sweep
+area: platform
 created: '2026-07-08T00:00:02.000Z'
 ---
 **key-template separator is a space (`username version`)** — admits a theoretical

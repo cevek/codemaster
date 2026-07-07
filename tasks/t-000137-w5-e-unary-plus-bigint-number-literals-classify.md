@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: bug
 complexity: S
-area: framework-seams
+area: framework
 created: '2026-07-08T00:02:16.000Z'
 ---
 **W5-e — unary-plus / bigint number literals classify as `other`** — `value-shape` reads

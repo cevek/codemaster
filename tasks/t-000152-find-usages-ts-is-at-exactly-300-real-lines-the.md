@@ -5,7 +5,7 @@ status: backlog
 priority: low
 type: dx
 complexity: S
-area: full-density
+area: render
 created: '2026-07-08T00:02:31.000Z'
 ---
 **`find-usages.ts` is at exactly 300 real lines (the cap, no headroom)** — passes eslint

@@ -7,7 +7,7 @@ tags:
   - dogfood-jul
 type: bug
 complexity: S
-area: full-density
+area: render
 created: '2026-07-07T20:04:23.454Z'
 ---
 **Confirmed on current `main`, 2026-07-08.** A bare directory in `pathInclude` (no `/**`) matches 0 files and, for `search_symbol`, is reported as a plausible **symbol absence** rather than a filter miss — a completeness lie (an agent concludes the symbol doesn't exist). Inbox entries 20, 27, 172-ish, 237, 394.
