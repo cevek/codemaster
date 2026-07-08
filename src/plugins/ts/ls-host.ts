@@ -156,9 +156,16 @@ export function createTsProjectHost(
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
   // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
   // lazy step deferred to the first cross-program read.
+  // The repo-wide `tsconfig*.json` walk — the §19-bounded part — computed ONCE and shared by BOTH
+  // sibling discovery (source 2, workspace members) AND the undiscovered base below, so there is a
+  // single repo walk per host lifetime, never one per consumer. Invalidated with the other memos on
+  // a tsconfig/workspace-manifest change (the reindex block).
+  let repoTsconfigs: string[] | undefined;
+  const repoTsconfigsList = (): string[] => (repoTsconfigs ??= findRepoTsconfigs(root));
+
   let discovered: DiscoveredConfig[] | undefined;
   const discover = (): DiscoveredConfig[] =>
-    (discovered ??= discoverSiblingConfigs(root, configPath));
+    (discovered ??= discoverSiblingConfigs(root, configPath, repoTsconfigsList()));
 
   // Repo tsconfigs found on disk MINUS the loaded set (primary + the adjacent/`references`
   // siblings `discover()` returns) — the UNDISCOVERED programs. Cached once (the repo walk is the
@@ -179,7 +186,13 @@ export function createTsProjectHost(
         const loaded = new Set<string>();
         if (configPath !== undefined) loaded.add(toPosix(configPath));
         for (const c of discover()) loaded.add(toPosix(c.path));
-        undiscoveredBase = findRepoTsconfigs(root).filter((abs) => !loaded.has(abs));
+        // Subtraction keys on config-path membership, NOT on whether the built program actually
+        // COVERS its source files. Residual edge (backlog): a discovered member with a narrow/empty
+        // `include` and no followable `references`, whose files the primary also doesn't glob, drops
+        // from the undiscovered set yet leaves those files in no built program — the one
+        // honest-floored → claimed-complete direction. Defensible (those files are configured by no
+        // tsconfig) but the sharpest residual; a coverage-proof subtraction would close it.
+        undiscoveredBase = repoTsconfigsList().filter((abs) => !loaded.has(abs));
       }
       // Subtract the file-driven nested-config programs we DID load (§5-L2 read-path completeness):
       // a config fix-A loaded IS searched, so reporting it undiscovered would over-demote (a false
@@ -289,7 +302,8 @@ export function createTsProjectHost(
       // basename scan of the (small) changed set, NEVER a repo re-walk per reindex (the §19 ls-host
       // per-call-tree-scan hang class). The actual re-walk (findRepoTsconfigs) then happens LAZILY
       // on the next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed.
-      if (changed.some(isTsconfigChange)) {
+      if (changed.some(isStructuralConfigChange)) {
+        repoTsconfigs = undefined;
         discovered = undefined;
         undiscoveredBase = undefined;
         undiscoveredMemo = undefined;
@@ -373,8 +387,17 @@ export function createTsProjectHost(
 /** Does a reindex changed path point at a tsconfig (add/remove/edit)? `RepoRelPath` is posix, so a
  *  trailing-segment basename is all we need — the shared predicate keeps this in lockstep with
  *  sibling discovery and the undiscovered scan. */
-function isTsconfigChange(rel: RepoRelPath): boolean {
-  return isTsconfigBasename(rel.slice(rel.lastIndexOf('/') + 1));
+/** A change that may alter the discovered/undiscovered PROGRAM set (not just a file's content): a
+ *  `tsconfig*.json` add/remove/edit, OR a `pnpm-workspace.yaml` edit (re-globbing existing member
+ *  configs — an add-a-package normally also adds its `tsconfig.json`, which the tsconfig arm already
+ *  catches). `package.json` is deliberately NOT here: it churns on every install. The consequence:
+ *  editing a `package.json` `workspaces` glob while the member's `tsconfig.json` ALREADY exists on
+ *  disk (no tsconfig add to trip the tsconfig arm) is not re-discovered until the next tsconfig
+ *  change / respawn — a bounded, provably CONSERVATIVE staleness (the stale set is the old, SMALLER
+ *  discovered set → a LARGER undiscovered set → more floored, never a false `certain`-dead). */
+function isStructuralConfigChange(rel: RepoRelPath): boolean {
+  const base = rel.slice(rel.lastIndexOf('/') + 1);
+  return isTsconfigBasename(base) || base === 'pnpm-workspace.yaml';
 }
 
 function resolveConfigPath(root: string, override?: string): string | undefined {

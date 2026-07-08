@@ -334,9 +334,10 @@ probing.
   types. LS warms **lazily** on the first semantic query — structural queries don't
   trigger warm. The heavyweight plugin: gigabytes for large projects (§9).
   **Multi-program (§9/§19).** The host loads the **primary** program (the root tsconfig —
-  the mutation/typecheck target) plus the repo's **sibling** programs (`tsconfig.*.json` +
-  `references`: the near-universal `tsconfig.test.json`, Vite's app/node split, build
-  configs), each keeping its **own** `compilerOptions` (a flat single-options Program would
+  the mutation/typecheck target) plus the repo's **sibling** programs (adjacent `tsconfig.*.json`,
+  transitive `references`, AND workspace-member configs named by `pnpm-workspace.yaml` /
+  `package.json` `workspaces` globs: the near-universal `tsconfig.test.json`, Vite's app/node split,
+  a pnpm/vite monorepo's packages, build configs), each keeping its **own** `compilerOptions` (a flat single-options Program would
   be a lie). Siblings are discovered once and warmed **lazily** on the first cross-program
   read; the stock-TS programs share one `DocumentRegistry` so files common to two configs
   parse once. `find_usages` / `referenceSpans` / `importers_of` fan out across every program
@@ -359,8 +360,12 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   discloses the scan's limit — **static import/export only; a dynamic `import()`/`require()` of a
   file under the tree is NOT traced** (inherited from `importersOf`, as `affected` discloses the same
   for its transitive walk). Engine in `plugins/ts/importers-subtree.ts`.
-  Discovery is adjacent-`tsconfig*.json` + transitive `references`; a nested-package config
-  reachable by neither is **not** loaded, so the read ops carry an honest floor — when any such
+  Discovery is adjacent-`tsconfig*.json` + transitive `references` + **workspace members** (a dir
+  matched by the repo's `pnpm-workspace.yaml` / `package.json` `workspaces` globs AND holding a
+  `package.json` — a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are
+  otherwise undiscovered and every cross-package query floored; membership is `package.json`-anchored
+  so a bare nested/fixture tsconfig under a matching path is **not** slurped). A nested-package config
+  reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
   otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level
   `complete:false` + the **named** config + a `!!` LOWER-BOUND note (a count-only consumer sees the
@@ -724,7 +729,8 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 - **Monorepo = one engine, not one-per-package** — a single workspace process whose `ts`
   plugin runs one `Program` per package `tsconfig`, each keeping its own `compilerOptions`
   — a flat single-options Program would be a lie (§19). **Built today (§5-L2 / Task G):**
-  the host loads the repo's tsconfigs (root + sibling `tsconfig.*.json` + `references`) as
+  the host loads the repo's tsconfigs (root + sibling `tsconfig.*.json` + `references` +
+  `workspaces`-glob members) as
   **independent** programs, and usages / dead-code fan out across them. **Roadmap:** wiring
   them with **project-reference redirects** (what `tsserver` does) so cross-package
   references resolve in-memory as one graph — not yet built; the independent-programs step is
@@ -1004,6 +1010,9 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
 - **`postcss` + `postcss-scss`** — used by the `scss` plugin.
 - **`diff`** — unified diffs for mutating-op previews.
+- **`yaml`** — parse `pnpm-workspace.yaml` for workspace-member tsconfig discovery (the `ts`
+  plugin's third program-discovery source, §5-L2). Hand-rolling YAML would be a subtly-wrong
+  second oracle; read best-effort (a malformed manifest yields no globs, never a throw).
 - **`prettier`** — resolved from the target project **only** (NO bundled fallback);
   post-edit formatting for mutating ops. A repo that ships no prettier — or no prettier
   config — is written unformatted rather than restyled against its intent (§5-L1).
@@ -1306,7 +1315,7 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **Monorepo LS = project references, not a flat Program.** One engine/process, but the
   `ts` plugin runs one `Program` per package `tsconfig`, each keeping its own
   `compilerOptions` (never a flat single-options Program). Built today: the repo's tsconfigs
-  (root + sibling `tsconfig.*.json` + `references`) load as **independent** programs that
+  (root + sibling `tsconfig.*.json` + `references` + `workspaces`-glob members) load as **independent** programs that
   usages / dead-code **and the mutating ops** (rename / change_signature / move / extract +
   the §2.8 typecheck gate) fan out across (§5-L2 / Task G). Roadmap: wiring them with
   project-reference redirects (what `tsserver` does) so cross-package references resolve

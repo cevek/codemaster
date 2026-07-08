@@ -3,18 +3,24 @@
 // a sibling program (the near-universal `tsconfig.test.json`, Vite's `tsconfig.app.json` +
 // `tsconfig.node.json`, build scripts) reads as having NO usage — the honesty gap this closes.
 //
-// Two sources, both bounded (a fixed cap + a visited set — discovery runs ONCE and is cached by
+// Three sources, all bounded (a fixed cap + a visited set — discovery runs ONCE and is cached by
 // the host, never per query: a per-query directory scan is the §19 hang this project forbids):
 //   1. sibling `tsconfig*.json` files in the primary config's directory;
-//   2. `references` followed transitively from each discovered config (what a composite repo wires).
+//   2. workspace-MEMBER `tsconfig*.json` — a dir matched by the repo's `pnpm-workspace.yaml` /
+//      `package.json` `workspaces` globs AND holding a `package.json` (the actual member definition;
+//      a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are otherwise
+//      undiscovered and every cross-package query is floored — dogfood-jul Ask 1);
+//   3. `references` followed transitively from each discovered config (what a composite repo wires).
 // This is plain DISCOVERY — we load each as its own independent program. The project-reference
 // REDIRECT machinery (composite build graph) is the monorepo story the spec scopes OUT.
 
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
+import { matchesAnyGlob } from '../../../common/glob/match.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { walkFiles } from '../../../support/fs/walk.ts';
+import { readWorkspaceGlobs } from './workspace-globs.ts';
 
 export interface DiscoveredConfig {
   /** Absolute path to the sibling tsconfig. */
@@ -23,15 +29,19 @@ export interface DiscoveredConfig {
   label: string;
 }
 
-/** Hard cap on sibling configs (§1 bounded): far above any real repo's tsconfig count, a runaway
- *  backstop for a pathological `references` cycle the visited-set should already break. */
-const MAX_SIBLING_CONFIGS = 32;
+/** Hard cap on sibling configs (§1 bounded): far above any real repo's tsconfig count (a 50-member
+ *  all-Vite monorepo ≈ 150), a runaway backstop for a pathological `references` cycle the visited-set
+ *  should already break. Cap-dropped configs stay in the UNDISCOVERED set → still floored → honest. */
+const MAX_SIBLING_CONFIGS = 256;
 
-/** Sibling tsconfigs to load beside `primaryConfigPath`, EXCLUDING it. Empty when there is no
- *  primary config (the no-tsconfig fallback program stands alone) or nothing else is found. */
+/** Sibling tsconfigs to load beside `primaryConfigPath`, EXCLUDING it. `repoTsconfigs` is the
+ *  host's cached repo-wide `tsconfig*.json` list (`findRepoTsconfigs`) — reused here for source 2
+ *  (workspace members) so there is ONE repo walk, not a second. Empty when there is no primary
+ *  config (the no-tsconfig fallback program stands alone) or nothing else is found. */
 export function discoverSiblingConfigs(
   root: string,
   primaryConfigPath: string | undefined,
+  repoTsconfigs: readonly string[],
 ): DiscoveredConfig[] {
   if (primaryConfigPath === undefined) return [];
   const primary = toPosix(primaryConfigPath);
@@ -54,10 +64,14 @@ export function discoverSiblingConfigs(
       }
     }
   } catch {
-    // Unreadable dir → just skip source 1; references (source 2) may still yield siblings.
+    // Unreadable dir → just skip source 1; the other sources may still yield siblings.
   }
 
-  // Source 2: BFS `references` from the primary and every config found so far.
+  // Source 2: workspace-member `tsconfig*.json` (dogfood-jul Ask 1).
+  for (const abs of workspaceMemberConfigs(root, repoTsconfigs)) add(abs);
+
+  // Source 3: BFS `references` from the primary and every config found so far (source 1 + 2) — so a
+  // member's Vite app/node split reachable only via its hub's `references` is loaded too.
   const queue = [primary, ...found];
   while (queue.length > 0 && seen.size <= MAX_SIBLING_CONFIGS) {
     const config = queue.shift();
@@ -71,6 +85,29 @@ export function discoverSiblingConfigs(
   }
 
   return found.map((abs) => ({ path: abs, label: relLabel(root, abs) }));
+}
+
+/** The subset of `repoTsconfigs` that are workspace members: a `tsconfig*.json` whose DIRECTORY is
+ *  matched by a positive workspace glob, not matched by a negative (`!`) one, AND holds a
+ *  `package.json` (the real npm/pnpm member definition — a dir-glob match alone over-discovers a
+ *  nested non-member tsconfig, esp. under a `**` glob where picomatch's single-segment `*` no longer
+ *  bounds it). All inputs are already-walked paths (respecting the §10 ignore set), so this is a pure
+ *  in-memory filter — no new fs walk. Iterated in `repoTsconfigs` order for a deterministic result
+ *  (cold == warm on a capped repo). */
+function workspaceMemberConfigs(root: string, repoTsconfigs: readonly string[]): string[] {
+  const { positive, negative } = readWorkspaceGlobs(root);
+  if (positive.length === 0) return [];
+  const out: string[] = [];
+  for (const abs of repoTsconfigs) {
+    const rel = relLabel(root, abs);
+    if (path.isAbsolute(rel)) continue; // outside the root — never a member
+    const memberDir = path.posix.dirname(rel);
+    if (!matchesAnyGlob(memberDir, positive)) continue;
+    if (negative.length > 0 && matchesAnyGlob(memberDir, negative)) continue;
+    if (!existsSync(path.join(root, memberDir, 'package.json'))) continue;
+    out.push(abs);
+  }
+  return out;
 }
 
 /** Resolved tsconfig paths a config `references` (a dir → its `tsconfig.json`, a `.json` as-is).
