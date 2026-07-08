@@ -1,7 +1,7 @@
 ---
 id: t-285813
 title: "Symbol ops append 'unloaded nested tsconfig X exists' hint on a 0-match (t-000073 residual #38)"
-status: in-progress
+status: done
 priority: medium
 type: dx
 complexity: S
