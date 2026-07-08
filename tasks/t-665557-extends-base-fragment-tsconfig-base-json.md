@@ -1,7 +1,7 @@
 ---
 id: t-665557
 title: extends-base fragment (tsconfig.base.json) over-demotes the floor — needs a paths/baseUrl-guarded subtraction (deferred from t-816306 part 2)
-status: backlog
+status: done
 priority: low
 type: imp
 complexity: M

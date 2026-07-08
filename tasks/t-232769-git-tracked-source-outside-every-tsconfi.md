@@ -1,7 +1,7 @@
 ---
 id: t-232769
 title: Git-tracked source outside EVERY tsconfig (e.g. package scripts/*.ts) is unsearched → keeps claude-ui at complete=false even after member discovery
-status: in-progress
+status: done
 priority: high
 type: imp
 complexity: L
@@ -9,4 +9,6 @@ area: multi-program
 source: dogfood-jul
 created: '2026-07-08T12:47:45.993Z'
 ---
-The REAL ceiling keeping claude-ui usable, surfaced by t-816306 part 1. After no-root member discovery, claude-ui is floor 4 / complete=false because 3 members (agent-codex-appserver, agent-grok, chat-model) carry git-tracked scripts/*.ts files (smoke tests, session validators) their OWN tsconfig excludes (include:['src']) → no TS program compiles them → the coverage-proof honestly keeps those members floored → host-global floor → EVERY find_usages on claude-ui stays complete=false. These strays have real cross-package alias usages (import @claude-ui/*) codemaster never searches. This is the git-tracked-source-surface ceiling (per the t-851482 discriminator: git-tracked .ts = in the source surface). Bigger question — options: widen a member's search to git-tracked TS under its dir that no program owns (with correct per-member resolution)? an optional syntactic scan of unowned source? Whatever the fix, it must resolve aliases correctly (a fallback-glob without paths/baseUrl would re-introduce the honest→lying hole). HIGH because it's the actual blocker to making the headline monorepo usable.
+DONE (75fc140). Git-tracked source outside a member's tsconfig include (claude-ui packages/*/scripts/*.ts) is now SEARCHED: each member's strays are injected into that member's OWN SingleProgram (its compilerOptions/paths) → alias imports resolve exactly as the member's src → the member un-floors. Coverage-union counts ONLY correct-resolution coverage (real-config programs + injected strays), EXCLUDING the no-config fallback glob → a fallback-only-globbed file never subtracts its config (stays floored, any repo). Guards: OWN-GLOB (a stray a wrong-options ancestor globs still injects into its member), POLLUTION gate (a declare-global/ambient/non-module stray is NOT injected — would shift the member's real symbols), WARM-ADD refresh (reindex injects a just-added stray). new program/coverage.ts (computeCoverage); single.ts injectedFiles; ls-host memoizes. 7 discriminating differential tests incl the anti-lie fallback-only + pollution cases.
+
+VERIFIED-LIVE (manager re-ran at merge): find_usages(MeshBridgeHost) --root claude-ui → complete=TRUE, floor=0 (was complete=false, floor=4); the 3 scripts/smoke.ts alias-usages found + attributed to each member's own program (correct resolution). THE HEADLINE MONOREPO IS NOW HONESTLY COMPLETE.
