@@ -1,7 +1,7 @@
 ---
 id: t-000175
 title: Member-level `find_usages
-status: in-progress
+status: done
 priority: medium
 type: feat
 complexity: L
