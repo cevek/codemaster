@@ -263,11 +263,17 @@ test('Bug A: a fn/namespace merge keeps the full return type — never truncated
         /:\s*\{[^}]*label: string/.test(view.signatures?.[0] ?? ''),
       `return type {label:string} preserved in the signature (was: ${view.signatures?.[0]})`,
     );
-    // The namespace half is still listed — neither truncates the other.
+    // The namespace half is still listed — neither truncates the other. (Bug E) The merged members
+    // live deep inside the `box` ModuleDeclaration (an own decl of the merged symbol) → OWN, never
+    // `inherited`; the base-class case above (`User`/`Base`) proves the walk still flags real ones.
     assert.deepEqual(
       (view.members ?? []).map((m) => m.name).sort(),
       ['empty', 'of'],
       'namespace exports listed alongside the call signature',
+    );
+    assert.ok(
+      (view.members ?? []).every((m) => m.inherited !== true),
+      'namespace-merge members are OWN, not inherited',
     );
   } finally {
     await p.dispose();

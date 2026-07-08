@@ -228,11 +228,25 @@ function enumMembers(checker: ts.TypeChecker, enumSymbol: ts.Symbol, node: ts.No
   return out;
 }
 
-/** A member is inherited when its declaration sits in a different declaration node than
- *  the queried type's own (§3.3: declaration's parent ≠ this type's symbol). */
+/** A member is inherited when NONE of its declarations sit lexically inside one of the queried
+ *  type's own declaration nodes (§3.3). We walk each member decl's parent chain and test
+ *  containment in `ownDecls` rather than comparing only the immediate parent: a fn/namespace-merge
+ *  export lives several nodes deep inside the merged `ModuleDeclaration` (which IS an own decl of
+ *  the merged symbol) — so it is OWN, not inherited; the immediate-parent check flagged it wrongly.
+ *  A base-class member's declaration sits inside the BASE `ClassDeclaration` (never an own decl) →
+ *  still correctly inherited. The walk is bounded — it terminates at the SourceFile root. */
 function isInherited(prop: ts.Symbol, ownDecls: ReadonlySet<ts.Declaration>): boolean {
-  const declParent = prop.declarations?.[0]?.parent;
-  return declParent !== undefined && !ownDecls.has(declParent as ts.Declaration);
+  const decls = prop.declarations;
+  if (decls === undefined || decls.length === 0) return false;
+  return !decls.some((d) => isContainedIn(d, ownDecls));
+}
+
+/** True when `node` or any of its ancestors is one of `ownDecls`. */
+function isContainedIn(node: ts.Node, ownDecls: ReadonlySet<ts.Declaration>): boolean {
+  for (let cur: ts.Node | undefined = node.parent; cur !== undefined; cur = cur.parent) {
+    if (ownDecls.has(cur as ts.Declaration)) return true;
+  }
+  return false;
 }
 
 function isAnonymousObject(type: ts.Type): boolean {

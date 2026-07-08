@@ -16,6 +16,7 @@ import { walkFiles } from '../../support/fs/walk.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
 import { dynamicDemotion, isKeyDemoted } from './demotion.ts';
@@ -232,9 +233,7 @@ export function createI18nPlugin(
       const inc = filter?.pathInclude ?? [];
       const exc = filter?.pathExclude ?? [];
       // A locale file passes the path globs if it matches pathInclude (when set) and not pathExclude.
-      const filePasses = (file: RepoRelPath): boolean =>
-        (inc.length === 0 || matchesAnyGlob(file, inc)) &&
-        !(exc.length > 0 && matchesAnyGlob(file, exc));
+      const filePasses = (file: RepoRelPath): boolean => passesPathFilter(file, filter);
       // A key is in scope if its namespace matches `prefix` (segment-aware, identical to i18n_lookup)
       // AND at least ONE locale file defining it passes the path globs. Scoping over the FULL
       // defining-file set (not a single "representative") is what keeps a key shared across locales

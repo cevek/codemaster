@@ -9,7 +9,7 @@ import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/pl
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
-import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import { resolveRelativeSpecifier } from '../../support/fs/resolve-relative.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
@@ -203,13 +203,6 @@ export function createScssPlugin(root: string): ScssPluginApi {
       // Scope which sheets we REPORT on. Applied to the emit loop only — the cross-sheet
       // reachability below still walks every sheet, so an excluded sheet that `composes:` an
       // included class keeps it alive (never a scoped-away false dead, §3).
-      const inScope = (rel: RepoRelPath): boolean => {
-        const inc = filter?.pathInclude;
-        const exc = filter?.pathExclude;
-        if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(rel, inc)) return false;
-        if (exc !== undefined && exc.length > 0 && matchesAnyGlob(rel, exc)) return false;
-        return true;
-      };
       const ts = registry.get<TsPluginApi>('ts');
       const usages = ts.cssModuleUsages();
       // GLOBAL (non-`.module.*`) sheets are applied via string `className="foo"`, not `s.foo`.
@@ -252,7 +245,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
       let scannedModules = 0;
       let scannedClasses = 0;
       for (const [rel, sheet] of all) {
-        if (!inScope(rel)) continue;
+        if (!passesPathFilter(rel, filter)) continue;
         scannedModules++;
         scannedClasses += sheet.classes.length;
         const accesses = usages.byModule.get(rel) ?? [];

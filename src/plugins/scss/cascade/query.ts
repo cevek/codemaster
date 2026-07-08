@@ -5,7 +5,7 @@
 
 import * as path from 'node:path';
 import type { RepoRelPath } from '../../../core/brands.ts';
-import { matchesAnyGlob } from '../../../common/glob/match.ts';
+import { passesPathFilter } from '../../../common/glob/path-filter.ts';
 import { readTextOrAbsent } from '../../../support/fs/read-or-absent.ts';
 import { parseStylesheetRoot } from '../parse-root.ts';
 import { scrubRoot } from '../scrub-root.ts';
@@ -55,7 +55,7 @@ export function runCascadeQuery(
   const parseFailures: { file: string; message: string }[] = [];
   let scannedSheets = 0;
   for (const rel of candidates) {
-    if (rel !== owningFile && !inScope(rel, filter)) continue;
+    if (rel !== owningFile && !passesPathFilter(rel, filter)) continue;
     const read = readTextOrAbsent(root, rel);
     if (read.kind === 'absent') continue;
     if (read.kind === 'error') {
@@ -109,12 +109,4 @@ function resolveTarget(
     };
   }
   return { ok: true, target };
-}
-
-function inScope(rel: RepoRelPath, filter?: CascadeFilter): boolean {
-  const inc = filter?.pathInclude;
-  const exc = filter?.pathExclude;
-  if (inc !== undefined && inc.length > 0 && !matchesAnyGlob(rel, inc)) return false;
-  if (exc !== undefined && exc.length > 0 && matchesAnyGlob(rel, exc)) return false;
-  return true;
 }

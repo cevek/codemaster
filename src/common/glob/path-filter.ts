@@ -19,3 +19,18 @@ import { expandDirGlobs } from './expand-dir.ts';
 export function matchesPathFilter(path: string, globs: readonly string[]): boolean {
   return matchesAnyGlob(path, expandDirGlobs(globs));
 }
+
+/** The ONE include/exclude guard every user-facing pathInclude/pathExclude filter shares: `path`
+ *  passes when it matches `pathInclude` (only a NON-empty include narrows — absent/empty means
+ *  "include everything") and does NOT match `pathExclude`. Routing the guard through here (not just
+ *  the raw matcher) keeps the bare-dir/special-char handling identical across every filtered op. */
+export function passesPathFilter(
+  path: string,
+  filter: { pathInclude?: readonly string[]; pathExclude?: readonly string[] } | undefined,
+): boolean {
+  const inc = filter?.pathInclude;
+  const exc = filter?.pathExclude;
+  if (inc !== undefined && inc.length > 0 && !matchesPathFilter(path, inc)) return false;
+  if (exc !== undefined && exc.length > 0 && matchesPathFilter(path, exc)) return false;
+  return true;
+}
