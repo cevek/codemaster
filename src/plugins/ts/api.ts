@@ -26,6 +26,7 @@ import type { JsxChildSitesView } from './jsx-child-sites.ts';
 import type { FieldRenderSitesView } from './field-render-sites.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { WideningSinksView } from './type-widening.ts';
+import type { OverlaySymbolType } from './overlay-type.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
 import type { RenameOutcome } from './refactor/rename/rename-sites.ts';
@@ -199,6 +200,21 @@ export interface TsPluginApi extends Plugin {
    *  the program set to the pre-apply baseline's (`gateAcross().programs`), so a move that shifts
    *  program membership can't mis-count a newly-sampled program's pre-existing errors as introduced. */
   diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
+  /** The resolved TYPE of the top-level symbol `name` in `declFile`, BEFORE and under the trial
+   *  `overlay` — the FACT behind `impact_type_error`'s clean widen-to-`any` masking guard: a trial
+   *  edit can collapse the edited symbol's own type to `any` with NO intra-file error, silencing
+   *  downstream errors the diff-of-diagnostics cannot see. `collapse` marks an `any`/`unknown` type
+   *  (tested on each state's flags INDEPENDENTLY — a cross-checker assignability relation between two
+   *  program versions is invalid); for a CALLABLE symbol the RETURN type's collapse counts (a
+   *  function's masking vector is `fn()` becoming `any`, not the `() => any` value). `undefined` when
+   *  the symbol can't be resolved to a single top-level declaration in either state (removed / renamed
+   *  / ambiguous) OR lives outside the PRIMARY program (the overlay is primary-only) — the op then
+   *  makes no widen claim (conservative). The overlay is always cleared; it never leaks into a later read. */
+  overlaySymbolType(
+    declFile: RepoRelPath,
+    name: string,
+    overlay: readonly { path: RepoRelPath; content: string }[],
+  ): OverlaySymbolType | undefined;
   /** Plan a file/folder move: tree move + sibling carry + import rewrite → the plain-data
    *  plan the op executes, plus the dry-run typecheck inputs. A message on a bad source/dest. */
   planMove(

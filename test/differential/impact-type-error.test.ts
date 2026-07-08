@@ -20,6 +20,7 @@ type TypeErrorData = {
     filesChecked: number;
     brokenFiles: number;
     editSiteBroke: boolean;
+    widenedToAny: boolean;
     downstreamTrusted: boolean;
     clean: boolean;
   };

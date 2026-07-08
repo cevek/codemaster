@@ -19,6 +19,7 @@ import { scanJsxChildSites } from './jsx-child-sites.ts';
 import { scanFieldRenderSites } from './field-render-sites.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
+import { overlaySymbolType } from './overlay-type.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
@@ -321,6 +322,9 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     gateAcross: (files, scope) => warm().gateAcross(files, scope),
 
     diagnosticsAcross: (scope, restrictTo) => warm().diagnosticsAcross(scope, restrictTo),
+
+    overlaySymbolType: (declFile, name, overlay) =>
+      overlaySymbolType(warm(), declFile, name, overlay),
 
     programTsFiles() {
       const h = warm();

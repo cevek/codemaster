@@ -15,12 +15,18 @@
 // clean (§3.4). The splice reads the SAME VFS bytes the gate's baseline reads (`ts.fileText`), so
 // the introduced-error diff is purely the edit's effect, not a disk/overlay skew.
 //
-// One more masking hazard the verdict makes honest (§3): when the trial edit breaks the edited file
-// ITSELF (`editSiteBroke`), an intra-file error can collapse an inferred type the dependents rely on
-// (e.g. the edited symbol degrading to `any`) — the dependents then see `any`, their would-be breaks
-// stop erroring, and `brokenFiles` UNDER-counts. So `downstreamTrusted:false` marks the count a LOWER
-// BOUND, never letting `brokenFiles=0` read as a proven-clean downstream. (A clean widen-to-`any` that
-// introduces NO edit-site error is a distinct, deferred case — diff-of-diagnostics cannot see it.)
+// Two masking hazards the verdict makes honest (§3), both setting `downstreamTrusted:false` so
+// `brokenFiles` is never sold as a proven-clean downstream — a lower bound, breaks may be hidden:
+//   (A) `editSiteBroke` — the trial edit breaks the edited file ITSELF; an intra-file error can
+//       collapse an inferred type the dependents rely on (the symbol degrading to `any`), so their
+//       would-be breaks stop erroring and `brokenFiles` UNDER-counts.
+//   (B) `widenedToAny` — a CLEAN widen: the trial edit collapses the edited symbol's OWN type to
+//       `any` with NO intra-file error (an explicit `: any`, or an inference that goes to `any`).
+//       `any` is assignable everywhere → FEWER downstream errors → the diff-of-diagnostics
+//       fundamentally cannot see the masked break, so it would read `clean:true`. Detected by
+//       comparing the edited symbol's OVERLAY type vs baseline (`ts.overlaySymbolType`), not the
+//       diagnostics. `unknown` is NOT flagged: strictly less-assignable, it INTRODUCES downstream
+//       errors the diff already catches (self-revealing, never masking).
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
@@ -93,7 +99,9 @@ function notesFor(
   programs: readonly string[],
   degraded: readonly string[],
   declFile: RepoRelPath,
+  symbolName: string,
   editSiteDirty: boolean,
+  widenedToAny: boolean,
   maxDepth: number,
   maxNodes: number,
 ): string[] {
@@ -125,6 +133,10 @@ function notesFor(
   if (editSiteDirty) {
     notes.push(
       `!! ${declFile}: the trial edit introduced error(s) in the edited file ITSELF — the DOWNSTREAM blast radius is UNTRUSTWORTHY (downstreamTrusted:false). An edit-site error can collapse an inferred type the dependents depend on (e.g. the edited symbol degrading to \`any\`), so a downstream break stops erroring and is silently MASKED. Treat brokenFiles as a LOWER BOUND — real breaks may be hidden, and brokenFiles=0 is NOT proof of a clean downstream. Fix the edit-site error (verify the replacement parses / infers) before trusting the downstream list.`,
+    );
+  } else if (widenedToAny) {
+    notes.push(
+      `!! ${declFile}: the trial edit collapsed ${symbolName}'s resolved type — or, for a function, its RETURN type — to \`any\` (with NO intra-file error), erasing precision. \`any\` is assignable everywhere, so downstream type errors are SILENCED: a real break is MASKED and produces FEWER diagnostics, which the introduced-error diff fundamentally CANNOT see. So downstreamTrusted:false and brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a proven-clean downstream). Give ${symbolName} a precise type (avoid the \`any\` widen) before trusting the downstream list.`,
     );
   }
   notes.push(...gateCoverageNotes(programs, degraded));
@@ -160,6 +172,7 @@ export const impactTypeErrorOp = defineOp({
     "edit is applied VERBATIM: { replace } substitutes new declaration source, { remove } deletes the declaration. Express make-required / drop-param / retype by writing the new source — no mutation DSL (that's `change_signature`'s job).",
     'the dependent SET is the same bounded closure as `impact` (depth + node caps); a truncated closure means the typecheck scope is incomplete and is flagged `!!` — a dependent outside the scope, or in a program the gate could not check, is NEVER reported clean.',
     'errors are the proof (file:line:message). Attribution is file-level (which dependent file went red), never a claimed precise symbol; an error in the edited file itself (editSiteBroke) sets downstreamTrusted:false — an edit-site error can collapse an inferred type the dependents rely on, so a downstream break stops erroring and is MASKED. When downstreamTrusted is false, brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a clean downstream), not a true blast radius.',
+    "a CLEAN widen (widenedToAny) is the OTHER cause of downstreamTrusted:false: a trial edit that collapses the edited symbol's OWN type to `any` with NO intra-file error silences downstream errors (they produce FEWER diagnostics), which the introduced-error diff cannot see — detected by comparing the overlay type vs baseline, not the diagnostics. A collapse to `unknown` is NOT flagged (it introduces errors the diff catches, so it is self-revealing).",
   ],
   async run(ctx, args: TypeErrorArgs): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -231,6 +244,25 @@ export const impactTypeErrorOp = defineOp({
       // edit broke the target file ITSELF (intra-file consequence or an ill-formed replacement),
       // which is distinct from the downstream blast radius the agent asked about.
       const editSiteDirty = fileBroke(gate.baseline, gate.overlay, declFile);
+      // Case B — the CLEAN widen-to-`any` masking: a trial edit can collapse the edited symbol's OWN
+      // type to `any` with NO intra-file error (an explicit `: any`, or an inference that goes to
+      // `any`). `any` is assignable everywhere → FEWER downstream errors → the diff-of-diagnostics
+      // CANNOT see the masked break, and it reads `clean:true`. Only the overlay TYPE reveals it. This
+      // is SCOPED two ways: to the CLEAN case (`!editSiteDirty` — Case A/editSiteBroke owns the
+      // error-cascade collapse and keeps its own note), and to `any` ONLY. A collapse to `unknown` is
+      // strictly LESS assignable → it INTRODUCES downstream errors the diff already catches
+      // (self-revealing, never masking), so it is detected as a fact but never flagged (§3 — no
+      // false-pessimism). `baseline.collapse !== 'any'` skips a no-op edit on an already-`any` symbol.
+      let widenedToAny = false;
+      if (!editSiteDirty && args.edit.remove !== true) {
+        const probe = ts.overlaySymbolType(declFile, def.name, [
+          { path: declFile, content: spliced },
+        ]);
+        widenedToAny =
+          probe !== undefined &&
+          probe.overlay.collapse === 'any' &&
+          probe.baseline.collapse !== 'any';
+      }
       // The DOWNSTREAM blast radius: dependent files (excluding the edited one) the edit broke.
       // File-level containment is all we prove — a diagnostic is `file:line`, a closure node carries
       // only its name token, so we never claim a precise broken symbol (§3 — never over-claim).
@@ -243,7 +275,9 @@ export const impactTypeErrorOp = defineOp({
         gate.programs,
         gate.degraded,
         declFile,
+        def.name,
         editSiteDirty,
+        widenedToAny,
         maxDepth,
         maxNodes,
       );
@@ -260,10 +294,15 @@ export const impactTypeErrorOp = defineOp({
           // Did the trial edit break the edited file ITSELF (one CAUSE of an untrustworthy
           // downstream — an intra-file error can collapse an inferred type the dependents rely on).
           editSiteBroke: editSiteDirty,
+          // Case B: did the trial edit collapse the edited symbol's OWN type to `any` with NO
+          // intra-file error? `any` silences downstream errors (a real break MASKED, FEWER
+          // diagnostics), which the introduced-error diff cannot see — a SECOND cause of an
+          // untrustworthy downstream, distinct from editSiteBroke.
+          widenedToAny,
           // The general "can you trust brokenFiles?" verdict: false when the analysis basis is
-          // compromised, so brokenFiles is a LOWER BOUND (breaks may be masked), never a clean
-          // signal. Fired regardless of the count — a positive count is still a lower bound.
-          downstreamTrusted: !editSiteDirty,
+          // compromised (an edit-site error OR a clean widen-to-`any`), so brokenFiles is a LOWER
+          // BOUND (breaks may be masked), never a clean signal. Fired regardless of the count.
+          downstreamTrusted: !editSiteDirty && !widenedToAny,
           clean: proof.clean,
         },
         ...(notes.length > 0 ? { notes } : {}),
