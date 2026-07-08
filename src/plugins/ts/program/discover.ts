@@ -128,6 +128,49 @@ function referencePaths(configPath: string): string[] {
   return out;
 }
 
+/** Coverage signal for the undiscovered set-diff (residual #2, never-lie). A discovered config is
+ *  "covered" — safe to SUBTRACT from the undiscovered floor — iff its parsed glob resolves ≥1 file,
+ *  OR it declares `references` (a `files:[]` hub delegating to referenced programs discovery already
+ *  loaded, e.g. a Vite `tsconfig.json` fronting `tsconfig.app.json`). A workspace member with a
+ *  narrow/empty `include` and NO references resolves NOTHING, so its own stray source files land in
+ *  no program: subtracting it would flip honest-floored → claimed-complete for files no program
+ *  searches (§3.4 the one honest→lying direction). Keeping it floored (complete:false) is the honest,
+ *  conservative answer. SYNTACTIC only — `parseJsonConfigFileContent` globs the file LIST without
+ *  building/type-checking an LS program, so this never warms a sibling (§9 lazy). Best-effort: an
+ *  unreadable/malformed config counts as NOT covered (floor on uncertainty). Bounded (per discovered
+ *  config, capped) and run once per undiscovered memo — never the LS hot path (§19). */
+export function configCoversFiles(configPath: string): boolean {
+  return resolvesAnyFile(configPath) || declaresReferences(configPath);
+}
+
+/** Does this tsconfig's `include`/`files` glob resolve ≥1 file on disk? Syntactic — no LS build. */
+function resolvesAnyFile(configPath: string): boolean {
+  try {
+    const text = ts.readConfigFile(configPath, ts.sys.readFile);
+    const parsed = ts.parseJsonConfigFileContent(
+      text.config ?? {},
+      ts.sys,
+      path.dirname(configPath),
+      undefined,
+      configPath,
+    );
+    return parsed.fileNames.length > 0;
+  } catch {
+    return false; // unreadable/malformed → treat as no coverage (conservative floor)
+  }
+}
+
+/** Does this tsconfig declare a non-empty `references` array (a hub delegating to child programs)? */
+function declaresReferences(configPath: string): boolean {
+  try {
+    const read = ts.readConfigFile(configPath, ts.sys.readFile);
+    const refs = (read.config as { references?: unknown } | undefined)?.references;
+    return Array.isArray(refs) && refs.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** True for a tsconfig basename — `tsconfig.json` or `tsconfig.<name>.json`. The single predicate
  *  behind sibling discovery (source 1), the repo-wide undiscovered scan (`findRepoTsconfigs`), AND
  *  the `ls-host` reindex cache-invalidation trigger (a tsconfig add/remove in the changed set), so

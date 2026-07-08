@@ -19,6 +19,7 @@ import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
+  configCoversFiles,
   discoverSiblingConfigs,
   findRepoTsconfigs,
   isTsconfigBasename,
@@ -184,14 +185,17 @@ export function createTsProjectHost(
     if (undiscoveredMemo === undefined) {
       if (undiscoveredBase === undefined) {
         const loaded = new Set<string>();
-        if (configPath !== undefined) loaded.add(toPosix(configPath));
-        for (const c of discover()) loaded.add(toPosix(c.path));
-        // Subtraction keys on config-path membership, NOT on whether the built program actually
-        // COVERS its source files. Residual edge (backlog): a discovered member with a narrow/empty
-        // `include` and no followable `references`, whose files the primary also doesn't glob, drops
-        // from the undiscovered set yet leaves those files in no built program — the one
-        // honest-floored → claimed-complete direction. Defensible (those files are configured by no
-        // tsconfig) but the sharpest residual; a coverage-proof subtraction would close it.
+        if (configPath !== undefined) loaded.add(toPosix(configPath)); // the primary is always built
+        // Subtract a DISCOVERED config from the floor ONLY when it actually COVERS files — its parsed
+        // glob resolves ≥1 file, or it's a `references` hub delegating to child programs discovery
+        // already loaded (`configCoversFiles`, SYNTACTIC — no LS build, keeps siblings lazy §9). A
+        // member with a narrow/empty `include` and no references resolves nothing → its stray files
+        // land in no program → KEEP it floored (complete:false), never flip honest-floored →
+        // claimed-complete for files no program searches (§3.4). The narrower partial-coverage case
+        // (a member that covers SOME of its files but strays others) is a separate backlog residual.
+        for (const c of discover()) {
+          if (configCoversFiles(c.path)) loaded.add(toPosix(c.path));
+        }
         undiscoveredBase = repoTsconfigsList().filter((abs) => !loaded.has(abs));
       }
       // Subtract the file-driven nested-config programs we DID load (§5-L2 read-path completeness):

@@ -195,6 +195,59 @@ test('(d) SLURP GUARD: a glob-matched dir WITHOUT a package.json is not a member
   }
 });
 
+test('(f) COVERAGE FLOOR: an empty-`include`, no-`references` member covers NOTHING → it stays floored (not falsely subtracted), so a primary export used only from its uncovered stray file is NOT reported certain-dead', async () => {
+  // Residual #2 (the one honest→lying edge): a workspace MEMBER (package.json + glob-matched dir) is
+  // discovered/loaded, but its tsconfig has an EMPTY `include` and NO `references` → its own built
+  // program globs zero files, and the primary (`include:["src"]`) does not glob the member's dir
+  // either. So `packages/orphan/src/o.ts` — which imports `thing` from the primary — lives in NO
+  // program. Subtracting the member config from the undiscovered floor (the pre-fix behaviour) would
+  // flip complete → `certain`-dead for `thing`, a §3.4 completeness LIE. The coverage-proof keeps the
+  // member FLOORED: `configCoversFiles` is false (no files, no references), so it is NOT subtracted.
+  const p: TestProject = await project({
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
+    'package.json': '{"name":"root","private":true}',
+    'tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`, // does NOT glob packages/*
+    'src/lib.ts': 'export const thing = 1;\n', // dead in every LOADED program; used only from o.ts
+    // A real MEMBER (package.json → discovered) whose tsconfig covers NOTHING: empty include, no refs.
+    'packages/orphan/package.json': '{"name":"orphan"}',
+    'packages/orphan/tsconfig.json': `{"compilerOptions":${C},"include":[]}`,
+    // A stray source file the member's config does not glob and the primary does not glob → it lives
+    // in NO program. It references `thing`, so a false subtraction would wrongly call `thing` dead.
+    'packages/orphan/src/o.ts':
+      "import { thing } from '../../../src/lib';\nexport const usesThing = thing + 1;\n",
+  });
+  try {
+    // find_unused_exports: the orphan member STAYS in the undiscovered floor (proving it was NOT
+    // falsely subtracted), and `thing` — genuinely dead across every LOADED program — is demoted to
+    // `partial`, never `certain` (the floor is non-empty). certain-dead here would be the lie.
+    const ue = unusedData(await p.op('find_unused_exports', {}));
+    assert.ok(
+      (ue.undiscoveredPrograms ?? []).includes('packages/orphan/tsconfig.json'),
+      `the zero-coverage member must stay floored, not subtracted: ${JSON.stringify(ue.undiscoveredPrograms)}`,
+    );
+    const thing = ue.unused.find((x) => x.name === 'thing');
+    assert.ok(
+      thing && thing.confidence === 'partial',
+      `thing demoted to partial by the non-empty floor, never certain: ${JSON.stringify(thing)}`,
+    );
+
+    // find_usages on the primary symbol STAYS complete:false (floored) + names the undiscovered
+    // member — never a claimed-complete result over a search that misses the orphan's stray file.
+    const d = usagesData(await p.op('find_usages', { name: 'thing', collapseImports: false }));
+    assert.equal(
+      d.complete,
+      false,
+      'find_usages must stay floored while a zero-coverage member exists',
+    );
+    assert.ok(
+      (d.undiscoveredPrograms ?? []).includes('packages/orphan/tsconfig.json'),
+      `find_usages names the floored member: ${JSON.stringify(d.undiscoveredPrograms)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('(e) no workspace declaration: discovery is a NO-OP (no over-discovery of nested configs)', async () => {
   // Without a pnpm-workspace.yaml / package.json workspaces, source 2 contributes nothing — a nested
   // tsconfig stays undiscovered exactly as before (the conservative default the fixture-slurp risk
