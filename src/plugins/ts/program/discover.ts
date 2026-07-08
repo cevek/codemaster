@@ -37,16 +37,21 @@ const MAX_SIBLING_CONFIGS = 256;
 
 /** Sibling tsconfigs to load beside `primaryConfigPath`, EXCLUDING it. `repoTsconfigs` is the
  *  host's cached repo-wide `tsconfig*.json` list (`repoTsconfigsFrom`) — reused here for source 2
- *  (workspace members) so there is ONE repo walk, not a second. Empty when there is no primary
- *  config (the no-tsconfig fallback program stands alone) or nothing else is found. */
+ *  (workspace members) so there is ONE repo walk, not a second.
+ *
+ *  A no-tsconfig root (a pnpm/vite monorepo with only `tsconfig.base.json` + per-package configs, no
+ *  root `tsconfig.json` — real claude-ui) has an UNDEFINED primary (the fallback program stands in).
+ *  Source 1 (siblings adjacent to the primary) is then skipped, but source 2 (workspace MEMBERS,
+ *  seeded from the manifest INDEPENDENTLY of any primary) + source 3 (`references` from those
+ *  members) still fire — else every member is undiscovered and every cross-package query is floored
+ *  (t-816306). Empty only when there is neither a primary NOR a workspace manifest yielding members. */
 export function discoverSiblingConfigs(
   root: string,
   primaryConfigPath: string | undefined,
   repoTsconfigs: readonly string[],
 ): DiscoveredConfig[] {
-  if (primaryConfigPath === undefined) return [];
-  const primary = toPosix(primaryConfigPath);
-  const seen = new Set<string>([primary]);
+  const primary = primaryConfigPath !== undefined ? toPosix(primaryConfigPath) : undefined;
+  const seen = new Set<string>(primary !== undefined ? [primary] : []);
   const found: string[] = [];
 
   const add = (abs: string): void => {
@@ -56,24 +61,28 @@ export function discoverSiblingConfigs(
     found.push(posix);
   };
 
-  // Source 1: `tsconfig*.json` beside the primary config.
-  const dir = path.dirname(primaryConfigPath);
-  try {
-    for (const entry of readdirSync(dir)) {
-      if (isTsconfigBasename(entry)) {
-        add(path.join(dir, entry));
+  // Source 1: `tsconfig*.json` beside the primary config (only when a primary exists — a no-tsconfig
+  // root has no primary directory to scan; its members come from source 2).
+  if (primaryConfigPath !== undefined) {
+    const dir = path.dirname(primaryConfigPath);
+    try {
+      for (const entry of readdirSync(dir)) {
+        if (isTsconfigBasename(entry)) {
+          add(path.join(dir, entry));
+        }
       }
+    } catch {
+      // Unreadable dir → just skip source 1; the other sources may still yield siblings.
     }
-  } catch {
-    // Unreadable dir → just skip source 1; the other sources may still yield siblings.
   }
 
-  // Source 2: workspace-member `tsconfig*.json` (dogfood-jul Ask 1).
+  // Source 2: workspace-member `tsconfig*.json` (dogfood-jul Ask 1) — the ONLY discovery source when
+  // the primary is undefined, so a no-root monorepo's members load as independent programs.
   for (const abs of workspaceMemberConfigs(root, repoTsconfigs)) add(abs);
 
-  // Source 3: BFS `references` from the primary and every config found so far (source 1 + 2) — so a
-  // member's Vite app/node split reachable only via its hub's `references` is loaded too.
-  const queue = [primary, ...found];
+  // Source 3: BFS `references` from the primary (if any) and every config found so far (source 1 +
+  // 2) — so a member's Vite app/node split reachable only via its hub's `references` is loaded too.
+  const queue = [...(primary !== undefined ? [primary] : []), ...found];
   while (queue.length > 0 && seen.size <= MAX_SIBLING_CONFIGS) {
     const config = queue.shift();
     if (config === undefined) continue;
