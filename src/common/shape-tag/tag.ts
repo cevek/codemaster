@@ -39,6 +39,7 @@ export type ShapeTag =
   | 'target-ref'
   | 'discrimination-target'
   | 'discrimination-site'
+  | 'member-usage'
   // diagnostics (cross-domain)
   | 'ts-diagnostic'
   | 'parse-failure'

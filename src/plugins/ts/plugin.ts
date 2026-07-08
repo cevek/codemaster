@@ -18,6 +18,7 @@ import { findDiscriminationSites } from './discrimination-sites.ts';
 import { scanJsxCallSites } from './jsx-call-sites.ts';
 import { scanJsxChildSites } from './jsx-child-sites.ts';
 import { scanFieldRenderSites } from './field-render-sites.ts';
+import { scanMemberUsages } from './member-usages.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
@@ -230,6 +231,15 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
         target,
         scanFieldRenderSites,
         'no symbol at the resolved position',
+      ),
+
+    memberUsages: (target, member, options) =>
+      resolvedScan(
+        resolve,
+        warm,
+        target,
+        (h, a, o) => scanMemberUsages(h, a, o, member, options),
+        'no type at the resolved position',
       ),
 
     cssModuleUsages: () => scanCssModuleUsages(warm()),

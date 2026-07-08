@@ -175,3 +175,13 @@ export const discriminationSite: ShapeRenderer = (v) => {
   const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
   return `${spanLoc(v['span'])} · ${String(v['kind'])} ${String(v['scrutinee'])} on ${String(v['discriminant'])}${cov}${miss}${def} · in ${String(enc['id'])}${confTail(v['confidence'])}${note}`;
 };
+
+/** member-usage — one access site of a resolved member: { span, kind:read|write|destructure,
+ *  enclosing?:{name,kind}, program? }. The disposition leads (the read-audit question); the
+ *  enclosing declaration + program follow. */
+export const memberUsage: ShapeRenderer = (v) => {
+  const enc = v['enclosing'];
+  const encStr = isObject(enc) ? ` · in ${String(enc['name'])} (${String(enc['kind'])})` : '';
+  const prog = v['program'] !== undefined ? ` [${String(v['program'])}]` : '';
+  return `${spanLoc(v['span'])} · ${String(v['kind'])}${encStr}${prog}`;
+};

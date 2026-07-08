@@ -3,10 +3,10 @@
 // (intrinsic-host element vs value-based element, child vs attribute). The seam `trace_field_to_render`
 // consumes to answer "which components render `User.email`" (§17 Phase 6).
 //
-// It is a DIFFERENT PROJECTION of the same LS primitive `find_usages` rides — ONE `findReferencesAcross`
-// pass (alias-safe, member-level by construction: references of the PROPERTY symbol are exactly the
-// `obj.email` accesses, not any `email`) — NOT a second find_usages call (two passes could disagree, §3).
-// Per ref it adds the JSX-position classification + `findEncloser`, reusing the usage-roles helpers.
+// It rides the shared `scanMemberRefs` CORE (member-refs.ts) — ONE `findReferencesAcross` pass over
+// the property symbol (alias-safe, member-level by construction: references of the PROPERTY symbol are
+// exactly the `obj.email` accesses, not any `email`), read/write/DESTRUCTURE already classified there
+// so `member_usages` and this seam can never disagree (§3). Per ref it adds ONLY the JSX-position fact.
 //
 // DOMAIN-NEUTRAL (§4): the intrinsic-vs-value distinction is a TSX-language fact (TS itself splits
 // `IntrinsicElements` from value-based elements by tag capitalization), NOT a react convention. The
@@ -17,17 +17,9 @@
 // the op's stated floor. Bounded: the reference set is hard-capped (§19) and the cap reported.
 
 import ts from 'typescript';
-import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
 import type { TsProjectHost } from './ls-host.ts';
-import { findReferencesAcross } from './cross-program.ts';
-import { classifyRole, findEncloser } from './usage-roles.ts';
-import { nodeAt } from './ast-node.ts';
-import { spanFromRange } from './spans.ts';
-
-/** Hard cap on references inspected per target (§19 never-hang). `findReferencesAcross` is itself
- *  bounded/cancellable; this bounds the per-site AST classification and the result size. */
-const SITE_CAP = 2000;
+import { scanMemberRefs, type MemberRefEncloser } from './member-refs.ts';
 
 /** The nearest enclosing JSX position of a member-read, the render-deciding fact:
  *  `intrinsic-*` = inside a host element (`<span>{x}</span>` / `<input value={x}/>`) → the enclosing
@@ -42,14 +34,8 @@ export type FieldReadJsx =
   | 'none';
 
 /** The enclosing named declaration of a read — the chainable address the op hands `react.classify`
- *  to decide component/hook. `undefined` → the read sits at module top level. */
-export type FieldReadEncloser = {
-  name: string;
-  idName: string;
-  kind: string;
-  span: Span;
-  exported: boolean;
-};
+ *  to decide component/hook. The shared member-ref encloser (member-refs.ts). */
+export type FieldReadEncloser = MemberRefEncloser;
 
 /** One member-read of the property, with the facts the op maps to a render verdict. `kind`
  *  distinguishes a plain `read`, an assignment `write`, and a `destructure` binding (`const {email}=u`)
@@ -76,81 +62,32 @@ export type FieldRenderSitesView = {
 };
 
 /** Scan the member-read sites of the property symbol at `offset`. `undefined` mirrors the
- *  `findReferencesAcross === undefined` contract (no symbol resolves there). */
+ *  `scanMemberRefs === undefined` contract (no symbol resolves there). Rides the shared member-ref
+ *  core (read/write/destructure + enclosing + program already classified) and adds ONLY the
+ *  JSX-position fact per site. */
 export function scanFieldRenderSites(
   host: TsProjectHost,
   abs: string,
   offset: number,
 ): FieldRenderSitesView | undefined {
-  const cross = findReferencesAcross(host, abs, offset, true);
-  if (cross === undefined) return undefined;
-  const multiProgram = host.programs().length > 1;
-  const sites: FieldReadSite[] = [];
-  const refs = cross.refs;
-  const total = refs.length;
-  const capped = total > SITE_CAP;
-  const inspect = capped ? refs.slice(0, SITE_CAP) : refs;
-
-  for (const ref of inspect) {
-    const role = classifyRole(ref.sourceFile, ref.start, {
-      isDefinition: ref.isDefinition,
-      isWrite: ref.isWriteAccess,
-    });
-    // Harmless contexts — the decl itself, imports/re-exports, type positions — are not value reads
-    // of the field; they never render it. (A property ref is never role 'jsx'/'jsx-closing'.)
-    if (role === 'decl' || role === 'import' || role === 'reexport' || role === 'type') continue;
-
-    const span = spanFromRange(ref.sourceFile, ref.rel, ref.start, ref.start + ref.length);
-    const node = nodeAt(ref.sourceFile, ref.start);
-    const kind = readKind(node, ref.isWriteAccess);
-    const pos = classifyJsxPosition(ref.sourceFile, node);
-    const enclosing = readEncloser(ref.sourceFile, ref.rel, ref.start);
-    sites.push({
-      span,
+  const scan = scanMemberRefs(host, abs, offset);
+  if (scan === undefined) return undefined;
+  const sites: FieldReadSite[] = scan.refs.map((ref) => {
+    const pos = classifyJsxPosition(ref.sourceFile, ref.node);
+    return {
+      span: ref.span,
       jsx: pos.jsx,
       ...(pos.tag !== undefined ? { tag: pos.tag } : {}),
-      kind,
-      ...(enclosing !== undefined ? { enclosing } : {}),
-      ...(multiProgram ? { program: ref.program } : {}),
-    });
-  }
-
+      kind: ref.kind,
+      ...(ref.enclosing !== undefined ? { enclosing: ref.enclosing } : {}),
+      ...(ref.program !== undefined ? { program: ref.program } : {}),
+    };
+  });
   return {
     sites,
-    ...(capped ? { truncated: { shown: SITE_CAP, total } } : {}),
-    total,
+    ...(scan.truncated !== undefined ? { truncated: scan.truncated } : {}),
+    total: scan.total,
   };
-}
-
-/** Build the enclosing-declaration address (the name-token span the op chains to `react.classify`). */
-function readEncloser(
-  sourceFile: ts.SourceFile,
-  rel: RepoRelPath,
-  start: number,
-): FieldReadEncloser | undefined {
-  const enc = findEncloser(sourceFile, start);
-  if (enc === undefined) return undefined;
-  return {
-    name: enc.name,
-    idName: enc.idName,
-    kind: enc.kind,
-    span: spanFromRange(sourceFile, rel, enc.start, enc.start + enc.idName.length),
-    exported: enc.exported,
-  };
-}
-
-/** A property reference that is the NAME of an object-binding element (`const {email}=u`,
- *  `const {email: e}=u` — the ref lands on the `email` property token) is a DESTRUCTURE: the field
- *  flows into a local whose downstream reads member-level references can no longer follow. */
-function readKind(node: ts.Node | undefined, isWrite: boolean): FieldReadSite['kind'] {
-  const parent = node?.parent;
-  if (
-    parent !== undefined &&
-    ts.isBindingElement(parent) &&
-    ts.isObjectBindingPattern(parent.parent)
-  )
-    return 'destructure';
-  return isWrite ? 'write' : 'read';
 }
 
 /** The nearest enclosing JSX position of a read. Walks up to the first `JsxExpression` that wraps the

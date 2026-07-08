@@ -142,8 +142,9 @@ function buildMember(
 }
 
 /** The name token of a member declaration for a tight proof span, or the whole declaration
- *  when it has no simple name node. */
-function memberNameNode(decl: ts.Declaration): ts.Node {
+ *  when it has no simple name node. Shared with `member-usages.ts` (the member-decl → name-token
+ *  offset both seams anchor references on). */
+export function memberNameNode(decl: ts.Declaration): ts.Node {
   if (
     (ts.isPropertySignature(decl) ||
       ts.isPropertyDeclaration(decl) ||

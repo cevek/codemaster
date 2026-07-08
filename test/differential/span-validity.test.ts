@@ -73,6 +73,8 @@ const SWEEP: Record<string, JsonValue> = {
   // The target descriptor carries the union's name-token span — validated here; the switch/if
   // keyword SITE spans are exhaustively span-checked in discrimination-sites.test.ts.
   discrimination_sites: { name: 'Props' },
+  // `Props.size` is read as `p.size` in Button — the member decl proof span + the access-site spans.
+  member_usages: { name: 'Props', member: 'size' },
   source: { targets: [{ name: 'Button' }] },
   scss_classes: { file: 'src/styles.module.scss' },
   css_cascade: { file: 'src/styles.module.scss', class: 'used' },

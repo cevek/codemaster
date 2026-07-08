@@ -77,6 +77,11 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     hasDefault: false,
     encloser: { id: 'ts:f@a.ts:1:1', kind: 'function' },
   },
+  'member-usage': {
+    span: SAMPLE_SPAN,
+    kind: 'read',
+    enclosing: { name: 'readConfig', kind: 'function' },
+  },
   'ts-diagnostic': { file: 'a.ts', line: 1, message: 'Type X is not assignable\n  to Y.' },
   'parse-failure': { file: 'a.scss', message: 'unexpected }' },
   'typecheck-clean': { clean: true, preExisting: 12 },

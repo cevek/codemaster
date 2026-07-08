@@ -29,6 +29,7 @@ import type { FunctionDeclarationsResult } from './function-declarations.ts';
 import type { JsxCallSitesView } from './jsx-call-sites.ts';
 import type { JsxChildSitesView } from './jsx-child-sites.ts';
 import type { FieldRenderSitesView } from './field-render-sites.ts';
+import type { MemberUsagesView, MemberUsagesOptions } from './member-usages.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { WideningSinksView } from './type-widening.ts';
 import type { OverlaySymbolType } from './overlay-type.ts';
@@ -164,6 +165,16 @@ export interface TsPluginApi extends Plugin {
   fieldRenderSites(
     target: TsTargetInput,
   ): { view: FieldRenderSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** The reference sites of a specific MEMBER of the type at `target` (`member_usages`): resolve the
+   *  member through the live checker (`getApparentType(T).getProperty` — inherited/intersection
+   *  flattened), then the sites of THAT member symbol, classified read/write/destructure. IDENTITY BY
+   *  CONSTRUCTION — a same-named member on an unrelated type is never matched (no separate gate).
+   *  Rides the shared `scanMemberRefs` core. A `string` when the type has no such member. */
+  memberUsages(
+    target: TsTargetInput,
+    member: string,
+    options: MemberUsagesOptions,
+  ): { view: MemberUsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A

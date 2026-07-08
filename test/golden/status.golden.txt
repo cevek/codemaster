@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (25):
+ops (26):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -45,6 +45,14 @@ ops (25):
     · bounded: the switch/if statements examined are hard-capped (default 2000, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).
     columns: file,line,col,kind,scrutinee,discriminant,confidence,covers,missing,has_default,encloser,encloser_id,note
     e.g. discrimination_sites {"name":"FieldType"}
+  member_usages { symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number } (the TYPE) + { member: string, pathInclude?: string[], pathExclude?: string[], limit?: number } — reference sites of a SPECIFIC MEMBER (property/method/field) of a type — `x.member` / `{member}=x` / `x['member']` / `x.member = …` — classified read/write/destructure, checker-resolved by IDENTITY (a same-named member on an unrelated type is never matched), which find_usages on the TYPE cannot scope to one member
+    · the member-scoped complement to find_usages: find_usages on a TYPE finds references to the type NAME, not accesses of a named member, and its role:read/write is SYNTACTIC (a member access is a `read`/`write` of the OBJECT, not resolved to the field). This op resolves the member through the live checker and finds its access sites.
+    · IDENTITY BY CONSTRUCTION (never name-match): the member is resolved via `getApparentType(T).getProperty(member)` (so an INHERITED / intersection member flattens in) and references run on THAT member symbol — a same-named `.member` on an UNRELATED type is never matched. No separate identity gate is needed; the symbol IS the gate.
+    · access forms traced (via the LS): property access `x.member`, destructuring `const {member}=x` (flagged `destructure`), string-literal element access `x['member']`, shorthand, and writes `x.member = …` (flagged `write`). All emitted sites are certain-identity.
+    · v1 scope (honest under-coverage, stated): a COMPUTED element access `x[expr]` (a variable key the checker cannot resolve to one member) is NOT traced — never guessed; and a destructured local's DOWNSTREAM reads are invisible to member-level references (the binding is flagged `destructure`, disclosed when present). An OVERRIDE in a subclass is a distinct member symbol — address it on the subclass. Undiscovered sibling tsconfigs demote `complete` to false with a `!!` lower-bound note.
+    · read/write/destructure disposition is summarized; scope the display with pathInclude/pathExclude (dropped sites are reported, never read as completeness) or limit.
+    columns: file,line,col,kind,encloser,encloser_kind,program
+    e.g. member_usages {"name":"Config","member":"timeout"}
   source { targets: [{ symbolId? | name? | file+line+col }] } — up to 20 — Source bodies of N symbols in one call (the explore-style "show me the code")
     · one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.
     · unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.

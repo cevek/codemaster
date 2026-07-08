@@ -10,6 +10,7 @@ import { findUsagesOp } from './find-usages.ts';
 import { expandTypeOp } from './expand-type.ts';
 import { constructionSitesOp } from './construction-sites.ts';
 import { discriminationSitesOp } from './discrimination-sites.ts';
+import { memberUsagesOp } from './member-usages.ts';
 import { sourceOp } from './source.ts';
 import { scssClassesOp } from './scss-classes.ts';
 import { cssCascadeOp } from './css-cascade.ts';
@@ -47,6 +48,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     expandTypeOp,
     constructionSitesOp,
     discriminationSitesOp,
+    memberUsagesOp,
     sourceOp,
     importersOfOp,
     findUnusedExportsOp,
