@@ -43,6 +43,7 @@ export const traceTypeWideningOp = defineOp({
     'one hop per forward flow-step (var-init / arg→param / return / reassignment). A WIDENED hop notes the kind (literal-widening / union-widened / to-any / to-unknown / narrowing-lost); a preserved hop is shown too so the whole path is visible. `widenings` counts the lost-precision hops.',
     'arg→param crosses INTO the callee (continues from the parameter); return / reassignment are leaves. An any/unknown/untyped boundary is flagged dynamic and STOPPED — precision is erased there, never bridged (§3.3).',
     'bounded: a visited-set (cycle/diamond), a depth cap, and a node cap — every truncation is reported (truncated:true + a note), never a silent stop. 0 flow-sinks is an honest empty trace, not a faked one.',
+    "single-program scope: each hop's forward sinks are scanned in the value's OWN-config program only (the program whose compilerOptions type it correctly) — a use of the value from ANOTHER package/program is not traced. Consistent with the op's per-value type read; cross-program flow is not a fan-out here.",
   ],
   table: traceHopTable,
   async run(ctx, args) {

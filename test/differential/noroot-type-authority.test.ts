@@ -120,20 +120,76 @@ test('(B) construction_sites on the member-resident type target scans under memb
   }
 });
 
-test('(C) discrimination_sites + trace_type_widening on member symbols route to the member program (target resolves, member switch found)', async () => {
-  const p: TestProject = await project(NOROOT_FIXTURE);
+// NOTE — the 5th routed op, wideningSinksAt (trace_type_widening), is NOT committed-tested here: its
+// output surfaces the value's type NAME (e.g. `Widget`), so a whole-repo augmentation stray (which
+// only adds MEMBERS) is invisible in its rendered output, and its one observable routing effect — the
+// forward-sink scope narrowing to the value's own-config program — is honestly disclosed via the op's
+// static note rather than asserted (asserting it would pin a limitation, not the fix). Its routing swap
+// is the identical one-line `host.service`→`host.typeAuthorityFor(abs)` the four tested ops use, sound
+// by construction + tsc-checked. (Empirically confirmed non-discriminating: with the routing reverted,
+// a widening assertion still passes — so a pollution test would be green-on-bug.)
+
+test('(C2) discrimination_sites scans under the member program — the switch is found ONLY when the member config resolves the union alias (fallback finds 0)', async () => {
+  // The union `Shape` is imported into the switch file via a MEMBER-ONLY `@shapes` alias. Under the
+  // member program the scrutinee `x` types as `Shape` → the switch is a discrimination site. Under the
+  // fallback primary (no `@shapes` paths) the import is unresolved → `x` is not `Shape` → 0 sites. So a
+  // non-empty result proves the scan ran in the member program, not the fallback. (Empirically: pre-fix
+  // returns `sites (0)`.)
+  const p: TestProject = await project({
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
+    'package.json': '{"name":"root","private":true}',
+    'packages/a/package.json': '{"name":"pkg-a"}',
+    'packages/a/tsconfig.json': `{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler","baseUrl":".","paths":{"@shapes":["src/shapes.ts"]}},"include":["src"]}`,
+    'packages/a/src/shapes.ts':
+      "export type Shape = { kind: 'a'; n: number } | { kind: 'b'; s: string };\n",
+    'packages/a/src/model.ts': [
+      "import { Shape } from '@shapes';",
+      'export function area(x: Shape) {',
+      "  switch (x.kind) { case 'a': return x.n; case 'b': return x.s; }",
+      '}',
+      '',
+    ].join('\n'),
+  });
   try {
-    // discrimination_sites: the union Kind + its switch both live in the member; the target must
-    // resolve in the member program (not lost to the fallback) and the member switch is found.
-    const disc = data(await p.op('discrimination_sites', { name: 'Kind' }));
+    // Target the union DECL by position (the name `Shape` is ambiguous — decl + import alias).
+    const disc = data(
+      await p.op('discrimination_sites', { file: 'packages/a/src/shapes.ts', line: 1, col: 13 }),
+    );
     const dsites = (disc.sites as unknown[] | undefined) ?? [];
-    assert.ok(dsites.length >= 1, `member switch on Kind must be found: ${JSON.stringify(disc)}`);
-    // trace_type_widening: the value `w` (typed Widget) — its source type is read in the member
-    // program, so the reported type text must not carry the fallback-only `polluted`.
-    const wd = data(await p.op('trace_type_widening', { name: 'w' }));
     assert.ok(
-      !JSON.stringify(wd).includes('polluted'),
-      `widening source type must be the member view (no fallback pollutant): ${JSON.stringify(wd)}`,
+      dsites.length >= 1,
+      `the member switch must be found under member-options resolution: ${JSON.stringify(disc)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('(F) find_unused_props reads member-view declared props — a fallback-only augmentation prop is NOT reported dead', async () => {
+  // A member component whose props are a GLOBAL interface `WProps { real }`, augmented `{ polluted }` by
+  // a root-level stray. firstParamTypeMembers (the declared-props seam) routes to the member program →
+  // declared props = { real } → `real` is passed at <Widget real/> → nothing dead. Under the fallback
+  // (pre-fix) declared = { real, polluted } → `polluted` is never passed → reported dead (a FALSE dead
+  // prop the member's real tsconfig never declares). So `polluted` absent from `unused` discriminates.
+  const p: TestProject = await project({
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
+    'package.json': '{"name":"root","private":true,"dependencies":{"react":"18"}}',
+    'packages/a/package.json': '{"name":"pkg-a","dependencies":{"react":"18"}}',
+    'packages/a/tsconfig.json': `{"compilerOptions":{"strict":true,"jsx":"react-jsx","module":"esnext","moduleResolution":"bundler"},"include":["src"]}`,
+    'packages/a/src/Widget.tsx': [
+      'declare global { interface WProps { real: string } }',
+      'export const Widget = (props: WProps) => <div>{props.real}</div>;',
+      'export const App = () => <Widget real="x" />;',
+      '',
+    ].join('\n'),
+    'aug.ts': 'export {};\ndeclare global { interface WProps { polluted: number } }\n',
+  });
+  try {
+    const d = data(await p.op('find_unused_props', { component: 'Widget' }));
+    const unused = ((d.unused as { name: string }[] | undefined) ?? []).map((u) => u.name);
+    assert.ok(
+      !unused.includes('polluted'),
+      `a fallback-only augmentation prop must not be reported dead: ${JSON.stringify(d)}`,
     );
   } finally {
     await p.dispose();
