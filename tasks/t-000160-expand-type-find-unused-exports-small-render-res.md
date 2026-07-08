@@ -1,7 +1,7 @@
 ---
 id: t-000160
 title: expand_type / find_unused_exports small render+resolve bugs (dogfood 2026-06-20, kitchensink)
-status: backlog
+status: in-progress
 priority: medium
 type: bug
 complexity: M

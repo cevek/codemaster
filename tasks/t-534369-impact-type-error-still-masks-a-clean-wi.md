@@ -1,7 +1,7 @@
 ---
 id: t-534369
 title: impact_type_error still masks a CLEAN widen-to-any (explicit `:any` / no intra-file error) — diff-diagnostics can't catch fewer-errors
-status: backlog
+status: in-progress
 priority: medium
 depends_on:
   - t-993754

@@ -1,7 +1,7 @@
 ---
 id: t-851482
 title: 'Precise per-file coverage floor: a discovered member covering SOME of its files but straying others still claims complete (narrow §3.4 residual)'
-status: backlog
+status: in-progress
 priority: medium
 depends_on:
   - t-000073
