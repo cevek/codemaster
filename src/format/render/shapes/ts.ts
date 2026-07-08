@@ -146,3 +146,32 @@ export const targetRef: ShapeRenderer = (v) => {
   const loc = v['span'] !== undefined ? ` @ ${spanLoc(v['span'])}` : '';
   return `${String(v['kind'])} ${String(v['name'])}${loc}`;
 };
+
+/** discrimination-target — the union T discrimination_sites reports FOR: { kind, name, span,
+ *  discriminants:[{name,domain[]}] }. Fold the discriminant domains onto one line. */
+export const discriminationTarget: ShapeRenderer = (v) => {
+  const loc = v['span'] !== undefined ? ` @ ${spanLoc(v['span'])}` : '';
+  const discs = asArray(v['discriminants'])
+    .map((d) =>
+      isObject(d)
+        ? `${String(d['name'])}:{${asArray(d['domain']).map(String).join(',')}}`
+        : String(d),
+    )
+    .join(' ');
+  return `${String(v['kind'])} ${String(v['name'])}${loc}${discs !== '' ? ` · discriminants ${discs}` : ''}`;
+};
+
+/** discrimination-site — a switch/if-chain discriminating on T: { kind, span, scrutinee,
+ *  discriminant, confidence, covers[], missing[], hasDefault, encloser:{id}, note? }. The
+ *  MISSING set (domain − covers) is the load-bearing "widen-T gap", so it leads over the note. */
+export const discriminationSite: ShapeRenderer = (v) => {
+  const enc = v['encloser'];
+  if (!isObject(enc)) return v;
+  const covers = asArray(v['covers']).map(String);
+  const missing = asArray(v['missing']).map(String);
+  const cov = covers.length > 0 ? ` · covers[${covers.join(',')}]` : '';
+  const miss = missing.length > 0 ? ` · MISSING[${missing.join(',')}]` : '';
+  const def = v['hasDefault'] === true ? ' · default' : '';
+  const note = v['note'] !== undefined ? ` · ${flat(v['note'])}` : '';
+  return `${spanLoc(v['span'])} · ${String(v['kind'])} ${String(v['scrutinee'])} on ${String(v['discriminant'])}${cov}${miss}${def} · in ${String(enc['id'])}${confTail(v['confidence'])}${note}`;
+};

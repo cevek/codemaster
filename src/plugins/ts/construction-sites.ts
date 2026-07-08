@@ -22,14 +22,13 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
-import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
-import { mintSymbolId, moduleName } from './symbol-id.ts';
-import { mintEncloserId } from './encloser-id.ts';
 import { nodeAt } from './ast-node.ts';
 import { typeAtNode } from './type-at-node.ts';
+import { pathScopePredicate } from './path-scope.ts';
+import { encloserView, moduleEncloser, type EncloserView } from './encloser-view.ts';
 import { classifyConstructionSite } from './construction-confidence.ts';
-import { enclosingConstruction, type ConstructionEncloser } from './construction-encloser.ts';
+import { enclosingConstruction } from './construction-encloser.ts';
 import {
   describeTarget,
   isVacuousTarget,
@@ -40,24 +39,13 @@ import {
 } from './construction-target.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
-type ConstructionEncloserView = {
-  /** Chainable ts: SymbolId of the enclosing declaration (→ find_usages / source / rename). */
-  id: string;
-  name: string;
-  kind: string;
-  file: RepoRelPath;
-  line: number;
-  col: number;
-  exported: boolean;
-};
-
 export type ConstructionSite = {
   /** The object-literal span — proof of WHERE the construction is (§3.1). */
   span: Span;
   confidence: Confidence;
   /** Why a non-`certain` confidence (vacuous `any` / generic boundary). */
   note?: string;
-  encloser: ConstructionEncloserView;
+  encloser: EncloserView;
 };
 
 export type ConstructionTarget = {
@@ -125,7 +113,7 @@ export function findConstructionSites(
   }
 
   const targetGeneric = isGenericTarget(targetType, targetSym);
-  const inScope = scopePredicate(host, options);
+  const inScope = pathScopePredicate(options.pathInclude, options.pathExclude);
   const cap = options.limit ?? DEFAULT_SCAN_CAP;
   const sites: ConstructionSite[] = [];
   let examined = 0;
@@ -195,59 +183,5 @@ function buildSite(
     confidence: verdict.confidence,
     ...(verdict.note !== undefined ? { note: verdict.note } : {}),
     encloser,
-  };
-}
-
-function encloserView(
-  host: TsProjectHost,
-  sourceFile: ts.SourceFile,
-  rel: RepoRelPath,
-  enc: ConstructionEncloser,
-): ConstructionEncloserView {
-  // Mint on the BARE token (`enc.idName`) so the handle chains — a class member's display name
-  // is `Class.member`, but its id must anchor on the `member` token at line:col (§6 rebind).
-  // Shared with the `find_usages` rollup via `encloser-id.ts` — one mint site, no drift.
-  const { id, line, col } = mintEncloserId(
-    sourceFile,
-    rel,
-    enc.idName,
-    enc.nameStart,
-    host.rootTag,
-  );
-  return {
-    id,
-    name: enc.name,
-    kind: enc.kind,
-    file: rel,
-    line,
-    col,
-    exported: enc.exported,
-  };
-}
-
-/** A literal at module top level (not inside any named declaration) rolls up to the file. */
-function moduleEncloser(host: TsProjectHost, rel: RepoRelPath): ConstructionEncloserView {
-  const name = moduleName(rel);
-  return {
-    id: mintSymbolId(name, rel, 1, 1, host.rootTag),
-    name,
-    kind: 'module',
-    file: rel,
-    line: 1,
-    col: 1,
-    exported: false,
-  };
-}
-
-function scopePredicate(
-  host: TsProjectHost,
-  options: ConstructionSitesOptions,
-): (rel: RepoRelPath) => boolean {
-  const inc = options.pathInclude;
-  const exc = options.pathExclude;
-  return (rel) => {
-    if (inc !== undefined && inc.length > 0 && !matchesPathFilter(rel, inc)) return false;
-    if (exc !== undefined && exc.length > 0 && matchesPathFilter(rel, exc)) return false;
-    return true;
   };
 }

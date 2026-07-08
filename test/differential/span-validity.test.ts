@@ -70,6 +70,9 @@ const SWEEP: Record<string, JsonValue> = {
   // The target descriptor carries the type's name-token span — validated here; assignable
   // SITE spans (factory/array/var/call) are exhaustively span-checked in construction-sites.test.ts.
   construction_sites: { name: 'Props' },
+  // The target descriptor carries the union's name-token span — validated here; the switch/if
+  // keyword SITE spans are exhaustively span-checked in discrimination-sites.test.ts.
+  discrimination_sites: { name: 'Props' },
   source: { targets: [{ name: 'Button' }] },
   scss_classes: { file: 'src/styles.module.scss' },
   css_cascade: { file: 'src/styles.module.scss', class: 'used' },

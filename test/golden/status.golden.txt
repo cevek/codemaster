@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (24):
+ops (25):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     columns: id,name,kind,container,file,line,col,confidence
@@ -36,6 +36,15 @@ ops (24):
     · bounded: the assignability checks are hard-capped (default 1000, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).
     columns: file,line,col,confidence,encloser,encloser_id,encloser_kind,encloser_file,exported,note
     e.g. construction_sites {"name":"User"}
+  discrimination_sites { symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number } (the union TYPE) — plus { pathInclude?: string[], pathExclude?: string[], limit?: number } — switch statements + if/else-if chains that DISCRIMINATE on a union TYPE T (incl. scrutinees reached via property access like switch(x.kind) where x:T) — the type-aware "what must I update to stay exhaustive when I widen T?", which find_usages on T's name structurally misses
+    · the exhaustiveness complement to find_usages: find_usages on a union NAME finds annotation sites but structurally MISSES `switch (spec.type.kind)` where spec.type: T (the identifier T never appears at the switch) and if/else-if chains — this op resolves the scrutinee TYPE, so it finds them.
+    · IDENTITY-gated (never structural): the scrutinee object's type must BE T (a union is assignable to `{ kind: string }`, so a structural relation would flag every `.kind` switch on every kind-union — excluded). The accessed property must be a DISCRIMINANT of T (a literal/unit field in every constituent), so `switch (f.value)` on a non-discriminant field is NOT matched.
+    · covers/missing: each site reports the discriminant literals its cases/branches cover, and `missing` = T's discriminant domain − covers (the exhaustiveness gap you must handle when widening T), plus a `hasDefault` flag. No hard `exhaustive: yes/no` is claimed — a `default`/`else` is reported, you judge.
+    · confidence: certain = a `switch` with an identity-T scrutinee and all cases read as literals · partial = an if/else-if chain (=== heuristic), an element-access `obj["k"]` scrutinee, or a case/branch value that could not be read as a literal. A partial site is honest uncertainty.
+    · v1 scope (honest under-coverage, stated): if-chains match only `X.disc === literal` branches chained via `else if` — a `!==`/`in`-narrowing/type-guard/negated-early-return/compound `&&` branch is not counted; a computed `obj[expr]` scrutinee is not read; structural supertypes/subtypes of T are dropped. Primary program only (a sibling-only switch is not scanned).
+    · bounded: the switch/if statements examined are hard-capped (default 2000, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).
+    columns: file,line,col,kind,scrutinee,discriminant,confidence,covers,missing,has_default,encloser,encloser_id,note
+    e.g. discrimination_sites {"name":"FieldType"}
   source { targets: [{ symbolId? | name? | file+line+col }] } — up to 20 — Source bodies of N symbols in one call (the explore-style "show me the code")
     · one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.
     · unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.

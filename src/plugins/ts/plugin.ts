@@ -14,6 +14,7 @@ import { findUsages, referenceSpans } from './usages.ts';
 import { findUsagesMerged } from './usages-merge.ts';
 import { expandTypeAt } from './type-expand.ts';
 import { findConstructionSites } from './construction-sites.ts';
+import { findDiscriminationSites } from './discrimination-sites.ts';
 import { scanJsxCallSites } from './jsx-call-sites.ts';
 import { scanJsxChildSites } from './jsx-child-sites.ts';
 import { scanFieldRenderSites } from './field-render-sites.ts';
@@ -62,6 +63,7 @@ export type { UnusedExportView } from './unused-exports.ts';
 // files (§5-L2 / src/README rule 5).
 export type { CallMatchSpec, LiteralCallProvenance } from './call-scan-shared.ts';
 export type { ConstructionSite, ConstructionTarget } from './construction-sites.ts';
+export type { DiscriminationSite, DiscriminationTargetView } from './discrimination-sites.ts';
 export type { JsxCallSite, JsxOpaqueRef, JsxCallSitesView } from './jsx-call-sites.ts';
 export type { JsxChildSite, JsxChildAttr, JsxChildSitesView } from './jsx-child-sites.ts';
 export type { ParamTypeMember, ParamTypeMembersView } from './first-param-members.ts';
@@ -185,6 +187,14 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       const resolved = resolve(target);
       if (!resolved.ok) return missOf(resolved);
       const view = findConstructionSites(warm(), resolved.abs, resolved.offset, options);
+      if (typeof view === 'string') return view;
+      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+    },
+
+    discriminationSites(target, options) {
+      const resolved = resolve(target);
+      if (!resolved.ok) return missOf(resolved);
+      const view = findDiscriminationSites(warm(), resolved.abs, resolved.offset, options);
       if (typeof view === 'string') return view;
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },

@@ -17,6 +17,10 @@ import type {
 } from './query-types.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
+import type {
+  DiscriminationSitesOptions,
+  DiscriminationSitesView,
+} from './discrimination-sites.ts';
 import type { CssModuleUsages } from './css-modules.ts';
 import type { ClassNameLiteralsView } from './class-name-literals.ts';
 import type { CallArgShapesResult, CallMatchSpec, LiteralCallsResult } from './call-scan-shared.ts';
@@ -278,6 +282,19 @@ export interface TsPluginApi extends Plugin {
    *  demotes to a non-`certain`/incomplete verdict and NAMES them, never a silent miss. Empty on
    *  the common repo. Cached once (§19), invalidated when a `tsconfig*.json` lands in reindex. */
   undiscoveredProgramLabels(): readonly string[];
+  /** Type-aware "which switch/if-chains DISCRIMINATE on a union T?": the `switch` statements and
+   *  `if/else-if` chains whose scrutinee reads a DISCRIMINANT of T — including scrutinees reached via
+   *  property access (`switch (spec.type.kind)` where `spec.type: T`), which `find_usages` on T's NAME
+   *  structurally misses (the identifier never appears at the switch). Each hit is proof-carrying (the
+   *  keyword span + scrutinee + discriminant) with covers/missing vs T's literal domain + a `hasDefault`
+   *  flag + honest confidence (a `switch` is `certain`, an `if`-chain / unread case demotes to
+   *  `partial`). IDENTITY-gated — a structural supertype (`{ kind: string }`) or unrelated union is
+   *  excluded, and a non-discriminant property (`f.value`) is not matched. Bounded: the statements
+   *  examined are capped, the cap reported as truncation. A `string` on a target that is not a type. */
+  discriminationSites(
+    target: TsTargetInput,
+    options: DiscriminationSitesOptions,
+  ): { view: DiscriminationSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }

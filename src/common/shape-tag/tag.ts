@@ -37,6 +37,8 @@ export type ShapeTag =
   | 'unresolved-name'
   | 'bare-span'
   | 'target-ref'
+  | 'discrimination-target'
+  | 'discrimination-site'
   // diagnostics (cross-domain)
   | 'ts-diagnostic'
   | 'parse-failure'
