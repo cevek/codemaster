@@ -1,7 +1,7 @@
 ---
 id: t-943264
 title: Bare-dir + special-char path filters still raw in scss (cascade/query.ts, plugin.ts) and i18n (plugin.ts) — reroute through matchesPathFilter chokepoint
-status: in-progress
+status: done
 priority: medium
 depends_on:
   - t-019044
