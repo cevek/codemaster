@@ -1,7 +1,7 @@
 ---
 id: t-608842
 title: The no-root fallback-primary computes 'coverage' under WRONG options — the recurring root behind the multi-program honesty patches; stop counting fallback-globbed files as coverage (or synthesize a correct-options aggregate for a no-root repo)
-status: backlog
+status: in-progress
 priority: medium
 type: imp
 complexity: L
