@@ -18,6 +18,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as path from 'node:path';
+import ts from 'typescript';
 import { project, type TestProject } from '../helpers/project.ts';
 import { coldFindReferences } from '../helpers/cold-ls.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
@@ -241,6 +243,84 @@ test('(f) COVERAGE FLOOR: an empty-`include`, no-`references` member covers NOTH
     );
     assert.ok(
       (d.undiscoveredPrograms ?? []).includes('packages/orphan/tsconfig.json'),
+      `find_usages names the floored member: ${JSON.stringify(d.undiscoveredPrograms)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('(g) PARTIAL-COVERAGE member: covers src but STRAYS lib/foo.ts (in no program) → stays floored; the primary export is NOT reported certain-dead', async () => {
+  // The precise-floor residual (t-851482): a workspace MEMBER whose tsconfig covers SOME of its files
+  // (`include:["src"]` → src/x.ts, so its parsed glob resolves ≥1 file — the OLD `configCoversFiles`
+  // gate is TRUE) but STRAYS others. `packages/pkg/lib/foo.ts` is globbed by NO program: the member's
+  // `include:["src"]` reaches packages/pkg/src only, the primary's `include:["src"]` reaches the root
+  // src only. lib/foo.ts imports `thing` from the primary. Pre-fix the member was SUBTRACTED (it
+  // resolves ≥1 file) → `thing` read `certain`-dead and find_usages claimed complete, MISSING the
+  // stray usage (the narrow §3.4 completeness lie). File-level member coverage keeps the member
+  // FLOORED because lib/foo.ts is in no loaded program's file-set.
+  const p: TestProject = await project({
+    'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
+    'package.json': '{"name":"root","private":true}',
+    'tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`, // globs the root src only
+    'src/lib.ts': 'export const thing = 1;\n',
+    'packages/pkg/package.json': '{"name":"pkg"}',
+    // configCoversFiles is TRUE (resolves src/x.ts), but the include does NOT reach lib/.
+    'packages/pkg/tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`,
+    'packages/pkg/src/x.ts': 'export const y = 1;\n',
+    // The STRAY: under the member dir, globbed by no program, and it USES `thing`.
+    'packages/pkg/lib/foo.ts':
+      "import { thing } from '../../../src/lib';\nexport const usesThing = thing + 1;\n",
+  });
+  try {
+    // Independent oracle: a fresh-from-cold `ts.Program` over the FULL file set (incl. the stray) —
+    // NOT the warm daemon — compiles with NO error, proving lib/foo.ts's `import { thing }` genuinely
+    // resolves to the primary decl. So the usage is REAL and the pre-fix `certain`-dead/complete was a
+    // lie; the floor is the honest reflection of a file no loaded program searches.
+    const oracle = ts.createProgram(
+      ['src/lib.ts', 'packages/pkg/src/x.ts', 'packages/pkg/lib/foo.ts'].map((f) =>
+        path.join(p.root, f),
+      ),
+      {
+        strict: true,
+        module: ts.ModuleKind.ESNext,
+        moduleResolution: ts.ModuleResolutionKind.Bundler,
+        noEmit: true,
+      },
+    );
+    const errs = ts
+      .getPreEmitDiagnostics(oracle)
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+    assert.deepEqual(
+      errs,
+      [],
+      `oracle: the stray genuinely uses primary \`thing\`: ${errs.join(' | ')}`,
+    );
+
+    // find_unused_exports: `thing` is genuinely dead across every LOADED program, but the member
+    // straying lib/foo.ts keeps the floor non-empty → `thing` demotes to `partial`, NEVER `certain`
+    // (certain-dead here would be the lie), and the member config stays named as undiscovered.
+    const ue = unusedData(await p.op('find_unused_exports', {}));
+    assert.ok(
+      (ue.undiscoveredPrograms ?? []).includes('packages/pkg/tsconfig.json'),
+      `the partial-coverage member must stay floored, not subtracted: ${JSON.stringify(ue.undiscoveredPrograms)}`,
+    );
+    const thing = ue.unused.find((x) => x.name === 'thing');
+    assert.ok(
+      thing && thing.confidence === 'partial',
+      `thing demoted to partial by the non-empty floor, never certain: ${JSON.stringify(thing)}`,
+    );
+
+    // find_usages stays complete:false + names the straying member — never claimed-complete over a
+    // search that misses the stray's file.
+    const d = usagesData(await p.op('find_usages', { name: 'thing', collapseImports: false }));
+    assert.equal(
+      d.complete,
+      false,
+      'find_usages must stay floored while a partial-coverage member strays',
+    );
+    assert.ok(
+      (d.undiscoveredPrograms ?? []).includes('packages/pkg/tsconfig.json'),
       `find_usages names the floored member: ${JSON.stringify(d.undiscoveredPrograms)}`,
     );
   } finally {

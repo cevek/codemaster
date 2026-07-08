@@ -19,11 +19,12 @@ import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
-  configCoversFiles,
+  coveredConfigPaths,
   discoverSiblingConfigs,
-  findRepoTsconfigs,
   isTsconfigBasename,
   relLabel,
+  repoTsconfigsFrom,
+  walkRepoFiles,
   type DiscoveredConfig,
 } from './program/discover.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
@@ -161,8 +162,13 @@ export function createTsProjectHost(
   // sibling discovery (source 2, workspace members) AND the undiscovered base below, so there is a
   // single repo walk per host lifetime, never one per consumer. Invalidated with the other memos on
   // a tsconfig/workspace-manifest change (the reindex block).
+  // ONE repo walk per host lifetime, shared by the tsconfig scan AND member file-level coverage
+  // (`coveredConfigPaths`) — invalidated with the tsconfig memos on a structural change below.
+  let repoFiles: string[] | undefined;
+  const repoFilesList = (): string[] => (repoFiles ??= walkRepoFiles(root));
   let repoTsconfigs: string[] | undefined;
-  const repoTsconfigsList = (): string[] => (repoTsconfigs ??= findRepoTsconfigs(root));
+  const repoTsconfigsList = (): string[] =>
+    (repoTsconfigs ??= repoTsconfigsFrom(repoFilesList(), root));
 
   let discovered: DiscoveredConfig[] | undefined;
   const discover = (): DiscoveredConfig[] =>
@@ -184,18 +190,23 @@ export function createTsProjectHost(
   const undiscoveredLabels = (): readonly string[] => {
     if (undiscoveredMemo === undefined) {
       if (undiscoveredBase === undefined) {
-        const loaded = new Set<string>();
+        // Subtract a DISCOVERED config from the floor ONLY when it actually COVERS its search surface
+        // (`coveredConfigPaths`, SYNTACTIC — no LS build, keeps siblings lazy §9): it resolves ≥1 file
+        // or is a `references` hub, AND — for a workspace MEMBER — every git-tracked TS-source file
+        // under its package dir lands in the union of the loaded programs' file-sets. A member that
+        // covers NONE, or covers SOME but strays others (an uncovered `lib/foo.ts` no program globs),
+        // is kept floored (complete:false) — never a claimed-complete result over a git-tracked file
+        // no program searches (§3.4 the one honest→lying direction). `primary.fileNames()` supplies
+        // the primary's §10-filtered set without warming it.
+        const loaded = coveredConfigPaths(
+          root,
+          primary.fileNames(),
+          discover(),
+          repoTsconfigsList(),
+          repoFilesList(),
+          ignored(),
+        );
         if (configPath !== undefined) loaded.add(toPosix(configPath)); // the primary is always built
-        // Subtract a DISCOVERED config from the floor ONLY when it actually COVERS files — its parsed
-        // glob resolves ≥1 file, or it's a `references` hub delegating to child programs discovery
-        // already loaded (`configCoversFiles`, SYNTACTIC — no LS build, keeps siblings lazy §9). A
-        // member with a narrow/empty `include` and no references resolves nothing → its stray files
-        // land in no program → KEEP it floored (complete:false), never flip honest-floored →
-        // claimed-complete for files no program searches (§3.4). The narrower partial-coverage case
-        // (a member that covers SOME of its files but strays others) is a separate backlog residual.
-        for (const c of discover()) {
-          if (configCoversFiles(c.path)) loaded.add(toPosix(c.path));
-        }
         undiscoveredBase = repoTsconfigsList().filter((abs) => !loaded.has(abs));
       }
       // Subtract the file-driven nested-config programs we DID load (§5-L2 read-path completeness):
@@ -304,9 +315,15 @@ export function createTsProjectHost(
       // ADDS a nested tsconfig importing a `src` export would read that export `certain`-DEAD until
       // an MCP reconnect (a silent false-dead). So invalidate the memos here — but ONLY on a cheap
       // basename scan of the (small) changed set, NEVER a repo re-walk per reindex (the §19 ls-host
-      // per-call-tree-scan hang class). The actual re-walk (findRepoTsconfigs) then happens LAZILY
-      // on the next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed.
+      // per-call-tree-scan hang class). The actual re-walk (walkRepoFiles) then happens LAZILY on the
+      // next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed. The
+      // shared `repoFiles` walk also feeds member file-level coverage (`coveredConfigPaths`); it is
+      // dropped here at the same structural cadence. (A NON-tsconfig source-file add that creates a
+      // NEW stray under an already-covered member — flipping it from subtracted to floored — is not
+      // reflected until a structural change or restart; the pre-existing undiscovered-memo cadence,
+      // over-precise-floor residual, tracked in the backlog. Over-floor lifts the same way.)
       if (changed.some(isStructuralConfigChange)) {
+        repoFiles = undefined;
         repoTsconfigs = undefined;
         discovered = undefined;
         undiscoveredBase = undefined;

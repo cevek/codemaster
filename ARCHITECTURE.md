@@ -364,8 +364,16 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   matched by the repo's `pnpm-workspace.yaml` / `package.json` `workspaces` globs AND holding a
   `package.json` — a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are
   otherwise undiscovered and every cross-package query floored; membership is `package.json`-anchored
-  so a bare nested/fixture tsconfig under a matching path is **not** slurped). A nested-package config
-  reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
+  so a bare nested/fixture tsconfig under a matching path is **not** slurped). A discovered member is
+  SUBTRACTED from the undiscovered floor only when it COVERS its search surface — its parsed glob
+  resolves ≥1 file or it is a `references` hub, AND every git-tracked TS-source file physically under
+  its package dir lands in the UNION of the loaded programs' file-sets; a member covering nothing, or
+  covering SOME of its files but STRAYING others (an uncovered `lib/foo.ts` no program globs), stays
+  floored — never a claimed-complete result over a git-tracked file no program searches (§3.4). The
+  discriminator is git-tracked-ness (the source surface), not tsconfig-membership: a gitignored file is
+  OUT of scope (never a stray). Coverage is a §19-bounded SYNTACTIC pass (parsed file-sets +
+  `primary.fileNames()`, no LS warm) over the shared repo walk, run once per undiscovered memo. A
+  nested-package config reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
   otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level
   `complete:false` + the **named** config + a `!!` LOWER-BOUND note (a count-only consumer sees the
