@@ -18,7 +18,7 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import type { RepoRelPath } from '../../../core/brands.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
-import { hasIgnoredDirSegment } from '../../../support/fs/ignored-paths.ts';
+import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
 import { isTsconfigBasename } from './discover.ts';
@@ -78,6 +78,13 @@ export function createSingleProgram(
    *  they keep a loose tsconfig `include` from indexing build output / nested VCS checkouts as
    *  project symbols (the never-lie file-set fix). */
   ignored: () => ReadonlySet<string>,
+  /** Extra SEARCH-surface files to compile in THIS program beyond its tsconfig glob (absolute posix):
+   *  git-tracked source physically under a workspace MEMBER's dir that the member's `include` omits
+   *  (e.g. `packages/x/scripts/smoke.ts` under `include:['src']`). Injected so they compile under the
+   *  member's OWN compilerOptions → their alias imports (`@x/*`) resolve exactly as the member's src
+   *  does (the honest un-owned-source fix, t-232769). Host-computed once per structural reindex and
+   *  captured here; a member rebuilds with a fresh set when the coverage memo invalidates. */
+  injectedFiles: readonly string[] = [],
 ): SingleProgram {
   let files = new Map<string, { version: number }>(); // abs posix → version
   let version = 1;
@@ -107,9 +114,16 @@ export function createSingleProgram(
       // could false-match an ancestor dir (`/home/me/build/…`) — the hazard hasIgnoredDirSegment warns of.
       if (abs.startsWith(rootPrefix)) {
         const rel = abs.slice(rootPrefix.length);
-        if (hasIgnoredDirSegment(rel) || ignoredJunk.has(rel)) continue;
+        if (isJunkRelPath(rel, ignoredJunk)) continue;
       }
       next.set(abs, files.get(abs) ?? { version: 1 });
+    }
+    // Injected search-surface strays (t-232769): already §10-filtered + existence-checked by the
+    // host's coverage pass, so they are added verbatim (a glob re-run never drops them the way it
+    // would a file outside `include`). Keyed like a globbed file so reindex versioning is uniform.
+    for (const inj of injectedFiles) {
+      const abs = toPosix(inj);
+      if (!next.has(abs)) next.set(abs, files.get(abs) ?? { version: 1 });
     }
     files = next;
     version++;

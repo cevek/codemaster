@@ -364,19 +364,43 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   matched by the repo's `pnpm-workspace.yaml` / `package.json` `workspaces` globs AND holding a
   `package.json` — a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are
   otherwise undiscovered and every cross-package query floored; membership is `package.json`-anchored
-  so a bare nested/fixture tsconfig under a matching path is **not** slurped). A discovered member is
-  SUBTRACTED from the undiscovered floor only when it COVERS its search surface — its parsed glob
-  resolves ≥1 file or it is a `references` hub, AND every git-tracked TS-source file physically under
-  its package dir lands in the UNION of the loaded programs' file-sets; a member covering nothing, or
-  covering SOME of its files but STRAYING others (an uncovered `lib/foo.ts` no program globs), stays
-  floored — never a claimed-complete result over a file no program searches (§3.4). The discriminator
-  is the **§10 source surface** (the name-ignore set ∪ the project's own git-ignore), NOT
-  tsconfig-membership: a file the project itself declares junk (gitignored, or under
-  `node_modules`/`dist`/…) is OUT of scope and never a stray, while a git-tracked source file merely
-  absent from every tsconfig is IN the surface → floored. Required-walk and coverage-union apply the
-  SAME §10 filter (symmetric with what the programs actually contain — no phantom strays). Coverage is
-  a §19-bounded SYNTACTIC pass (parsed file-sets + `primary.fileNames()`, no LS warm) over the shared
-  repo walk, run once per undiscovered memo. A
+  so a bare nested/fixture tsconfig under a matching path is **not** slurped). **Member-stray INJECTION
+  (`program/coverage.ts`, t-232769).** A git-tracked TS-source file physically under a member's dir
+  that the member's OWN tsconfig `include` omits (the near-universal `packages/x/scripts/smoke.ts`
+  under `include:["src"]`) is a **stray-for-that-member**: it is INJECTED into that member's own
+  `SingleProgram` file-set (`createSingleProgram` `injectedFiles`), so it compiles under the member's
+  OWN compilerOptions and its alias imports (`@x/*`) resolve exactly as the member's src does — the
+  file becomes SEARCH-surface, never a new type authority. **POLLUTION GATE:** a stray is injected ONLY
+  when it is a plain external MODULE with no program-wide type-space augmentation — a file carrying
+  `declare global`/`declare module '…'`, or a non-module SCRIPT (whose top-level decls are global),
+  would once in the member's program SHIFT the reported type of the member's OWN src symbols
+  (`expand_type` would show a type the member's real tsconfig never yields — the never-lie violation),
+  so it is NOT injected and its member STAYS floored (honestly unsearched beats a lie about a src
+  symbol's type). So a member is SUBTRACTED from the undiscovered floor once it covers ANYTHING (its
+  own glob, a `references` hub, or an injected stray) AND has no un-injectable stray left unsearched; a
+  member covering literally nothing (empty `include`, no refs, no files under its dir) stays floored.
+  The stray set is source-derived (not tsconfig-derived), so the coverage memo also refreshes when a
+  reindex sees a NEW git-tracked TS file land under a member dir — a warm daemon injects a just-added
+  stray on the next query instead of missing its usage while reporting complete (a §3.4/§3.5 lie).
+  The gate is the member's OWN glob, NOT the whole covered-union: a stray an ANCESTOR loose-root globs
+  with the WRONG options (no member `paths`) is STILL injected into its member — else its aliases
+  resolve only under the ancestor (they don't) and the usage is silently missed while the member
+  un-floors (the wrong-options coverage lie). **The floor honesty rests on the CORRECT-RESOLUTION
+  UNION**: a file counts as covered (→ subtract its config → allow `complete:true`) ONLY when a program
+  with real compilerOptions (a member/sibling, or the primary when it HAS a config) — or an injected
+  stray — searches it. The no-config FALLBACK primary (whole-repo glob, NO `paths`/`baseUrl`) is
+  EXCLUDED from the union, so a file covered ONLY by it (aliases never resolved) never subtracts its
+  config → stays floored, on ANY repo (not by fixture coincidence). A config whose entire glob ⊆ the
+  correct-resolution union (a redundant base/extends config, e.g. `tsconfig.base.json`) is subtracted;
+  a config globbing any uncovered or fallback-only file stays floored — never a claimed-complete result
+  over a file no correct-options program searches (§3.4). The scope discriminator is the **§10 source
+  surface** (the name-ignore set ∪ the project's own git-ignore), NOT tsconfig-membership: a file the
+  project itself declares junk (gitignored, or under `node_modules`/`dist`/…) is OUT of scope and never
+  a stray, while a git-tracked source file merely absent from every tsconfig is IN the surface →
+  floored (unless owned+injected by a member). Coverage and the injecting `single.ts` apply the SAME
+  §10 filter (symmetric with what the programs actually contain — no phantom strays). Coverage is a
+  §19-bounded SYNTACTIC pass (parsed file-sets + `primary.fileNames()` when the primary has a config,
+  no LS warm) over the shared repo walk, run once per undiscovered memo. A
   nested-package config reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
   otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level

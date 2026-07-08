@@ -19,7 +19,6 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import { matchesAnyGlob } from '../../../common/glob/match.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
-import { hasIgnoredDirSegment } from '../../../support/fs/ignored-paths.ts';
 import { walkFiles } from '../../../support/fs/walk.ts';
 import { readWorkspaceGlobs } from './workspace-globs.ts';
 
@@ -104,7 +103,7 @@ export function discoverSiblingConfigs(
  *  bounds it). All inputs are already-walked paths (respecting the §10 ignore set), so this is a pure
  *  in-memory filter — no new fs walk. Iterated in `repoTsconfigs` order for a deterministic result
  *  (cold == warm on a capped repo). */
-function workspaceMemberConfigs(root: string, repoTsconfigs: readonly string[]): string[] {
+export function workspaceMemberConfigs(root: string, repoTsconfigs: readonly string[]): string[] {
   const { positive, negative } = readWorkspaceGlobs(root);
   if (positive.length === 0) return [];
   const out: string[] = [];
@@ -138,126 +137,6 @@ function referencePaths(configPath: string): string[] {
   return out;
 }
 
-/** §10 junk predicate over a REPO-RELATIVE posix path — the SAME filter `single.ts` applies to a
- *  built program's file-set (name-based dir segments + the git-ignored set). Applying it to BOTH the
- *  coverage UNION and the required-walk below keeps them symmetric with what the programs actually
- *  contain (no phantom strays) AND makes the floor consistent with the gitignored-file decision: a
- *  gitignored file is OUT of the source surface (never a stray), a git-tracked `.ts` in no program IS
- *  in the surface → floored. */
-function isJunk(rel: string, ignored: ReadonlySet<string>): boolean {
-  return hasIgnoredDirSegment(rel) || ignored.has(rel);
-}
-
-/** TS-source extensions a tsconfig `include` owns by default (`.d.ts` ⊂ `.ts$`). `.js/.jsx` are
- *  `allowJs`-conditional, so requiring their coverage would floor on tooling JS no program intends to
- *  own — excluded to keep the floor precise (a genuinely allowJs'd `.js` under a member IS globbed by
- *  its config, so it lands in the union either way and never reads as a stray). */
-const TS_SOURCE_RE = /\.(ts|tsx|cts|mts)$/;
-
-/** Discovered configs safe to SUBTRACT from the undiscovered floor (posix abs). A config qualifies
- *  iff it covers files/`references` AND — when it is a workspace MEMBER — every git-tracked TS-source
- *  file physically under its package directory lands in the UNION of the loaded programs' file-sets
- *  (primary + every discovered config, the set `built()` compiles). A member covering SOME of its
- *  files but STRAYING others (an uncovered `lib/foo.ts` no program globs) is NOT returned → it stays
- *  in the floor (complete:false), never a claimed-complete result over a git-tracked file no program
- *  searches (§3.4 the one honest→lying direction). A zero-coverage member (empty `include`, no refs)
- *  is likewise never returned. SYNTACTIC + ONE bounded pass: `parseJsonConfigFileContent` globs the
- *  file LIST without building/type-checking (no sibling warm, §9), the shared repo walk supplies the
- *  member files, and the whole thing runs once per undiscovered memo — never the LS hot path (§19).
- *  Order-independent (set membership only) → cold == warm. */
-export function coveredConfigPaths(
-  root: string,
-  /** The primary program's already-§10-filtered file-set (`primary.fileNames()` — no LS warm). */
-  primaryFileNames: readonly string[],
-  discovered: readonly DiscoveredConfig[],
-  repoTsconfigs: readonly string[],
-  /** Repo-relative posix paths from the shared walk (name-ignored; git-ignore applied here). */
-  repoFiles: readonly string[],
-  /** The host's memoized git-ignored set (the §10 git arm), computed once per structural reindex. */
-  ignored: ReadonlySet<string>,
-): Set<string> {
-  const rootPosix = toPosix(root);
-  // 1. UNION of loaded programs' file-sets: primary (already §10-filtered) ∪ every DISCOVERED
-  //    config's SYNTACTIC file-set (no LS build), §10-filtered to match the built program exactly.
-  const covered = new Set<string>(primaryFileNames);
-  const parsed = new Map<string, string[]>();
-  const fileNamesOf = (configPath: string): string[] => {
-    const hit = parsed.get(configPath);
-    if (hit !== undefined) return hit;
-    let out: string[] = [];
-    try {
-      const read = ts.readConfigFile(configPath, ts.sys.readFile);
-      const p = ts.parseJsonConfigFileContent(
-        read.config ?? {},
-        ts.sys,
-        path.dirname(configPath),
-        undefined,
-        configPath,
-      );
-      out = p.fileNames.map(toPosix).filter((abs) => {
-        if (abs.includes('/node_modules/')) return false;
-        if (abs.startsWith(`${rootPosix}/`))
-          return !isJunk(abs.slice(rootPosix.length + 1), ignored);
-        return true;
-      });
-    } catch {
-      out = []; // unreadable/malformed → no coverage (conservative floor)
-    }
-    parsed.set(configPath, out);
-    return out;
-  };
-  for (const c of discovered) for (const abs of fileNamesOf(toPosix(c.path))) covered.add(abs);
-
-  // 2. Workspace-MEMBER package directories (repo-relative posix). Only members get the file-level
-  //    gate — a source-1 sibling adjacent to the primary has no bounded package dir to walk.
-  const memberConfigs = new Set(workspaceMemberConfigs(root, repoTsconfigs).map(toPosix));
-  const memberDirs = new Set<string>();
-  for (const m of memberConfigs) memberDirs.add(path.posix.dirname(relLabel(root, m)));
-
-  // 3. ONE pass over the shared walk: a member dir with a git-tracked TS-source file in NO program is
-  //    STRAYING. Bounded by files × path-depth, once per memo (§19) — never per-op.
-  const strayDirs = new Set<string>();
-  for (const rel of repoFiles) {
-    if (!TS_SOURCE_RE.test(rel) || isJunk(rel, ignored)) continue;
-    const dir = enclosingMemberDir(rel, memberDirs);
-    if (dir !== undefined && !covered.has(`${rootPosix}/${rel}`)) strayDirs.add(dir);
-  }
-
-  // 4. Decide per discovered config: covers files/refs, and (if a member) no stray under its dir.
-  const safe = new Set<string>();
-  for (const c of discovered) {
-    const abs = toPosix(c.path);
-    if (fileNamesOf(abs).length === 0 && !declaresReferences(abs)) continue; // covers nothing → floor
-    if (memberConfigs.has(abs) && strayDirs.has(path.posix.dirname(relLabel(root, abs)))) continue;
-    safe.add(abs);
-  }
-  return safe;
-}
-
-/** The DEEPEST member directory enclosing `fileRel` (walk-up prefix, bounded by path depth), or
- *  undefined when the file is under no member. */
-function enclosingMemberDir(fileRel: string, memberDirs: ReadonlySet<string>): string | undefined {
-  let dir = path.posix.dirname(fileRel);
-  while (dir !== '.' && dir !== '' && dir !== '/') {
-    if (memberDirs.has(dir)) return dir;
-    const parent = path.posix.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return undefined;
-}
-
-/** Does this tsconfig declare a non-empty `references` array (a hub delegating to child programs)? */
-function declaresReferences(configPath: string): boolean {
-  try {
-    const read = ts.readConfigFile(configPath, ts.sys.readFile);
-    const refs = (read.config as { references?: unknown } | undefined)?.references;
-    return Array.isArray(refs) && refs.length > 0;
-  } catch {
-    return false;
-  }
-}
-
 /** True for a tsconfig basename — `tsconfig.json` or `tsconfig.<name>.json`. The single predicate
  *  behind sibling discovery (source 1), the repo-wide undiscovered scan (`repoTsconfigsFrom`), AND
  *  the `ls-host` reindex cache-invalidation trigger (a tsconfig add/remove in the changed set), so
@@ -272,7 +151,7 @@ export function relLabel(root: string, abs: string): string {
 }
 
 /** Every source-ish file in the repo (repo-relative posix) — the SINGLE §19-bounded walk shared by
- *  `repoTsconfigsFrom` (the undiscovered scan) AND `coveredConfigPaths` (member file-level coverage),
+ *  `repoTsconfigsFrom` (the undiscovered scan) AND `computeCoverage` (member coverage + stray injection),
  *  so there is ONE repo walk per host lifetime, never one per consumer. Reuses `walkFiles`' §10
  *  name-ignore set (node_modules / dist / build / .next / tool + agent state dirs) — conservative by
  *  construction. A partial walk (unreadable subtree) returns what it found. Host-cached (never per

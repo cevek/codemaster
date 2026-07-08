@@ -19,14 +19,15 @@ import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
-  coveredConfigPaths,
   discoverSiblingConfigs,
   isTsconfigBasename,
   relLabel,
   repoTsconfigsFrom,
   walkRepoFiles,
+  workspaceMemberConfigs,
   type DiscoveredConfig,
 } from './program/discover.ts';
+import { computeCoverage, type Coverage } from './program/coverage.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
 
@@ -160,7 +161,7 @@ export function createTsProjectHost(
   // lazy step deferred to the first cross-program read.
   // ONE repo walk (`walkRepoFiles`, all source files) per host lifetime, the §19-bounded part shared
   // by THREE consumers: the tsconfig scan (`repoTsconfigsFrom` filters it → the undiscovered base +
-  // source-2 workspace-member discovery) AND member file-level coverage (`coveredConfigPaths`). So
+  // source-2 workspace-member discovery) AND member coverage + stray injection (`computeCoverage`). So
   // there is a single repo walk per host, never one per consumer — invalidated with the tsconfig
   // memos on a structural tsconfig/workspace-manifest change (the reindex block below).
   let repoFiles: string[] | undefined;
@@ -172,6 +173,21 @@ export function createTsProjectHost(
   let discovered: DiscoveredConfig[] | undefined;
   const discover = (): DiscoveredConfig[] =>
     (discovered ??= discoverSiblingConfigs(root, configPath, repoTsconfigsList()));
+
+  // The coverage proof (correct-resolution union → floor-subtraction set + per-member stray injection
+  // sets, t-232769). Memoized once per structural reindex (invalidated with the tsconfig memos below).
+  // The primary's file-set is counted ONLY when it has a real config — the no-config FALLBACK glob is
+  // passed as [] so a fallback-only file never counts as coverage (the correct-resolution guard).
+  let coverageMemo: Coverage | undefined;
+  const coverage = (): Coverage =>
+    (coverageMemo ??= computeCoverage(
+      root,
+      configPath !== undefined ? primary.fileNames() : [],
+      discover(),
+      repoTsconfigsList(),
+      repoFilesList(),
+      ignored(),
+    ));
 
   // Repo tsconfigs found on disk MINUS the loaded set (primary + the adjacent/`references`
   // siblings `discover()` returns) — the UNDISCOVERED programs. Cached once (the repo walk is the
@@ -189,22 +205,14 @@ export function createTsProjectHost(
   const undiscoveredLabels = (): readonly string[] => {
     if (undiscoveredMemo === undefined) {
       if (undiscoveredBase === undefined) {
-        // Subtract a DISCOVERED config from the floor ONLY when it actually COVERS its search surface
-        // (`coveredConfigPaths`, SYNTACTIC — no LS build, keeps siblings lazy §9): it resolves ≥1 file
-        // or is a `references` hub, AND — for a workspace MEMBER — every git-tracked TS-source file
-        // under its package dir lands in the union of the loaded programs' file-sets. A member that
-        // covers NONE, or covers SOME but strays others (an uncovered `lib/foo.ts` no program globs),
-        // is kept floored (complete:false) — never a claimed-complete result over a git-tracked file
-        // no program searches (§3.4 the one honest→lying direction). `primary.fileNames()` supplies
-        // the primary's §10-filtered set without warming it.
-        const loaded = coveredConfigPaths(
-          root,
-          primary.fileNames(),
-          discover(),
-          repoTsconfigsList(),
-          repoFilesList(),
-          ignored(),
-        );
+        // Subtract a config from the floor via the CORRECT-RESOLUTION coverage proof (`computeCoverage`,
+        // SYNTACTIC — no LS build, keeps siblings lazy §9): any tsconfig whose entire glob ⊆ the union
+        // of REAL-config programs' file-sets + injected member strays (a redundant base/extends config
+        // like `tsconfig.base.json`, or a member whose src + injected strays cover its whole dir). The
+        // no-config fallback glob is EXCLUDED from that union, so a fallback-only file (aliases never
+        // resolved) never subtracts its config — kept floored (complete:false), the §3.4 honest→lying
+        // direction closed on ANY repo, not by claude-ui coincidence.
+        const loaded = new Set(coverage().safe);
         if (configPath !== undefined) loaded.add(toPosix(configPath)); // the primary is always built
         undiscoveredBase = repoTsconfigsList().filter((abs) => !loaded.has(abs));
       }
@@ -254,8 +262,18 @@ export function createTsProjectHost(
   let siblings: SingleProgram[] | undefined;
   const built = (): readonly SingleProgram[] => {
     if (siblings === undefined) {
+      // Inject each workspace member's git-tracked strays into ITS program (t-232769) so they compile
+      // under the member's own compilerOptions → correct alias resolution. A non-member sibling gets [].
+      const strays = coverage().memberStrays;
       siblings = discover().map((c) =>
-        createSingleProgram(root, c.path, c.label, registry, ignored),
+        createSingleProgram(
+          root,
+          c.path,
+          c.label,
+          registry,
+          ignored,
+          strays.get(toPosix(c.path)) ?? [],
+        ),
       );
     }
     return [primary, ...siblings];
@@ -316,15 +334,34 @@ export function createTsProjectHost(
       // basename scan of the (small) changed set, NEVER a repo re-walk per reindex (the §19 ls-host
       // per-call-tree-scan hang class). The actual re-walk (walkRepoFiles) then happens LAZILY on the
       // next undiscoveredProgramLabels()/discover() call — i.e. only when a tsconfig changed. The
-      // shared `repoFiles` walk also feeds member file-level coverage (`coveredConfigPaths`); it is
-      // dropped here at the same structural cadence. (A NON-tsconfig source-file add that creates a
-      // NEW stray under an already-covered member — flipping it from subtracted to floored — is not
-      // reflected until a structural change or restart; the pre-existing undiscovered-memo cadence,
-      // over-precise-floor residual, tracked in the backlog. Over-floor lifts the same way.)
-      if (changed.some(isStructuralConfigChange)) {
+      // shared `repoFiles` walk also feeds member coverage + stray injection (`computeCoverage`); it is
+      // dropped here at the same structural cadence. Beyond a tsconfig change, a NEW git-tracked TS file
+      // UNDER A MEMBER DIR may add a stray the member must inject (the stray set is source-derived, not
+      // tsconfig-derived) — else a warm daemon MISSES that usage AND reports `complete` (a §3.4/§3.5
+      // lie, not mere over-floor). So also refresh on `addsMemberStray`: a changed TS path under a
+      // member dir NOT yet tracked by any built program (a genuine add, not an edit — an edit stays
+      // cheap). Bounded: changed × members × built-programs, only when coverage already ran (a memo to
+      // refresh); member dirs come from the CACHED tsconfig list (no new walk).
+      const addsMemberStray = (): boolean => {
+        if (coverageMemo === undefined || repoTsconfigs === undefined) return false;
+        const memberDirs = workspaceMemberConfigs(root, repoTsconfigs).map((c) =>
+          path.posix.dirname(relLabel(root, c)),
+        );
+        if (memberDirs.length === 0) return false;
+        const built = builtSoFar();
+        return changed.some((rel) => {
+          if (!/\.(ts|tsx|cts|mts)$/.test(rel)) return false;
+          const posix = toPosix(rel);
+          if (!memberDirs.some((d) => posix === d || posix.startsWith(`${d}/`))) return false;
+          const abs = toPosix(path.join(root, rel));
+          return built.every((program) => !program.isTracked(abs)); // untracked → a genuine ADD
+        });
+      };
+      if (changed.some(isStructuralConfigChange) || addsMemberStray()) {
         repoFiles = undefined;
         repoTsconfigs = undefined;
         discovered = undefined;
+        coverageMemo = undefined;
         undiscoveredBase = undefined;
         undiscoveredMemo = undefined;
         // Dispose already-built siblings before dropping them: the set they were built from may no

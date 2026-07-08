@@ -47,3 +47,13 @@ export function hasIgnoredDirSegment(posixPath: string): boolean {
   }
   return false;
 }
+
+/** The composed §10 junk predicate over a REPO-RELATIVE posix path: a name-based ignored dir segment
+ *  OR a member of the project's git-ignored set. The single source of truth for "is this git-tracked
+ *  path project junk", shared by the TS program file-set (`single.ts`) and the undiscovered-floor
+ *  coverage/stray pass (`program/coverage.ts`) so the two can never drift — a drift would make coverage
+ *  count a file the program excludes (phantom coverage) or vice-versa (phantom strays). The
+ *  `/node_modules/` pre-filter callers apply on the ABSOLUTE path is orthogonal and stays local. */
+export function isJunkRelPath(rel: string, gitIgnored: ReadonlySet<string>): boolean {
+  return hasIgnoredDirSegment(rel) || gitIgnored.has(rel);
+}
