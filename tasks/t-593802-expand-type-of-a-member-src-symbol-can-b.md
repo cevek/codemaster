@@ -1,7 +1,7 @@
 ---
 id: t-593802
 title: expand_type of a member src symbol can be polluted via the FALLBACK primary in a no-root repo (whole-repo glob under wrong options pulls in an augmentation stray)
-status: backlog
+status: done
 priority: low
 depends_on:
   - t-608842
