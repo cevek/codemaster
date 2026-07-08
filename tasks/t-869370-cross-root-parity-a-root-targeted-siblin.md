@@ -1,7 +1,7 @@
 ---
 id: t-869370
 title: 'Cross-root parity: a root:-targeted sibling repo loads ITS OWN tsconfigs (t-000073 ask 3)'
-status: backlog
+status: in-progress
 priority: medium
 depends_on:
   - t-000073

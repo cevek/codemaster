@@ -1,7 +1,7 @@
 ---
 id: t-304222
 title: Op to find exhaustive `switch`/if-chains discriminating on a union type T — incl. scrutinees reached via property access (find_usages-on-the-name structurally under-covers)
-status: backlog
+status: in-progress
 priority: medium
 type: feat
 complexity: L
