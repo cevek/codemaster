@@ -175,6 +175,16 @@ function expandMembers(
   const props = apparent.getProperties();
   if (props.length === 0) return undefined;
   const ownDecls = new Set(type.getSymbol()?.declarations ?? []);
+  // `inherited` is meaningful ONLY when the type actually pulls foreign members in via a heritage
+  // clause (class `extends`/`implements`, interface `extends`) — that is the sole way a member's
+  // decl lands OUTSIDE the type's own decl nodes. A type WITHOUT heritage cannot inherit: a
+  // mapped/utility result (`Pick`/`Omit`/`Partial`/`Required` — own decl is the lib `MappedType`
+  // node, members synthesized from the source interface) or an intersection (`A & B` — no declaring
+  // symbol) would otherwise flag EVERY member inherited, since the synthesized member decls sit in
+  // the source type, not the mapped/intersection node — a claim we cannot prove (§3). So gate the
+  // flag on heritage; without it every member is own (base-class + namespace-merge stay correct —
+  // the former HAS heritage, the latter's members are lexically contained regardless).
+  const canFlagInherited = hasHeritageClause(ownDecls);
   const shown = props.slice(0, memberLimit);
   if (props.length > shown.length) {
     // Top-level cap → structured (the op lifts it onto `Result.truncated`); nested cap → soft note
@@ -191,7 +201,7 @@ function expandMembers(
       // `?` already implies undefined — strip the redundant arm (non-EOPT only; see caller).
       type: stripOptionalUndefined(typeStr(checker, propType), optional && stripOptUndefined),
     };
-    if (isInherited(prop, ownDecls)) member.inherited = true;
+    if (canFlagInherited && isInherited(prop, ownDecls)) member.inherited = true;
     if (depth > 1 && isAnonymousObject(propType) && !seen.has(propType)) {
       seen.add(propType);
       const nested = expandMembers(
@@ -226,6 +236,19 @@ function enumMembers(checker: ts.TypeChecker, enumSymbol: ts.Symbol, node: ts.No
     });
   });
   return out;
+}
+
+/** True when any of the type's own declarations is a class/interface carrying a heritage clause
+ *  (`extends` / `implements`) — the only shape that can bring a member in from OUTSIDE the type's
+ *  own decl nodes, so the only shape for which the `inherited` containment test is meaningful. A
+ *  mapped/utility/intersection type has none, so its synthesized members are all own (§3). */
+function hasHeritageClause(ownDecls: ReadonlySet<ts.Declaration>): boolean {
+  for (const d of ownDecls) {
+    if ((ts.isClassLike(d) || ts.isInterfaceDeclaration(d)) && d.heritageClauses !== undefined) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** A member is inherited when NONE of its declarations sit lexically inside one of the queried

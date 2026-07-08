@@ -17,7 +17,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import { matchesPathFilter } from '../common/glob/path-filter.ts';
+import { passesPathFilter } from '../common/glob/path-filter.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageOptions } from '../plugins/ts/query-types.ts';
 import { omitGroupSite } from '../plugins/ts/group-row.ts';
@@ -46,8 +46,11 @@ const argsSchema = z
     kind: z.string().optional(),
     /** Keep only exported dependents (a view). */
     exportedOnly: z.boolean().optional(),
-    pathInclude: z.array(z.string()).optional(),
-    pathExclude: z.array(z.string()).optional(),
+    // `.min(1)`: an empty array is a meaningless intent that would silently drop every dependent —
+    // reject it fast (parity with search_symbol / find_usages) rather than read as an empty blast
+    // radius. `passesPathFilter` still treats empty as include-all as a defensive backstop.
+    pathInclude: z.array(z.string()).min(1).optional(),
+    pathExclude: z.array(z.string()).min(1).optional(),
     /** Counts-per-depth only — gauge the blast radius without the node list. */
     summary: z.boolean().optional(),
   })
@@ -60,9 +63,8 @@ type ImpactArgs = z.infer<typeof argsSchema>;
 function passesFilter(row: GroupRow, args: ImpactArgs): boolean {
   if (args.kind !== undefined && row.kind !== args.kind) return false;
   if (args.exportedOnly === true && !row.exported) return false;
-  if (args.pathInclude !== undefined && !matchesPathFilter(row.file, args.pathInclude))
+  if (!passesPathFilter(row.file, { pathInclude: args.pathInclude, pathExclude: args.pathExclude }))
     return false;
-  if (args.pathExclude !== undefined && matchesPathFilter(row.file, args.pathExclude)) return false;
   return true;
 }
 

@@ -5,7 +5,7 @@
 // vs shown so a cap never reads as completeness (§3.4).
 
 import type ts from 'typescript';
-import { matchesPathFilter } from '../../common/glob/path-filter.ts';
+import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import type { SymbolView } from './query-types.ts';
@@ -72,9 +72,7 @@ export function searchSymbols(
       // observable (an empty `matches` with `filteredOutByPath > 0` is a filter miss, not absence).
       seen.add(key);
       const rel = host.relOf(item.fileName);
-      const droppedByPath =
-        (exclude !== undefined && matchesPathFilter(rel, exclude)) ||
-        (include !== undefined && !matchesPathFilter(rel, include));
+      const droppedByPath = !passesPathFilter(rel, { pathInclude: include, pathExclude: exclude });
       if (droppedByPath) {
         filteredOutByPath++;
         continue;

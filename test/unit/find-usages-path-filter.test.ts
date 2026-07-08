@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, type TestProject } from '../helpers/project.ts';
+import { findUsagesOp } from '../../src/ops/find-usages.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 const FILES = {
@@ -49,6 +50,29 @@ test('bare-dir pathExclude on find_usages now filters (was a silent no-op — th
   } finally {
     await p.dispose();
   }
+});
+
+test('t-051337: empty pathInclude/pathExclude array is rejected by the schema (no silent zero usages)', () => {
+  // Before: `find_usages`' filter arrays lacked `.min(1)` (search_symbol/list HAD it), and the raw
+  // per-site gate treated a defined-empty `pathInclude:[]` as EXCLUDE-EVERYTHING (matchesAnyGlob(f,
+  // []) === false → every ref dropped) → `usages:[]` read as "no usages" — a latent silent lie.
+  // Now `.min(1)` fails the meaningless-empty intent fast, parity with search_symbol.
+  assert.equal(
+    findUsagesOp.argsSchema.safeParse({ name: 'X', filter: { pathInclude: [] } }).success,
+    false,
+    'empty pathInclude rejected',
+  );
+  assert.equal(
+    findUsagesOp.argsSchema.safeParse({ name: 'X', filter: { pathExclude: [] } }).success,
+    false,
+    'empty pathExclude rejected',
+  );
+  // A non-empty array (and an omitted filter) is accepted — the fix only rejects empty.
+  assert.equal(
+    findUsagesOp.argsSchema.safeParse({ name: 'X', filter: { pathInclude: ['src/**'] } }).success,
+    true,
+  );
+  assert.equal(findUsagesOp.argsSchema.safeParse({ name: 'X' }).success, true);
 });
 
 test('literal special-char dir works as a find_usages path filter (t-310874)', async () => {

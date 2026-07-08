@@ -53,8 +53,12 @@ const argsSchema = z
     groupBy: z.literal('enclosing').optional(),
     filter: z
       .strictObject({
-        pathExclude: z.array(z.string()).optional(),
-        pathInclude: z.array(z.string()).optional(),
+        // `.min(1)`: an empty array is a meaningless intent (it would silently narrow to nothing),
+        // so it fails fast with a pointed error rather than reading as "no usages" — parity with
+        // search_symbol. The shared `passesPathFilter` still treats an empty array as include-all
+        // as a defensive backstop for any non-op caller.
+        pathExclude: z.array(z.string()).min(1).optional(),
+        pathInclude: z.array(z.string()).min(1).optional(),
         /** Encloser kind, grouped mode: function | method | class | const | variable | module. */
         kind: z.string().optional(),
         /** Grouped mode: only exported enclosers. */

@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
+import { impactOp } from '../../src/ops/impact.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 type GroupRow = { id: string; name: string; file: string; roles: string };
@@ -231,6 +232,16 @@ test('filters are a VIEW over the COMPLETE closure — never prune the transitiv
   } finally {
     await p.dispose();
   }
+});
+
+test('t-051337: empty pathInclude/pathExclude array is rejected (no silent empty blast radius)', () => {
+  // Same latent class as find_usages: impact's filter arrays lacked `.min(1)` and the raw gate
+  // treated a defined-empty array as EXCLUDE-EVERYTHING → an empty view read as "nothing depends on
+  // it". `.min(1)` rejects the meaningless intent; `passesPathFilter` treats empty as include-all.
+  assert.equal(impactOp.argsSchema.safeParse({ name: 'X', pathInclude: [] }).success, false);
+  assert.equal(impactOp.argsSchema.safeParse({ name: 'X', pathExclude: [] }).success, false);
+  assert.equal(impactOp.argsSchema.safeParse({ name: 'X', pathInclude: ['src/**'] }).success, true);
+  assert.equal(impactOp.argsSchema.safeParse({ name: 'X' }).success, true);
 });
 
 test('impact expands THROUGH a top-level value binding to its own dependents (no dead-end)', async () => {

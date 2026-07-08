@@ -26,7 +26,9 @@ export function matchesPathFilter(path: string, globs: readonly string[]): boole
  *  the raw matcher) keeps the bare-dir/special-char handling identical across every filtered op. */
 export function passesPathFilter(
   path: string,
-  filter: { pathInclude?: readonly string[]; pathExclude?: readonly string[] } | undefined,
+  filter:
+    | { pathInclude?: readonly string[] | undefined; pathExclude?: readonly string[] | undefined }
+    | undefined,
 ): boolean {
   const inc = filter?.pathInclude;
   const exc = filter?.pathExclude;
