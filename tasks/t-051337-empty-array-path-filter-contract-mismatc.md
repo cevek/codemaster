@@ -1,7 +1,7 @@
 ---
 id: t-051337
 title: 'Empty-array path-filter contract mismatch: usages.ts/search.ts treat pathInclude:[] as EXCLUDE-ALL (no length guard) while passesPathFilter treats it INCLUDE-ALL; find_usages schema lacks .min(1) so {filter:{pathInclude:[]}} silently returns ZERO usages'
-status: backlog
+status: in-progress
 priority: medium
 type: bug
 complexity: S

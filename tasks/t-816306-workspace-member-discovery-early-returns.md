@@ -1,7 +1,7 @@
 ---
 id: t-816306
 title: Workspace-member discovery early-returns when there is NO root tsconfig.json (fallback primary) — claude-ui (the headline repo) is STILL fully floored despite t-000073
-status: backlog
+status: in-progress
 priority: high
 type: bug
 complexity: M
