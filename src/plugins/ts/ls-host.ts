@@ -158,12 +158,11 @@ export function createTsProjectHost(
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
   // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
   // lazy step deferred to the first cross-program read.
-  // The repo-wide `tsconfig*.json` walk — the §19-bounded part — computed ONCE and shared by BOTH
-  // sibling discovery (source 2, workspace members) AND the undiscovered base below, so there is a
-  // single repo walk per host lifetime, never one per consumer. Invalidated with the other memos on
-  // a tsconfig/workspace-manifest change (the reindex block).
-  // ONE repo walk per host lifetime, shared by the tsconfig scan AND member file-level coverage
-  // (`coveredConfigPaths`) — invalidated with the tsconfig memos on a structural change below.
+  // ONE repo walk (`walkRepoFiles`, all source files) per host lifetime, the §19-bounded part shared
+  // by THREE consumers: the tsconfig scan (`repoTsconfigsFrom` filters it → the undiscovered base +
+  // source-2 workspace-member discovery) AND member file-level coverage (`coveredConfigPaths`). So
+  // there is a single repo walk per host, never one per consumer — invalidated with the tsconfig
+  // memos on a structural tsconfig/workspace-manifest change (the reindex block below).
   let repoFiles: string[] | undefined;
   const repoFilesList = (): string[] => (repoFiles ??= walkRepoFiles(root));
   let repoTsconfigs: string[] | undefined;

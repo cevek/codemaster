@@ -11,7 +11,12 @@
 //   (c) a Vite-style member (`tsconfig.json` = references hub + `tsconfig.app.json` holds the files):
 //       the member config is picked up by dir-match, not just its plain `tsconfig.json`;
 //   (d) SLURP GUARD: a decoy `tsconfig.json` under a glob-matched path but WITHOUT a `package.json`
-//       is NOT a member and is NOT loaded (membership is package.json-anchored, not dir-glob alone).
+//       is NOT a member and is NOT loaded (membership is package.json-anchored, not dir-glob alone);
+//   (e) no workspace declaration → discovery is a NO-OP (no over-discovery of nested configs);
+//   (f) COVERAGE FLOOR: a zero-coverage member (empty `include`, no refs) is NOT subtracted → a
+//       primary export used only from its uncovered stray file stays `partial`, not certain-dead;
+//   (g) PRECISE FLOOR: a PARTIAL-coverage member (covers src, STRAYS `lib/foo.ts` in no program)
+//       stays floored — the narrow §3.4 residual t-851482 closes.
 //
 // The independent oracle is a fresh-from-cold `ts.LanguageService` over the MEMBER's own tsconfig
 // (a DIFFERENT program than the warm daemon's primary) — so a cross-program drift would surface.
@@ -204,7 +209,7 @@ test('(f) COVERAGE FLOOR: an empty-`include`, no-`references` member covers NOTH
   // either. So `packages/orphan/src/o.ts` — which imports `thing` from the primary — lives in NO
   // program. Subtracting the member config from the undiscovered floor (the pre-fix behaviour) would
   // flip complete → `certain`-dead for `thing`, a §3.4 completeness LIE. The coverage-proof keeps the
-  // member FLOORED: `configCoversFiles` is false (no files, no references), so it is NOT subtracted.
+  // member FLOORED: `coveredConfigPaths` sees no files and no references, so it is NOT subtracted.
   const p: TestProject = await project({
     'pnpm-workspace.yaml': "packages:\n  - 'packages/*'\n",
     'package.json': '{"name":"root","private":true}',
@@ -252,8 +257,8 @@ test('(f) COVERAGE FLOOR: an empty-`include`, no-`references` member covers NOTH
 
 test('(g) PARTIAL-COVERAGE member: covers src but STRAYS lib/foo.ts (in no program) → stays floored; the primary export is NOT reported certain-dead', async () => {
   // The precise-floor residual (t-851482): a workspace MEMBER whose tsconfig covers SOME of its files
-  // (`include:["src"]` → src/x.ts, so its parsed glob resolves ≥1 file — the OLD `configCoversFiles`
-  // gate is TRUE) but STRAYS others. `packages/pkg/lib/foo.ts` is globbed by NO program: the member's
+  // (`include:["src"]` → src/x.ts, so its parsed glob resolves ≥1 file — the coarse resolves-≥1-file
+  // gate would subtract it) but STRAYS others. `packages/pkg/lib/foo.ts` is globbed by NO program: the member's
   // `include:["src"]` reaches packages/pkg/src only, the primary's `include:["src"]` reaches the root
   // src only. lib/foo.ts imports `thing` from the primary. Pre-fix the member was SUBTRACTED (it
   // resolves ≥1 file) → `thing` read `certain`-dead and find_usages claimed complete, MISSING the
@@ -265,7 +270,7 @@ test('(g) PARTIAL-COVERAGE member: covers src but STRAYS lib/foo.ts (in no progr
     'tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`, // globs the root src only
     'src/lib.ts': 'export const thing = 1;\n',
     'packages/pkg/package.json': '{"name":"pkg"}',
-    // configCoversFiles is TRUE (resolves src/x.ts), but the include does NOT reach lib/.
+    // Resolves src/x.ts (covers ≥1 file), but the include does NOT reach lib/.
     'packages/pkg/tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`,
     'packages/pkg/src/x.ts': 'export const y = 1;\n',
     // The STRAY: under the member dir, globbed by no program, and it USES `thing`.

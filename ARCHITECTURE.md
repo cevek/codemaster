@@ -369,10 +369,14 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   resolves ≥1 file or it is a `references` hub, AND every git-tracked TS-source file physically under
   its package dir lands in the UNION of the loaded programs' file-sets; a member covering nothing, or
   covering SOME of its files but STRAYING others (an uncovered `lib/foo.ts` no program globs), stays
-  floored — never a claimed-complete result over a git-tracked file no program searches (§3.4). The
-  discriminator is git-tracked-ness (the source surface), not tsconfig-membership: a gitignored file is
-  OUT of scope (never a stray). Coverage is a §19-bounded SYNTACTIC pass (parsed file-sets +
-  `primary.fileNames()`, no LS warm) over the shared repo walk, run once per undiscovered memo. A
+  floored — never a claimed-complete result over a file no program searches (§3.4). The discriminator
+  is the **§10 source surface** (the name-ignore set ∪ the project's own git-ignore), NOT
+  tsconfig-membership: a file the project itself declares junk (gitignored, or under
+  `node_modules`/`dist`/…) is OUT of scope and never a stray, while a git-tracked source file merely
+  absent from every tsconfig is IN the surface → floored. Required-walk and coverage-union apply the
+  SAME §10 filter (symmetric with what the programs actually contain — no phantom strays). Coverage is
+  a §19-bounded SYNTACTIC pass (parsed file-sets + `primary.fileNames()`, no LS warm) over the shared
+  repo walk, run once per undiscovered memo. A
   nested-package config reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
   otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level
