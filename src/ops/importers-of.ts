@@ -11,6 +11,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 /** §3.4 FLOOR (mirrors `affected` / `find_usages`): repo tsconfigs NOT scanned make the importer
  *  list a LOWER BOUND. Returns the set-level machine-readable verdict (`complete:false` + the named
@@ -97,7 +98,11 @@ const DEFAULT_LIMIT = 200;
  *  (mode/safe/blockers/complete/counts) + `note` are emitted BEFORE the bulk row arrays, so the §12
  *  char-cap can only trim re-fetchable rows, never the verdict. `blockers` counts distinct external
  *  FILES off the full set (not the capped/`shown` slice), so a truncated list still reports it true. */
-function subtreeResult(view: ImportersView, limit: number): Result<JsonValue> {
+function subtreeResult(
+  view: ImportersView,
+  limit: number,
+  lever: { fields: Record<string, JsonValue>; notes: string[] },
+): Result<JsonValue> {
   const external = view.external ?? [];
   const internal = view.internal ?? [];
   const unconfirmed = view.unconfirmed ?? [];
@@ -116,24 +121,27 @@ function subtreeResult(view: ImportersView, limit: number): Result<JsonValue> {
         }
       : undefined;
 
+  const baseNote = subtreeNote(
+    safe,
+    blockers,
+    complete,
+    unconfirmed.length,
+    undiscovered,
+    internal.length,
+  );
   return ok(
     {
       mode: 'subtree',
       subtree: view.subtree ?? view.module,
+      // `programs:` verdict-first (§12) — what the lever loaded / left floored precedes the row bulk.
+      ...lever.fields,
       safe,
       blockers,
       complete,
       internalCount: internal.length,
       unconfirmedCount: unconfirmed.length,
       ...(undiscovered.length > 0 ? { undiscoveredPrograms: undiscovered } : {}),
-      note: subtreeNote(
-        safe,
-        blockers,
-        complete,
-        unconfirmed.length,
-        undiscovered,
-        internal.length,
-      ),
+      note: [baseNote, ...lever.notes].join(' '),
       // `internal`/`unconfirmed` rows are capped too, but the `Truncation` envelope points only at
       // `external` (the blocker list). The full counts (`internalCount`/`unconfirmedCount`) carry the
       // truth, so a capped array is never silently complete; neither list feeds the safety verdict.
@@ -183,6 +191,7 @@ const argsSchema = z.strictObject({
   module: z.string().min(1),
   /** Max importer rows to list (default 200); overflow is reported as truncation, never silent. */
   limit: z.number().int().positive().optional(),
+  ...programsArgShape,
 });
 
 export const importersOfOp = defineOp({
@@ -193,7 +202,7 @@ export const importersOfOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint:
-    "{ module: string, limit?: number } — a file (module mode) OR a directory (subtree mode: 'who imports under this folder')",
+    "{ module: string, limit?: number, programs?: string[] (extra tsconfig paths to load, to widen the importer search over an undiscovered nested config) } — a file (module mode) OR a directory (subtree mode: 'who imports under this folder')",
   intake: { aliases: { path: 'module', file: 'module' } },
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
@@ -205,9 +214,12 @@ export const importersOfOp = defineOp({
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
+      // Widen the search first (t-228533) — a `programs:`-loaded config joins the fan-out + drops from
+      // the floor BEFORE `importersOf` reads it, so an importer only under a nested config is found.
+      const lever = applyProgramsLever(ts, args.programs);
       const view = ts.importersOf(args.module);
       if (view.mode === 'subtree') {
-        return subtreeResult(view, ctx.tableRowBound ?? args.limit ?? DEFAULT_LIMIT);
+        return subtreeResult(view, ctx.tableRowBound ?? args.limit ?? DEFAULT_LIMIT, lever);
       }
       const floor = importersFloor(view);
       if (view.total === 0) {
@@ -215,12 +227,15 @@ export const importersOfOp = defineOp({
         // not proof. Lead with the `!!` floor note + the machine-readable verdict; otherwise keep
         // the plain "check the specifier" hint.
         return ok({
+          ...lever.fields,
           ...floor.fields,
           module: view.module,
           importers: [],
-          note:
+          note: [
             floor.note ??
-            'no importers found — check the specifier (path or alias) against tsconfig',
+              'no importers found — check the specifier (path or alias) against tsconfig',
+            ...lever.notes,
+          ].join(' '),
         });
       }
       // sql-mode (§2.3/§11): a capped producer feeding a NOT IN / a positive WHERE lies. The engine
@@ -236,10 +251,12 @@ export const importersOfOp = defineOp({
               hint: 'raise limit, or scope by importing dir with sql (SELECT … WHERE file LIKE …)',
             }
           : undefined;
+      const moduleNotes = [...(floor.note !== undefined ? [floor.note] : []), ...lever.notes];
       return ok(
         {
+          ...lever.fields,
           ...floor.fields,
-          ...(floor.note !== undefined ? { notes: [floor.note] } : {}),
+          ...(moduleNotes.length > 0 ? { notes: moduleNotes } : {}),
           module: view.module,
           importers: shown.map((r) => tag('importer', r)),
           total: view.total,

@@ -15,6 +15,7 @@ import type {
   UsageOptions,
   UsagesView,
 } from './query-types.ts';
+import type { ProgramsLoadReport } from './program/explicit-load.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
 import type {
@@ -295,6 +296,13 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     options: DiscriminationSitesOptions,
   ): { view: DiscriminationSitesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** READ-PATH completeness lever (`programs:` arg, t-228533): load the named tsconfigs as extra
+   *  READ-only programs so a find_usages / importers_of / find_unused_exports call recovers a
+   *  complete count over an otherwise-UNDISCOVERED nested config, without editing the repo. The
+   *  covered-vs-floored verdict comes from the ONE correct-resolution coverage proof (a partial-
+   *  coverage config STAYS floored). Returns the three honest states (loaded / floored / notFound)
+   *  for disclosure. */
+  loadPrograms(paths: readonly string[]): ProgramsLoadReport;
   /** Which TypeScript drives the LS — reported through status (§5-L1 note). */
   readonly tsVersion: string;
 }

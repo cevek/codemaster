@@ -30,6 +30,7 @@ import {
   usagesFloor,
 } from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
 
@@ -51,6 +52,7 @@ const argsSchema = z
      *  index into `mergedDeclarations`). Only for a `name` target. */
     mergeDeclarations: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
+    ...programsArgShape,
     filter: z
       .strictObject({
         // `.min(1)`: an empty array is a meaningless intent (it would silently narrow to nothing),
@@ -77,7 +79,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?} }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
   intake: tsTargetIntake,
   example: {
     args: {
@@ -126,6 +128,11 @@ export const findUsagesOp = defineOp({
     const textRoot = ctx.daemon?.root;
     const textCap = sqlMode ? (ctx.tableRowBound ?? TEXT_ONLY_CAP) : TEXT_ONLY_CAP;
     try {
+      // Widen the search first (t-228533): a `programs:`-loaded config joins the cross-program fan-out
+      // AND drops from the undiscovered floor BEFORE the usages query reads either, so a usage only
+      // under an otherwise-undiscovered nested config is found and the LOWER-BOUND floor relaxes.
+      // Inside the try so a load throw yields an honest ts-ls failure (parity with the sibling ops).
+      const lever = applyProgramsLever(ts, args.programs);
       if (args.symbols !== undefined) {
         // Named once for the per-element absence hint (§3.4): a name that resolves to nothing while a
         // nested tsconfig is unloaded may live there, not be gone. Memoized on the host (§19).
@@ -208,7 +215,12 @@ export const findUsagesOp = defineOp({
             totalRows += tally.total;
           }
         }
-        const data = { targets, ...(unresolved.length > 0 ? { unresolved } : {}) };
+        const data = {
+          ...lever.fields,
+          ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
+          targets,
+          ...(unresolved.length > 0 ? { unresolved } : {}),
+        };
         // A capped producer (semantic OR text) feeding NOT IN lies (§2.3) — report the
         // aggregate so sql-batch marks the table partial.
         const truncated =
@@ -249,7 +261,10 @@ export const findUsagesOp = defineOp({
       // reads the incompleteness without parsing prose; the `!!` note leads `notes`.
       const floor = usagesFloor(view);
       if (floor.note !== undefined) notes.unshift(floor.note);
+      // `programs:` lever notes lead (before the floor note) — they explain WHY the floor did/not lift.
+      for (const n of [...lever.notes].reverse()) notes.unshift(n);
       const data: Record<string, JsonValue> = {
+        ...lever.fields,
         ...floor.fields,
         ...(view.definition !== undefined ? { definition: tag('symbol', view.definition) } : {}),
         ...(view.mergedDeclarations !== undefined

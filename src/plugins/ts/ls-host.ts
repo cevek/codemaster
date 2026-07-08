@@ -28,6 +28,11 @@ import {
   type DiscoveredConfig,
 } from './program/discover.ts';
 import { computeCoverage, type Coverage } from './program/coverage.ts';
+import {
+  createExplicitPrograms,
+  type ExplicitPrograms,
+  type ProgramsLoadReport,
+} from './program/explicit-load.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
 
@@ -94,6 +99,15 @@ export interface TsProjectHost {
    *  file-driven program never reaches the mutation/typecheck path and PRIMARY (the edit target) is
    *  never changed (§5-L2 loose-root mutation cousin = separate backlog item). */
   ensureProgramFor(absPosix: string): void;
+  /** READ-PATH completeness lever (`programs:` arg, t-228533): load the named tsconfigs as extra
+   *  READ-only programs so a query recovers a complete count over an otherwise-UNDISCOVERED nested
+   *  config, WITHOUT editing the repo. Each requested config is injected into the SAME
+   *  `computeCoverage` discovered set, so its covered-vs-floored verdict (and member-stray injection)
+   *  comes from the ONE correct-resolution proof — a partial-coverage config STAYS floored, never a
+   *  false lift. Kept OUT of `built()`/`builtContaining` so a read-time load never perturbs a later
+   *  mutation's edit-set (§5-L2). Idempotent, bounded (no repo walk), persisted for the warm session
+   *  (cleared on a structural tsconfig reindex). Returns the three honest states for disclosure. */
+  loadPrograms(paths: readonly string[]): ProgramsLoadReport;
   /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
    *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
    *  sibling-program dangle is caught. Builds the sibling programs (a write must verify them). */
@@ -183,7 +197,9 @@ export function createTsProjectHost(
     (coverageMemo ??= computeCoverage(
       root,
       configPath !== undefined ? primary.fileNames() : [],
-      discover(),
+      // Discovery ∪ the `programs:`-requested configs, so an explicit config's files enter the
+      // correct-resolution union and its subtraction verdict falls out of the SAME machinery.
+      explicit.discoveredForCoverage(),
       repoTsconfigsList(),
       repoFilesList(),
       ignored(),
@@ -217,10 +233,18 @@ export function createTsProjectHost(
         undiscoveredBase = repoTsconfigsList().filter((abs) => !loaded.has(abs));
       }
       // Subtract the file-driven nested-config programs we DID load (§5-L2 read-path completeness):
-      // a config fix-A loaded IS searched, so reporting it undiscovered would over-demote (a false
+      // a config a read loaded IS searched, so reporting it undiscovered would over-demote (a false
       // LOWER-BOUND on an answer we can prove complete). Cheap filter; the repo walk stays cached.
+      // EXCEPTION — a config the agent NAMED via `programs:` is decided by the CORRECT-RESOLUTION
+      // coverage proof above (in `loaded`/`safe` or not), NEVER lifted by this looser file-driven
+      // membership: the two paths can otherwise disagree on ONE config (a `programs:`-named config
+      // that is ALSO the target's nearest config loads into both maps; a malformed/empty-glob one is
+      // floored by coverage yet `fileDriven.has` would subtract it — a self-contradictory floor
+      // verdict, the never-lie violation). So keep an explicitly-named config floored here whenever
+      // coverage did not subtract it — the `programs:` disclosure (`programsFloored`) then agrees.
+      const explicitConfigs = explicit.configs();
       undiscoveredMemo = undiscoveredBase
-        .filter((abs) => !fileDriven.has(abs))
+        .filter((abs) => !fileDriven.has(abs) || explicitConfigs.has(abs))
         .map((abs) => relLabel(root, abs));
     }
     return undiscoveredMemo;
@@ -238,6 +262,7 @@ export function createTsProjectHost(
   // grows (the loose-root MUTATION cousin is a separate backlog item).
   const fileDriven = new Map<string, SingleProgram>(); // config posix path → its program
   const dirConfig = new Map<string, string | undefined>(); // file dir → nearest enclosing config (memo)
+
   const nearestConfig = (absPosix: string): string | undefined => {
     const dir = path.posix.dirname(absPosix);
     if (dirConfig.has(dir)) return dirConfig.get(dir);
@@ -252,12 +277,36 @@ export function createTsProjectHost(
     if (configPath !== undefined && config === toPosix(configPath)) return; // the primary itself
     if (fileDriven.has(config)) return; // already loaded
     if (discover().some((c) => toPosix(c.path) === config)) return; // an already-discovered sibling
+    if (explicit.configs().has(config)) return; // already loaded as a `programs:` explicit program
     fileDriven.set(
       config,
       createSingleProgram(root, config, relLabel(root, config), registry, ignored),
     );
     undiscoveredMemo = undefined; // the loaded config drops out of the undiscovered set
   };
+
+  // The `programs:` per-call lever (t-228533) — its whole state + logic lives in `./program/explicit-load`
+  // so this file stays thin. The requested configs are injected into the SAME `computeCoverage`
+  // discovered set (correct-resolution verdict, no second gate) and built as READ-only extra programs
+  // for the search fan-out — deliberately OUT of `built()`/`builtContaining` (session-order-independent
+  // writes, §5-L2). Created here (after the coverage/floor memo closures it wires into, which reference
+  // it back only inside their bodies — resolved by first-call time). `buildProgram` mints a read-only
+  // program with the member strays coverage computed (t-232769 correct-resolution); `invalidateCoverage`
+  // drops the coverage + floor memos so a newly-injected config re-proves them.
+  const explicit: ExplicitPrograms = createExplicitPrograms({
+    root,
+    configPath,
+    discover,
+    coverage,
+    invalidateCoverage: () => {
+      coverageMemo = undefined;
+      undiscoveredBase = undefined;
+      undiscoveredMemo = undefined;
+    },
+    buildProgram: (config, strays) =>
+      createSingleProgram(root, config, relLabel(root, config), registry, ignored, strays),
+  });
+  const explicitPrograms = (): readonly SingleProgram[] => explicit.programs();
 
   let siblings: SingleProgram[] | undefined;
   const built = (): readonly SingleProgram[] => {
@@ -377,6 +426,10 @@ export function createTsProjectHost(
         dirConfig.clear();
         for (const program of fileDriven.values()) program.dispose();
         fileDriven.clear();
+        // The `programs:`-loaded explicit programs are keyed by config path too — a tsconfig
+        // add/remove/edit may move/delete one or change its glob. Drop them (the agent re-passes
+        // `programs:` on the next call if still wanted); coverage/floor already recompute above.
+        explicit.clear();
       }
       // Propagate to every BUILT program (each decides structural-ness against its OWN glob — a
       // new test file is structural for the test program, not the primary). Unbuilt siblings are
@@ -384,6 +437,7 @@ export function createTsProjectHost(
       // so a loaded nested program stays fresh (cold == warm across the read-path-loaded state).
       for (const program of builtSoFar()) program.reindex(changed);
       for (const program of fileDriven.values()) program.reindex(changed);
+      explicit.reindex(changed);
       hostVersion++;
     },
     projectVersion: () => hostVersion,
@@ -406,15 +460,19 @@ export function createTsProjectHost(
         }
       });
     },
-    programs: () => [...built(), ...fileDriven.values()],
+    programs: () => [...built(), ...fileDriven.values(), ...explicitPrograms()],
     ensureProgramFor,
+    loadPrograms: (paths) => explicit.load(paths),
     gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
     diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
     programsContaining(absPosix) {
       // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested
-      // program already loaded for this file. WRITE paths use `builtContaining` instead, so a
-      // file-driven program never enters the mutation/typecheck path.
-      return [...built(), ...fileDriven.values()].filter((p) => p.containsFile(absPosix));
+      // program AND any `programs:`-loaded explicit program that contains this file. WRITE paths use
+      // `builtContaining` instead, so neither a file-driven nor an explicit program ever enters the
+      // mutation/typecheck path (session-order-independent writes, §5-L2).
+      return [...built(), ...fileDriven.values(), ...explicitPrograms()].filter((p) =>
+        p.containsFile(absPosix),
+      );
     },
     builtContaining(absPosix) {
       return built().filter((p) => p.containsFile(absPosix));
@@ -425,7 +483,7 @@ export function createTsProjectHost(
       // every sibling tsconfig (§5-L2 "siblings warm lazily on the first cross-program read").
       const primarySf = primary.getProgram()?.getSourceFile(absPosix);
       if (primarySf !== undefined) return { sf: primarySf, program: primary };
-      for (const program of built()) {
+      for (const program of [...built(), ...explicitPrograms()]) {
         if (program === primary) continue;
         const sf = program.getProgram()?.getSourceFile(absPosix);
         if (sf !== undefined) return { sf, program };
@@ -437,6 +495,7 @@ export function createTsProjectHost(
     dispose() {
       for (const program of builtSoFar()) program.dispose();
       for (const program of fileDriven.values()) program.dispose();
+      explicit.clear();
     },
   };
 }

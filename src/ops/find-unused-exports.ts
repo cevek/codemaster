@@ -12,6 +12,7 @@ import type { Truncation } from '../core/result.ts';
 import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 /** Shown (as the first data field + an sql note) when a pathInclude/pathExclude matched no
  *  files: the scan examined nothing, so `unused (0)` is NOT proof that no exports are dead. */
@@ -68,6 +69,9 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
     // a re-derived string.
     const warn = (data as { filterMatchedNoFiles?: string }).filterMatchedNoFiles;
     if (warn !== undefined) out.push(warn);
+    // The `programs:` lever's disclosure (§3.6) — forwarded from the same data field the text render
+    // shows, so sql/table consumers see the floored/not-found configs too, never a re-derived string.
+    out.push(...((data as { notes?: string[] }).notes ?? []));
     return out;
   },
 };
@@ -82,8 +86,10 @@ export const findUnusedExportsOp = defineOp({
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
     limit: z.number().int().positive().optional(),
+    ...programsArgShape,
   }),
-  argsHint: '{ pathInclude?: string[], pathExclude?: string[], limit?: number }',
+  argsHint:
+    '{ pathInclude?: string[], pathExclude?: string[], limit?: number, programs?: string[] (extra tsconfig paths to load, to recover certain verdicts over an undiscovered nested config) }',
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
     'semantic, not textual: an aliased `import { X as Y }` (which text-grep would miss) still counts X as used, so X is never falsely reported.',
@@ -98,6 +104,11 @@ export const findUnusedExportsOp = defineOp({
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
+      // Widen the search first (t-228533): a `programs:`-loaded config is searched + subtracted from
+      // the undiscovered floor BEFORE `unusedExports` reads that floor, so a genuinely-dead export
+      // reads `certain` again over an otherwise-floored nested config. A partial-coverage config stays
+      // floored — disclosed, never a false lift.
+      const lever = applyProgramsLever(ts, args.programs);
       const view = ts.unusedExports({
         ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),
         ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
@@ -124,6 +135,10 @@ export const findUnusedExportsOp = defineOp({
       return ok(
         {
           ...(filterMatchedNoFiles !== undefined ? { filterMatchedNoFiles } : {}),
+          // `programs:` verdict-first (§12): what the lever loaded / left floored / couldn't find,
+          // ahead of the bulk `unused` list.
+          ...lever.fields,
+          ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
           unused: view.unused.map((u) => tag('unused-export', u)),
           scanned: { exports: view.scannedExports, files: view.scannedFiles },
           ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
