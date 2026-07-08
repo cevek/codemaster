@@ -1,7 +1,7 @@
 ---
 id: t-232769
 title: Git-tracked source outside EVERY tsconfig (e.g. package scripts/*.ts) is unsearched → keeps claude-ui at complete=false even after member discovery
-status: backlog
+status: in-progress
 priority: high
 type: imp
 complexity: L
