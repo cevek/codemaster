@@ -1,7 +1,7 @@
 ---
 id: t-754757
 title: expand_type on an INTERSECTION type (A & B) flags every member as (inherited) — getSymbol() undefined → empty ownDecls
-status: in-progress
+status: done
 priority: medium
 type: bug
 complexity: S
