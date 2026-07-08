@@ -17,6 +17,7 @@ import type { UsageOptions } from '../plugins/ts/query-types.ts';
 import { USAGE_ROLES } from '../plugins/ts/usage-roles.ts';
 import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
+import { withUndiscoveredHint } from './no-symbol-hint.ts';
 import { findUsagesTable } from './find-usages-table.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
 import {
@@ -122,6 +123,9 @@ export const findUsagesOp = defineOp({
     const textCap = sqlMode ? (ctx.tableRowBound ?? TEXT_ONLY_CAP) : TEXT_ONLY_CAP;
     try {
       if (args.symbols !== undefined) {
+        // Named once for the per-element absence hint (§3.4): a name that resolves to nothing while a
+        // nested tsconfig is unloaded may live there, not be gone. Memoized on the host (§19).
+        const undiscovered = ts.undiscoveredProgramLabels();
         const targets: Record<string, JsonValue>[] = [];
         // The bare name each target resolved to (aligned with `targets`), for the text overlay —
         // a SymbolId/position element scans under its RESOLVED name, never the raw addressing string.
@@ -136,7 +140,8 @@ export const findUsagesOp = defineOp({
           const fallbackName = element.name;
           const outcome = ts.findUsages(element, options);
           if (typeof outcome === 'string') {
-            unresolved.push(tag('unresolved-name', { name: sym, reason: outcome }));
+            const reason = withUndiscoveredHint(outcome, undiscovered);
+            unresolved.push(tag('unresolved-name', { name: sym, reason }));
             continue;
           }
           if ('unresolved' in outcome) {
@@ -211,7 +216,11 @@ export const findUsagesOp = defineOp({
       }
 
       const outcome = ts.findUsages(args, options);
-      if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
+      if (typeof outcome === 'string')
+        return fail({
+          tool: 'ts-ls',
+          message: withUndiscoveredHint(outcome, ts.undiscoveredProgramLabels()),
+        });
       if ('unresolved' in outcome) {
         // §6: the held handle's symbol is gone — state the structured `{status:'gone'}` on
         // `handle` (empty data), never a guessed rebind to an unrelated same-named symbol.

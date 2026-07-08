@@ -8,6 +8,7 @@ import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
+import { undiscoveredHint } from './no-symbol-hint.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
 /** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
@@ -90,7 +91,10 @@ export const searchSymbolOp = defineOp({
         const note =
           filteredOutByPath !== undefined && filteredOutByPath > 0
             ? `no matches under the path filter — ${filteredOutByPath} symbol(s) matched '${args.query}' but pathInclude/pathExclude excluded them all; check the path (a bare dir is auto-expanded to a prefix; a path with glob-special chars like ()@! may need escaping) — NOT a symbol absence`
-            : `no symbols matching '${args.query}'`;
+            : // §3.4: a genuine no-match, but a name declared only under an unloaded nested tsconfig
+              // would read the same — append the NAMED unloaded configs (empty on a clean single-repo).
+              `no symbols matching '${args.query}'` +
+              undiscoveredHint(ts.undiscoveredProgramLabels());
         return ok({ matches: [], note });
       }
       return ok(

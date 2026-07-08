@@ -5,6 +5,7 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
+import { withUndiscoveredHint } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetSchema, tsTargetIntake } from './ts-target.ts';
 
 export const findDefinitionOp = defineOp({
@@ -23,7 +24,11 @@ export const findDefinitionOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     try {
       const outcome = ts.findDefinition(args);
-      if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
+      if (typeof outcome === 'string')
+        return fail({
+          tool: 'ts-ls',
+          message: withUndiscoveredHint(outcome, ts.undiscoveredProgramLabels()),
+        });
       if ('unresolved' in outcome) {
         // §6: the held handle's symbol is gone — state it structurally on `handle`.
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
