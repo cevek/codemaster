@@ -85,7 +85,13 @@ export function findConstructionSites(
   offset: number,
   options: ConstructionSitesOptions,
 ): ConstructionSitesView | string {
-  const program = host.service.getProgram();
+  // The target-type resolution AND the assignability scan run in ONE program (assignability is
+  // invalid ACROSS program versions), routed to the type-authority for `abs`: in a no-root repo
+  // `host.service` is the fallback primary whose whole-repo glob pollutes the target type with
+  // augmentation strays (t-593802) — and its cross-package scan is unsound against that polluted
+  // type anyway. typeAuthorityFor returns the target's own-options program, so both the type and the
+  // (single-program, per the op's disclosed contract) scan are sound.
+  const program = host.typeAuthorityFor(abs).getProgram();
   if (program === undefined) return 'the TS program is unavailable';
   const checker = program.getTypeChecker();
   const targetFile = program.getSourceFile(abs);

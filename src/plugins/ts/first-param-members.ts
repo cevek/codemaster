@@ -46,7 +46,10 @@ export function firstParamTypeMembers(
   abs: string,
   offset: number,
 ): ParamTypeMembersView | undefined {
-  const program = host.service.getProgram();
+  // Route the checker to the type-authority for `abs`: in a no-root repo `host.service` is the
+  // fallback primary whose whole-repo glob pollutes the component's props type with augmentation
+  // strays (t-593802). typeAuthorityFor returns the member's own-options program.
+  const program = host.typeAuthorityFor(abs).getProgram();
   const sourceFile = program?.getSourceFile(abs);
   if (program === undefined || sourceFile === undefined) return undefined;
   const node = nodeAt(sourceFile, offset);

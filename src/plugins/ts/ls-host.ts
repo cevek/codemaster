@@ -28,6 +28,7 @@ import {
   type DiscoveredConfig,
 } from './program/discover.ts';
 import { computeCoverage, type Coverage } from './program/coverage.ts';
+import { findSourceFileAcross, pickTypeAuthority } from './program/type-authority.ts';
 import {
   createExplicitPrograms,
   type ExplicitPrograms,
@@ -131,6 +132,17 @@ export interface TsProjectHost {
   /** The first program (primary preferred) whose built program contains `absPosix`, with its
    *  source file — the cross-program resolution lookup (a test-declared symbol resolves too). */
   sourceFileAcross(absPosix: string): { sf: ts.SourceFile; program: TsProgram } | undefined;
+  /** The program whose checker answers a TYPE query for `absPosix` — the seam every type-PRODUCING
+   *  read routes through (expand_type, construction_sites, discrimination_sites, firstParamTypeMembers,
+   *  wideningSinksAt). Normally primary-first. But a no-config FALLBACK primary globs the WHOLE repo
+   *  under DEFAULT options, so its type-space wrongly absorbs a whole-repo `declare global`/`declare
+   *  module` augmentation stray → a MEMBER src symbol's type reads polluted (t-593802, never-lie §3);
+   *  there it routes to the DEEPEST-ENCLOSING real-config owner (member options resolve the file's
+   *  aliases + exclude the strays). The choice is a PURE function of `nearestConfig` over the
+   *  deterministic BUILT set (NOT the session-dependent file-driven/explicit programs) → cold==warm
+   *  (§16). Falls back to the primary-first lookup when no real-config program owns the file. NOT used
+   *  by the §2.8 planning-overlay type read (overlay-type.ts) — that stays on the primary by design. */
+  typeAuthorityFor(absPosix: string): TsProgram;
   /** Labels of every program codemaster will load for this repo (primary first), via cheap
    *  discovery WITHOUT building the sibling LS objects — for status self-describe. */
   programLabels(): readonly string[];
@@ -361,6 +373,11 @@ export function createTsProjectHost(
   // The fan-out gate context — `built()` materializes the siblings (a write must verify them).
   const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf });
 
+  // Shared by the `sourceFileAcross` method and `typeAuthorityFor`; the `extras` thunk keeps siblings
+  // lazy for a primary-resident target (§5-L2).
+  const sourceFileAcrossLocal = (absPosix: string) =>
+    findSourceFileAcross(absPosix, primary, () => [...built(), ...explicitPrograms()]);
+
   return {
     service: primary.service,
     configPath,
@@ -477,19 +494,15 @@ export function createTsProjectHost(
     builtContaining(absPosix) {
       return built().filter((p) => p.containsFile(absPosix));
     },
-    sourceFileAcross(absPosix) {
-      // Primary FIRST, and short-circuit before `built()` forces sibling construction — a
-      // primary-resident target (find_definition / expand_type / rename) must not eagerly glob
-      // every sibling tsconfig (§5-L2 "siblings warm lazily on the first cross-program read").
-      const primarySf = primary.getProgram()?.getSourceFile(absPosix);
-      if (primarySf !== undefined) return { sf: primarySf, program: primary };
-      for (const program of [...built(), ...explicitPrograms()]) {
-        if (program === primary) continue;
-        const sf = program.getProgram()?.getSourceFile(absPosix);
-        if (sf !== undefined) return { sf, program };
-      }
-      return undefined;
-    },
+    sourceFileAcross: sourceFileAcrossLocal,
+    typeAuthorityFor: (absPosix) =>
+      pickTypeAuthority(toPosix(absPosix), {
+        configPath,
+        primary,
+        built,
+        nearestConfig,
+        primaryFirst: (posix) => sourceFileAcrossLocal(posix)?.program,
+      }),
     programLabels: () => [primary.label, ...discover().map((c) => c.label)],
     undiscoveredProgramLabels: () => undiscoveredLabels(),
     dispose() {

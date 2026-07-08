@@ -19,9 +19,13 @@ export function expandTypeAt(
   offset: number,
   options: ExpandOptions = { depth: 1, memberLimit: 40 },
 ): TypeView | undefined {
-  const info = host.service.getQuickInfoAtPosition(abs, offset);
+  // Route the quick-info AND the checker to the type-authority program for `abs`: in a no-root repo
+  // `host.service` is the fallback primary, whose whole-repo glob pollutes a member src symbol's type
+  // with augmentation strays (t-593802). typeAuthorityFor returns the member's own-options program.
+  const authority = host.typeAuthorityFor(abs);
+  const info = authority.service.getQuickInfoAtPosition(abs, offset);
   if (info === undefined) return undefined;
-  const program = host.service.getProgram();
+  const program = authority.getProgram();
   const sourceFile = program?.getSourceFile(abs);
   const rel = host.relOf(abs);
   const doc = (info.documentation ?? [])

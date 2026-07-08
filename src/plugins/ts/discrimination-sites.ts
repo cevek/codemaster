@@ -87,7 +87,12 @@ export function findDiscriminationSites(
   offset: number,
   options: DiscriminationSitesOptions,
 ): DiscriminationSitesView | string {
-  const program = host.service.getProgram();
+  // Target union-type resolution + the discriminating-scrutinee scan run in ONE program routed to
+  // the type-authority for `abs` (t-593802): in a no-root repo `host.service` is the fallback primary
+  // whose whole-repo glob pollutes the union type with augmentation strays. typeAuthorityFor returns
+  // the target's own-options program — the union type is honest and the (single-program, per this op's
+  // disclosed contract) scan stays sound.
+  const program = host.typeAuthorityFor(abs).getProgram();
   if (program === undefined) return 'the TS program is unavailable';
   const checker = program.getTypeChecker();
   const targetFile = program.getSourceFile(abs);

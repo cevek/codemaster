@@ -53,12 +53,17 @@ export function collectWideningSinks(
   abs: string,
   offset: number,
 ): WideningSinksView | string {
-  const found = host.sourceFileAcross(abs);
-  if (found === undefined) return 'position is not in any loaded TS program';
-  const program = found.program.getProgram();
+  // One authority program for the checker, the node, AND the references — routed to the type-authority
+  // for `abs` so a no-root repo reads the value's type from the member's own-options program, not the
+  // fallback primary whose whole-repo glob pollutes it (t-593802). The node MUST come from this same
+  // program's source file (a node typed by a different program is unsound — cross-version checker).
+  const authority = host.typeAuthorityFor(abs);
+  const program = authority.getProgram();
   if (program === undefined) return 'no TS program for this position';
+  const sf = program.getSourceFile(abs);
+  if (sf === undefined) return 'position is not in any loaded TS program';
   const checker = program.getTypeChecker();
-  const node = nodeAt(found.sf, offset);
+  const node = nodeAt(sf, offset);
   if (node === undefined) return 'no node at the resolved position';
   const symbol = checker.getSymbolAtLocation(node);
   if (symbol === undefined) {
@@ -72,7 +77,7 @@ export function collectWideningSinks(
     typeText: typeStr(checker, srcType),
   };
 
-  const refs = found.program.service.getReferencesAtPosition(abs, offset) ?? [];
+  const refs = authority.service.getReferencesAtPosition(abs, offset) ?? [];
   const sinks: WideningSink[] = [];
   let examined = 0;
   let capped = false;
