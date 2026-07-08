@@ -1,7 +1,7 @@
 ---
 id: t-000073
 title: '**Sibling-tsconfig discovery is adjacent-dir + `references` only'
-status: in-progress
+status: done
 priority: high
 type: imp
 complexity: L
