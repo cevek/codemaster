@@ -11,13 +11,21 @@ import { typeAtNode } from './type-at-node.ts';
 import type { ExpandOptions, MemberView, TypeView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
-const MEMBER_TYPE_CAP = 200;
+/** Per-string length cap at the default verbosity. A signature/type longer than this is cut with
+ *  an explicit `… (elided)` marker (the checker's silent `...` would read as completeness, §3.4). */
+export const TYPE_CAP_DEFAULT = 200;
+/** The cap at `verbosity:'full'` — the per-item cap is LIFTED, but stays a large FINITE bound so the
+ *  honest per-item `(… elided)` marker always fires BEFORE the blunt §12 `RENDER_CHAR_CAP` (20k) on a
+ *  pathological type; a true Infinity would let one 50k-char item blow the outer cap and lose its
+ *  precise per-item marker — less honest, and unbounded output violates §1. Realistic types are
+ *  hundreds of chars, so `full` is effectively complete for every real type. */
+export const TYPE_CAP_FULL = 10_000;
 
 export function expandTypeAt(
   host: TsProjectHost,
   abs: string,
   offset: number,
-  options: ExpandOptions = { depth: 1, memberLimit: 40 },
+  options: ExpandOptions = { depth: 1, memberLimit: 40, typeCap: TYPE_CAP_DEFAULT },
 ): TypeView | undefined {
   // Route the quick-info AND the checker to the type-authority program for `abs`: in a no-root repo
   // `host.service` is the fallback primary, whose whole-repo glob pollutes a member src symbol's type
@@ -63,18 +71,19 @@ export function expandTypeAt(
   if (type === undefined) return base;
 
   const notes: string[] = [];
+  const cap = options.typeCap;
 
   // Enum BEFORE union: a non-const enum's declared type IS a union of its member literals,
   // so a union-first path would render arms instead of the named members (§3.3).
   const symbol = checker.getSymbolAtLocation(node);
   if (symbol !== undefined && (symbol.flags & ts.SymbolFlags.Enum) !== 0) {
-    return { ...base, members: enumMembers(checker, symbol, node) };
+    return { ...base, members: enumMembers(checker, symbol, node, cap) };
   }
 
   // Dispatch union / intersection BEFORE object-like: a union of objects HAS apparent
   // properties, so a getProperties-first path would merge them instead of listing arms.
   if (type.isUnion() || type.isIntersection()) {
-    const constituents = type.types.map((t) => typeStr(checker, t));
+    const constituents = type.types.map((t) => typeStr(checker, t, cap));
     // `about`/`type` (mutually exclusive) already carries the head; for a small union it shows
     // every arm VERBATIM, so `constituents` would repeat them (`ShapeTag`: 33 arms twice). Drop
     // it ONLY when the head is complete (not TS-truncated) AND literally contains each arm — a
@@ -92,7 +101,7 @@ export function expandTypeAt(
   // a 2-overload set yields 2, matching the `(+1 overload)` count.
   const callSigs = checker.getSignaturesOfType(type, ts.SignatureKind.Call);
   const signatures =
-    callSigs.length > 0 ? callSigs.map((s) => signatureStr(checker, s)) : undefined;
+    callSigs.length > 0 ? callSigs.map((s) => signatureStr(checker, s, cap)) : undefined;
 
   // Optional members inject ` | undefined` into their type — but `?` already implies it, so the
   // pair `id?: number | undefined` prints the undefined twice. Strip it on optional members,
@@ -113,6 +122,7 @@ export function expandTypeAt(
     stripOptUndefined,
     overflow,
     true,
+    cap,
   );
   if (members === undefined) {
     // A pure function / overload set has no object members — quick-info describes one signature;
@@ -153,11 +163,24 @@ function headOfCallable(about: string): string {
   return (paren > 0 ? about.slice(0, paren) : about).trim();
 }
 
-/** `signatureToString` with NoTruncation, then OUR explicit cap (the checker's silent `...` would
- *  read as completeness, §3.4) — the per-signature analogue of `typeStr`. */
-function signatureStr(checker: ts.TypeChecker, sig: ts.Signature): string {
-  const s = checker.signatureToString(sig, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > MEMBER_TYPE_CAP ? `${s.slice(0, MEMBER_TYPE_CAP)}… (signature elided)` : s;
+/** Cut `s` at `cap` with an explicit recovery marker (the checker's silent `...` would read as
+ *  completeness, §3.4 = {shown, total, hint}): report the FULL length and how to recover it —
+ *  `verbosity:full` lifts the cap; for a signature, `expand_type` on the param type also works. */
+function elide(s: string, cap: number, kind: 'signature' | 'type'): string {
+  if (s.length <= cap) return s;
+  const recover =
+    kind === 'signature' ? 'verbosity:full, or expand_type the param type' : 'verbosity:full';
+  return `${s.slice(0, cap)}… (${kind} elided: ${s.length} chars — ${recover})`;
+}
+
+/** `signatureToString` with NoTruncation, then OUR explicit cap — the per-signature analogue of
+ *  `typeStr` (see `elide`). */
+function signatureStr(checker: ts.TypeChecker, sig: ts.Signature, cap: number): string {
+  return elide(
+    checker.signatureToString(sig, undefined, ts.TypeFormatFlags.NoTruncation),
+    cap,
+    'signature',
+  );
 }
 
 /** Object-like members of `type`, or `undefined` when it has none to show (a function /
@@ -174,6 +197,7 @@ function expandMembers(
   stripOptUndefined: boolean,
   overflow: { members?: { shown: number; total: number } },
   top: boolean,
+  cap: number,
 ): MemberView[] | undefined {
   const apparent = checker.getApparentType(type);
   const props = apparent.getProperties();
@@ -203,7 +227,7 @@ function expandMembers(
       name: prop.getName(),
       optional,
       // `?` already implies undefined — strip the redundant arm (non-EOPT only; see caller).
-      type: stripOptionalUndefined(typeStr(checker, propType), optional && stripOptUndefined),
+      type: stripOptionalUndefined(typeStr(checker, propType, cap), optional && stripOptUndefined),
     };
     if (canFlagInherited && isInherited(prop, ownDecls)) member.inherited = true;
     if (depth > 1 && isAnonymousObject(propType) && !seen.has(propType)) {
@@ -219,6 +243,7 @@ function expandMembers(
         stripOptUndefined,
         overflow,
         false,
+        cap,
       );
       if (nested !== undefined) member.members = nested;
     } else if (depth === 1 && isAnonymousObject(propType)) {
@@ -230,13 +255,18 @@ function expandMembers(
 
 /** Enum members, in declaration order: each member's literal type (e.g. `Color.Red`).
  *  Not `optional` — an enum member always exists. */
-function enumMembers(checker: ts.TypeChecker, enumSymbol: ts.Symbol, node: ts.Node): MemberView[] {
+function enumMembers(
+  checker: ts.TypeChecker,
+  enumSymbol: ts.Symbol,
+  node: ts.Node,
+  cap: number,
+): MemberView[] {
   const out: MemberView[] = [];
   enumSymbol.exports?.forEach((member) => {
     out.push({
       name: member.getName(),
       optional: false,
-      type: typeStr(checker, checker.getTypeOfSymbolAtLocation(member, node)),
+      type: typeStr(checker, checker.getTypeOfSymbolAtLocation(member, node), cap),
     });
   });
   return out;
@@ -293,9 +323,8 @@ function stripOptionalUndefined(type: string, enabled: boolean): string {
   return enabled && type.endsWith(suffix) ? type.slice(0, -suffix.length) : type;
 }
 
-/** `typeToString` with NoTruncation, then OUR own explicit cap — the checker's silent
- *  `...` would read as completeness (§3.4). */
-function typeStr(checker: ts.TypeChecker, type: ts.Type): string {
-  const s = checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > MEMBER_TYPE_CAP ? `${s.slice(0, MEMBER_TYPE_CAP)}… (type elided)` : s;
+/** `typeToString` with NoTruncation, then OUR own explicit cap (see `elide`) — the checker's
+ *  silent `...` would read as completeness (§3.4). */
+function typeStr(checker: ts.TypeChecker, type: ts.Type, cap: number): string {
+  return elide(checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation), cap, 'type');
 }

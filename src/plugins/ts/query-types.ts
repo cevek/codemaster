@@ -202,5 +202,8 @@ export type TypeView = {
   membersTruncated?: { shown: number; total: number };
 };
 
-/** Depth + member bounds for structural type expansion (§3.3). */
-export type ExpandOptions = { depth: number; memberLimit: number };
+/** Depth + member bounds for structural type expansion (§3.3). `typeCap` is the per-string length
+ *  cap applied to every rendered signature / member-type before an explicit `… (elided)` marker
+ *  (never a silent checker `...`, §3.4); at `verbosity:'full'` the op lifts it to a large finite
+ *  bound (never Infinity — §1 / §12), so `full` is effectively complete for real types. */
+export type ExpandOptions = { depth: number; memberLimit: number; typeCap: number };

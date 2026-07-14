@@ -9,6 +9,7 @@ import { tag } from '../common/shape-tag/tag.ts';
 import { tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { MemberView } from '../plugins/ts/query-types.ts';
+import { TYPE_CAP_DEFAULT, TYPE_CAP_FULL } from '../plugins/ts/type-expand.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT } from './ts-target.ts';
 
@@ -48,7 +49,8 @@ export const expandTypeOp = defineOp({
   },
   notes: [
     'object types list members (name/optional/type, inherited flagged); unions/intersections list constituents; enums list members.',
-    'depth (1-3) expands nested anonymous object literals; verbosity:full lists ALL members (the default 40-cap is lifted); an explicit memberLimit caps the list and the overflow rides the truncated channel, never silently dropped.',
+    'depth (1-3) expands nested anonymous object literals; verbosity:full lists ALL members (the default 40-cap is lifted) AND lifts the per-signature/member-type length cap; an explicit memberLimit caps the list and the overflow rides the truncated channel, never silently dropped.',
+    'a signature/member-type longer than the per-string cap is cut with an explicit `… (signature|type elided: N chars — verbosity:full[, or expand_type the param type])` marker reporting the full length + recovery (never a silent `…`, §3.4); verbosity:full lifts the cap (bounded, so the marker still fires before the render cap on a pathological type).',
   ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -59,9 +61,14 @@ export const expandTypeOp = defineOp({
       // at full — its overflow then rides `Result.truncated` (below), never a soft note.
       const full = ctx.flags.verbosity === 'full';
       const memberLimit = args.memberLimit ?? (full ? Number.POSITIVE_INFINITY : 40);
+      // Mirror the memberLimit uncap for the per-string length cap: `full` lifts it to a large
+      // FINITE bound (never Infinity — §1/§12: the per-item `(… elided)` marker must fire before
+      // the blunt RENDER_CHAR_CAP so a pathological type stays bounded and keeps its precise marker).
+      const typeCap = full ? TYPE_CAP_FULL : TYPE_CAP_DEFAULT;
       const outcome = ts.expandType(args, {
         depth: args.depth ?? 1,
         memberLimit,
+        typeCap,
       });
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
       if ('unresolved' in outcome) {

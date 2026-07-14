@@ -1,7 +1,7 @@
 ---
 id: t-481241
 title: 'expand_type: signature elision not verbosity-aware + no recovery hint (MEMBER_TYPE_CAP fixed 200)'
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood
