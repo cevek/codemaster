@@ -25,8 +25,11 @@ import { spanLocOnly, spanTextOf } from './span-text.ts';
  *  that reached condense would still surface `loc · firstline`, never a silently-dropped body. */
 export const symbol: ShapeRenderer = (v) => {
   const container = v['container'] !== undefined ? ` in ${String(v['container'])}` : '';
+  // provenance is emitted ONLY when set (the search_symbol syntactic path) — a navto/structural
+  // row leaves it unset, so the default output is byte-stable (golden) (t-515730).
+  const prov = v['provenance'] === 'syntactic' ? ' · syntactic' : '';
   const header = declHeader(v['decl']);
-  return `${String(v['id'])} · ${String(v['kind'])}${container}${header}`;
+  return `${String(v['id'])} · ${String(v['kind'])}${container}${prov}${header}`;
 };
 
 /** The decl continuation line — `\n  <first line of the declaration>` — or '' when absent.

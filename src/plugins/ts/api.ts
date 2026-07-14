@@ -16,6 +16,7 @@ import type {
   UsagesView,
 } from './query-types.ts';
 import type { ProgramsLoadReport } from './program/explicit-load.ts';
+import type { Result } from '../../core/result.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
 import type {
@@ -54,6 +55,14 @@ interface OverlayCheck {
 
 export interface TsPluginApi extends Plugin {
   searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
+  /** `search_symbol { syntactic: true }` — a raw AST scan (no program build; NEVER warms the LS, so
+   *  it survives / avoids the multi-program navto OOM on huge monorepos). COMPLETE for declarations
+   *  in the §10 git source surface UNDER the workspace root (≥ navto's recall there), every site
+   *  `provenance:'syntactic'`, real declarations ranked first, noisier (extra import / re-export
+   *  sites) and not byte-identical to the LS. An outside-root tsconfig include/reference is NOT
+   *  scanned (use the default for those). Returns a `ToolFailure` on git / @internal-TS unavailability
+   *  — never a false empty. Default `searchSymbol` is unchanged (t-515730). */
+  searchSymbolSyntactic(query: string, limit: number, filter?: SearchFilter): Result<SearchView>;
   findDefinition(
     target: TsTargetInput,
   ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;

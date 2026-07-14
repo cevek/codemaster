@@ -24,6 +24,8 @@ import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
+import { searchSymbolsSyntactic } from './syntactic-search.ts';
+import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
@@ -95,6 +97,9 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
   // Per-instance bookkeeping (the `literalCalls` memo + transaction planning-overlay helpers) lives
   // in plugin-helpers.ts to keep this file under the line cap. The memo MUST be cleared on dispose.
   const memos = createScanMemos(warm);
+  // The syntactic (host-independent) search's parsed-surface memo. Held here (like the scan memos)
+  // so it is per-instance and cleared on dispose; the engine stays host-independent (t-515730).
+  const syntacticCache = createSyntacticCache();
   const { runWithOverlay, planUnderOverlay } = createPlanningHelpers(warm, root);
 
   return {
@@ -115,6 +120,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       memos.literalCalls.clear();
       memos.callArgShapes.clear();
       memos.functionDeclarations.clear();
+      clearSyntacticCache(syntacticCache);
       return Promise.resolve();
     },
     freshness(): FreshnessFingerprint {
@@ -142,6 +148,12 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     },
 
     searchSymbol: (query, limit, filter) => searchSymbols(warm(), query, limit, filter),
+
+    // The syntactic path takes `root` directly and NEVER calls warm() — no LS, no program build
+    // (that is the whole point: survive/avoid the navto OOM). So it leaves the plugin cold. The
+    // parsed surface is memoized in `syntacticCache` (host-independent, cleared on dispose).
+    searchSymbolSyntactic: (query, limit, filter) =>
+      searchSymbolsSyntactic(root, query, limit, filter, syntacticCache),
 
     findDefinition(target) {
       const resolved = resolve(target);

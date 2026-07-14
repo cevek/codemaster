@@ -3,6 +3,15 @@
 
 import type { RepoRelPath } from '../../core/brands.ts';
 import { encodeSymbolId } from '../../common/ids/codec.ts';
+import { fnv1a64Hex } from '../../common/hash/fnv.ts';
+import { toPosix } from '../../support/fs/canonicalize.ts';
+
+/** The workspace-scoping tag baked into every `ts:` SymbolId (`~<rootTag>`) — a stable short hash
+ *  of the canonical root. Single-sourced here so a handle minted off the syntactic (host-independent)
+ *  path is byte-identical to one the LS host mints (ls-host.ts derives the same). */
+export function deriveRootTag(root: string): string {
+  return fnv1a64Hex(toPosix(root)).slice(0, 8);
+}
 
 export function mintSymbolId(
   name: string,

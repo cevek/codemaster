@@ -122,8 +122,13 @@ This is the section that the rest of the design serves.
    lie this contract forbids. (The `ts` plugin's whole-program _syntactic_ scan memos —
    `literalCalls`, `callArgShapes`, `functionDeclarations` — are such caches, each keyed on
    `projectVersion()`, which every reindex/overlay bumps, so they are invalidated against current
-   state by construction. A future opt-in plugin-internal _semantic_ memo with sound invalidation
-   is a deferred wishlist item; not Phase 0.)
+   state by construction. The OOM-survival syntactic-search surface memo (§5-L2, `syntactic-cache.ts`)
+   is a second sanctioned cache with a DIFFERENT invalidation authority: it deliberately does NOT ride
+   `projectVersion` — that stamp bumps only on a host reindex, which never fires for a re-modified
+   untracked / member-only file the §10 scan surface includes — so it keys on a per-read repo-state
+   fingerprint (HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set), invalidated
+   against current disk on every read. A future opt-in plugin-internal _semantic_ memo with sound
+   invalidation is a deferred wishlist item; not Phase 0.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
@@ -208,6 +213,16 @@ post-typecheck (the §2.8 gate runs on `host.service`, never the fork), it is ga
 TS major (a mismatch declines the rescue), and the provenance is surfaced (`rescued` → an envelope
 note). An unavailable or failed rescue fails honestly with the `ts-ls` category — never a guessed
 edit. No fact codemaster reports ever originates from the fork.
+
+**Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
+(the OOM-survival discovery path, §5-L2 / t-515730) parses files with the **same** `ts.createSourceFile`
+and reads them with two TS `@internal` helpers — `getNamedDeclarations` (the declaration set) and
+`createPatternMatcher` (navto's own name matcher, project-agnostic). This is **not** a second parser
+or a second oracle: there is one AST, produced by the one TS parser; the helpers only read it. It is
+purely a note about **`@internal`-API stability** — the helpers are absent from the public
+`typescript.d.ts`, so they are behind a single typed `as unknown as` boundary block (never `any`) and
+**capability-guarded**: a TS bump that drops either makes the path return an honest `ToolFailure`
+(never a crash or a guessed empty), and a shape drift is caught by the syntactic-⊇-navto oracle test.
 
 Tree-sitter returns only if we ever must index a language the TS parser can't read.
 
@@ -435,6 +450,23 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   would read stale disk; the fanned gate still refuses a resulting dangle — backlog.) (The full
   monorepo project-reference _redirect_ graph stays roadmap; this is the
   discover-and-load-as-independent-programs step the usage/dead-code honesty needs.)
+  **OOM-survival syntactic search (`searchSymbolSyntactic`, t-515730).** First-contact `search_symbol`
+  (fuzzy) fans navto across ALL programs → can OOM a huge monorepo, and in `in-process` mode an OOM is
+  uncatchable → kills the shared daemon. So `{syntactic:true}` is an opt-in path that answers WITHOUT
+  building any program and NEVER warms the LS (the plugin stays cold): it parses the §10 git source
+  surface with `ts.createSourceFile` and reads it with the `@internal` `getNamedDeclarations` +
+  `createPatternMatcher` (§4 — same parser, capability-guarded). It is COMPLETE for declarations in
+  git-tracked source UNDER the workspace root (≥ navto's recall there) but noisier (extra import /
+  re-export sites; real declarations ranked first) and carries `provenance:'syntactic'`. **Honest
+  scope (t-515730):** a git listing at the root cannot see a tsconfig `include`/`reference` reaching
+  OUTSIDE the root, so such outside-root symbols are not scanned — the op DISCLOSES this positively
+  ("scanned all git-tracked source under <root>; outside-root not covered — use the default"), never
+  a false "never misses" (§3.6). A pre-emptive hint lives in the STATIC schema/notes (§11), since
+  after an in-process OOM the daemon is dead and can't advise post-hoc. The parsed surface is memoized
+  per-plugin-instance (`syntactic-cache.ts`) keyed on a repo-state fingerprint the syntactic path can
+  trust — NOT `projectVersion` (which won't bump for a re-modified untracked / member-only file the
+  §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
+  stat-walk (§1). Default `searchSymbol` (navto) is byte-for-byte unchanged.
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
@@ -512,27 +544,27 @@ plugin boundaries, not from internal pokes.
 
 A small number of ops ship by default:
 
-| Op                         | Composes                                                  |
-| -------------------------- | --------------------------------------------------------- |
-| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)   |
-| `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`) |
-| `search_symbol`            | `ts.searchSymbol` (LS workspace symbol provider)          |
-| `expand_type`              | `ts.expandType`                                           |
-| `construction_sites`       | `ts` (type-aware "what object literals build type T")     |
-| `list`                     | dispatches to the plugin owning the requested registry    |
-| `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)  |
-| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`   |
-| `move_file`                | `ts` plugin + `support/text-edits`                        |
-| `extract_symbol`           | `ts` plugin + `support/text-edits`                        |
-| `move_symbol`              | `ts` plugin (LS "Move to file") + `support/text-edits`    |
-| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms    |
-| `codemod`                  | ast-grep matcher + `support/text-edits`                   |
-| `find_unused_scss_classes` | `ts` + `scss`                                             |
-| `find_unused_i18n_keys`    | `ts` + `i18n`                                             |
-| `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)    |
-| `impact`                   | `ts` (type-aware reference blast radius)                  |
-| `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck         |
-| `affected`                 | `ts` import graph + `support/git`                         |
+| Op                         | Composes                                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)                                                           |
+| `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`)                                                         |
+| `search_symbol`            | `ts.searchSymbol` (LS navto); `{syntactic:true}` → `ts.searchSymbolSyntactic` (no-program AST scan, OOM-survival) |
+| `expand_type`              | `ts.expandType`                                                                                                   |
+| `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                             |
+| `list`                     | dispatches to the plugin owning the requested registry                                                            |
+| `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)                                                          |
+| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`                                                           |
+| `move_file`                | `ts` plugin + `support/text-edits`                                                                                |
+| `extract_symbol`           | `ts` plugin + `support/text-edits`                                                                                |
+| `move_symbol`              | `ts` plugin (LS "Move to file") + `support/text-edits`                                                            |
+| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms                                                            |
+| `codemod`                  | ast-grep matcher + `support/text-edits`                                                                           |
+| `find_unused_scss_classes` | `ts` + `scss`                                                                                                     |
+| `find_unused_i18n_keys`    | `ts` + `i18n`                                                                                                     |
+| `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)                                                            |
+| `impact`                   | `ts` (type-aware reference blast radius)                                                                          |
+| `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck                                                                 |
+| `affected`                 | `ts` import graph + `support/git`                                                                                 |
 
 The table is illustrative, not exhaustive — `status` is authoritative for the per-repo
 op catalogue.
@@ -1119,7 +1151,7 @@ codemaster/
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
-      git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync), blame, log
+      git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync; + ls-source-files.ts: ls-files --recurse-submodules ∪ --others --exclude-standard for the no-program syntactic scan), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
       debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
@@ -1130,7 +1162,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-search.ts / syntactic-cache.ts: the no-program OOM-survival search_symbol scan)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards

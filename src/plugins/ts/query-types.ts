@@ -32,6 +32,11 @@ export type SymbolView = {
    *  value-only read of a CALLABLE as a dynamic-dispatch boundary — a kind-only check misses the
    *  arrow-const case. Populated by `buildDefinition`; absent where it wasn't computed. */
   callable?: boolean;
+  /** Set to `'syntactic'` ONLY on the `search_symbol { syntactic: true }` path (a raw AST scan, no
+   *  type-check, §3.3 per-site provenance) so the noisier syntactic discovery result is never
+   *  passed off as the navto provider. UNSET on every other (navto / structural) path — the default
+   *  output stays byte-stable, and the renderer emits the tag only when present (t-515730). */
+  provenance?: 'syntactic';
 };
 
 export type UsageView = {

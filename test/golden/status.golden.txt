@@ -4,8 +4,9 @@ workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
 ops (26):
-  search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
+  search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
+    · on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).
     columns: id,name,kind,container,file,line,col,confidence
     e.g. search_symbol {"query":"Dialog","kind":"function","exportedOnly":true,"pathExclude":["**/ui/**"]}
   find_definition { symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number } — Resolve a symbol to its definition site(s), proof-carrying

@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
@@ -50,7 +50,62 @@ const argsSchema = z.strictObject({
    *  with `list`. A wildcard-less entry is auto-expanded to a directory prefix (see the op run). */
   pathExclude: z.array(z.string()).min(1).optional(),
   pathInclude: z.array(z.string()).min(1).optional(),
+  /** Opt-in cheap discovery for very large monorepos. `true` switches from the precise LS navto
+   *  provider to a raw AST scan (no type-check, no program build → survives/avoids OOM): COMPLETE
+   *  for declarations in git-tracked source UNDER the workspace root (≥ the default's recall there),
+   *  but NOISIER (extra import / re-export sites; real declarations ranked first) and NOT
+   *  byte-identical to the LS. A tsconfig include/reference reaching OUTSIDE the root is NOT scanned —
+   *  use the default for those. Use it if a default call fails or times out; drop it for the exact
+   *  result. Default OFF (precise). */
+  syntactic: z.boolean().optional(),
 });
+
+/** Guardrail 4 (t-515730): every syntactic-path answer states its provenance and does NOT claim to
+ *  match the LS provider. Positive scope (§3.6 report-capability), never "may have missed": states
+ *  exactly what WAS scanned (all git-tracked source under the root) and the one thing that was not
+ *  (an outside-root include/reference). Leads the result (verdict-first, §12). */
+const SYNTACTIC_NOTE =
+  'syntactic scan (NOT the LS navto provider): scanned all git-tracked source under the workspace root — complete for declarations there, plus extra import/re-export sites (real declarations ranked first); not byte-identical to the LS. A tsconfig include/reference reaching OUTSIDE the root is not covered — use the default (navto) search for those.';
+
+/** `exportedOnly` on the syntactic path is a SYNTACTIC approximation (no checker): it drops import
+ *  re-mentions and keeps export-specifiers + real declarations, but cannot tell a non-exported local
+ *  `const` from an exported one — so it OVER-includes (superset-safe), never misses an export.
+ *  Disclosed so an agent never reads it as the LS's precise export set (t-926410). */
+const EXPORTED_ONLY_CAVEAT =
+  ' exportedOnly is best-effort here (syntactic, no checker): it keeps all real declarations, so a non-exported local may appear — never a missed export.';
+
+/** Project the syntactic SearchView into the op result — same table/tag shape as the navto path,
+ *  but always carrying the provenance note (guardrail 4) and honest truncation (§3.4). */
+function syntacticResult(
+  view: { matches: SymbolView[]; total: number; filteredOutByPath?: number },
+  query: string,
+  exportedOnly: boolean,
+) {
+  const { matches, total, filteredOutByPath } = view;
+  const baseNote = exportedOnly ? SYNTACTIC_NOTE + EXPORTED_ONLY_CAVEAT : SYNTACTIC_NOTE;
+  if (matches.length === 0) {
+    // The syntactic scan covers all git-tracked source UNDER the root, so an empty result is a
+    // genuine absence THERE (no undiscovered-program floor) — but an outside-root include is not
+    // scanned, so disclose it (positive scope, §3.6). A path filter self-defeat is distinct (§3.4).
+    const note =
+      filteredOutByPath !== undefined && filteredOutByPath > 0
+        ? `no matches under the path filter — ${filteredOutByPath} symbol(s) matched '${query}' but pathInclude/pathExclude excluded them all — NOT a symbol absence`
+        : `no symbols matching '${query}' in git-tracked source under the workspace root. ${baseNote}`;
+    return ok({ note, matches: [] });
+  }
+  return ok(
+    { note: baseNote, matches: matches.map((m) => tag('symbol', m)) },
+    total > matches.length
+      ? {
+          truncated: {
+            shown: matches.length,
+            total,
+            hint: 'raise limit, or narrow the query (it is fuzzy — a longer prefix helps)',
+          },
+        }
+      : undefined,
+  );
+}
 
 export const searchSymbolOp = defineOp({
   name: 'search_symbol',
@@ -60,7 +115,7 @@ export const searchSymbolOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint:
-    '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[] }',
+    '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean }',
   // §7 Postel: the op-map advertises this op as "fuzzy-find a symbol BY NAME", so `name` is the
   // intuitive-but-wrong spelling of the canonical `query` (the single most-recurring dogfood
   // friction). Aliased, disclosed via Result.intake; the canonical schema stays the sole gate.
@@ -70,6 +125,10 @@ export const searchSymbolOp = defineOp({
   },
   notes: [
     'matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.',
+    // §11: this hint MUST live in the static schema/notes — after an in-process OOM the daemon is
+    // DEAD and cannot say "retry with the flag" post-hoc (t-515730). Actionable without the agent
+    // knowing the isolation mode.
+    'on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).',
   ],
   table: searchSymbolTable,
   async run(ctx, args) {
@@ -78,12 +137,22 @@ export const searchSymbolOp = defineOp({
       // sql-mode (§2.3): the engine threads MAX_TABLE_ROWS so a NOT IN sees every match;
       // `total > matches.length` below still reports truncation, marking the table partial.
       const limit = ctx.tableRowBound ?? args.limit ?? 25;
-      const { matches, total, filteredOutByPath } = ts.searchSymbol(args.query, limit, {
+      const filter = {
         kind: args.kind,
         exportedOnly: args.exportedOnly,
         pathExclude: args.pathExclude,
         pathInclude: args.pathInclude,
-      });
+      };
+      // Opt-in cheap discovery path (t-515730): a raw AST scan, no program build. Complete for
+      // declarations in git-tracked source UNDER the root (outside-root includes disclosed, not
+      // scanned); the default navto path below is byte-for-byte unchanged. A git / @internal-TS
+      // failure comes back as an honest ToolFailure — passed through, never a false empty (§3.6).
+      if (args.syntactic === true) {
+        const res = ts.searchSymbolSyntactic(args.query, limit, filter);
+        if (!res.ok) return fail(res.failure);
+        return syntacticResult(res.data, args.query, args.exportedOnly === true);
+      }
+      const { matches, total, filteredOutByPath } = ts.searchSymbol(args.query, limit, filter);
       if (matches.length === 0) {
         // §3.4: a path filter that excluded every match is a self-defeating FILTER, not a symbol
         // absence — say so, so an agent never reads the empty answer as "no such symbol". A bare
