@@ -1,7 +1,7 @@
 ---
 id: t-515730
 title: 'search_symbol: opt-in `syntactic` flag — cheap discovery to survive in-process OOM on huge monorepos'
-status: in-progress
+status: done
 priority: high
 parent: t-167395
 tags:
