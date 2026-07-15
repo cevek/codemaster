@@ -52,6 +52,24 @@ test('find_usages {name} without merge FAILS on the same-named triplet (ambiguou
   }
 });
 
+test('discoverability: the ambiguous hard-FAIL surfaces mergeDeclarations; a plain not-found does NOT', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    // Ambiguous bare name → the failure must point the agent at the opt-in union (t-262491).
+    const amb = await p.op('find_usages', { name: 'tick' });
+    assert.ok('result' in amb && !amb.result.ok, JSON.stringify(amb));
+    assert.match(JSON.stringify(amb.result.failure), /mergeDeclarations:true/);
+
+    // A name that resolves NOWHERE is not an ambiguity — merge would not help, so no hint (never a
+    // substring match on the message; the hint is gated on a real >1 same-named count).
+    const miss = await p.op('find_usages', { name: 'noSuchSymbolZzz' });
+    assert.ok('result' in miss && !miss.result.ok, JSON.stringify(miss));
+    assert.doesNotMatch(JSON.stringify(miss.result.failure), /mergeDeclarations:true/);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('mergeDeclarations unions the triplet into one aggregated answer == cold per-decl union', async () => {
   const p: TestProject = await project(FILES);
   try {

@@ -81,6 +81,12 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     options: UsageOptions,
   ): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** The distinct same-named declarations a bare `name` resolves to — the merge candidates
+   *  `mergeDeclarations` would union. `find_usages` reads the count to append the merge hint to the
+   *  ambiguous hard-FAIL (>1 distinct declaration), so the discoverability check is shape-based
+   *  (a real count), never a substring match on the failure message. Empty when the name resolves
+   *  nowhere. */
+  sameNamedDeclarations(name: string): SymbolView[];
   expandType(
     target: TsTargetInput,
     options?: ExpandOptions,

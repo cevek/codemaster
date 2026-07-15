@@ -1,7 +1,7 @@
 ---
 id: t-262491
 title: find_usages by bare name hard-FAILs on an ambiguous name — add opt-in mergeAmbiguous / pick:'all' to union reference sites grouped per declaration in one call
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

@@ -34,6 +34,11 @@ import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
 
+/** Appended to the ambiguous bare-name hard-FAIL to surface the opt-in union (t-262491). Kept as a
+ *  constant so the discoverability test pins the exact hint the op advertises. */
+const MERGE_DECLS_HINT =
+  ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)';
+
 const argsSchema = z
   .strictObject({
     ...tsTargetShape,
@@ -232,11 +237,24 @@ export const findUsagesOp = defineOp({
       }
 
       const outcome = ts.findUsages(args, options);
-      if (typeof outcome === 'string')
-        return fail({
-          tool: 'ts-ls',
-          message: withUndiscoveredHint(outcome, ts.undiscoveredProgramLabels()),
-        });
+      if (typeof outcome === 'string') {
+        let message = withUndiscoveredHint(outcome, ts.undiscoveredProgramLabels());
+        // Discoverability (t-262491): a bare `name` that hard-FAILs on ambiguity has an opt-in
+        // union — surface `mergeDeclarations` in the failure so the agent isn't left to grep or
+        // re-issue per declaration. SHAPE-gated (bare name, no file/symbolId, merge not already
+        // asked) and confirmed by a real >1 same-named count — never a substring match on the
+        // message, and never a hint on a plain not-found (merge would not help there).
+        if (
+          args.name !== undefined &&
+          args.symbolId === undefined &&
+          args.file === undefined &&
+          args.mergeDeclarations !== true &&
+          ts.sameNamedDeclarations(args.name).length > 1
+        ) {
+          message += MERGE_DECLS_HINT;
+        }
+        return fail({ tool: 'ts-ls', message });
+      }
       if ('unresolved' in outcome) {
         // §6: the held handle's symbol is gone — state the structured `{status:'gone'}` on
         // `handle` (empty data), never a guessed rebind to an unrelated same-named symbol.

@@ -190,6 +190,11 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
+    sameNamedDeclarations(name) {
+      const decls = resolveAllByName(warm(), name);
+      return typeof decls === 'string' ? [] : decls.map((d) => d.view);
+    },
+
     expandType(target, options) {
       const resolved = resolve(target);
       if (!resolved.ok) return missOf(resolved);
