@@ -188,6 +188,52 @@ test('per-group cap emits a +N more marker + envelope truncation (never a silent
   }
 });
 
+// A separately-exported name + members — the two §3.4 recall traps the bug review surfaced.
+const SEP_AND_MEMBERS: Record<string, string> = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true},"include":["src"]}',
+  'src/a.ts': [
+    'const Foo = 1;',
+    'export { Foo };', // exported by a SEPARATE statement (barrel idiom)
+    'export const Bar = 2;',
+    'export class Widget {',
+    '  render() { return Foo; }',
+    '  get val() { return 1; }',
+    '}',
+    'export enum Color { Red, Blue }',
+  ].join('\n'),
+};
+
+test('kind filter keeps a separately-exported name (`const Foo; export {Foo}`) — BLOCK 1 §3.4', async () => {
+  const p = await project(SEP_AND_MEMBERS);
+  try {
+    // The decl node carries the kind (`const`), the export-specifier node carries the export — the
+    // predicates must be satisfied ACROSS the node set, or Foo is silently dropped under kind:const.
+    const names = allNames(await listSymbols(p, { kind: 'const', limit: 1000 }));
+    assert.ok(names.has('Foo'), 'separately-exported `const Foo` kept under kind:const');
+    assert.ok(names.has('Bar'), 'inline-exported `const Bar` kept');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('members are NOT catalogued; the container IS (BLOCK 2 §3.4 — no confident empty on an advertised kind)', async () => {
+  const p = await project(SEP_AND_MEMBERS);
+  try {
+    const all = allNames(await listSymbols(p, { all: true, limit: 1000 }));
+    assert.ok(all.has('Widget'), 'the class Widget is catalogued');
+    assert.ok(all.has('Color'), 'the enum Color is catalogued');
+    assert.ok(!all.has('render'), 'a method (member) is NOT catalogued');
+    assert.ok(!all.has('val'), 'an accessor (member) is NOT catalogued');
+    assert.ok(!all.has('Red'), 'an enum member is NOT catalogued');
+    // A member kind yields nothing (members out of scope) rather than a silent empty on a query the
+    // agent would read as "no methods exist" — the honest behavior is: not catalogued, so no match.
+    const methods = allNames(await listSymbols(p, { kind: 'method', all: true, limit: 1000 }));
+    assert.equal(methods.size, 0, 'kind:method yields nothing (members not catalogued)');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('list_symbols never warms the LS (OOM-safe) + is deterministic (cold == warm)', async () => {
   const p = await project(REPO);
   try {

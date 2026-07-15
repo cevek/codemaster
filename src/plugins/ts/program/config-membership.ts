@@ -82,7 +82,14 @@ function compute(root: string): ConfigMembership {
 
 /** A config's TS-source file-set (posix abs), from `parseJsonConfigFileContent` (syntactic, no LS).
  *  Best-effort: an unreadable/malformed config yields no files rather than throwing (that config just
- *  contributes no ownership). Mirrors coverage.ts `fileNamesOf`; kept separate to stay host-free. */
+ *  contributes no ownership).
+ *
+ *  DRIFT NOTE — this is the SAME parse+filter core as `coverage.ts` `fileNamesOf` (readConfigFile →
+ *  parseJsonConfigFileContent → `fileNames.map(toPosix).filter(!node_modules && TS_SOURCE_RE)`), and
+ *  `TS_SOURCE_RE` is duplicated. They intentionally DIVERGE downstream (coverage applies the §10 junk /
+ *  git-ignore filter; this does not), but the parse+extension policy must stay in sync — unifying the
+ *  shared core into a `program/`-level helper both call is a filed follow-up (t-400905), deferred here
+ *  to avoid editing coverage.ts across a parallel track. */
 function configSourceFiles(configPath: string): string[] {
   try {
     const read = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -129,7 +136,15 @@ function dirDepth(label: string): number {
   return dir === '.' || dir === '' ? 0 : dir.split('/').length;
 }
 
-/** `abs` (posix) as a repo-relative posix path, or undefined when it is not under root. */
+/** `abs` (posix) as a repo-relative posix path, or undefined when it is not under root.
+ *
+ *  JOIN-KEY ASSUMPTION: the op joins these membership keys to the catalogue's file keys (`brandGitPath`
+ *  of git's on-disk spelling) by RAW string identity. Both sides are SYMMETRICALLY raw (neither
+ *  case-folds nor realpaths), so they agree whenever git and `parseJsonConfigFileContent` emit the same
+ *  on-disk spelling — the normal case. A spelling divergence (a differently-cased tsconfig `include`
+ *  glob on a case-insensitive volume, or a symlinked layout TS realpaths) would miss the join → the
+ *  file falls into the `(no tsconfig)` group (mis-grouped, but its NAMES are never dropped — grouping is
+ *  best-effort). Full canonicalization through the §19 chokepoint is a filed follow-up (t-694619). */
 function relUnderRoot(rootPosix: string, abs: string): string | undefined {
   const prefix = `${rootPosix}/`;
   return abs.startsWith(prefix) ? abs.slice(prefix.length) : undefined;

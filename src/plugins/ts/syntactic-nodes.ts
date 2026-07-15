@@ -47,8 +47,31 @@ export function isExportedDeclaration(node: ts.Node): boolean {
   return (flags & (ts.ModifierFlags.Export | ts.ModifierFlags.Default)) !== 0;
 }
 
+/** A type/class/enum MEMBER declaration (method / accessor / property / enum member / constructor /
+ *  parameter) — a sub-symbol, never a module-level declaration in its own right. `list_symbols`
+ *  excludes these: the orientation catalogue lists TOP-LEVEL declared names (the class, not its
+ *  methods), and a member never carries an export modifier so it could never satisfy the default
+ *  `exportedOnly` — surfacing an advertised member `kind` as a confident empty would be a §3.4 lie. */
+export function isMemberDeclaration(node: ts.Node): boolean {
+  return (
+    ts.isMethodDeclaration(node) ||
+    ts.isMethodSignature(node) ||
+    ts.isPropertyDeclaration(node) ||
+    ts.isPropertySignature(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node) ||
+    ts.isConstructorDeclaration(node) ||
+    ts.isEnumMember(node) ||
+    ts.isParameter(node)
+  );
+}
+
 /** A ScriptElementKind-ish label for a `getNamedDeclarations` node — the full node variety incl
- *  import/export aliases + a SyntaxKind fallback. */
+ *  import/export aliases + a SyntaxKind fallback. Kept DELIBERATELY DISTINCT from
+ *  `declarations-on-line.ts`'s addressing-only `kindLabel` (which emits `namespace` / `enum-member`):
+ *  this vocabulary (`module` / `enum member`) is a USER-FACING contract — the `kind:` filter value for
+ *  `list_symbols` and the reported kind for `search_symbol` — so a naive DRY-merge to the display
+ *  labeler would silently break the documented `kind` filter (a §3.4 regression). Not to be unified. */
 export function nodeKindLabel(node: ts.Node): string {
   if (ts.isVariableDeclaration(node)) {
     const flags = node.parent.flags;

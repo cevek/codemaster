@@ -227,9 +227,11 @@ typecheck + capture gate is still the backstop — so a co-move now completes in
 leaf-first reorder. The rescue fork still serves the residual overlap shapes these don't pre-empt.
 
 **Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
-(the OOM-survival discovery path, §5-L2 / t-515730) parses files with the **same** `ts.createSourceFile`
-and reads them with two TS `@internal` helpers — `getNamedDeclarations` (the declaration set) and
-`createPatternMatcher` (navto's own name matcher, project-agnostic). This is **not** a second parser
+and `list_symbols` (the OOM-survival discovery paths, §5-L2 / t-515730 / t-143952) parse files with the
+**same** `ts.createSourceFile` (a shared surface build) and read them with the TS `@internal`
+`getNamedDeclarations` helper (the declaration set) — `search_symbol` additionally uses
+`createPatternMatcher` (navto's own name matcher, project-agnostic) for its fuzzy match, while
+`list_symbols` enumerates the whole surface. This is **not** a second parser
 or a second oracle: there is one AST, produced by the one TS parser; the helpers only read it. It is
 purely a note about **`@internal`-API stability** — the helpers are absent from the public
 `typescript.d.ts`, so they are behind a single typed `as unknown as` boundary block (never `any`) and
@@ -483,6 +485,20 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   trust — NOT `projectVersion` (which won't bump for a re-modified untracked / member-only file the
   §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
   stat-walk (§1). Default `searchSymbol` (navto) is byte-for-byte unchanged.
+  **`list_symbols` rides the same no-program surface (t-143952).** A first-contact ORIENTATION browse:
+  a flat, comma-separated catalogue of the repo's TOP-LEVEL declared symbol NAMES (bare — no
+  `file:line` decoration, so thousands fit), grouped per tsconfig. It reuses the SAME `surfaceSources`
+  parse + `getNamedDeclarations` (`syntactic-catalogue.ts`, `listSymbols`) — no program build, NEVER
+  warms the LS (OOM-safe, exactly where a name-addressed navto path OOMs). `exportedOnly` defaults on
+  (the public surface, syntactic — an export/default modifier or a re-export specifier, evaluated
+  across the name's node set so a separately-`export {X}`ed name is never dropped under a `kind`
+  filter). The per-tsconfig GROUPING is a best-effort layer (`configMembership`,
+  `program/config-membership.ts`): host-free + bounded (capped config count + globbed files + throw →
+  a single flat `(all)` group), computed per call (never cached — the surface fingerprint can't see a
+  `.json` edit, §3.5). A file included by several configs lands under ONE primary config (deepest-dir,
+  base-`tsconfig.json` tie-break), flagged `(shared: also in …)`, never double-counted / dropped; the
+  flat blob dedups globally. Same honest scope as the syntactic search (under-root only) + per-group
+  caps with `+N more` and a verdict-first totals line (§3.4/§12).
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),

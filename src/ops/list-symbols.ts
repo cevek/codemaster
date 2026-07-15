@@ -37,9 +37,10 @@ const EXPORTED_ONLY_CAVEAT =
 const ALL_NOTE = ' Showing ALL declared names incl non-exported locals (all:true).';
 
 const argsSchema = z.strictObject({
-  /** Keep only this syntactic kind: function / class / interface / type / const / let / var / enum /
-   *  module / method / getter / setter / property. NOTE `component` is NOT available (it needs react
-   *  semantics; the syntactic scan cannot honestly detect it) — an unknown kind matches nothing. */
+  /** Keep only this TOP-LEVEL syntactic kind: function / class / interface / type / const / let / var /
+   *  enum / module. Type/class/enum MEMBERS (method/getter/setter/property/enum member) are NOT
+   *  catalogued (orientation lists the container, not its members). `component` is NOT available (needs
+   *  react semantics; the syntactic scan cannot honestly detect it) — an unmatched kind yields nothing. */
   kind: z.string().optional(),
   /** Default TRUE — the public export surface only (locals are orientation noise). */
   exportedOnly: z.boolean().optional(),
@@ -129,7 +130,7 @@ export const listSymbolsOp = defineOp({
     'FLAT bare names (no file:line decoration) so thousands fit — scan the list, pick a name, then run search_symbol / find_definition on it. Deduped + sorted per group.',
     'SYNTACTIC (no program build, no LS warm): OOM-safe first-contact browse on a huge monorepo — exactly where the name-addressed path can run out of memory. Names only, NOT type-verified: a re-export name may appear; scope is git-tracked source UNDER the root (an outside-root include is not covered).',
     'grouped per tsconfig (best-effort: the grouping layer degrades to a single flat `(all)` group on a pathological repo). A file included by several configs lands under ONE primary config (deepest-dir wins) — never double-counted — and the group is flagged `(shared: also in …)`.',
-    'exportedOnly defaults TRUE (public surface); all:true adds non-exported locals. kind filters a syntactic kind (function/class/interface/type/const/enum/…); `component` is NOT available (needs react semantics). Each group caps at `limit` (default 300) with a `+N more` marker; the summary line states global totals.',
+    'lists TOP-LEVEL declared names (the class/enum, not its members). exportedOnly defaults TRUE (public surface); all:true adds non-exported locals. kind filters a top-level syntactic kind (function/class/interface/type/const/enum/module); members and `component` are not catalogued (the latter needs react semantics). Each group caps at `limit` (default 300) with a `+N more` marker; the summary line states global totals.',
   ],
   async run(ctx, args: Args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

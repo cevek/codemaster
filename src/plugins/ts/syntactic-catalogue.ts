@@ -19,12 +19,18 @@ import { isOk } from '../../common/result/narrow.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { SyntacticCache } from './syntactic-cache.ts';
 import { surfaceSources } from './syntactic-surface.ts';
-import { isExportedDeclaration, isImportSite, nodeKindLabel } from './syntactic-nodes.ts';
+import {
+  isExportedDeclaration,
+  isImportSite,
+  isMemberDeclaration,
+  nodeKindLabel,
+} from './syntactic-nodes.ts';
 
 export interface CatalogueFilter {
-  /** Keep only declarations whose `nodeKindLabel` equals this (`function`/`class`/`interface`/
-   *  `type`/`const`/`enum`/…). `component` is NOT a syntactic kind (it needs react semantics) — an
-   *  unknown kind simply matches nothing, disclosed by the op. */
+  /** Keep only TOP-LEVEL declarations whose `nodeKindLabel` equals this (`function`/`class`/
+   *  `interface`/`type`/`const`/`let`/`var`/`enum`/`module`). Members (method/getter/setter/property/
+   *  enum member) are not catalogued, and `component` is NOT a syntactic kind (needs react semantics)
+   *  — an unmatched kind simply yields nothing, disclosed by the op. */
   kind?: string | undefined;
   /** Default TRUE at the op — the public export surface only. `false` (op `all:true`) adds locals. */
   exportedOnly: boolean;
@@ -61,25 +67,28 @@ export function listCatalogue(
   return ok(out);
 }
 
-/** Distinct, sorted names declared in one file that pass the kind / exportedOnly filters. A name with
- *  ANY declaration node satisfying the filters is kept once (a name with a const + a type merge, or a
- *  local decl + a separate `export {X}`, appears once). */
+/** Distinct, sorted TOP-LEVEL declared names in one file that pass the kind / exportedOnly filters. */
 function namesOf(sf: ts.SourceFile, filter: CatalogueFilter): string[] {
   const decls = (
     sf as unknown as { getNamedDeclarations(): Map<string, readonly ts.Declaration[]> }
   ).getNamedDeclarations();
   const kept = new Set<string>();
   decls.forEach((nodes, name) => {
-    if (kept.has(name)) return;
-    for (const node of nodes) {
-      // A pure import re-mention is never part of THIS module's declared/exported surface — drop it
-      // regardless of `exportedOnly` (it would otherwise pollute the catalogue with imported names).
-      if (isImportSite(node)) continue;
-      if (filter.kind !== undefined && nodeKindLabel(node) !== filter.kind) continue;
-      if (filter.exportedOnly && !isExportedDeclaration(node)) continue;
-      kept.add(name);
-      break;
-    }
+    // Consider only TOP-LEVEL declaration nodes for this name: drop pure import re-mentions (an
+    // imported name is not THIS module's surface) and type/class/enum MEMBERS (sub-symbols — the
+    // orientation catalogue lists the container, not its methods; a member also never carries an
+    // export modifier, so under the default exportedOnly an advertised member `kind` would return a
+    // confident empty — a §3.4 lie).
+    const relevant = nodes.filter((n) => !isImportSite(n) && !isMemberDeclaration(n));
+    if (relevant.length === 0) return;
+    // Evaluate `kind` and `exportedOnly` across the name's whole node SET, not one node: a name
+    // exported by a SEPARATE statement (`const Foo = 1; export { Foo }`) carries its kind on the decl
+    // node and its export on the export-specifier node — requiring ONE node to satisfy BOTH silently
+    // dropped it under a `kind` filter (a §3.4 completeness lie on the common barrel/re-export idiom).
+    if (filter.kind !== undefined && !relevant.some((n) => nodeKindLabel(n) === filter.kind))
+      return;
+    if (filter.exportedOnly && !relevant.some((n) => isExportedDeclaration(n))) return;
+    kept.add(name);
   });
   return [...kept].sort((a, b) => a.localeCompare(b));
 }
