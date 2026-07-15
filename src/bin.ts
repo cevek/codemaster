@@ -125,8 +125,11 @@ async function main(): Promise<number> {
   );
 
   const args = process.argv.slice(2);
-  const command = args.shift();
+  // `--root` is a position-free GLOBAL flag: extract it from the whole argv BEFORE shifting the
+  // subcommand, so `--root <dir> op …` parses as well as `op … --root <dir>` (t-713862). argValue
+  // splices it wherever it sits, so the shift below always lands on the real subcommand token.
   const root = argValue(args, '--root');
+  const command = args.shift();
 
   switch (command) {
     case 'daemon': {

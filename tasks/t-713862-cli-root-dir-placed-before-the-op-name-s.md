@@ -1,7 +1,7 @@
 ---
 id: t-713862
 title: 'CLI: `--root <dir>` placed BEFORE the `op <name>` subcommand prints usage instead of parsing the flag'
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood
