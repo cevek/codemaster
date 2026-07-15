@@ -341,6 +341,13 @@ export interface TsPluginApi extends Plugin {
    *  the SAME bytes — a disk read would ignore an uncommitted overlay and make the introduced-error
    *  diff a lie. Generic VFS read: no edit policy here (that stays op-level, §5-L3). */
   fileText(path: RepoRelPath): string | undefined;
+  /** Is `path` a source file in the PRIMARY program right now? The discriminator a trial-edit op
+   *  (`impact_type_error`) needs to tell a FOREIGN target (declared only in a sibling / isolated-package
+   *  program) apart from an in-primary one: the widen-probe overlay is primary-only, so it cannot run
+   *  against a foreign target and would silently make no widen claim — the op forces the downstream
+   *  UNTRUSTED + discloses instead of a masking false-clean (§3.6). Distinct from `fileText`'s
+   *  any-loaded-program membership. */
+  primaryContains(path: RepoRelPath): boolean;
   /** Labels of repo tsconfigs codemaster does NOT load as programs — a nested-package config
    *  neither adjacent to the primary nor reached via `references`. Files under such a config are
    *  invisible to `importersOf` / dead-code analysis, so a completeness-claiming op (§3.4 floor)

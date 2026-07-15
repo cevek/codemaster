@@ -374,6 +374,11 @@ probing.
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
+  **`find_definition` resolves against the CONTAINING program** (`sourceFileAcross`, primary-first +
+  lazy), not the primary only — so a declaration in a sibling / isolated-package program is located,
+  not an opaque "Could not find source file" throw (t-773499). Unlike references (which merge across
+  programs), a definition is a fixed set from the one program that owns the position, so a
+  primary-resident target stays byte-identical.
   **`importers_of` MODULE-mode resolution honesty (§3.6).** The result carries `resolved`: a module
   spec that does NOT resolve to a file under the project's own resolution (a typo'd / out-of-project
   path) reads as a LOUD `module unresolved: X` — distinct from an honest resolved-0 (a real module
@@ -475,7 +480,12 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `task-manager` backlog residual). A loaded config is subtracted from the undiscovered set (no
   over-demotion). (Precise per-export discovery is the remaining `task-manager` backlog residual.)
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
-  every containing program (a `test/**` reference is rewritten, not left dangling), `move_file`
+  every containing program (a `test/**` reference is rewritten, not left dangling) — but a rename
+  whose TARGET DECLARATION is itself outside the primary is REFUSED with an actionable `root:<pkg>`
+  redirect (t-773499): the capture-safety gate is structurally primary-only (`setOverlay`), so it
+  cannot verify a foreign-anchored rename, and shipping a reduced-safety MUTATION when a fully
+  capture-checked path exists (re-run with the owning package as `root`) is the wrong trade — a read
+  (`find_definition`) still resolves the same target; only the write refuses. `move_file`
   / `extract_symbol` repoint sibling-only importers via a disk read, and the §2.8 typecheck gate
   runs the overlay check on **every affected program** + the disk baseline over the same set —
   so a cross-program dangle is caught, never a silent partial edit. A program is **affected** when

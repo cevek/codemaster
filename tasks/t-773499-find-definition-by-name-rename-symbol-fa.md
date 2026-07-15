@@ -1,7 +1,7 @@
 ---
 id: t-773499
 title: find_definition-by-name + rename_symbol FAIL "Could not find source file" on any NON-PRIMARY program (workspace member OR isolated package)
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood

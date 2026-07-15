@@ -13,11 +13,20 @@ export function findDefinitions(
   abs: string,
   offset: number,
 ): SymbolView[] | undefined {
-  const defs = host.service.getDefinitionAtPosition(abs, offset);
+  // Resolve against the program that CONTAINS `abs`, not the primary (spec §5-L2 / Task G): a
+  // sibling- or isolated-package-only declaration lives only in its own program, so a primary-only
+  // `getDefinitionAtPosition` throws "Could not find source file". `sourceFileAcross` is primary-FIRST
+  // and lazy (type-authority.ts short-circuits before siblings build), so a primary-resident target
+  // stays byte-identical. The definition set comes from ONE program (unlike references, which fan out),
+  // and that program contains `def.fileName` too — so its own `getSourceFile` resolves the decl file.
+  const containing = host.sourceFileAcross(abs)?.program;
+  const service = containing?.service ?? host.service;
+  const defs = service.getDefinitionAtPosition(abs, offset);
   if (defs === undefined) return undefined;
+  const program = service.getProgram();
   const views: SymbolView[] = [];
   for (const def of defs) {
-    const sourceFile = host.service.getProgram()?.getSourceFile(def.fileName);
+    const sourceFile = program?.getSourceFile(def.fileName);
     if (sourceFile === undefined) continue;
     const rel = host.relOf(def.fileName);
     const span = spanFromRange(

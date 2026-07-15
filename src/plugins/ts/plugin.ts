@@ -99,6 +99,11 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
   const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target);
 
+  // "Is this ABSOLUTE file a source in the PRIMARY program right now?" — one instance, shared by the
+  // public `primaryContains` and the rename refuse-on-non-primary guard so the two can't drift.
+  const primaryHasFile = (abs: string): boolean =>
+    warm().service.getProgram()?.getSourceFile(abs) !== undefined;
+
   // Per-instance bookkeeping (the `literalCalls` memo + transaction planning-overlay helpers) lives
   // in plugin-helpers.ts to keep this file under the line cap. The memo MUST be cleared on dispose.
   const memos = createScanMemos(warm);
@@ -297,6 +302,27 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return runWithOverlay(overlay, () => {
         const resolved = resolve(target);
         if (!resolved.ok) return resolved.message;
+        // Refuse for a NON-PRIMARY target (t-773499): the capture-safety gate is structurally
+        // primary-only (the overlay `setOverlay` lives on the primary program, ls-host §), so it
+        // CANNOT run against a symbol declared outside the primary. Skipping it to ship a
+        // reduced-safety MUTATION would risk a silent type-compatible re-bind (unrecoverable once
+        // written). So refuse honestly (§3.6 / §7 — never a silent gate-skip on a mutation). A READ
+        // (find_definition) still resolves the same target; only the write refuses. `sourceFileAcross`
+        // names the owner; a NESTED-PACKAGE owner (its config in a subdir) gets an actionable
+        // `root:<pkg-dir>` redirect (re-rooting there makes its program primary → the full gate runs).
+        // A ROOT-LEVEL sibling (e.g. `tsconfig.test.json` — dirname `.`) has no sub-root to redirect
+        // to (re-rooting still finds the root `tsconfig.json` as primary), so no bogus redirect.
+        const h = warm();
+        if (!primaryHasFile(resolved.abs)) {
+          const owner = h.sourceFileAcross(resolved.abs)?.program.label;
+          const pkgDir = owner !== undefined ? path.posix.dirname(owner) : '.';
+          const redirect =
+            pkgDir !== '.' && pkgDir !== ''
+              ? ` Re-run with root:${pkgDir} (the owning package), where its program is primary and the full capture-safety gate runs.`
+              : '';
+          const declaredIn = owner !== undefined ? ` (declared in ${owner})` : '';
+          return `capture-safety cannot be checked for a symbol outside the primary program${declaredIn} — the rename is REFUSED (the gate is primary-only).${redirect}`;
+        }
         // Fan the site computation across programs ONLY off the transaction path: an `overlay`
         // means the primary carries a planning overlay, so a sibling reading stale disk is unsound
         // (ls-host TRAP). The cross-program §2.8 gate still backstops a transaction dangle.
@@ -406,6 +432,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       // sourceFileAcross prefers the primary program and only builds siblings if the file lives
       // solely in one — so the read basis matches the gate's baseline (same VFS-parsed bytes).
       return h.sourceFileAcross(h.absOf(p))?.sf.text;
+    },
+
+    primaryContains(p) {
+      return primaryHasFile(warm().absOf(p));
     },
 
     allProgramTsFiles() {
