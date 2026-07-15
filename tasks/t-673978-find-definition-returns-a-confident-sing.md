@@ -1,7 +1,7 @@
 ---
 id: t-673978
 title: find_definition returns a confident single result without the undiscovered-nested-program disclosure that find_usages/search_symbol carry — a same-named symbol in an unindexed tsconfig yields a possibly-WRONG definition with no honesty note
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

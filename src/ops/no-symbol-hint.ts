@@ -33,3 +33,24 @@ export function undiscoveredHint(labels: readonly string[]): string {
 export function withUndiscoveredHint(message: string, labels: readonly string[]): string {
   return isSymbolAbsence(message) ? message + undiscoveredHint(labels) : message;
 }
+
+/** §3.4/§3.6 FLOOR for a name-addressed `find_definition` that DID resolve (the sibling of the
+ *  0-match `undiscoveredHint`, and of `usagesFloor`): when a NAME resolves to a decl but nested
+ *  tsconfig(s) are unloaded, a DISTINCT same-named symbol may live under one — so a confident single
+ *  definition is a possible MIS-target, not a proven answer. Returns the machine-readable verdict
+ *  (`complete:false` + named `undiscoveredPrograms`) so a count-only consumer sees it WITHOUT prose,
+ *  plus a `!!` note for the verdict position (§12). Empty when nothing is unloaded — the result stays
+ *  byte-identical (no false hint). The resolved decls are each real; incompleteness is a property of
+ *  the SET (another same-named decl may be unindexed), never a per-view demotion. */
+export function definitionFloor(labels: readonly string[]): {
+  fields: { complete: false; undiscoveredPrograms: readonly string[] } | Record<string, never>;
+  note?: string;
+} {
+  if (labels.length === 0) return { fields: {} };
+  const named = labels.slice(0, MAX_NAMED).join(', ');
+  const more = labels.length > MAX_NAMED ? `, +${labels.length - MAX_NAMED} more` : '';
+  return {
+    fields: { complete: false, undiscoveredPrograms: labels },
+    note: `!! LOWER BOUND — ${labels.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); a DISTINCT same-named symbol may be declared under one of them (unindexed here), so this definition may NOT be the one you want. This is NOT proof it is the only/right declaration — add the config to a parent \`references\` (or place it adjacent to the primary) to resolve across all programs.`,
+  };
+}

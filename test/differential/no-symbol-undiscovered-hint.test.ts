@@ -47,7 +47,31 @@ const AMBIGUOUS = {
   'src/b.ts': 'export const dupName = 2;\n',
 };
 
+// A name that DOES resolve in the primary, with a DISTINCT same-named decl under the unloaded nested
+// config — the find_definition success-branch floor (t-673978): a confident single definition that
+// may be the WRONG target for an agent working the web/ layer.
+const RESOLVES_WITH_TWIN = {
+  'tsconfig.json':
+    '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["src"]}',
+  'web/tsconfig.json':
+    '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["."]}',
+  'web/types.ts': 'export interface EditOps { fromWeb: number }\n',
+  'src/core.ts': 'export interface EditOps { fromCore: string }\n',
+};
+
 const HINT = /nested tsconfig\(s\) are NOT loaded as programs \(web\/tsconfig\.json\)/;
+// The success-branch floor names the config too, but frames it as a possibly-WRONG resolution.
+const DEF_FLOOR = /repo tsconfig\(s\) NOT loaded as programs \(web\/tsconfig\.json\)/;
+
+interface OkFloor {
+  ok: boolean;
+  data: { complete?: boolean; undiscoveredPrograms?: string[]; notes?: string[] };
+}
+function okData(r: unknown): OkFloor {
+  const res = (r as { result: OkFloor }).result;
+  assert.equal(res.ok, true, 'find_definition resolves (ok)');
+  return res;
+}
 
 function failMessage(r: unknown): string {
   const res = (r as { result: { ok: boolean; failure?: { message: string } } }).result;
@@ -113,6 +137,59 @@ test('undiscovered hint: NEVER fires on a clean single-repo — the miss message
 
     const ss = okNote(await p.op('search_symbol', { query: 'ghost' }));
     assert.equal(ss, "no symbols matching 'ghost'", 'search_symbol note is byte-identical');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_definition SUCCESS floor (t-673978): a name that resolves in the primary carries the undiscovered-program disclosure when a DISTINCT same-named decl lives under an unloaded nested config', async () => {
+  const p = await project(RESOLVES_WITH_TWIN);
+  try {
+    // Independent oracle: a cold LS over the NESTED tsconfig resolves a DISTINCT `EditOps` there — so
+    // the warm daemon's confident single definition (src/core.ts) is a possible MIS-target, not proof
+    // it is the only/right decl. A bare confident single would be the §3.6 lie.
+    const twin = coldFindReferences(p.root, 'web/types.ts', 'EditOps', 'web/tsconfig.json');
+    assert.deepEqual(
+      twin,
+      ['web/types.ts'],
+      'cold ground truth: a distinct EditOps IS declared under web/ (a program the daemon never loaded)',
+    );
+
+    const res = okData(await p.op('find_definition', { name: 'EditOps' }));
+    // Machine-readable verdict leads (§12) — a count-only consumer sees incompleteness without prose.
+    assert.equal(
+      res.data.complete,
+      false,
+      'success carries complete:false (a LOWER-BOUND resolution)',
+    );
+    assert.deepEqual(
+      res.data.undiscoveredPrograms,
+      ['web/tsconfig.json'],
+      'names the unloaded config',
+    );
+    assert.match(
+      (res.data.notes ?? []).join('\n'),
+      DEF_FLOOR,
+      'the !! note names the unloaded config',
+    );
+
+    // Byte-identical NEGATIVE #1: the SAME repo, addressed by POSITION — exact, no cross-program
+    // ambiguity → NO floor (never a false hint on precise addressing).
+    const byPos = okData(await p.op('find_definition', { file: 'src/core.ts', line: 1, col: 18 }));
+    assert.equal(byPos.data.complete, undefined, 'position-addressed carries no floor field');
+    assert.equal(byPos.data.notes, undefined, 'position-addressed carries no note');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_definition SUCCESS floor: NEVER fires on a clean single-repo — a resolved name is byte-identical (no false hint)', async () => {
+  const p = await project(CLEAN);
+  try {
+    const res = okData(await p.op('find_definition', { name: 'rootSymbol' }));
+    assert.equal(res.data.complete, undefined, 'no complete field on a clean repo');
+    assert.equal(res.data.undiscoveredPrograms, undefined, 'no undiscoveredPrograms field');
+    assert.equal(res.data.notes, undefined, 'no note — the answer is byte-identical to pre-fix');
   } finally {
     await p.dispose();
   }

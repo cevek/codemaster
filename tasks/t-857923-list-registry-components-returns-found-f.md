@@ -1,7 +1,7 @@
 ---
 id: t-857923
 title: "list registry:'components' returns a bare found=false/available(0) where the react plugin is INACTIVE at the queried root (components live in an unindexed nested package) — silent miss, no honest 'plugin not active / try root:<dir>' (VERIFIED: works on amiro=652, task-manager web=10)"
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

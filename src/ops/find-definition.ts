@@ -5,7 +5,7 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { withUndiscoveredHint } from './no-symbol-hint.ts';
+import { withUndiscoveredHint, definitionFloor } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetSchema, tsTargetIntake } from './ts-target.ts';
 
 export const findDefinitionOp = defineOp({
@@ -33,8 +33,18 @@ export const findDefinitionOp = defineOp({
         // §6: the held handle's symbol is gone — state it structurally on `handle`.
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
       }
+      // §3.6 floor: a NAME target resolved to a decl, but if a nested tsconfig is unloaded a DISTINCT
+      // same-named symbol may live there — so this single/first definition is a possible MIS-target,
+      // not a proven answer. Fires ONLY on name-addressing (a symbolId/position is EXACT — no ambiguity
+      // across programs, so no note). Verdict-first (§12): `complete:false`+`undiscoveredPrograms` and
+      // the `!!` note lead, `definitions` trails, so the char-cap can only ever truncate the row bulk.
+      const floor = definitionFloor(args.name !== undefined ? ts.undiscoveredProgramLabels() : []);
       return ok(
-        { definitions: outcome.views.map((v) => tag('symbol', v)) },
+        {
+          ...floor.fields,
+          definitions: outcome.views.map((v) => tag('symbol', v)),
+          ...(floor.note !== undefined ? { notes: [floor.note] } : {}),
+        },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
       );
     } catch (thrown) {

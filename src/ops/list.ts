@@ -16,6 +16,7 @@ import { matchesPathFilter } from '../common/glob/path-filter.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+import { inactiveRegistryDisclosure } from './list-inactive-hint.ts';
 
 const ROW_CAP_HINT = 'raise limit, or narrow with pathInclude/pathExclude';
 
@@ -191,7 +192,11 @@ const listTable: TableSpec<JsonValue> = {
     const d = data as { found?: boolean; registry?: string; available?: string[]; note?: string };
     if (d.found === false) {
       const avail = (d.available ?? []).join(', ') || '(none — no registry-owning plugin active)';
-      return [`no such registry '${d.registry ?? ''}' — available: ${avail}`];
+      const lines = [`no such registry '${d.registry ?? ''}' — available: ${avail}`];
+      // §3.6: when no owning plugin is active AND a nested package is unindexed, the registry may live
+      // there — the disclosure (verdict `!!`) leads so the char-cap keeps it above the did-you-mean.
+      if (d.note !== undefined) lines.unshift(d.note);
+      return lines;
     }
     return d.note !== undefined ? [d.note] : [];
   },
@@ -261,11 +266,20 @@ export const listOp = defineOp({
       const available = [...owners.keys()].sort();
       const owner = owners.get(args.registry);
       if (owner === undefined || owner.list === undefined) {
+        // §3.6 silent-miss: `available` empty = NO registry-owning plugin active here. The registry's
+        // owner (a framework plugin, gated on the root package.json) may be active only in an unindexed
+        // nested package, so disclose that instead of a bare found=false reading as "the repo has none".
+        // A non-empty `available` is a did-you-mean miss (a wrong/absent registry name), not this class.
+        const note =
+          available.length === 0
+            ? inactiveRegistryDisclosure(ctx.plugins, args.registry)
+            : undefined;
         return ok({
           registry: args.registry,
           found: false,
           available,
           entries: [],
+          ...(note !== undefined ? { note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),
         });
       }
