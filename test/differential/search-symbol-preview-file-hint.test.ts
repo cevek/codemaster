@@ -125,6 +125,26 @@ test('file/module hint: a 0-match NAME that is a source file basename names the 
   }
 });
 
+test('file/module hint truncation: >MAX same-stem files report "+N more" — a capped set is never read as complete (§3.4)', async () => {
+  // 7 files all named `config.ts` under distinct dirs; the query names no SYMBOL, only these files.
+  const files: Record<string, string> = {
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler"},"include":["src"]}',
+  };
+  for (let i = 0; i < 7; i++) files[`src/d${i}/config.ts`] = 'export const v = 1;\n';
+  const p = await project(files);
+  try {
+    const note = noteOf(await search(p, 'config'));
+    // Oracle: 7 files exist; the hint shows exactly MAX(5) paths and states the remaining +2.
+    const shown = (note.match(/config\.ts/g) ?? []).filter((m) => m).length;
+    // 5 in the parenthetical list + 1 in the find_definition steer = 6 mentions; the list itself is 5.
+    assert.match(note, /\(\+2 more — use the list op\)/, 'the 2 hidden files are counted (§3.4)');
+    assert.ok(shown >= 5, `at least the 5 shown paths are named (saw ${shown})`);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('file/module hint NEGATIVE: a 0-match with NO same-named file leaves the note byte-identical (no false hint)', async () => {
   const p = await project(REPO);
   try {

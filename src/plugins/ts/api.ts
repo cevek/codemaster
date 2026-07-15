@@ -84,11 +84,12 @@ export interface TsPluginApi extends Plugin {
    *  free + bounded. Never warms the LS, never throws — an over-bound/failed pass returns `degraded`
    *  and the op falls back to a single flat group. */
   configMembership(): ConfigMembership;
-  /** `search_symbol` 0-match file/module hint (t-517121): git-tracked SOURCE files whose basename
-   *  stem equals `name` (case-insensitive, capped). Uses the git listing — NOT the loaded programs —
-   *  so it sees a file under an UNDISCOVERED program (the case that motivates the hint). Host-free +
-   *  bounded (the shared `gitSourceFilesSync` primitive); best-effort — empty on a git failure. */
-  filesNamed(name: string): RepoRelPath[];
+  /** `search_symbol` 0-match file/module hint (t-517121): git-tracked SOURCE files whose module-name
+   *  stem equals `name` (case-insensitive). `files` is capped; `total` counts every match so the note
+   *  reports truncation honestly (§3.4). Uses the git listing — NOT the loaded programs — so it sees a
+   *  file under an UNDISCOVERED program (the case that motivates the hint). Host-free + bounded (the
+   *  shared `gitSourceFilesSync` primitive); best-effort — empty on a git failure. */
+  filesNamed(name: string): { files: RepoRelPath[]; total: number };
   findDefinition(
     target: TsTargetInput,
   ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;

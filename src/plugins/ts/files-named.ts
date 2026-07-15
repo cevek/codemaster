@@ -15,32 +15,39 @@ import { brandGitPath } from '../../support/fs/canonicalize.ts';
 import { gitSourceFilesSync } from '../../support/git/ls-source-files.ts';
 import { isScannedSourcePath } from './syntactic-cache.ts';
 
-/** Cap the named files — a hint, not an inventory; many same-stem files means "look in `list`". */
+/** Cap the NAMED files — a hint, not an inventory; many same-stem files means "look in `list`".
+ *  `total` still counts every match past the cap so the note reports the truncation (§3.4). */
 const MAX_FILES = 5;
 
-/** The basename WITHOUT its extension(s), lower-cased — `apps/web/src/lib/buildView.ts` → `buildview`.
- *  Strips a compound `.d.ts`-style tail one dot at a time via `path.extname` so `foo.test.ts` → `foo`. */
+/** The module-name stem: the basename minus its FINAL extension, lower-cased —
+ *  `apps/web/src/lib/buildView.ts` → `buildview`, `foo.test.ts` → `foo.test`. Only the last extension
+ *  is stripped, so the stem IS the module specifier's base (what an `import './foo.test'` names) — a
+ *  bare `foo` query then does NOT spuriously match `foo.test.ts`, and the hint's "a source file named
+ *  'X'" stays accurate. (`.d.ts` never reaches here — `isScannedSourcePath` excludes declarations.) */
 function stem(rel: string): string {
-  let base = path.basename(rel);
-  for (let ext = path.extname(base); ext !== ''; ext = path.extname(base)) {
-    base = base.slice(0, -ext.length);
-  }
-  return base.toLowerCase();
+  const base = path.basename(rel);
+  const ext = path.extname(base);
+  return (ext === '' ? base : base.slice(0, -ext.length)).toLowerCase();
 }
 
-/** Up to `MAX_FILES` git-tracked SOURCE files whose basename stem equals `name` (case-insensitive).
- *  Exact-stem only (proof-carrying, low-noise): the motivating `buildView` → `buildView.ts` is an
- *  exact match, and a fuzzy widen would drag in unrelated files. Empty on a git failure or no match. */
-export function filesNamedLike(root: string, name: string): RepoRelPath[] {
+/** Git-tracked SOURCE files whose module-name stem equals `name` (case-insensitive) — `files` capped
+ *  at `MAX_FILES`, `total` the full count so the caller can report a §3.4-honest truncation. Exact-stem
+ *  only (proof-carrying, low-noise): the motivating `buildView` → `buildView.ts` is an exact match, and
+ *  a fuzzy widen would drag in unrelated files. Empty on a git failure or no match. */
+export function filesNamedLike(
+  root: string,
+  name: string,
+): { files: RepoRelPath[]; total: number } {
   const target = name.toLowerCase();
   const listing = gitSourceFilesSync(root);
-  if (!isOk(listing)) return []; // best-effort: no hint beats a fabricated one
-  const out: RepoRelPath[] = [];
+  if (!isOk(listing)) return { files: [], total: 0 }; // best-effort: no hint beats a fabricated one
+  const files: RepoRelPath[] = [];
+  let total = 0;
   for (const rel of listing.data) {
     if (!isScannedSourcePath(rel)) continue;
     if (stem(rel) !== target) continue;
-    out.push(brandGitPath(rel));
-    if (out.length >= MAX_FILES) break;
+    total++;
+    if (files.length < MAX_FILES) files.push(brandGitPath(rel)); // keep counting — no silent cutoff
   }
-  return out;
+  return { files, total };
 }

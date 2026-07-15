@@ -505,7 +505,8 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   per-plugin-instance (`syntactic-cache.ts`) keyed on a repo-state fingerprint the syntactic path can
   trust — NOT `projectVersion` (which won't bump for a re-modified untracked / member-only file the
   §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
-  stat-walk (§1). Default `searchSymbol` (navto) is byte-for-byte unchanged.
+  stat-walk (§1). The syntactic path leaves navto's default output untouched (navto at terse/normal
+  stays byte-identical; `verbosity:'full'` adds an opt-in header-only decl preview per match, t-517121).
   **`list_symbols` rides the same no-program surface (t-143952).** A first-contact ORIENTATION browse:
   a flat, comma-separated catalogue of the repo's TOP-LEVEL declared symbol NAMES (bare — no
   `file:line` decoration, so thousands fit), grouped per tsconfig. It reuses the SAME `surfaceSources`
@@ -1062,9 +1063,11 @@ marker), never a silent fall-through.
   unless an upstream interception reshapes it first). **No tag currently elects `verbatim`:** the
   "show me the code" decl-BODY payload is delivered by the `renderSource` COMPACT-BODY interception in
   [`render-result.ts`](src/format/render/render-result.ts) (find_definition / source), which fires
-  BEFORE `condense` — so a decl-bearing `symbol` never reaches this disposition, and the symbol-tagged
-  rows that DO reach it (find_usages' `definition`, search_symbol's `matches`, `mergedDeclarations`)
-  are name-token-only REFS with no body, which `verbatim` only ever exploded. So `symbol` is
+  BEFORE `condense`. Most symbol-tagged rows reaching this disposition (find_usages' `definition`,
+  `mergedDeclarations`) are name-token-only REFS with no body, which `verbatim` only ever exploded;
+  `search_symbol`'s `matches` at `verbosity:'full'` DO carry a `decl` — but a HEADER-only preview span
+  (t-517121), which the `collapse` renderer reads via the object-safe `spanTextOf` (its first line),
+  never the full body. So `symbol` is
   `collapse` like every other tag; a renderer that reaches a span must use the object-safe `spanLoc` /
   `spanTextOf` helpers (a collapse row meets a verbatim span OBJECT at full, never `[object Object]`).
   The `verbatim` branch in `condense` is retained as infrastructure for a future proof-bearing form
