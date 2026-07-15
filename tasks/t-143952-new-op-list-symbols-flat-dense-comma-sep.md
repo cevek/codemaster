@@ -1,7 +1,7 @@
 ---
 id: t-143952
 title: New op `list_symbols` — flat, dense, comma-separated catalogue of a repo's symbol NAMES for project-orientation / first-contact browse, grouped per tsconfig, on the fast syntactic no-program engine BY DEFAULT
-status: in-progress
+status: done
 priority: high
 tags:
   - dogfood
