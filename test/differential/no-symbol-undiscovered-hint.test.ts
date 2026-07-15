@@ -178,6 +178,32 @@ test('find_definition SUCCESS floor (t-673978): a name that resolves in the prim
     const byPos = okData(await p.op('find_definition', { file: 'src/core.ts', line: 1, col: 18 }));
     assert.equal(byPos.data.complete, undefined, 'position-addressed carries no floor field');
     assert.equal(byPos.data.notes, undefined, 'position-addressed carries no note');
+
+    // Byte-identical NEGATIVE #2: name WITH a file pin (`name`+`file`, and `name`+`file`+`line`) — an
+    // EXACT file-anchored resolution, NOT a fuzzy by-name lookup, so a cross-program twin is irrelevant.
+    // A floor here would dress a COMPLETE answer as partial (the §3.6 inverse) — the over-fire the gate
+    // (`name && !file`) prevents. This case is the one CI would otherwise stay green on.
+    for (const target of [
+      { name: 'EditOps', file: 'src/core.ts' },
+      { name: 'EditOps', file: 'src/core.ts', line: 1 },
+    ]) {
+      const pinned = okData(await p.op('find_definition', target));
+      assert.equal(
+        pinned.data.complete,
+        undefined,
+        `file-pinned (${JSON.stringify(target)}) carries no floor field`,
+      );
+      assert.equal(
+        pinned.data.undiscoveredPrograms,
+        undefined,
+        'file-pinned carries no undiscoveredPrograms',
+      );
+      assert.equal(
+        pinned.data.notes,
+        undefined,
+        'file-pinned carries no note — the resolution is exact',
+      );
+    }
   } finally {
     await p.dispose();
   }

@@ -33,12 +33,17 @@ export const findDefinitionOp = defineOp({
         // §6: the held handle's symbol is gone — state it structurally on `handle`.
         return fail({ tool: 'ts-ls', message: outcome.unresolved }, { handle: outcome.rebind });
       }
-      // §3.6 floor: a NAME target resolved to a decl, but if a nested tsconfig is unloaded a DISTINCT
-      // same-named symbol may live there — so this single/first definition is a possible MIS-target,
-      // not a proven answer. Fires ONLY on name-addressing (a symbolId/position is EXACT — no ambiguity
-      // across programs, so no note). Verdict-first (§12): `complete:false`+`undiscoveredPrograms` and
-      // the `!!` note lead, `definitions` trails, so the char-cap can only ever truncate the row bulk.
-      const floor = definitionFloor(args.name !== undefined ? ts.undiscoveredProgramLabels() : []);
+      // §3.6 floor: a bare-NAME target resolved to a decl, but if a nested tsconfig is unloaded a
+      // DISTINCT same-named symbol may live there — so this single/first definition is a possible
+      // MIS-target, not a proven answer. Fires ONLY on name-WITHOUT-a-file-pin: a symbolId/position is
+      // EXACT, and a `name`+`file` (or `name`+`file`+`line`) target is file-pinned — an equally exact
+      // resolution where a cross-program twin is irrelevant, so it gets NO note (a floor there would
+      // dress a COMPLETE answer as partial — the §3.6 inverse). Verdict-first (§12): the machine-
+      // readable `complete:false`+`undiscoveredPrograms` LEAD and survive the char-cap; `definitions`
+      // then the prose `!!` note trail (the note may truncate under a huge decl set — the load-bearing
+      // verdict is the fields, not the prose).
+      const nameOnly = args.name !== undefined && args.file === undefined;
+      const floor = definitionFloor(nameOnly ? ts.undiscoveredProgramLabels() : []);
       return ok(
         {
           ...floor.fields,

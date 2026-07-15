@@ -418,10 +418,14 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   no LS warm) over the shared repo walk, run once per undiscovered memo. A
   nested-package config reachable by none of the three is **not** loaded, so the read ops carry an honest floor — when any such
   **undiscovered** config exists (a one-time cached repo walk), `find_unused_exports` demotes every
-  otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` report a set-level
-  `complete:false` + the **named** config + a `!!` LOWER-BOUND note (a count-only consumer sees the
-  incompleteness without parsing prose) — never a silent false-`certain`-dead / a confident-`0` over
-  a possibly-incomplete search (§3.4). **File-driven nearest-config discovery (read path).** Beyond
+  otherwise-`certain` claim to `partial`, and `find_usages` / `importers_of` / bare-NAME
+  `find_definition` report a set-level `complete:false` + the **named** config + a `!!` LOWER-BOUND
+  note (a count-only consumer sees the incompleteness without parsing prose) — never a silent
+  false-`certain`-dead / a confident-`0` over a possibly-incomplete search, nor a confident single
+  definition when a same-named symbol may live unindexed (§3.4/§3.6). (`find_definition`'s floor fires
+  ONLY on a name-WITHOUT-a-file-pin: a `symbolId`/position/`name`+`file` target is an EXACT resolution
+  where a cross-program twin is irrelevant, so it stays byte-identical — a floor there would dress a
+  complete answer as partial.) **File-driven nearest-config discovery (read path).** Beyond
   the adjacent/`references` siblings, a READ whose target file's _nearest enclosing_ tsconfig is a
   nested config the loose-root primary globs WITHOUT its `paths`/`baseUrl` alias loads THAT config
   lazily as an extra read-only program (cached, idempotent, per-dir memoized — never a per-query

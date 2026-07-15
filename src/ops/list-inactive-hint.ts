@@ -37,6 +37,9 @@ export function inactiveRegistryDisclosure(
   if (labels.length === 0) return undefined;
   const named = labels.slice(0, MAX_NAMED).join(', ');
   const more = labels.length > MAX_NAMED ? `, +${labels.length - MAX_NAMED} more` : '';
-  const dirs = [...new Set(labels.slice(0, MAX_NAMED).map(configDir))].join(', ');
-  return `!! no plugin owning registry '${registry}' is active at this root — a framework plugin (autodetected off the ROOT package.json) may be active ONLY in an unindexed nested package: ${labels.length} repo tsconfig(s) NOT loaded as programs (${named}${more}). Re-run with root:<${dirs}> to index it. This is NOT proof the repo has no '${registry}'.`;
+  // `root:` takes ONE dir — so a single `root:<dir>` when there's one candidate, else name the choices
+  // ("root: at one of: …") rather than emit `root:<a, b>` which reads as an (invalid) multi-dir arg.
+  const dirs = [...new Set(labels.slice(0, MAX_NAMED).map(configDir))];
+  const remedy = dirs.length === 1 ? `root:<${dirs[0]}>` : `root: at one of: ${dirs.join(', ')}`;
+  return `!! no plugin owning registry '${registry}' is active at this root — a framework plugin (autodetected off the ROOT package.json) may be active ONLY in an unindexed nested package: ${labels.length} repo tsconfig(s) NOT loaded as programs (${named}${more}). Re-run with ${remedy} to index it. This is NOT proof the repo has no '${registry}'.`;
 }
