@@ -42,6 +42,26 @@ test('class B — `path`/`file` are aliases of `module` (importers_of); same res
   }
 });
 
+test('class B misfit — `query`/`name` on importers_of (a module-target op) hard-reject, loud (t-138266)', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    // The `moduleTarget` flag: a symbol-name spelling is the WRONG addressing mode (never resolves
+    // to a path), so it rejects with a pointed steer — NOT a silent alias to `module` (which would
+    // return a false "0 importers", §3.6). Driven by the per-op flag now, not a central table.
+    for (const key of ['query', 'name']) {
+      const msg = badArgs(await p.op('importers_of', { [key]: 'getInitials' }));
+      assert.match(msg, /looks like a symbol name/, `${key}: pointed misfit steer`);
+      assert.match(msg, /module PATH/, `${key}: names the right addressing mode`);
+    }
+    // The canonical `module` and its `path`/`file` aliases still pass — the flag rejects ONLY the
+    // symbol-name misfit keys, never the legitimate module spellings.
+    assert.ok(okResult(await p.op('importers_of', { module: 'src/util.ts' })));
+    assert.ok(okResult(await p.op('importers_of', { path: 'src/util.ts' })));
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('class C — source `symbols`/`sites` → `targets` (SymbolId + file:line:col elements)', async () => {
   const p: TestProject = await project(FILES);
   try {

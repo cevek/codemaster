@@ -203,7 +203,10 @@ export const importersOfOp = defineOp({
   argsSchema,
   argsHint:
     "{ module: string, limit?: number, programs?: string[] (extra tsconfig paths to load, to widen the importer search over an undiscovered nested config) } — a file (module mode) OR a directory (subtree mode: 'who imports under this folder')",
-  intake: { aliases: { path: 'module', file: 'module' } },
+  // `moduleTarget` — a `query`/`name` (symbol-name spelling) hard-rejects with a pointed steer
+  // (§3.6): a symbol name never resolves to a module PATH, so aliasing it would silently return
+  // "0 importers". Declared here beside the aliases, not in a central table (t-138266).
+  intake: { aliases: { path: 'module', file: 'module' }, moduleTarget: true },
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',

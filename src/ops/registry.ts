@@ -91,6 +91,13 @@ export interface OpIntake {
    *  enable smart-string parsing of `name` — a `ts:…@…:L:C` SymbolId → `symbolId`, a
    *  `path:line:col` string → `file/line/col`. */
   readonly locationTarget?: boolean;
+  /** This op addresses a module PATH (e.g. `importers_of`): a `query`/`name` key (a SYMBOL-name
+   *  spelling) is the WRONG addressing mode — a symbol name never resolves to a path, so aliasing
+   *  it to `module` would turn a loud `bad_args` into a silent "0 importers" (§3.6). Its presence
+   *  hard-rejects with a pointed steer, never a silent coercion. Declared on the op (mirrors
+   *  `locationTarget`) so the module-target discrimination lives beside the op's aliases, not in a
+   *  central name-keyed table that could silently win over a later-added alias. */
+  readonly moduleTarget?: boolean;
   /** This op carries an array of target objects under the named field (e.g. `source.targets`):
    *  each STRING element is parsed into a target object (SymbolId / file:line:col / name) and
    *  each OBJECT element gets the shared symbol/target alias rename + name smart-string. */

@@ -17,7 +17,7 @@ import { coerceArrayFields } from './coerce-array.ts';
 import { coerceNestedArrayFields } from './nested-array.ts';
 import { collapseFlatTarget } from './flat-target.ts';
 import { coerceTargetArray } from './targets.ts';
-import { misfitReject } from './misfit-hints.ts';
+import { moduleMisfitReject } from './module-target.ts';
 import { classifyTargetString, targetFields, targetRewriteLabel } from './smart-string.ts';
 
 export interface Normalized {
@@ -64,14 +64,19 @@ export function normalizeArgs(op: AnyOpDefinition, rawArgs: unknown): Normalized
     return { args, flags: lifted.flags, intake: notes, flagError: lifted.error };
   }
 
+  const intake = op.intake;
+
   // A wrong-ADDRESSING-MODE key (a symbol name where a module path is wanted) is not an alias —
-  // it hard-rejects with a pointed hint instead of a silent coercion (§3 never-lie).
-  const misfit = misfitReject(op.name, args);
-  if (misfit !== undefined) {
-    return { args, flags: lifted.flags, intake: notes, flagError: misfit };
+  // it hard-rejects with a pointed hint instead of a silent coercion (§3 never-lie). Declared per-op
+  // via `moduleTarget` (beside the op's aliases) and checked BEFORE aliases, so a later-added alias
+  // is never silently shadowed by a rule living in a central table.
+  if (intake?.moduleTarget === true) {
+    const misfit = moduleMisfitReject(args);
+    if (misfit !== undefined) {
+      return { args, flags: lifted.flags, intake: notes, flagError: misfit };
+    }
   }
 
-  const intake = op.intake;
   notes.push(...applyAliases(args, intake?.aliases).notes);
   // Cross-op aliases (`max_results`→`limit`), guarded to ops that actually have the target field.
   notes.push(...applyGlobalAliases(args, canonical).notes);
