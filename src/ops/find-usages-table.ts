@@ -45,6 +45,7 @@ function sectionRows(s: Section): readonly Cell[][] {
       null,
       u.program ?? null, // surfacing program (multi-program only; NULL single-program)
       u.decls !== undefined ? u.decls.join(',') : null, // merged-decl indices (merge mode only)
+      destructuresCell(u), // t-409060: consumed return-shape (call-role + opt-in only; NULL otherwise)
     ]);
   }
   for (const g of s.enclosers ?? []) {
@@ -69,6 +70,7 @@ function sectionRows(s: Section): readonly Cell[][] {
       g.site?.col ?? null,
       g.programs ?? null, // joined set of surfacing programs (multi-program only)
       g.decls ?? null, // joined set of merged-decl indices (merge mode only)
+      null, // destructures — a grouped rollup row is not a per-call-site view (flat mode only)
     ]);
   }
   // Text-only rows: same text, identity unproven — no AST role/encloser to claim.
@@ -92,9 +94,20 @@ function sectionRows(s: Section): readonly Cell[][] {
       null,
       null, // program — a textual hit has no program provenance
       null, // decls
+      null, // destructures — a textual hit is not a semantic call site
     ]);
   }
   return rows;
+}
+
+/** The tabular cell for a call site's consumed return-shape: `whole`, a comma-joined prop list
+ *  (`*` marks a `...rest`/computed key), `''` for a discarded result, or NULL when not annotated. */
+function destructuresCell(u: UsageView): Cell {
+  const d = u.destructures;
+  if (d === undefined) return null;
+  if (d.whole === true) return 'whole';
+  const props = d.props ?? [];
+  return `${props.join(',')}${d.rest === true ? (props.length > 0 ? ',*' : '*') : ''}`;
 }
 
 function sectionsOf(data: JsonValue): Section[] {
@@ -152,6 +165,10 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     // mergeDeclarations mode: comma-joined indices into `mergedDeclarations` whose ref set surfaced
     // this site — per-site provenance, so unrelated same-named symbols are never conflated. NULL otherwise.
     { name: 'decls', type: 'text' },
+    // t-409060 (opt-in `destructures:true`): the return-shape a CALL site consumes — `whole`, a
+    // comma-joined prop list (`*` = `...rest`/computed key), `''` = discarded result. NULL when the
+    // flag is off, the row is not a call, or it is a grouped/text row.
+    { name: 'destructures', type: 'text' },
   ],
   rows(data) {
     return sectionsOf(data).flatMap(sectionRows);

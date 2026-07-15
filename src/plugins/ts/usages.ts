@@ -14,6 +14,7 @@ import type { SymbolView, UsageView, UsageOptions, UsagesView } from './query-ty
 import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
 import { rollupGroups, type Ref } from './usages-rollup.ts';
+import { callResultShapeAt } from './call-result-shape.ts';
 
 /** A reference site fed to `assembleView` — the cross-program ref shape plus, in
  *  `mergeDeclarations` mode, the indices of the merged declarations whose reference set
@@ -150,6 +151,10 @@ export function assembleView(
     confidence: 'certain',
     ...(multiProgram ? { program: r.program } : {}),
     ...(r.declIndices !== undefined ? { decls: r.declIndices } : {}),
+    // t-409060: annotate each call site with the return-shape it consumes (opt-in, call-role only).
+    ...(options.destructures === true && r.role === 'call'
+      ? { destructures: callResultShapeAt(r.sourceFile, r.start) }
+      : {}),
   }));
   return { ...base, usages };
 }

@@ -1,7 +1,7 @@
 ---
 id: t-409060
 title: 'find_usages: per-call-site surface of which destructured properties each site consumes (const {a,b}=fn()) — triage return-shape blast radius without N follow-up reads'
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

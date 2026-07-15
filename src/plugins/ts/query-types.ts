@@ -53,6 +53,12 @@ export type UsageView = {
    *  whose reference set surfaced this exact site — per-site provenance so two unrelated same-named
    *  symbols are never presented as one undifferentiated set (§3.3). */
   decls?: number[];
+  /** Opt-in (`destructures:true`), `call`-role usages only (t-409060): the SHAPE this site consumes
+   *  the call's RESULT as — `props` are the destructured / member-accessed return properties
+   *  (`const {a,b}=fn()` → [a,b]; `fn().x` → [x]; a discarded `fn();` → []); `rest` flags a `...rest`
+   *  or computed key (unknown extra props); `whole` marks a result bound/passed as a value (may use
+   *  ANY property — conservative, never a silent gap). Return-shape blast-radius triage in one call. */
+  destructures?: { props?: string[]; rest?: true; whole?: true };
 };
 
 /** One enclosing-declaration rollup row. `id` is a chainable ts: SymbolId of the
@@ -117,6 +123,9 @@ export type UsageOptions = {
    *  (`UsageView.decls`), so unrelated same-named symbols are never silently conflated (§3.3).
    *  Only meaningful for a `name` target — a SymbolId / position addresses one declaration. */
   mergeDeclarations?: boolean | undefined;
+  /** Opt-in (t-409060): annotate each `call`-role usage with the return-shape it consumes
+   *  (`UsageView.destructures`). Flat mode only — a grouped rollup row is not a per-site view. */
+  destructures?: boolean | undefined;
 };
 
 export type UsagesView = {

@@ -40,6 +40,15 @@ const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit
 const MERGE_DECLS_HINT =
   ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)';
 
+/** `destructures` is a per-call-site (flat-mode) annotation; groupBy rolls sites into enclosers, so
+ *  the flag can't apply — disclosed, never silently swallowed (t-409060 / §3.6). */
+const DESTRUCTURES_GROUPBY_NOTE =
+  'destructures ignored — a per-call-site return-shape is a flat-mode annotation; drop groupBy to see it';
+const destructuresIgnored = (args: {
+  destructures?: boolean | undefined;
+  groupBy?: unknown;
+}): boolean => args.destructures === true && args.groupBy !== undefined;
+
 const argsSchema = z
   .strictObject({
     ...tsTargetShape,
@@ -57,6 +66,9 @@ const argsSchema = z
      *  triplet), instead of failing on the ambiguity. Per-site provenance kept (`usages[].decls`
      *  index into `mergedDeclarations`). Only for a `name` target. */
     mergeDeclarations: z.boolean().optional(),
+    /** Annotate each `call`-role usage with the return-shape it consumes (`destructures` per site) —
+     *  return-shape blast-radius triage in one call. Flat mode only (§ groupBy is a rollup axis). */
+    destructures: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
     ...programsArgShape,
     filter: z
@@ -85,7 +97,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
   intake: tsTargetIntake,
   example: {
     args: {
@@ -107,6 +119,7 @@ export const findUsagesOp = defineOp({
     'density (text/json, NOT sql): a column CONSTANT across the listed rows is hoisted to a header and dropped per-row — a single `role` filter → `role=<r>` (read effective role as `row.role ?? role`); the dominant program → `allProgram=<p>` (read `row.program ?? allProgram`). `listable` (collapsed-import count tie) appears ONLY when the rows are truncated. sql-mode keeps every value per row.',
     "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated). The ambiguous hard-FAIL surfaces this flag.",
     '{name, file} member fallback: when no TOP-LEVEL declaration of `name` lives in `file`, a class/type MEMBER, enum member, or re-exported binding of that name is resolved instead (the resolution is disclosed as a leading note); several such bindings → a pick-list + a member_usages redirect. So a method / type-member / re-export is not a dead-end.',
+    'destructures:true (flat mode only) — annotate each call site with the return-shape it consumes: `⇒{a,b}` destructured props (`const {a,b}=fn()`) or member-accessed (`fn().x`), a trailing `…` for a `...rest`/computed key (unknown extra props), `⇒whole` for a value bound/passed whole (may use ANY prop — conservative), `⇒{}` for a discarded result. Triages return-shape blast radius (which sites break if a return field changes) in ONE call; sql column `destructures`. Ignored under groupBy (disclosed).',
   ],
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
@@ -126,6 +139,8 @@ export const findUsagesOp = defineOp({
       collapseImports: sqlMode ? false : (args.collapseImports ?? true),
       groupBy: args.groupBy,
       mergeDeclarations: args.mergeDeclarations,
+      // Flat mode only: a groupBy rollup row is not a per-site view. Disclosed in the note below.
+      destructures: args.destructures === true && args.groupBy === undefined,
       pathExclude: args.filter?.pathExclude,
       pathInclude: args.filter?.pathInclude,
       enclosingKind: args.filter?.kind,
@@ -222,9 +237,13 @@ export const findUsagesOp = defineOp({
             totalRows += tally.total;
           }
         }
+        const topNotes = [
+          ...lever.notes,
+          ...(destructuresIgnored(args) ? [DESTRUCTURES_GROUPBY_NOTE] : []),
+        ];
         const data = {
           ...lever.fields,
-          ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
+          ...(topNotes.length > 0 ? { notes: topNotes } : {}),
           targets,
           ...(unresolved.length > 0 ? { unresolved } : {}),
         };
@@ -287,6 +306,7 @@ export const findUsagesOp = defineOp({
           'mergeDeclarations ignored — a symbol/position target addresses ONE declaration; pass a `name` to union all same-named declarations',
         );
       }
+      if (destructuresIgnored(args)) notes.push(DESTRUCTURES_GROUPBY_NOTE);
       const hoisted = hoistView(view, args.role, sqlMode);
       if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
       // §3.4 floor (verdict-first): a non-empty undiscovered set makes the usages a LOWER BOUND.

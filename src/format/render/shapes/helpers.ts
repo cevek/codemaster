@@ -48,7 +48,18 @@ export function usageDeco(v: Record<string, JsonValue>): string {
   const decls = v['decls'];
   if (decls !== undefined && Array.isArray(decls)) s += ` · decls[${decls.map(String).join(',')}]`;
   else if (typeof decls === 'string' && decls.length > 0) s += ` · decls[${decls}]`;
+  s += destructuresDeco(v['destructures']);
   return s;
+}
+
+/** The per-call-site return-shape annotation (t-409060): `⇒{a,b}` for destructured props, a trailing
+ *  `…` for a `...rest`/computed key, and `⇒whole` for a value bound/passed whole (may use any prop). */
+function destructuresDeco(d: JsonValue | undefined): string {
+  if (!isObject(d)) return '';
+  if (d['whole'] === true) return ' ⇒whole';
+  const props = asArray(d['props']).map(String);
+  const rest = d['rest'] === true ? (props.length > 0 ? ',…' : '…') : '';
+  return ` ⇒{${props.join(',')}${rest}}`;
 }
 
 /** Summarize a (condensed) react-query QueryKeyView to its literal form — `['a', <id>]` for
