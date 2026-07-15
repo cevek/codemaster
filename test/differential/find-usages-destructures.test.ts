@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { project, type TestProject } from '../helpers/project.ts';
+import { project, assertSpansValid, type TestProject } from '../helpers/project.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 type Destructures = { props?: string[]; rest?: true; whole?: true };
@@ -61,6 +61,72 @@ test('destructures: each call site is annotated with the return-shape it consume
       m.get(8),
       { props: ['page'] },
       'renamed {page: p} reports the PROPERTY, not the local',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+const ADDED_SITE =
+  'export const h = () => { const { context, page } = launchApp(); return context ?? page; };\n';
+const stable = (us: Usage[]): string[] => us.map((u) => JSON.stringify(u)).sort();
+
+test('destructures: cold == warm after adding a call site, spans valid (invariants 3 + 1)', async () => {
+  // Warm: baseline query pins the freshness guard, then ADD a call site → op#2 must reindex
+  // incrementally (not a disguised cold boot), and its per-site annotations must equal a cold boot
+  // over the identical final tree. The destructures annotation is computed fresh per query, so a
+  // divergence would be an incremental-state drift.
+  const warmP: TestProject = await project(FILES);
+  let warm: string[];
+  try {
+    await warmP.op('find_usages', { name: 'launchApp', role: 'call', destructures: true });
+    warmP.write('src/sites.ts', FILES['src/sites.ts'] + ADDED_SITE);
+    const op2 = await warmP.op('find_usages', {
+      name: 'launchApp',
+      role: 'call',
+      destructures: true,
+    });
+    assert.ok('result' in op2 && op2.result.ok, JSON.stringify(op2));
+    assert.ok(
+      (op2.result.freshness?.reindexed ?? 0) >= 1,
+      'op#2 must reindex incrementally — otherwise it is a disguised cold boot',
+    );
+    assertSpansValid(warmP.root, op2); // invariant 1 rides along
+    warm = stable(usagesOf(op2));
+  } finally {
+    await warmP.dispose();
+  }
+  const coldP: TestProject = await project({
+    ...FILES,
+    'src/sites.ts': FILES['src/sites.ts'] + ADDED_SITE,
+  });
+  try {
+    const cold = stable(
+      usagesOf(
+        await coldP.op('find_usages', { name: 'launchApp', role: 'call', destructures: true }),
+      ),
+    );
+    assert.deepEqual(warm, cold, 'warm (post-add) destructures == cold boot');
+  } finally {
+    await coldP.dispose();
+  }
+});
+
+test('destructures: the multi-target symbols[] path annotates too', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const r = await p.op('find_usages', {
+      symbols: ['launchApp'],
+      role: 'call',
+      destructures: true,
+    });
+    assert.ok('result' in r && r.result.ok, JSON.stringify(r));
+    const targets = (r.result.data as { targets?: { usages?: Usage[] }[] }).targets ?? [];
+    const m = byLine(targets[0]?.usages ?? []);
+    assert.deepEqual(
+      m.get(2),
+      { props: ['browser', 'page'] },
+      'symbols[] path carries destructures',
     );
   } finally {
     await p.dispose();

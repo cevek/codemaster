@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { project, type TestProject } from '../helpers/project.ts';
+import { project, assertSpansValid, type TestProject } from '../helpers/project.ts';
 import { coldReferenceSites } from '../helpers/cold-ls.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
@@ -51,6 +51,35 @@ test('member fallback: {name,file} on a type MEMBER resolves + finds accesses ==
     );
   } finally {
     await p.dispose();
+  }
+});
+
+test('member fallback: cold == warm after adding a member access, spans valid (invariants 3 + 1)', async () => {
+  const added = "import { gen } from './gen';\nexport const w = gen.next(9);\n";
+  const warmP: TestProject = await project(MEMBER_FILES);
+  let warm: string[];
+  try {
+    await warmP.op('find_usages', { name: 'next', file: 'src/gen.ts' }); // baseline pins freshness
+    warmP.write('src/more.ts', added);
+    const op2 = await warmP.op('find_usages', { name: 'next', file: 'src/gen.ts' });
+    assert.ok('result' in op2 && op2.result.ok, JSON.stringify(op2));
+    assert.ok(
+      (op2.result.freshness?.reindexed ?? 0) >= 1,
+      'op#2 must reindex incrementally — otherwise it is a disguised cold boot',
+    );
+    assertSpansValid(warmP.root, op2); // invariant 1 rides along
+    warm = sites(okData(op2).usages);
+  } finally {
+    await warmP.dispose();
+  }
+  const coldP: TestProject = await project({ ...MEMBER_FILES, 'src/more.ts': added });
+  try {
+    const cold = sites(
+      okData(await coldP.op('find_usages', { name: 'next', file: 'src/gen.ts' })).usages,
+    );
+    assert.deepEqual(warm, cold, 'warm (post-add) member usages == cold boot');
+  } finally {
+    await coldP.dispose();
   }
 });
 
