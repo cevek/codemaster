@@ -138,7 +138,7 @@ test('file/module hint truncation: >MAX same-stem files report "+N more" — a c
     // Oracle: 7 files exist; the hint shows exactly MAX(5) paths and states the remaining +2.
     const shown = (note.match(/config\.ts/g) ?? []).filter((m) => m).length;
     // 5 in the parenthetical list + 1 in the find_definition steer = 6 mentions; the list itself is 5.
-    assert.match(note, /\(\+2 more — use the list op\)/, 'the 2 hidden files are counted (§3.4)');
+    assert.match(note, /\(\+2 more with this name\)/, 'the 2 hidden files are counted (§3.4)');
     assert.ok(shown >= 5, `at least the 5 shown paths are named (saw ${shown})`);
   } finally {
     await p.dispose();

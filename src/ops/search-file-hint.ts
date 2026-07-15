@@ -6,15 +6,16 @@
 
 /** The file/module clause to append to a 0-match `search_symbol` note, or `''` when no source file
  *  bears the query's name (the note stays byte-identical — no false hint). Proof-carrying: names the
- *  exact resolved path(s) and steers to `find_definition {file}` / `list`. When more files share the
- *  name than are shown, the count is stated (§3.4 — never a capped set read as complete). */
+ *  exact resolved path(s) and steers to `find_definition {file}` (the op that inspects a known file —
+ *  NOT `list`, which enumerates plugin registries, not files by name). When more files share the name
+ *  than are shown, the count is stated (§3.4 — never a capped set read as complete). */
 export function fileModuleHint(
   query: string,
   found: { files: readonly string[]; total: number },
 ): string {
   const { files, total } = found;
   if (files.length === 0) return '';
-  const more = total > files.length ? ` (+${total - files.length} more — use the list op)` : '';
+  const more = total > files.length ? ` (+${total - files.length} more with this name)` : '';
   const named = `${files.join(', ')}${more}`;
-  return ` — but a source file named '${query}' exists (${named}); if you meant the FILE/module rather than a symbol, try find_definition {file:'${files[0]}'} or the list op.`;
+  return ` — but a source file named '${query}' exists (${named}); if you meant the FILE/module rather than a symbol, try find_definition {file:'${files[0]}'}.`;
 }

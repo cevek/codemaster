@@ -149,8 +149,9 @@ export const searchSymbolOp = defineOp({
       };
       // Opt-in cheap discovery path (t-515730): a raw AST scan, no program build. Complete for
       // declarations in git-tracked source UNDER the root (outside-root includes disclosed, not
-      // scanned); the default navto path below is byte-for-byte unchanged. A git / @internal-TS
-      // failure comes back as an honest ToolFailure — passed through, never a false empty (§3.6).
+      // scanned); the default navto path below is byte-identical at terse/normal (full attaches the
+      // opt-in decl preview, below). A git / @internal-TS failure comes back as an honest ToolFailure
+      // — passed through, never a false empty (§3.6).
       // §12: the small header-only decl preview per match is opt-in at `verbosity:'full'` — a direct
       // lookup then reads the signature without a chained `source`/`find_definition`. terse/normal
       // stay byte-identical (no `decl` populated), and the extra AST walk is only paid on `full`.
