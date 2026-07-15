@@ -67,6 +67,53 @@ test('destructures: each call site is annotated with the return-shape it consume
   }
 });
 
+// A RECEIVER — `svc` is a value object, NEVER called; `svc.load()` / `svc.save()` are the calls.
+// `svc` is role `call` (it sits in the callee expression), but its result is NOT what's destructured
+// — `load()`'s return is. Annotating `svc`'s usage with load()'s props would be a fabricated shape.
+const RECEIVER_FILES = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/main.ts':
+    'export const svc = { load() { return { a: 1, b: 2 }; }, save() {} };\n' +
+    'export function use() {\n' +
+    '  const { a, b } = svc.load();\n' +
+    '  svc.save();\n' +
+    '  return a + b;\n' +
+    '}\n',
+};
+
+test('destructures: a receiver usage (obj.method()) is NOT annotated with the method return props', async () => {
+  const p: TestProject = await project(RECEIVER_FILES);
+  try {
+    // `svc` is never called — every usage must be `whole`, NEVER `load()`'s / `save()`'s return shape.
+    const us = usagesOf(
+      await p.op('find_usages', { name: 'svc', role: 'call', destructures: true }),
+    );
+    assert.ok(us.length >= 2, 'both receiver usages present');
+    for (const u of us) {
+      assert.deepEqual(
+        u.destructures,
+        { whole: true },
+        `receiver usage is whole, not a fabricated return-shape: ${JSON.stringify(u)}`,
+      );
+    }
+    // Regression guard for the fix: the genuine method CALLEE still gets its own return props.
+    const load = usagesOf(
+      await p.op('find_usages', {
+        name: 'load',
+        file: 'src/main.ts',
+        role: 'call',
+        destructures: true,
+      }),
+    );
+    assert.ok(
+      load.some((u) => JSON.stringify(u.destructures) === JSON.stringify({ props: ['a', 'b'] })),
+      `the method callee keeps its props: ${JSON.stringify(load)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 const ADDED_SITE =
   'export const h = () => { const { context, page } = launchApp(); return context ?? page; };\n';
 const stable = (us: Usage[]): string[] => us.map((u) => JSON.stringify(u)).sort();

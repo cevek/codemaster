@@ -57,8 +57,14 @@ function unwrapValue(node: ts.Node): ts.Node {
   }
 }
 
-/** The CallExpression whose CALLEE is (or wraps) `node` — the reference is on the callee identifier
- *  (`fn` in `fn()`, or the `.fn` of `x.fn()`), so climb only callee-position wrappers. */
+/** The CallExpression whose CALLEE is (or wraps) `node` — the reference must be on the CALLEE
+ *  identifier (`fn` in `fn()`, or the `.fn` of `x.fn()`), NOT a receiver. `svc` in `svc.load()` is
+ *  role `call` too (it is inside the callee expression), but it is the receiver, not the function —
+ *  so climbing it into `svc.load()` and reporting `load()`'s result shape would fabricate a
+ *  return-shape on a usage of `svc` (a §3 mislabel). So the ONLY property-access climb is
+ *  `parent.name === cur` (`x.fn` reached via its `.fn` name token — the genuine member callee); the
+ *  `.expression === cur` climb is limited to value-preserving wrappers (`(fn)()`, `fn!()`), which a
+ *  receiver never is. */
 function enclosingCall(node: ts.Node): ts.CallExpression | undefined {
   let cur: ts.Node = node;
   for (;;) {
@@ -67,10 +73,7 @@ function enclosingCall(node: ts.Node): ts.CallExpression | undefined {
     if (ts.isCallExpression(parent) && parent.expression === cur) return parent;
     if (
       (ts.isPropertyAccessExpression(parent) && parent.name === cur) ||
-      ((ts.isPropertyAccessExpression(parent) ||
-        ts.isElementAccessExpression(parent) ||
-        ts.isParenthesizedExpression(parent) ||
-        ts.isNonNullExpression(parent)) &&
+      ((ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent)) &&
         parent.expression === cur)
     ) {
       cur = parent;
