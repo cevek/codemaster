@@ -1,7 +1,7 @@
 ---
 id: t-381844
 title: find_usages via a re-export alias mislabels the target's own function declaration as role 'write' instead of 'decl' (§3 role mislabel in classifyRole)
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood
