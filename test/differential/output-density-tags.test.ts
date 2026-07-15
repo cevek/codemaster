@@ -162,6 +162,14 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     provenance: 'heuristic:react',
   },
   'endpoint-card': { method: 'GET', path: '/x', pathParams: [], confidence: 'certain' },
+  'symbol-catalogue-group': {
+    config: 'tsconfig.json',
+    shown: 2,
+    total: 5,
+    alsoIn: ['tsconfig.test.json'],
+    more: '+3 more (narrow by token/path/kind)',
+    names: 'Alpha, Beta',
+  },
   'trace-hop': {
     from: { kind: 'mutation', label: 'm', key: 'ts:m@a.ts:1:1', span: SAMPLE_SPAN },
     to: { kind: 'queryKey', label: '["t"]', key: 'queryKey@a.ts:1:1', span: SAMPLE_SPAN },

@@ -72,7 +72,8 @@ export type ShapeTag =
   | 'trace-hop'
   // list / schema
   | 'list-entry'
-  | 'endpoint-card';
+  | 'endpoint-card'
+  | 'symbol-catalogue-group';
 
 /** Stamp a row with its shape tag. SPREADS (never mutates) — a row may be plugin
  *  cache-state, and writing the tag in place would corrupt that cache and violate

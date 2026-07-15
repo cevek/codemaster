@@ -58,6 +58,7 @@ export const SHAPE_RENDERERS: Record<ShapeTag, ShapeRenderer> = {
   'trace-hop': trace.traceHop,
   'list-entry': list.listEntry,
   'endpoint-card': list.endpointCard,
+  'symbol-catalogue-group': list.symbolCatalogueGroup,
 };
 
 /** Per-tag `full`-verbosity disposition. The DEFAULT is `collapse`: a list/verdict row's form
@@ -124,4 +125,5 @@ export const FULL_DISPOSITION: Record<ShapeTag, 'collapse' | 'verbatim'> = {
   'trace-hop': 'collapse',
   'list-entry': 'collapse',
   'endpoint-card': 'collapse',
+  'symbol-catalogue-group': 'collapse',
 };

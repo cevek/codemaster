@@ -568,6 +568,7 @@ A small number of ops ship by default:
 | `expand_type`              | `ts.expandType`                                                                                                   |
 | `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                             |
 | `list`                     | dispatches to the plugin owning the requested registry                                                            |
+| `list_symbols`             | `ts.listSymbols` (no-program syntactic name catalogue) + `ts.configMembership` (per-tsconfig grouping)            |
 | `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)                                                          |
 | `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`                                                           |
 | `move_file`                | `ts` plugin + `support/text-edits`                                                                                |
@@ -1189,7 +1190,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-search.ts / syntactic-cache.ts: the no-program OOM-survival search_symbol scan)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,cache}.ts: the no-program OOM-survival search_symbol + list_symbols scans; program/config-membership.ts: list_symbols per-tsconfig grouping)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1201,7 +1202,7 @@ codemaster/
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
-      search-symbol.ts  source.ts  list.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      search-symbol.ts  source.ts  list.ts  list-symbols.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …

@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (26):
+ops (27):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     · on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).
@@ -100,6 +100,12 @@ ops (26):
     · bounded: limit caps the entry set (the cap returns as truncation `{shown,total,hint}`, never silent); pathInclude/pathExclude are globs over the entry DECLARATION file — dropped entries are reported as `excludedByFilter`, so a filter never reads as completeness. In sql-mode the producer is UNCAPPED (limit ignored — a capped table feeding NOT IN would lie); path filters still apply (an explicit WHERE, not a cap).
     columns: key,kind,name,file,line,col,confidence,provenance,detail
     e.g. list {"registry":"components","pathInclude":["src/features/**"]}
+  list_symbols { kind?: string, exportedOnly?: boolean, all?: boolean, pathInclude?: string[], pathExclude?: string[], limit?: number } — First-contact orientation: a flat, comma-separated catalogue of the repo's declared symbol NAMES, grouped per tsconfig — on the OOM-safe no-program syntactic scan (no LS warm)
+    · FLAT bare names (no file:line decoration) so thousands fit — scan the list, pick a name, then run search_symbol / find_definition on it. Deduped + sorted per group.
+    · SYNTACTIC (no program build, no LS warm): OOM-safe first-contact browse on a huge monorepo — exactly where the name-addressed path can run out of memory. Names only, NOT type-verified: a re-export name may appear; scope is git-tracked source UNDER the root (an outside-root include is not covered).
+    · grouped per tsconfig (best-effort: the grouping layer degrades to a single flat `(all)` group on a pathological repo). A file included by several configs lands under ONE primary config (deepest-dir wins) — never double-counted — and the group is flagged `(shared: also in …)`.
+    · exportedOnly defaults TRUE (public surface); all:true adds non-exported locals. kind filters a syntactic kind (function/class/interface/type/const/enum/…); `component` is NOT available (needs react semantics). Each group caps at `limit` (default 300) with a `+N more` marker; the summary line states global totals.
+    e.g. list_symbols {"kind":"function","pathInclude":["src/**"]}
   rename_symbol [mutating] { symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean } — Rename a symbol across every semantic reference site (dry-run unless apply:true)
     · a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.
     · capture-safe: if the new name shadows / is shadowed by an in-scope binding so a rewritten reference would silently re-bind to a DIFFERENT symbol (type-compatible → invisible to the typecheck), the sites are listed under `captures` and apply is REFUSED (shown on dry-run too).

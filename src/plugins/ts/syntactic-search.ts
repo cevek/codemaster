@@ -30,19 +30,16 @@
 //    honest `… N more` tail (guardrail 5).
 
 import ts from 'typescript';
-import path from 'node:path';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
-import { brandGitPath } from '../../support/fs/canonicalize.ts';
-import { readTextFile } from '../../support/fs/read-file.ts';
-import { gitSourceFilesSync } from '../../support/git/ls-source-files.ts';
 import { spanFromRange } from './spans.ts';
 import { deriveRootTag, mintSymbolId } from './symbol-id.ts';
 import type { SyntacticCache, SyntacticSources } from './syntactic-cache.ts';
-import { computeSurfaceKey, isScannedSourcePath } from './syntactic-cache.ts';
+import { surfaceSources } from './syntactic-surface.ts';
+import { isImportSite, isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { SymbolView } from './query-types.ts';
 
@@ -122,34 +119,6 @@ export function searchSymbolsSyntactic(
   const sources = surfaceSources(root, cache);
   if (!isOk(sources)) return fail(sources.failure);
   return ok(searchOverSources(sources.data, deriveRootTag(root), matcher, limit, filter));
-}
-
-/** The parsed §10 surface, from cache when the repo-state key is unchanged (hot path, O(changed)),
- *  else re-listed + re-parsed (drift only). A git failure surfaces — never a silent empty. */
-function surfaceSources(root: string, cache: SyntacticCache): Result<SyntacticSources> {
-  const key = computeSurfaceKey(root);
-  if (!isOk(key)) return fail(key.failure);
-  if (cache.current?.key === key.data) return ok(cache.current.sources);
-  const listing = gitSourceFilesSync(root);
-  if (!isOk(listing)) return fail(listing.failure);
-  const sources: SyntacticSources = new Map();
-  for (const gitPath of listing.data) {
-    // BLOCK 2 fix: NO name-based ignore-dir filter here. `git ls-files --exclude-standard` already
-    // drops .gitignore'd files, and a nested-repo copy (.claude/worktrees/<id>) is a SEPARATE git
-    // repo the outer listing never emits — so a name filter only ever OVER-excludes a tracked,
-    // import-reached file in a name-ignored dir (e.g. an imported `build/gen/g.ts`) that navto
-    // DOES return → a §3.4 miss. Over-inclusion of tracked junk is superset-safe noise; a miss is not.
-    if (!isScannedSourcePath(gitPath)) continue;
-    const abs = path.join(root, gitPath);
-    const text = readTextFile(abs);
-    if (!isOk(text)) continue; // a vanished/unreadable file is not a symbol source — skip, never throw
-    sources.set(
-      brandGitPath(gitPath),
-      ts.createSourceFile(abs, text.data, ts.ScriptTarget.Latest, /*setParentNodes*/ true),
-    );
-  }
-  cache.current = { key: key.data, sources };
-  return ok(sources);
 }
 
 function searchOverSources(
@@ -235,62 +204,10 @@ function collectFromFile(
   });
 }
 
-/** The 0-based start of the declaration's NAME token — the anchor every symbol-addressed read
- *  funnels through. Fixes navto's `declText.indexOf(name)` imprecision (which mis-anchors
- *  `X as Yprefix` and expando assignments — the t-515730 straggler cause). Falls back to the
- *  node start when the name is not a plain identifier (computed / string / binding name). */
-function nameAnchor(node: ts.Declaration, sf: ts.SourceFile): number {
-  const nameNode = ts.getNameOfDeclaration(node);
-  return (nameNode ?? node).getStart(sf);
-}
-
-/** Real declaration (introduces a symbol) vs an import / re-export re-mention of a name declared
- *  elsewhere. Real decls rank FIRST so the result cap shows definitions, import noise falls into
- *  the truncated tail (guardrail 5). */
-function isRealDeclaration(node: ts.Node): boolean {
-  return !(isImportSite(node) || ts.isExportSpecifier(node) || ts.isNamespaceExport(node));
-}
-
-/** A pure IMPORT re-mention (never an export) — the only sites `exportedOnly` drops on the syntactic
- *  path. `export {X}` / `export * as ns` are export-specifiers, NOT imports, so they are KEPT. */
-function isImportSite(node: ts.Node): boolean {
-  return (
-    ts.isImportClause(node) ||
-    ts.isImportSpecifier(node) ||
-    ts.isImportEqualsDeclaration(node) ||
-    ts.isNamespaceImport(node)
-  );
-}
-
 function compareMatches(a: Match, b: Match): number {
   if (a.isReal !== b.isReal) return a.isReal ? -1 : 1; // real declarations first
   if (a.matchKind !== b.matchKind) return a.matchKind - b.matchKind; // exact > prefix > substring > camelCase
   const byFile = a.view.span.file.localeCompare(b.view.span.file);
   if (byFile !== 0) return byFile; // stable, deterministic order (§16)
   return a.view.span.line - b.view.span.line;
-}
-
-/** A ScriptElementKind-ish label for a `getNamedDeclarations` node. Kept local (not shared with
- *  declarations-on-line.ts's addressing-only labeler): this one spans the full getNamedDeclarations
- *  node variety incl import/export aliases + a SyntaxKind fallback, a different vocabulary. */
-function nodeKindLabel(node: ts.Node): string {
-  if (ts.isVariableDeclaration(node)) {
-    const flags = node.parent.flags;
-    if ((flags & ts.NodeFlags.Const) !== 0) return 'const';
-    if ((flags & ts.NodeFlags.Let) !== 0) return 'let';
-    return 'var';
-  }
-  if (ts.isFunctionDeclaration(node)) return 'function';
-  if (ts.isClassDeclaration(node)) return 'class';
-  if (ts.isInterfaceDeclaration(node)) return 'interface';
-  if (ts.isTypeAliasDeclaration(node)) return 'type';
-  if (ts.isEnumDeclaration(node)) return 'enum';
-  if (ts.isEnumMember(node)) return 'enum member';
-  if (ts.isModuleDeclaration(node)) return 'module';
-  if (ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) return 'method';
-  if (ts.isGetAccessorDeclaration(node)) return 'getter';
-  if (ts.isSetAccessorDeclaration(node)) return 'setter';
-  if (ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) return 'property';
-  if (!isRealDeclaration(node)) return 'alias';
-  return 'declaration';
 }

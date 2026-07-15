@@ -101,6 +101,8 @@ const EXCLUSIONS: Record<string, string> = {
     'emits changed-set + test file-path strings (no source Spans); the import-graph→tests trace is oracle-tested in affected.test.ts vs an independent cold reverse-import walk',
   feedback: 'writes the global inbox; carries no source Spans',
   list: 'generic registry dispatcher — emits Spans only when a registry-owning framework plugin is active (none in this fixture); span validity is exercised in react-detect.test.ts',
+  list_symbols:
+    'a flat BARE-NAME catalogue (no file:line decoration by design — the density point) — carries no proof Spans; the ⊇-oracle / grouping / cap honesty is oracle-tested in list-symbols.test.ts vs a cold ts.Program checker',
   invalidations_for:
     'requires the react-query plugin (not enabled in this generic sweep fixture); proof-span validity is oracle-tested in react-query.test.ts via assertSpansValid',
   trace_invalidation:

@@ -25,6 +25,8 @@ import { overlaySymbolType } from './overlay-type.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
+import { listCatalogue } from './syntactic-catalogue.ts';
+import { computeConfigMembership } from './program/config-membership.ts';
 import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
@@ -154,6 +156,13 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     // parsed surface is memoized in `syntacticCache` (host-independent, cleared on dispose).
     searchSymbolSyntactic: (query, limit, filter) =>
       searchSymbolsSyntactic(root, query, limit, filter, syntacticCache),
+
+    // `list_symbols` (t-143952): both no-program, host-independent — like the syntactic search they
+    // take `root` directly and NEVER call warm() (OOM-safe first-contact). The catalogue reuses the
+    // memoized parsed surface; membership is a bounded per-call pass (never cached — syntactic-cache
+    // cannot see a tsconfig edit).
+    listSymbols: (filter) => listCatalogue(root, syntacticCache, filter),
+    configMembership: () => computeConfigMembership(root),
 
     findDefinition(target) {
       const resolved = resolve(target);
