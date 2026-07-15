@@ -40,6 +40,13 @@ export type ImportersView = {
   /** The module as resolved (repo-relative), or the raw specifier when unresolvable; in SUBTREE
    *  mode, the subtree directory (repo-relative). */
   module: string;
+  /** MODULE mode only: did the specifier resolve to a real file under the project's own module
+   *  resolution? `false` ⇒ the arg is a typo'd / out-of-project path — importers (if any) are
+   *  literal-string fallback matches, and a `0` count is almost certainly a bad arg, NOT proof
+   *  nothing depends on the module. The op surfaces this explicitly so an unresolved arg reads as a
+   *  loud non-resolution, distinct from an honest resolved-0 (§3.6). Omitted in SUBTREE mode (a
+   *  directory, with its own `safe`/blocker semantics). */
+  resolved?: boolean;
   /** MODULE mode: the importers. SUBTREE mode: external ∪ internal (the full set, so a generic
    *  consumer — `affected` — still sees every importer). */
   importers: ImporterRow[];
@@ -97,7 +104,7 @@ function detectSubtree(
 
 export function findImporters(host: TsProjectHost, moduleArg: string): ImportersView {
   const primary = host.service.getProgram();
-  if (primary === undefined) return { module: moduleArg, importers: [], total: 0 };
+  if (primary === undefined) return { module: moduleArg, resolved: false, importers: [], total: 0 };
 
   const sub = detectSubtree(host, moduleArg);
   if (sub !== undefined) return findImportersSubtree(host, sub.rel, sub.abs);
@@ -141,6 +148,7 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
   const undiscovered = host.undiscoveredProgramLabels();
   return {
     module: targetAbs !== undefined ? host.relOf(targetAbs) : moduleArg,
+    resolved: targetAbs !== undefined,
     importers,
     total: importers.length,
     ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),

@@ -373,6 +373,13 @@ probing.
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
   first then fans out only for candidates dead-in-primary (cost short-circuit). So a symbol
   used only from a `test/**` file is honestly counted as used, not falsely reported dead.
+  **`importers_of` MODULE-mode resolution honesty (§3.6).** The result carries `resolved`: a module
+  spec that does NOT resolve to a file under the project's own resolution (a typo'd / out-of-project
+  path) reads as a LOUD `module unresolved: X` — distinct from an honest resolved-0 (a real module
+  nothing imports). A `0` under an unresolved arg is almost certainly a bad arg, never proof nothing
+  depends on it; conflating the two would be the silent-0 lie the §3.6 honesty forbids. (An
+  unresolvable spec that still has importers — a `.scss` path — matched them by LITERAL string, and
+  says so.) Orthogonal to the undiscovered-program floor below, which independently caps a resolved-0.
   **`importers_of` SUBTREE mode.** When the arg names a DIRECTORY (`ts.sys.directoryExists`, or a
   trailing slash) rather than a file, `importers_of` answers "who imports ANYTHING under this folder"
   — the "safe to delete this folder?" question — in one call. Detection is **directory-wins** (the

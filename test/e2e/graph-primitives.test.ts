@@ -76,6 +76,43 @@ test('search_symbol filters: kind + exportedOnly + pathExclude', async () => {
   }
 });
 
+// t-135997: a RESOLVED module nothing imports (honest 0) must read DISTINCTLY from an UNRESOLVED
+// specifier (a typo'd/out-of-project arg). Oracle by construction: `src/ui/orphan.tsx` is a real
+// file no other file imports (resolved-0); 'NotARealPathXYZ' resolves to nothing (unresolved). A
+// hermetic fixture has no undiscovered-config floor, so the two answers differ ONLY on resolution.
+const RESOLUTION_FILES = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/keep.ts': 'export const keep = 1;\n',
+  'src/ui/orphan.ts': 'export const orphan = 1; // real file, nothing imports it\n',
+};
+
+test('importers_of distinguishes a resolved-0 module from an unresolved specifier (§3.6)', async () => {
+  const p = await project(RESOLUTION_FILES);
+  try {
+    const resolved0 = await p.op('importers_of', { module: 'src/ui/orphan.ts' });
+    const unresolved = await p.op('importers_of', { module: 'NotARealPathXYZ' });
+    assert.ok('result' in resolved0 && resolved0.result.ok, JSON.stringify(resolved0));
+    assert.ok('result' in unresolved && unresolved.result.ok, JSON.stringify(unresolved));
+    const rd = resolved0.result.data as { resolved: boolean; note: string; importers: unknown[] };
+    const ud = unresolved.result.data as { resolved: boolean; note: string; importers: unknown[] };
+
+    // Both are genuinely 0 importers…
+    assert.equal(rd.importers.length, 0);
+    assert.equal(ud.importers.length, 0);
+    // …but the resolution verdict is the discriminator (RED before the fix: neither carried it,
+    // and both notes said the same "no importers found — check the specifier").
+    assert.equal(rd.resolved, true, 'a real file resolves');
+    assert.equal(ud.resolved, false, 'a typo does not resolve');
+    assert.notEqual(rd.resolved, ud.resolved);
+    // The note honestly names the resolution state — not the same string for both.
+    assert.match(rd.note, /resolved: src\/ui\/orphan\.ts.*0 importers/);
+    assert.match(ud.note, /unresolved: NotARealPathXYZ/);
+    assert.notEqual(rd.note, ud.note);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('importers_of resolves aliased and relative specifiers to one module', async () => {
   const p = await project(FILES);
   try {

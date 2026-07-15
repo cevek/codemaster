@@ -1,7 +1,7 @@
 ---
 id: t-138266
 title: importers_of misfit-hint lives in the central name-keyed intake table, not a per-op OpIntake.moduleTarget flag — latent desync if importers_of later gains a query alias
-status: backlog
+status: in-progress
 priority: medium
 tags:
   - dogfood

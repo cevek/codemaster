@@ -1,7 +1,7 @@
 ---
 id: t-135997
 title: importers_of does not distinguish "module resolved, 0 importers" from "module unresolved" — a bad module arg returns a silent importers(0) instead of a loud non-resolution (§3.6)
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

@@ -208,6 +208,7 @@ export const importersOfOp = defineOp({
   notes: [
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
     'importers are found across ALL loaded programs (a `test/**` importer under a sibling tsconfig too) — see concepts: cross-program-read.',
+    'the result carries `resolved`: `false` means the specifier did NOT resolve to a file (a typo / out-of-project path) — a `0` there is a bad arg, said LOUDLY (`module unresolved`), distinct from an honest resolved-0. §3.6.',
     "DIRECTORY arg (e.g. 'src/plugins/ts', or a trailing slash) ⇒ SUBTREE mode — answers 'safe to delete this folder?': EXTERNAL importers (file outside the tree) are the blockers (`blockers` count), INTERNAL ones (file inside) are counted+kept but non-blocking, and an unresolvable spec lexically under the tree is FLAGGED `unconfirmed` (never raw-matched). `safe` is true ONLY when blockers=0 ∧ all programs scanned (complete) ∧ unconfirmed=0. directory-wins on a dir/file name collision; pass `foo.ts` to target the file.",
   ],
   table: importersOfTable,
@@ -222,18 +223,30 @@ export const importersOfOp = defineOp({
         return subtreeResult(view, ctx.tableRowBound ?? args.limit ?? DEFAULT_LIMIT, lever);
       }
       const floor = importersFloor(view);
+      // §3.6 honesty: a specifier that did NOT resolve to a file is a distinct answer from an honest
+      // resolved-0 — a `0` under it is almost certainly a typo'd/out-of-project arg, not proof
+      // nothing depends on the module. Surfaced explicitly (verdict-first) so it never reads as a
+      // silent resolved-0. `resolved` is `false` only in module mode (subtree never reaches here).
+      const unresolved = view.resolved === false;
       if (view.total === 0) {
-        // The false-`0` case: with an undiscovered config present, "no importers" is a LOWER BOUND,
-        // not proof. Lead with the `!!` floor note + the machine-readable verdict; otherwise keep
-        // the plain "check the specifier" hint.
+        // Two zero cases, kept distinct: an UNRESOLVED specifier (loud non-resolution) vs a genuinely
+        // RESOLVED module nothing imports. The undiscovered-config floor is orthogonal — when present
+        // it still makes a resolved-0 a LOWER BOUND (both notes coexist).
+        const zeroNote = unresolved
+          ? `module unresolved: ${view.module} — the specifier did not resolve to a file under the project (importers, if any, would be literal-string matches). Pass a repo-relative path or an import specifier the project uses (e.g. '@/x').`
+          : (floor.note ??
+            `module resolved: ${view.module} — 0 importers (nothing imports or re-exports it).`);
         return ok({
           ...lever.fields,
           ...floor.fields,
+          resolved: view.resolved ?? true,
           module: view.module,
           importers: [],
           note: [
-            floor.note ??
-              'no importers found — check the specifier (path or alias) against tsconfig',
+            zeroNote,
+            // A resolved-0 riding the plain "0 importers" note still owes the floor caveat if a
+            // config is undiscovered; the unresolved note leads, floor follows.
+            ...(unresolved && floor.note !== undefined ? [floor.note] : []),
             ...lever.notes,
           ].join(' '),
         });
@@ -251,11 +264,24 @@ export const importersOfOp = defineOp({
               hint: 'raise limit, or scope by importing dir with sql (SELECT … WHERE file LIKE …)',
             }
           : undefined;
-      const moduleNotes = [...(floor.note !== undefined ? [floor.note] : []), ...lever.notes];
+      // An UNRESOLVED specifier that still has importers matched them by LITERAL string (a `.scss`
+      // path, a package spec the TS resolver doesn't map to a file) — say so, since the match is
+      // weaker than a resolved-module identity match (§3 honesty). Resolved matches add no note.
+      const unresolvedNote = unresolved
+        ? [
+            `module unresolved: ${view.module} — the specifier did not resolve to a file; the importer(s) below are LITERAL-string matches on the specifier, not module-identity matches. Pass a repo-relative path or a tsconfig alias for a resolved-identity result.`,
+          ]
+        : [];
+      const moduleNotes = [
+        ...unresolvedNote,
+        ...(floor.note !== undefined ? [floor.note] : []),
+        ...lever.notes,
+      ];
       return ok(
         {
           ...lever.fields,
           ...floor.fields,
+          resolved: view.resolved ?? true,
           ...(moduleNotes.length > 0 ? { notes: moduleNotes } : {}),
           module: view.module,
           importers: shown.map((r) => tag('importer', r)),
