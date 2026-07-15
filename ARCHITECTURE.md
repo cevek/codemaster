@@ -386,6 +386,12 @@ probing.
   depends on it; conflating the two would be the silent-0 lie the §3.6 honesty forbids. (An
   unresolvable spec that still has importers — a `.scss` path — matched them by LITERAL string, and
   says so.) Orthogonal to the undiscovered-program floor below, which independently caps a resolved-0.
+  A `resolved:false` under a DEGENERATE primary (a broken / empty-`include` tsconfig covering 0 project
+  files) is attributed to the empty program, NOT the arg — the op discloses "primary program covers no
+  files" instead of the misleading "pass a repo-relative path" arg-blame steer (t-784222). The note is
+  gated on `resolved:false`: an existing-file arg resolves via `ts.sys.fileExists` INDEPENDENT of the
+  primary's file set, so under an empty primary it is `resolved:true` — a resolved-0 there falls through
+  to the honest "0 importers", never a non-resolution claim beside `resolved:true`.
   **`importers_of` SUBTREE mode.** When the arg names a DIRECTORY (`ts.sys.directoryExists`, or a
   trailing slash) rather than a file, `importers_of` answers "who imports ANYTHING under this folder"
   — the "safe to delete this folder?" question — in one call. Detection is **directory-wins** (the

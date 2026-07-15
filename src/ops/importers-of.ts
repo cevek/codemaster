@@ -232,13 +232,22 @@ export const importersOfOp = defineOp({
       // silent resolved-0. `resolved` is `false` only in module mode (subtree never reaches here).
       const unresolved = view.resolved === false;
       if (view.total === 0) {
-        // Two zero cases, kept distinct: an UNRESOLVED specifier (loud non-resolution) vs a genuinely
-        // RESOLVED module nothing imports. The undiscovered-config floor is orthogonal — when present
-        // it still makes a resolved-0 a LOWER BOUND (both notes coexist).
-        const zeroNote = unresolved
-          ? `module unresolved: ${view.module} — the specifier did not resolve to a file under the project (importers, if any, would be literal-string matches). Pass a repo-relative path or an import specifier the project uses (e.g. '@/x').`
-          : (floor.note ??
-            `module resolved: ${view.module} — 0 importers (nothing imports or re-exports it).`);
+        // Three zero cases, kept distinct: a DEGENERATE primary that ALSO left the arg UNRESOLVED (the
+        // program covers no files — the non-resolution is the config's fault, not the arg's, t-784222),
+        // an UNRESOLVED specifier (loud non-resolution), or a genuinely RESOLVED module nothing imports.
+        // The empty-program note is gated on `unresolved`: `resolveModuleArg` resolves via
+        // `ts.sys.fileExists` INDEPENDENT of the primary's file set, so an existing-file arg is
+        // `resolved:true` even under an empty primary — the "this is why X did not resolve" note would
+        // then contradict the `resolved:true` field it ships beside (a self-lie). A resolved-0 under an
+        // empty primary falls through to the honest "0 importers" (the undiscovered floor, orthogonal,
+        // still caveats it a LOWER BOUND). The undiscovered-config floor coexists with any of the three.
+        const zeroNote =
+          view.emptyProgram === true && unresolved
+            ? `primary program covers no files: the project's tsconfig resolved 0 source files (a broken or empty \`include\`, or nothing built) — this is why '${view.module}' did not resolve, NOT the arg form. Fix the tsconfig include/config, or target a package with its own tsconfig via root:<pkg-dir>.`
+            : unresolved
+              ? `module unresolved: ${view.module} — the specifier did not resolve to a file under the project (importers, if any, would be literal-string matches). Pass a repo-relative path or an import specifier the project uses (e.g. '@/x').`
+              : (floor.note ??
+                `module resolved: ${view.module} — 0 importers (nothing imports or re-exports it).`);
         return ok({
           ...lever.fields,
           ...floor.fields,

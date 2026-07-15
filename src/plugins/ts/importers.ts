@@ -56,6 +56,11 @@ export type ImportersView = {
    *  importer living ONLY under such a program is NOT scanned, so a non-empty set makes the list a
    *  LOWER BOUND — the op surfaces `complete:false` + a named `!!` note, never a false `0`. */
   undiscoveredPrograms?: string[];
+  /** t-784222 honesty: the PRIMARY program covers NO project files (a broken / empty-`include`
+   *  tsconfig, or a build that resolved nothing). A `resolved:false` under this state is caused by the
+   *  degenerate program, NOT by the agent's arg form — so the op discloses the empty program instead of
+   *  the misleading "pass a repo-relative path" arg-blame steer (§3.6). Present only when true. */
+  emptyProgram?: boolean;
   // ── SUBTREE mode only (present iff the arg named a directory) ──────────────────────────────────
   /** Set to `'subtree'` when the arg named a directory (`ts.sys.directoryExists` / trailing slash):
    *  "who imports ANYTHING under this folder" — the explicit-in-output mode flag. */
@@ -146,12 +151,18 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
     }
   }
   const undiscovered = host.undiscoveredProgramLabels();
+  // t-784222: the PRIMARY program covers no project files (broken / empty-`include` tsconfig). A
+  // `resolved:false` here is caused by the degenerate program, not the arg — flag it so the op
+  // discloses the empty program rather than blaming the arg form (§3.6). Cheap: the tracked file
+  // list is already memoized (no walk).
+  const emptyProgram = host.fileNames().length === 0;
   return {
     module: targetAbs !== undefined ? host.relOf(targetAbs) : moduleArg,
     resolved: targetAbs !== undefined,
     importers,
     total: importers.length,
     ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
+    ...(emptyProgram ? { emptyProgram: true } : {}),
   };
 }
 

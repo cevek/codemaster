@@ -1,7 +1,7 @@
 ---
 id: t-784222
 title: importers_of (and every read op) blames the arg when the PRIMARY program is absent — should report ToolFailure/unavailable, not resolved:false / 0 importers
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood
@@ -11,10 +11,10 @@ area: ts-core
 source: dogfood-jul
 created: '2026-07-15T20:13:25.306Z'
 ---
-**Surfaced by:** track G bug-review of t-135997. `src/plugins/ts/importers.ts:107` `findImporters` early-returns `{resolved:false, importers:[], total:0}` when `host.service.getProgram() === undefined` (no primary program — a missing/broken tsconfig or an LS build failure). The op then renders the `module unresolved: X — pass a repo-relative path` steer, BLAMING the agent's arg when the true cause is "no program at all".
+**Reproducible core.** When the PRIMARY program is DEGENERATE — a broken / empty-`include` tsconfig that resolves 0 project files — a `importers_of` module arg cannot resolve under the primary's options → `resolved:false`. The op then renders `module unresolved: X — pass a repo-relative path`, BLAMING the agent's arg form when the true cause is the empty program (§3.6 misattribution).
 
-**Not a regression** (the pre-t-135997 note `'no importers found — check the specifier … against tsconfig'` already misattributed in this same state), and NOT importers_of-specific: any read op that reads `getProgram()` and finds it undefined has the same gap. Leaving `resolved:false` is the lesser evil (it never claims a false resolved-TRUE), so track G defers rather than papering it with a worse `resolved:true`.
+(The originally-filed locus `importers.ts:107` `getProgram() === undefined → resolved:false` is a DEAD defensive branch: a full-mode `ts.LanguageService.getProgram()` is never `undefined` even over 0 files — it returns an empty Program — and an actual LS build THROW is already caught by the op's try/catch → honest `ToolFailure`. It is also the ONLY data-shaped missing-primary return in the read surface, so the "general upstream gap across every read op" premise does not hold. The reproducible misattribution is the degenerate-primary resolution path above, not that branch.)
 
-**Honest fix (general, upstream of the importers_of diff):** when the PRIMARY program cannot be built, read ops should return a `ToolFailure` (`ts-ls` / plugin-unavailable — "no TypeScript program; check tsconfig") with empty data (§3.6 / CONTRIBUTING resilience), never a data-shaped answer that attributes the failure to the agent's input. Applies across the read-op surface; scope as a shared plugin-level guard, not a per-op patch.
+**Fix (real, closes the task).** `findImporters` flags `emptyProgram` when the primary covers 0 project files (`host.fileNames().length === 0`, already memoized). In the zero-importers branch the op prefers an honest `primary program covers no files: … this is why 'X' did not resolve, NOT the arg form. Fix the tsconfig include/config, or target a package with its own tsconfig via root:<pkg-dir>` over the arg-blame steer. A HEALTHY primary still arg-blames a genuinely unresolvable specifier (no over-trigger).
 
-Source: track G (t-135997) bug-reviewer residual.
+Discriminating test: `test/differential/importers-empty-primary.test.ts`.
