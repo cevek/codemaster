@@ -666,19 +666,30 @@ visible. The **canonical** per-op zod shape is the single advertised truth: it i
 Behind it, an **invisible normalizer** (`src/ops/intake/`, run in `runOne` via
 `daemon/resolve-args.ts` BEFORE the canonical parse) maps known off-canonical spellings to the
 canonical shape: per-op aliases (`symbol`→`name`, `path`/`file`→`module`, `symbols`/`sites`→
-`targets`, the `target`→`symbolId` SymbolId spelling), scalar→array coercion (a bare scalar on a
-field the op's schema declares as a pure array → a one-element array — **derived from `argsSchema`
-itself** (`arrayFieldsOf`), not a per-op allowlist, so it applies uniformly to every op's array
-field and can't silently miss one; a `union` field that already accepts a scalar is left untouched;
-top-level fields only), OpFlag keys
+`targets`, the `target`→`symbolId` SymbolId spelling, and the reverse of search*symbol/list's
+`name`→`query`: a `query`→`name` — `name` for the flat-name ops, `module` withheld for
+importers_of, see below); a **guarded cross-op alias** (`max_results`/`maxResults`→`limit`) that
+fires only when the op actually declares the target field (`limit ∈ canonicalKeys`), so a
+limit-less op leaves it to fail the gate rather than manufacture a stray key; scalar→array coercion
+(a bare scalar on a field the op's schema declares as a pure array → a one-element array — **derived
+from `argsSchema` itself** (`arrayFieldsOf` for top-level, `nestedArrayFieldsOf` one level into an
+object field, e.g. `filter.pathExclude`), not a per-op allowlist, so it applies uniformly to every
+op's array field and can't silently miss one; a `union` field that already accepts a scalar is left
+untouched); a flat single target (`{name}`/`{symbolId}`/`{file+line+col}`) or a `{names:[…]}` list
+collapsed into an op's canonical target-**array** field (`source.targets`), so the explore-style op
+takes the same flat shape as every sibling lookup; OpFlag keys
 mis-placed inside `args` lifted up to the request (type-validated), and a `name` string that is
 really a `path:line:col` / `ts:…` SymbolId smart-parsed to the right field. The canonical schema
-stays the **sole gate** — a key that is _not_ a known alias still fails (with a did-you-mean),
-never silently stripped (a silent strip is an input-lost lie, §3). What the normalizer rewrote on
-a given call is disclosed per-call as `Result.intake` (`interpreted: symbol→name`), so the agent is
-never silently second-guessed. The alias metadata lives on `OpDefinition.intake` and is **never**
-projected into `status`. (Scope: the normalizer is dispatcher-level — `transaction` sub-steps, which
-validate against the op schema directly, are canonical-only.)
+stays the **sole gate** — a key that is \_not* a known alias still fails (with a did-you-mean),
+never silently stripped (a silent strip is an input-lost lie, §3). A key that denotes the wrong
+**kind** of value is deliberately NOT aliased — `importers_of` takes a module PATH, so a `query`/`name`
+(a symbol name, which never resolves to a path) hard-rejects with a pointed steer instead, since a
+silent coercion would turn a loud `bad_args` into a misleading "0 importers" (§3.6). What the
+normalizer rewrote on a given call is disclosed per-call as `Result.intake` (`interpreted:
+symbol→name`), so the agent is never silently second-guessed. The alias metadata lives on
+`OpDefinition.intake` and is **never** projected into `status`. (Scope: the normalizer is
+dispatcher-level — `transaction` sub-steps, which validate against the op schema directly, are
+canonical-only.)
 
 Mutating ops carry additional flags beyond `apply`, e.g. `dirtyOk: false`, `force: false`,
 `format: true` — each op publishes its full flag set via `status`.

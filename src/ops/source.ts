@@ -41,7 +41,14 @@ export const sourceOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint: '{ targets: [{ symbolId? | name? | file+line+col }] } — up to 20',
-  intake: { aliases: { symbols: 'targets', sites: 'targets' }, targetArray: 'targets' },
+  // `targetArray` also enables the flat→targets[] collapse (§7 Postel): a flat single target
+  // ({name}/{symbolId}/{file+line+col}, or {query} via the alias) or a {names:[…]} list is
+  // gathered into `targets[]` when no explicit `targets` is passed — so `source` accepts the
+  // same flat shape as every sibling lookup op, not the divergent `{targets:[…]}` alone.
+  intake: {
+    aliases: { symbols: 'targets', sites: 'targets', query: 'name', symbol: 'name' },
+    targetArray: 'targets',
+  },
   example: {
     args: { targets: [{ name: 'createEngine' }, { symbolId: 'ts:Button@src/Button.tsx:1:14' }] },
   },

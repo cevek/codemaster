@@ -1,7 +1,7 @@
 ---
 id: t-684957
 title: source op rejects flat {name}/{query}; uniquely requires {targets:[…]} — recurring papercut, diverges from every sibling flat-name op (t-424583 intake residual)
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

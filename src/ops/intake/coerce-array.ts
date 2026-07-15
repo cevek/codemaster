@@ -4,12 +4,10 @@
 // `argsSchema` (a pure ZodArray field — see `arrayFieldsOf`), not a per-op allowlist, so the
 // coercion can never silently miss an op. An existing array (or an absent field) is left untouched.
 
+import { isScalar } from './scalar.ts';
+
 export interface CoerceArrayResult {
   notes: string[];
-}
-
-function isScalar(v: unknown): v is string | number | boolean {
-  return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
 }
 
 /** Wrap each declared array-field's scalar value in a one-element array, mutating `args`. */

@@ -1,7 +1,7 @@
 ---
 id: t-954279
 title: 'Intake hardening: unify `query`↔`name`/`module` across ALL symbol-addressed ops — usage log shows bad_args = 52% of ALL failures (47/91), the single biggest friction'
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

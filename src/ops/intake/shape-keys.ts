@@ -56,3 +56,45 @@ export function arrayFieldsOf(schema: z.ZodType<unknown>): ReadonlySet<string> {
   ARRAY_FIELDS_CACHE.set(schema as object, fields);
   return fields;
 }
+
+/** Unwrap `optional`/`default`/`nullable` chains to reach an OBJECT node's `.shape` (the
+ *  sub-schema map), else `undefined`. zod v4 keeps `.shape` on the object node itself. */
+function objectShapeOf(field: ZodNode): Record<string, ZodNode> | undefined {
+  let node: ZodNode | undefined = field;
+  let guard = 0;
+  while (node?.def !== undefined && ARRAY_WRAPPERS.has(node.def.type ?? '') && guard++ < 16) {
+    node = node.def.innerType;
+  }
+  if (node?.def?.type !== 'object') return undefined;
+  const shape = (node as { shape?: Record<string, ZodNode> }).shape;
+  return shape !== undefined && typeof shape === 'object' ? shape : undefined;
+}
+
+const NESTED_ARRAY_FIELDS_CACHE = new WeakMap<object, ReadonlyMap<string, ReadonlySet<string>>>();
+
+/** One level of nesting: top-level OBJECT fields → their pure-array SUB-fields (§7 Postel).
+ *  Derived from the schema itself (symmetric with `arrayFieldsOf`, no per-op allowlist), so the
+ *  nested scalar→array coercion — `find_usages { filter: { pathExclude: 'x' } }` → `['x']` —
+ *  can't silently miss a nested array field. Empty when the schema is not a (possibly refined)
+ *  object, or has no object field carrying an array subfield. */
+export function nestedArrayFieldsOf(
+  schema: z.ZodType<unknown>,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const cached = NESTED_ARRAY_FIELDS_CACHE.get(schema as object);
+  if (cached !== undefined) return cached;
+  const shape = (schema as { shape?: Record<string, ZodNode> }).shape;
+  const result = new Map<string, ReadonlySet<string>>();
+  if (shape !== undefined && typeof shape === 'object') {
+    for (const [key, field] of Object.entries(shape)) {
+      const subShape = objectShapeOf(field);
+      if (subShape === undefined) continue;
+      const subs = new Set<string>();
+      for (const [sub, subField] of Object.entries(subShape)) {
+        if (isPureArraySchema(subField)) subs.add(sub);
+      }
+      if (subs.size > 0) result.set(key, subs);
+    }
+  }
+  NESTED_ARRAY_FIELDS_CACHE.set(schema as object, result);
+  return result;
+}

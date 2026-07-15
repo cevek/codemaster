@@ -22,6 +22,13 @@ export const tsTargetShape = {
   name: z.string().optional(),
 };
 
+/** The flat target field names (the keys of `tsTargetShape`) — the shared source of truth for
+ *  the intake flat→targets[] collapse (`flat-target.ts`), so a new target field can't be silently
+ *  missed by a hand-maintained copy. */
+export const TS_TARGET_KEYS = Object.keys(tsTargetShape) as ReadonlyArray<
+  keyof typeof tsTargetShape
+>;
+
 type TargetFields = {
   symbolId?: string | undefined;
   file?: string | undefined;
@@ -49,11 +56,16 @@ export const TS_TARGET_HINT =
   "{ symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number }";
 
 /** The liberal intake (§7 Postel) every symbol-addressed op spreads into its `intake`: the
- *  `symbol`→`name` and `target`→`symbolId` aliases plus `name` smart-string parsing
- *  (a `ts:…` SymbolId → `symbolId`, a `path:line:col` → `file/line/col`). Shared so the
- *  rule lives once; an op needing extra coercions spreads this and adds its own fields. */
+ *  `symbol`→`name`, `target`→`symbolId`, and `query`→`name` aliases plus `name` smart-string
+ *  parsing (a `ts:…` SymbolId → `symbolId`, a `path:line:col` → `file/line/col`). Shared so
+ *  the rule lives once; an op needing extra coercions spreads this and adds its own fields.
+ *
+ *  `query`→`name` is the reverse of search_symbol/list's `name`→`query`: an agent anchors on
+ *  `query` after a fuzzy search, then carries it to a flat-name op (find_usages / find_definition
+ *  / expand_type / …). No ts-target op has `query` as a canonical field, so the map is safe;
+ *  search_symbol/list do NOT spread this intake, so there is no bidirectional loop. */
 export const tsTargetIntake: OpIntake = {
-  aliases: { symbol: 'name', target: 'symbolId' },
+  aliases: { symbol: 'name', target: 'symbolId', query: 'name' },
   locationTarget: true,
 };
 

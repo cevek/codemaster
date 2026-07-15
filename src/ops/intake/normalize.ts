@@ -9,11 +9,15 @@
 
 import type { OpFlags } from '../contracts.ts';
 import type { AnyOpDefinition } from '../registry.ts';
-import { canonicalKeys, arrayFieldsOf } from './shape-keys.ts';
+import { canonicalKeys, arrayFieldsOf, nestedArrayFieldsOf } from './shape-keys.ts';
 import { liftFlags } from './lift-flags.ts';
 import { applyAliases } from './aliases.ts';
+import { applyGlobalAliases } from './global-aliases.ts';
 import { coerceArrayFields } from './coerce-array.ts';
+import { coerceNestedArrayFields } from './nested-array.ts';
+import { collapseFlatTarget } from './flat-target.ts';
 import { coerceTargetArray } from './targets.ts';
+import { misfitReject } from './misfit-hints.ts';
 import { classifyTargetString, targetFields, targetRewriteLabel } from './smart-string.ts';
 
 export interface Normalized {
@@ -23,8 +27,9 @@ export interface Normalized {
   flags: Partial<OpFlags>;
   /** The rewrites that fired on this call (e.g. `['symbol→name']`) → `Result.intake`. */
   intake: readonly string[];
-  /** Set when a lifted flag had the wrong type — the dispatcher rejects with this as
-   *  `bad_args` (a wrong-typed flag is never silently coerced). */
+  /** Set when intake hard-rejects the call — a wrong-typed lifted flag, or a wrong-addressing-mode
+   *  key (§7 misfit hint, e.g. a symbol name passed to `importers_of`). The dispatcher returns
+   *  this as `bad_args` (never a silent coercion / alias). */
   flagError?: string;
 }
 
@@ -49,24 +54,39 @@ export function normalizeArgs(op: AnyOpDefinition, rawArgs: unknown): Normalized
   if (rawArgs === null || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
     return { args: rawArgs, flags: {}, intake: [] };
   }
+  const canonical = canonicalKeys(op.argsSchema);
   const args: Record<string, unknown> = { ...(rawArgs as Record<string, unknown>) };
   const notes: string[] = [];
 
-  const lifted = liftFlags(args, canonicalKeys(op.argsSchema));
+  const lifted = liftFlags(args, canonical);
   notes.push(...lifted.notes);
   if (lifted.error !== undefined) {
     return { args, flags: lifted.flags, intake: notes, flagError: lifted.error };
   }
 
+  // A wrong-ADDRESSING-MODE key (a symbol name where a module path is wanted) is not an alias —
+  // it hard-rejects with a pointed hint instead of a silent coercion (§3 never-lie).
+  const misfit = misfitReject(op.name, args);
+  if (misfit !== undefined) {
+    return { args, flags: lifted.flags, intake: notes, flagError: misfit };
+  }
+
   const intake = op.intake;
   notes.push(...applyAliases(args, intake?.aliases).notes);
+  // Cross-op aliases (`max_results`→`limit`), guarded to ops that actually have the target field.
+  notes.push(...applyGlobalAliases(args, canonical).notes);
   // Array-fields are derived from the schema itself (a pure ZodArray field), not a per-op
   // allowlist (§7) — except the targetArray field, which `coerceTargetArray` owns (its
   // elements are target objects/strings, not bare scalars) so it is excluded to avoid a
   // double coercion.
   const arrayFields = [...arrayFieldsOf(op.argsSchema)].filter((f) => f !== intake?.targetArray);
   notes.push(...coerceArrayFields(args, arrayFields).notes);
+  // Same coercion one level down (a scalar under `filter.pathExclude`), derived from the schema.
+  notes.push(...coerceNestedArrayFields(args, nestedArrayFieldsOf(op.argsSchema)).notes);
   if (intake?.locationTarget === true) notes.push(...smartName(args));
+  // A flat single target / `{names:[…]}` → the op's `targets[]` (source), then per-element
+  // normalization. Collapse first so the produced elements get smart-string/alias treatment.
+  notes.push(...collapseFlatTarget(args, intake?.targetArray).notes);
   notes.push(...coerceTargetArray(args, intake?.targetArray).notes);
 
   return { args, flags: lifted.flags, intake: notes };
