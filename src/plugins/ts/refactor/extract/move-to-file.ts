@@ -40,6 +40,7 @@ import {
   topLevelStatementAt,
 } from './statements.ts';
 import { normalizeExtractedContent } from '../normalize/relocated-file.ts';
+import { normalizePosix } from '../ast/posix.ts';
 
 export function planExtractTo(
   host: TsProjectHost,
@@ -248,19 +249,4 @@ function resolveSheetRel(
   const node =
     tree.findByCurrentPath(rel as RepoRelPath) ?? tree.findByInitialPath(rel as RepoRelPath);
   return node !== null ? (rel as RepoRelPath) : undefined;
-}
-
-/** Normalize a posix path (resolve `.`/`..` segments) without touching the filesystem. Returns
- *  undefined if a `..` climbs above the root — resolving such a path would silently point at the
- *  wrong file (e.g. a same-named sheet at root), so the caller must decline. */
-function normalizePosix(p: string): string | undefined {
-  const out: string[] = [];
-  for (const seg of p.split('/')) {
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') {
-      if (out.length === 0) return undefined; // underflow above root
-      out.pop();
-    } else out.push(seg);
-  }
-  return out.join('/');
 }

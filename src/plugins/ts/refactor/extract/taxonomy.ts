@@ -54,9 +54,12 @@ export interface RescuedEdits {
  *  the fork is unavailable OR it also asserted). Never contains the raw LS internal string. */
 function sanitizedAssertionFailure(message: string, verb: RefactorVerb): string {
   if (isChangesOverlapAssertion(message)) {
-    // "e.g." — `Changes overlap` is the proven fact; mutual recursion is the common (not only)
-    // cause, so we hedge rather than assert an unearned diagnosis (§3.3).
-    return `cannot ${verb}: edits overlap (e.g. mutual recursion) — ${verb} manually`;
+    // `Changes overlap` is the ONLY proven fact — the LS computed two edits over the same region. We
+    // do NOT attribute it to mutual recursion (an acyclic co-move hits this too when a symbol is moved
+    // into a dest that already imports it; that specific class is now pre-empted upstream). State the
+    // fact + the actionable remedy — co-move the interdependent cluster in one `transaction` — without
+    // an unearned cause (§3.3).
+    return `cannot ${verb}: the language service produced overlapping edits for this ${verb} — co-move the interdependent symbols together in one transaction, or ${verb} manually`;
   }
   // `Expected symbol to be a module`.
   return (

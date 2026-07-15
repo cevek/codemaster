@@ -25,6 +25,9 @@ import type { RefactorPlan, PlanningOverlay } from '../plan.ts';
 import { assemblePlan } from '../imports/assemble.ts';
 import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
 import { foldSameModuleImports } from '../normalize/fold-imports.ts';
+import { stripSelfImports } from '../normalize/strip-self-import.ts';
+import { stripMovedSymbolPreimport } from '../imports/strip-moved-preimport.ts';
+import { deriveAliasPrefixes } from '../../alias-paths.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
 import {
   REFACTOR_FORMAT as FORMAT,
@@ -147,11 +150,37 @@ export function planMoveSymbolTo(
       { targetFile: destAbs },
     ) ?? undefined;
 
+  // PRE-STRIP (co-move order-independence): if the dest ALREADY imports the moved symbol from the
+  // source module (a prior co-move step put a referent here), remove that import BEFORE the LS runs —
+  // else the LS emits two overlapping edits to the same `import … from '<source>'` statement (drop the
+  // moved name, add its remaining source dep) and stock TS asserts `Changes overlap`. We apply the
+  // stripped content to BOTH the tree node (so edit offsets match) and the LS overlay the refactor
+  // reads. No pre-import → undefined → dest untouched (the common case).
+  const destContentNow = destNode.contentOverride() ?? destSf.text;
+  const preStripped =
+    movedName === undefined
+      ? undefined
+      : stripMovedSymbolPreimport(
+          host,
+          tree,
+          options,
+          destNode,
+          destContentNow,
+          sourceRel,
+          movedName,
+        );
+  if (preStripped !== undefined) destNode.setContent(preStripped);
+
   // Request the LS edits, routing the two known rescuable assertions (`Expected symbol to be a
   // module`, `Changes overlap`) through the §4 patched-LS rescue; a recognized assertion the
   // rescue can't resolve fails with a SANITIZED message, an unrecognized failure surfaces
   // honestly. Runs before any tree write → never a half-write.
-  const outcome = requestEditsWithRescue(host, requestEdits, 'move');
+  const outcome =
+    preStripped === undefined
+      ? requestEditsWithRescue(host, requestEdits, 'move')
+      : host.withMergedOverlay([{ abs: destAbs, content: preStripped }], [], () =>
+          requestEditsWithRescue(host, requestEdits, 'move'),
+        );
   if ('error' in outcome) return outcome.error;
   const { edits, rescued } = outcome;
   // notApplicableReason rides on the RefactorEditInfo for a refusal the LS can explain.
@@ -216,6 +245,15 @@ export function planMoveSymbolTo(
   const folded = destNode.contentOverride();
   if (folded !== null) {
     destNode.setContent(foldSameModuleImports(folded, { skipModules: destPreDups }));
+  }
+
+  // Drop any SELF-IMPORT the LS emitted into dest: when the moved symbol references another symbol
+  // already resident in dest, the LS carries that reference's import and retargets it to dest itself
+  // (`import { Dep } from './dest'` inside ./dest) → an `Import declaration conflicts with local
+  // declaration` the gate would refuse on. An import from this very file is always redundant.
+  const selfChecked = destNode.contentOverride();
+  if (selfChecked !== null) {
+    destNode.setContent(stripSelfImports(selfChecked, destArg, deriveAliasPrefixes(host, options)));
   }
 
   const plan = assemblePlan(host, tree, options, overlay);

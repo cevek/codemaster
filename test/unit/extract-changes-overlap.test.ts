@@ -49,7 +49,7 @@ test('Changes overlap, rescue unavailable → sanitized FAIL, no raw debug strin
   assert.ok('error' in out, 'must be a failure');
   assert.equal(
     out.error,
-    'cannot extract: edits overlap (e.g. mutual recursion) — extract manually',
+    'cannot extract: the language service produced overlapping edits for this extract — co-move the interdependent symbols together in one transaction, or extract manually',
   );
   // The honesty oracle: NONE of the raw internal tokens leak to the agent.
   for (const leak of ['Debug Failure', 'False expression', 'Changes overlap.', 'pos', 'end":244']) {
@@ -66,7 +66,10 @@ test('Changes overlap, verb=move → "cannot move" guidance', () => {
     'move',
   );
   assert.ok('error' in out);
-  assert.equal(out.error, 'cannot move: edits overlap (e.g. mutual recursion) — move manually');
+  assert.equal(
+    out.error,
+    'cannot move: the language service produced overlapping edits for this move — co-move the interdependent symbols together in one transaction, or move manually',
+  );
 });
 
 test('Changes overlap, rescue ALSO throws → still sanitized (never the raw string)', () => {
@@ -81,7 +84,7 @@ test('Changes overlap, rescue ALSO throws → still sanitized (never the raw str
   assert.ok('error' in out);
   assert.equal(
     out.error,
-    'cannot extract: edits overlap (e.g. mutual recursion) — extract manually',
+    'cannot extract: the language service produced overlapping edits for this extract — co-move the interdependent symbols together in one transaction, or extract manually',
   );
   assert.ok(!out.error.includes('pos'), 'rescue throw must not leak either');
 });

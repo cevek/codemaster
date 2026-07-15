@@ -1,7 +1,7 @@
 ---
 id: t-610634
 title: transaction move_symbol/extract chain is silently order-sensitive (requires leaf-first) AND mislabels plain acyclic step-order overlap as "edits overlap (e.g. mutual recursion)"
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

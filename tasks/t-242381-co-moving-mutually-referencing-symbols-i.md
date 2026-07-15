@@ -1,7 +1,7 @@
 ---
 id: t-242381
 title: Co-moving mutually-referencing symbols into one NEW dest emits a self-import from the OLD module → "Import declaration conflicts with local declaration"; gate refuses, the co-move can't complete
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

@@ -214,6 +214,18 @@ TS major (a mismatch declines the rescue), and the provenance is surfaced (`resc
 note). An unavailable or failed rescue fails honestly with the `ts-ls` category — never a guessed
 edit. No fact codemaster reports ever originates from the fork.
 
+**Co-move pre-empt (upstream of the rescue).** A whole class of the `Changes overlap` / `Import
+declaration conflicts with local declaration` shapes — co-moving mutually-referencing symbols into one
+module, where the dest already imports the moved symbol or already declares its dependency — is
+handled by two `move_symbol`/`extract_symbol` **normalizers** that run around the LS, not by the fork:
+a **pre-strip** (`refactor/imports/strip-moved-preimport.ts`) removes the dest's un-aliased pre-import
+of the moved symbol _before_ the LS runs (so the LS emits a clean single-edit instead of two
+overlapping edits to one import statement), and a **self-import strip**
+(`refactor/normalize/strip-self-import.ts`) drops the redundant `import … from '<self>'` the LS emits
+_after_ into the dest. These stay within "reshape the LS's edit text" — no new oracle, the §2.8
+typecheck + capture gate is still the backstop — so a co-move now completes in any step order without a
+leaf-first reorder. The rescue fork still serves the residual overlap shapes these don't pre-empt.
+
 **Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
 (the OOM-survival discovery path, §5-L2 / t-515730) parses files with the **same** `ts.createSourceFile`
 and reads them with two TS `@internal` helpers — `getNamedDeclarations` (the declaration set) and
