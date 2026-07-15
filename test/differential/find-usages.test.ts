@@ -150,6 +150,62 @@ test('same-named symbols in different scopes: find_usages excludes the unrelated
   }
 });
 
+// t-381844: resolving find_usages THROUGH a re-export alias (`export { X } from`) must classify the
+// target's OWN declaration site as `decl`, not `write`. The alias-anchored LS `findReferences`
+// resolves the underlying decl with isDefinition:false + isWriteAccess:true, which without the
+// structural declaration-name check falls into the `write` fallback — a §3 lie (a definition
+// presented as a write). The DISCRIMINANT: the same alias-anchored query must keep a GENUINE
+// reassignment `write`, proving the fix is surgical (a reassignment is a BinaryExpression, never a
+// declaration name — it can't be swept into `decl`). Oracle = the hand-curated expected role per
+// site (the fixture is input; ground truth is written here).
+test('re-export alias: the target’s own decl is `decl`, a genuine write stays `write`', async () => {
+  const p = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    // `counter` is a let with a genuine reassignment; `fn` and `arrow` exercise the
+    // FunctionDeclaration and VariableDeclaration (const-arrow — the common React shape) arms.
+    'src/m.ts':
+      'export let counter = 0;\n' + // line 1: the decl (was mislabeled `write` via the alias)
+      'export function bump(): void {\n' +
+      '  counter = counter + 1;\n' + // line 3: LHS = genuine `write`, RHS = `read`
+      '}\n' +
+      'export function fn(): number {\n' + // line 5: function decl
+      '  return counter;\n' +
+      '}\n' +
+      'export const arrow = (): number => counter;\n', // line 8: const-arrow decl
+    'src/barrel.ts': "export { counter, fn, arrow } from './m';\n",
+  });
+  try {
+    // Anchor at the barrel re-export alias for `counter` (col 10). The a.ts decl on line 1 must be
+    // `decl`; the reassignment on line 3 must stay `write` — both in the SAME alias-anchored result.
+    const uc = usagesOf(
+      await p.op('find_usages', {
+        file: 'src/barrel.ts',
+        line: 1,
+        col: 10,
+        collapseImports: false,
+      }),
+    );
+    assert.ok(has(uc, 'src/m.ts', 1, 'decl'), 'alias-anchored: the let decl (line 1) is `decl`');
+    assert.ok(
+      has(uc, 'src/m.ts', 3, 'write'),
+      'DISCRIMINANT: the genuine reassignment (line 3) stays `write`',
+    );
+    assert.ok(!has(uc, 'src/m.ts', 1, 'write'), 'the decl is NOT the mislabeled `write` (the bug)');
+
+    // The FunctionDeclaration arm via the alias (`fn`, barrel col 19) → its decl (line 5) is `decl`.
+    const uf = usagesOf(await p.op('find_usages', { file: 'src/barrel.ts', line: 1, col: 19 }));
+    assert.ok(has(uf, 'src/m.ts', 5, 'decl'), 'alias-anchored function decl (line 5) is `decl`');
+    assert.ok(!has(uf, 'src/m.ts', 5, 'write'), 'the function decl is not a `write`');
+
+    // The const-arrow VariableDeclaration arm via the alias (`arrow`, barrel col 23) → decl (line 8).
+    const ua = usagesOf(await p.op('find_usages', { file: 'src/barrel.ts', line: 1, col: 23 }));
+    assert.ok(has(ua, 'src/m.ts', 8, 'decl'), 'alias-anchored const-arrow decl (line 8) is `decl`');
+    assert.ok(!has(ua, 'src/m.ts', 8, 'write'), 'the const-arrow decl is not a `write`');
+  } finally {
+    await p.dispose();
+  }
+});
+
 type Encloser = { id: string; name: string; kind: string; roles: string; exported: boolean };
 function enclosersOf(r: OpResult): Encloser[] {
   assert.ok('result' in r && r.result.ok, JSON.stringify(r));

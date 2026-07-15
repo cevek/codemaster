@@ -35,6 +35,13 @@ export function classifyRole(
   if (flags.isDefinition) return 'decl';
   const node = nodeAt(sourceFile, position);
   if (node === undefined) return flags.isWrite ? 'write' : 'read';
+  // A position ON the name token of a top-level value/type declaration IS that declaration —
+  // `decl` — even when the LS did NOT flag it `isDefinition`. Anchoring find_usages at a re-export
+  // alias (`export { X } from './y'`) resolves the target's OWN declaration with isDefinition:false
+  // + isWriteAccess:true, which would otherwise fall through to the `write` fallback and present a
+  // definition as a write (§3 — a wrong, proof-carrying label). The same decl resolved directly
+  // arrives isDefinition:true (handled above); this makes the role resolution-path-independent.
+  if (isTopLevelDeclarationName(node)) return 'decl';
 
   for (let up: ts.Node | undefined = node; up !== undefined; up = up.parent) {
     // A barrel specifier (`export { X }` / `export { X } from './y'`) is a re-export —
@@ -78,6 +85,29 @@ export function classifyRole(
     if (ts.isStatement(up)) break; // role context never crosses a statement boundary
   }
   return flags.isWrite ? 'write' : 'read';
+}
+
+/** `node` is the NAME identifier of a top-level value/type declaration
+ *  (function/class/interface/type-alias/enum/namespace/variable) — the kinds a re-export alias
+ *  resolves to. Deliberately restricted to these: a MEMBER decl (`Method`/`PropertyDeclaration`)
+ *  is excluded so member-refs' value-access scan is untouched, and a genuine value READ that merely
+ *  sits inside a declaration node (an object shorthand `{ x }`, a destructuring `BindingElement`) is
+ *  NOT swept into `decl` — only the declaration's own name token matches (`getNameOfDeclaration`). */
+function isTopLevelDeclarationName(node: ts.Node): boolean {
+  const parent = node.parent;
+  if (parent === undefined) return false;
+  if (
+    ts.isFunctionDeclaration(parent) ||
+    ts.isClassDeclaration(parent) ||
+    ts.isInterfaceDeclaration(parent) ||
+    ts.isTypeAliasDeclaration(parent) ||
+    ts.isEnumDeclaration(parent) ||
+    ts.isModuleDeclaration(parent) ||
+    ts.isVariableDeclaration(parent)
+  ) {
+    return ts.getNameOfDeclaration(parent) === node;
+  }
+  return false;
 }
 
 /** A NAMED member signature of an `interface`/type-literal — a TYPE-level member
