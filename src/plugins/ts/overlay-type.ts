@@ -86,11 +86,12 @@ function withOverlay<T>(
  *  PRIMARY program ONLY (`host.service`): the trial overlay lives on the primary (`host.setOverlay`),
  *  so a type read must come from the primary to reflect it — reading a SIBLING program (which never
  *  saw the overlay) would return the stale-disk type and read the edit as a no-op. So a declFile NOT
- *  in the primary program (a sibling/test-only decl) → `undefined` here → the op makes no widen claim.
- *  This is a KNOWN gap, but not reachable today: `impact_type_error` resolves its target via
- *  `findDefinition`, which currently FAILS to resolve a sibling-only declaration before the probe is
- *  ever reached — tracked in the backlog (fan the overlay to the owning program, or disclose, WHEN
- *  sibling-decl resolution lands). */
+ *  in the primary program (a sibling/test-only decl) → `undefined` here → no widen claim. Since
+ *  `find_definition` now resolves a sibling-only declaration (t-773499), this probe IS reachable for a
+ *  foreign target — so `impact_type_error` guards it upstream (`ts.primaryContains(declFile)`): a
+ *  foreign target forces `downstreamTrusted:false` + a foreign-program disclosure, never a masking
+ *  false-clean (t-733915). Fanning the overlay to the owning program (a fully-checked foreign probe)
+ *  needs sibling-overlay support and stays a backlog follow-up. */
 function readTopLevelType(
   host: TsProjectHost,
   abs: string,

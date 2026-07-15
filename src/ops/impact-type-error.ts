@@ -102,6 +102,7 @@ function notesFor(
   symbolName: string,
   editSiteDirty: boolean,
   widenedToAny: boolean,
+  targetOutsidePrimary: boolean,
   maxDepth: number,
   maxNodes: number,
 ): string[] {
@@ -137,6 +138,14 @@ function notesFor(
   } else if (widenedToAny) {
     notes.push(
       `!! ${declFile}: the trial edit collapsed ${symbolName}'s resolved type — or, for a function, its RETURN type — to \`any\` (with NO intra-file error), erasing precision. \`any\` is assignable everywhere, so downstream type errors are SILENCED: a real break is MASKED and produces FEWER diagnostics, which the introduced-error diff fundamentally CANNOT see. So downstreamTrusted:false and brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a proven-clean downstream). Give ${symbolName} a precise type (avoid the \`any\` widen) before trusting the downstream list.`,
+    );
+  }
+  // Foreign target (t-733915): disclose why the downstream is a lower bound — the any-widen probe
+  // is primary-only and the target lives outside the primary program. Independent of editSiteDirty /
+  // widenedToAny (which the primary-only probe reads false for a foreign target), so it is its own note.
+  if (targetOutsidePrimary) {
+    notes.push(
+      `!! ${declFile}: ${symbolName} is declared OUTSIDE the primary program (a sibling / isolated-package tsconfig). The cross-program typecheck ran, but the widen-to-\`any\` masking probe is PRIMARY-only and could not run against this target — a clean any-widen would be MASKED. So downstreamTrusted:false and brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a proven-clean downstream). Re-run with root:<pkg-dir> where this program is primary for the full masking check.`,
     );
   }
   notes.push(...gateCoverageNotes(programs, degraded));
@@ -199,6 +208,14 @@ export const impactTypeErrorOp = defineOp({
         });
       }
       const declFile = def.decl.file;
+      // Foreign target (t-733915): find_definition now resolves a decl in a SIBLING / isolated-package
+      // program, but the widen-to-`any` masking probe (overlaySymbolType) is PRIMARY-only (the overlay
+      // is set on the primary). Against a foreign target it silently makes no widen claim → a clean
+      // any-widen would be MASKED while downstreamTrusted read true (§3.6 silent-miss). So when the
+      // target is outside the primary, force downstream UNTRUSTED + disclose — never a masking
+      // false-clean. (The cross-program typecheck via gateAcross STILL runs; only the any-widen probe
+      // can't — hence a LOWER BOUND, not an outright refusal.)
+      const targetOutsidePrimary = !ts.primaryContains(declFile);
 
       // 2. Build the trial-edit overlay from the SAME VFS bytes the gate baseline reads.
       const content = ts.fileText(declFile);
@@ -278,6 +295,7 @@ export const impactTypeErrorOp = defineOp({
         def.name,
         editSiteDirty,
         widenedToAny,
+        targetOutsidePrimary,
         maxDepth,
         maxNodes,
       );
@@ -299,10 +317,15 @@ export const impactTypeErrorOp = defineOp({
           // diagnostics), which the introduced-error diff cannot see — a SECOND cause of an
           // untrustworthy downstream, distinct from editSiteBroke.
           widenedToAny,
+          // Case C (t-733915): is the target declared OUTSIDE the primary program? The any-widen probe
+          // is primary-only, so it can't run against a foreign target — a THIRD cause of an untrustworthy
+          // downstream. Only emitted when true, so an in-primary result's shape is unchanged.
+          ...(targetOutsidePrimary ? { targetOutsidePrimary: true } : {}),
           // The general "can you trust brokenFiles?" verdict: false when the analysis basis is
-          // compromised (an edit-site error OR a clean widen-to-`any`), so brokenFiles is a LOWER
-          // BOUND (breaks may be masked), never a clean signal. Fired regardless of the count.
-          downstreamTrusted: !editSiteDirty && !widenedToAny,
+          // compromised (an edit-site error, a clean widen-to-`any`, OR a foreign target whose
+          // any-widen probe is unrunnable — t-733915), so brokenFiles is a LOWER BOUND (breaks may be
+          // masked), never a clean signal. Fired regardless of the count.
+          downstreamTrusted: !editSiteDirty && !widenedToAny && !targetOutsidePrimary,
           clean: proof.clean,
         },
         ...(notes.length > 0 ? { notes } : {}),

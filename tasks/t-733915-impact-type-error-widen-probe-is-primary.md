@@ -1,7 +1,7 @@
 ---
 id: t-733915
 title: 'impact_type_error widen probe is primary-only: when findDefinition is extended to resolve sibling-only decls, a sibling-resident widened symbol will silently no-flag while downstreamTrusted reads true'
-status: backlog
+status: done
 priority: medium
 depends_on:
   - t-773499
