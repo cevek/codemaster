@@ -16,6 +16,7 @@ import { scssClassesOp } from './scss-classes.ts';
 import { cssCascadeOp } from './css-cascade.ts';
 import { importersOfOp } from './importers-of.ts';
 import { findUnusedExportsOp } from './find-unused-exports.ts';
+import { findPhantomDepsOp } from './find-phantom-deps.ts';
 import { findUnusedPropsOp } from './find-unused-props.ts';
 import { findUnusedScssClassesOp } from './find-unused-scss-classes.ts';
 import { i18nLookupOp } from './i18n-lookup.ts';
@@ -53,6 +54,7 @@ export function builtinOps(): readonly AnyOpDefinition[] {
     sourceOp,
     importersOfOp,
     findUnusedExportsOp,
+    findPhantomDepsOp,
     findUnusedPropsOp,
     scssClassesOp,
     cssCascadeOp,

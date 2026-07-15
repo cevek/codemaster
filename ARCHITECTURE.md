@@ -615,6 +615,7 @@ A small number of ops ship by default:
 | `codemod`                  | ast-grep matcher + `support/text-edits`                                                                           |
 | `find_unused_scss_classes` | `ts` + `scss`                                                                                                     |
 | `find_unused_i18n_keys`    | `ts` + `i18n`                                                                                                     |
+| `find_phantom_deps`        | `ts` (node_modules-resolving bare imports) + `support/framework-detect` (per-package manifest deps join)          |
 | `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)                                                            |
 | `impact`                   | `ts` (type-aware reference blast radius)                                                                          |
 | `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck                                                                 |

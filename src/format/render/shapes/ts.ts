@@ -100,6 +100,15 @@ export const unusedExport: ShapeRenderer = (v) => {
   return `${String(v['symbol'])} · ${String(v['kind'])}${confTail(v['confidence'])}${note}`;
 };
 
+/** PhantomDepRow: { importer, specifier, resolvedFrom, importSiteCount, sites, more? }. Fold to the
+ *  package + the undeclared dep + count + hoist origin, with capped proof sites. */
+export const phantomDep: ShapeRenderer = (v) => {
+  const sites = Array.isArray(v['sites']) ? (v['sites'] as unknown[]).map(String) : [];
+  const more = v['more'] !== undefined ? ` +${String(v['more'])} more` : '';
+  const proof = sites.length > 0 ? ` [${sites.join(', ')}${more}]` : '';
+  return `${String(v['importer'])} · ${String(v['specifier'])} ×${String(v['importSiteCount'])} · resolved ${String(v['resolvedFrom'])}${proof}`;
+};
+
 /** MemberView: { name, optional, type, inherited?, members? }. The type carries spaces so it
  *  never inlines as k=v; render `name[?]: type`. A member WITH nested members (depth>1) — which
  *  the old leaf branch missed, so it exploded — keeps the head then its (already-condensed)

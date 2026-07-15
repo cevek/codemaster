@@ -91,6 +91,8 @@ const SWEEP: Record<string, JsonValue> = {
  *  port owns (spec §1 boundary — edit-safety is tested there, not re-tested here). */
 const EXCLUSIONS: Record<string, string> = {
   importers_of: 'emits compact `at:"file:line"` strings, not proof Spans — nothing to validate',
+  find_phantom_deps:
+    'emits per-package phantom groups with `file:line` site strings (not proof Spans); the phantom/non-phantom classification is oracle-tested in find-phantom-deps.test.ts vs a hand-derived expected set over the fixture package.jsons + imports',
   expand_type:
     'emits a navigational `at:"file:line:col"` loc (the name-token span is density-water at full, §12), not a proof Span — the resolved type/members/signatures proof is the live checker, oracle-tested in expand-type.test.ts vs a cold Program',
   impact:

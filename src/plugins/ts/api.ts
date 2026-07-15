@@ -16,6 +16,7 @@ import type {
   UsagesView,
 } from './query-types.ts';
 import type { ProgramsLoadReport } from './program/explicit-load.ts';
+import type { NodeModuleImportSite } from './phantom-imports.ts';
 import type { Result } from '../../core/result.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { CatalogueFilter, FileNames } from './syntactic-catalogue.ts';
@@ -211,6 +212,10 @@ export interface TsPluginApi extends Plugin {
   ): { view: MemberUsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Module-graph: who imports / re-exports from a module (tsconfig-paths aware). */
   importersOf(module: string): ImportersView;
+  /** Every static bare-package import/export that resolves (under the project's own options) to a
+   *  file UNDER `/node_modules/` — the raw material `find_phantom_deps` diffs against each importer's
+   *  own package.json. A site is not yet a phantom (a correctly-declared dep also resolves here). */
+  nodeModuleImports(): NodeModuleImportSite[];
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A
    *  barrel-/`export *`-/dynamic-`import()`-reached export demotes to `partial` ("could not
    *  prove dead"), never `certain` unused. Bounded: the candidate set is scoped + hard-capped. */

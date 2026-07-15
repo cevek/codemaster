@@ -3,7 +3,7 @@ warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)
 plugins: ts@0.1.0 · scss@0.1.0
-ops (27):
+ops (28):
   search_symbol { query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean } — Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops
     · matches the LS workspace-symbol provider — prefix / substring / camelCase-initials (e.g. "fC" → formatCurrency), NOT arbitrary subsequence ("frmtCurncy" finds nothing); returns chainable SymbolIds. Narrow with kind / exportedOnly / pathInclude / pathExclude.
     · on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).
@@ -78,6 +78,15 @@ ops (27):
     · bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.
     columns: name,kind,file,line,col,confidence,symbol,note
     e.g. find_unused_exports {"pathInclude":["src/features/**"]}
+  find_phantom_deps { limit?: number (max phantom groups, default 200) } — per package, bare imports whose package is NOT in that package.json yet resolves (via node_modules hoisting) — "works locally, breaks on clean install"
+    · a phantom = a bare-package import whose package name is NOT in the importer package's own dependencies/devDependencies/peerDependencies/optionalDependencies, yet RESOLVES to a file under node_modules (only because the dep is hoisted). Fix: add it to that package.json.
+    · the node_modules gate is deliberate: a tsconfig paths/baseUrl alias (`@/x`) is bare-looking but resolves to workspace SOURCE, not node_modules, so it is NEVER flagged — no false positive on the alias surface.
+    · NOT reported (different classes): a bare import that does not resolve at all (a MISSING dep — tsc flags it); a node builtin (`fs`, `node:fs`); a self-name import; a type-only import satisfied by a declared `@types/<pkg>`.
+    · static `import`/`export … from` declarations only — a dynamic `import()`/`require()`, or an `import x = require(...)`, is not traced.
+    · the importer unit is the NEAREST enclosing package.json (walking up), so a root file is judged against the root package.json and a nested-package file against its own.
+    · bounded: capped at `limit` phantom groups (default 200), reported as truncation; each package.json is read+cached once.
+    columns: importer,specifier,resolvedFrom,importSiteCount
+    e.g. find_phantom_deps {}
   scss_classes { file?: string } — SCSS class declarations across the workspace (or one stylesheet)
     · syntactic (postcss CST — postcss-scss for `.scss`/`.sass`, plain postcss for `.css`), not a resolved cascade; interpolated selectors carry partial confidence.
     columns: name,file,line,col,confidence

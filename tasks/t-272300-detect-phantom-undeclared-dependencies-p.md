@@ -1,7 +1,7 @@
 ---
 id: t-272300
 title: Detect phantom/undeclared dependencies — per workspace package, flag every bare-module import whose specifier is NOT in that package's own package.json (resolved only via pnpm hoisting)
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

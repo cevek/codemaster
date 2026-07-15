@@ -32,6 +32,7 @@ export type ShapeTag =
   | 'subtree-unconfirmed'
   | 'construction-site'
   | 'unused-export'
+  | 'phantom-dep'
   | 'type-member'
   | 'type-ref'
   | 'unresolved-name'

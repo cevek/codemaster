@@ -32,6 +32,7 @@ import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts'
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
+import { nodeModuleImports } from './phantom-imports.ts';
 import { findUnusedExports } from './unused-exports.ts';
 import { computeRename } from './refactor/rename/rename-sites.ts';
 import { collectDiagnostics } from './diagnostics.ts';
@@ -281,6 +282,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     functionDeclarations: () => memos.functionDeclarations.call(),
 
     importersOf: (module) => findImporters(warm(), module),
+
+    nodeModuleImports: () => nodeModuleImports(warm()),
 
     unusedExports: (filter) => findUnusedExports(warm(), filter),
 

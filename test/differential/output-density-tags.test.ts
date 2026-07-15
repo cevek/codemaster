@@ -55,6 +55,13 @@ const TAG_SAMPLES: Record<ShapeTag, Record<string, JsonValue>> = {
     confidence: 'partial',
     note: 'reached via a barrel',
   },
+  'phantom-dep': {
+    importer: 'apps/emr',
+    specifier: '@mui/material',
+    resolvedFrom: 'node_modules/@mui/material',
+    importSiteCount: 2,
+    sites: ['apps/emr/src/a.ts:1', 'apps/emr/src/b.ts:1'],
+  },
   'type-member': { name: 'x', optional: true, type: 'string | undefined' },
   'type-ref': { text: 'User', span: SAMPLE_SPAN, confidence: 'certain' },
   'unresolved-name': { name: 'X', reason: 'no symbol named X' },
