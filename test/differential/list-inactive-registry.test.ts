@@ -1,11 +1,14 @@
 // §3.6 silent-miss honesty for `list {registry}` (t-857923): a bare `found=false / available(0)` at
 // a root where NO registry-owning plugin is active reads as "this repo has no components" — but the
-// registry's owning framework plugin (autodetected off the ROOT package.json) may be active ONLY in
-// an UNINDEXED nested package. `list` must disclose that, plugin-neutrally, and suggest `root:<dir>`.
+// registry's owning framework plugin autodetects off each package's OWN package.json, so it may be
+// active ONLY when a NESTED PACKAGE is itself the root. (Loading that package's TS program at the
+// outer root does NOT activate its framework plugins — activation is a per-root package.json
+// autodetect — so the miss persists regardless of program discovery.) `list` must disclose the nested
+// package, plugin-neutrally, and suggest `root:<dir>`.
 //
 // Oracle (§16): an INDEPENDENT engine rooted at the nested package (react active over ITS own
-// program — a program the root engine never loaded) returns the components. So the root's bare
-// found=false, without disclosure, is a §3.6 silent miss. Never grep, never golden-only.
+// package.json) returns the components. So the outer root's bare found=false, without disclosure, is a
+// §3.6 silent miss. Never grep, never golden-only.
 //
 // The never-lie core is the NEGATIVE assertions: react ACTIVE-but-empty (found:true, no note) and a
 // clean single-repo with no nested config (found:false, byte-identical bare answer, no false hint).
@@ -17,7 +20,8 @@ import { project } from '../helpers/project.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 // Root: NO react dependency → the react plugin is INACTIVE here. A nested `web/` package DOES depend
-// on react and holds a component — a tsconfig codemaster never loads as a program from the root.
+// on react (its OWN package.json) and holds a component — codemaster loads web/'s program, but that
+// does NOT activate web/'s react plugin at the root (activation is a per-root package.json autodetect).
 const NESTED_REACT_PKG = {
   'package.json': '{"name":"root","dependencies":{}}',
   'tsconfig.json':
@@ -57,12 +61,12 @@ function listData(r: OpResult): ListData {
   return res.data;
 }
 
-test('list silent-miss (t-857923): found=false/available(0) at a root where the owning plugin is inactive discloses the unindexed nested package + a root:<dir> remedy', async () => {
+test('list silent-miss (t-857923): found=false/available(0) at a root where the owning plugin is inactive discloses the nested package + a root:<dir> remedy', async () => {
   const p = await project(NESTED_REACT_PKG);
   try {
-    // Independent oracle: a SEPARATE engine rooted at web/ (react active over its OWN program — never
-    // loaded by the root engine) DOES list the component. So components genuinely exist in an
-    // unindexed program → the root's bare found=false is a §3.6 silent miss.
+    // Independent oracle: a SEPARATE engine rooted at web/ (react active over web/'s OWN package.json)
+    // DOES list the component. The root engine cannot — react is inactive there — so the root's bare
+    // found=false is a §3.6 silent miss.
     const webRoot = path.join(p.root, 'web');
     const [webRes] = await p.request([
       { name: 'list', args: { registry: 'components' }, root: webRoot },
@@ -75,7 +79,7 @@ test('list silent-miss (t-857923): found=false/available(0) at a root where the 
     );
 
     // The behaviour under test: at the ROOT, the same query finds no owner — and must NOT read as
-    // "no components", but disclose the unindexed nested package.
+    // "no components", but disclose the nested package as a candidate root.
     const root = listData(await p.op('list', { registry: 'components' }));
     assert.equal(root.found, false, 'no owning plugin active at the root');
     assert.deepEqual(root.available, [], 'available(0): react produced no registry here');
@@ -84,7 +88,12 @@ test('list silent-miss (t-857923): found=false/available(0) at a root where the 
       /no plugin owning registry 'components' is active/,
       'plugin-not-active disclosure',
     );
-    assert.match(root.note ?? '', /web\/tsconfig\.json/, 'names the unindexed nested config');
+    assert.match(
+      root.note ?? '',
+      /nested package/,
+      'discloses the nested package (the silent-miss source)',
+    );
+    assert.match(root.note ?? '', /\bweb\b/, 'names the nested package dir');
     assert.match(root.note ?? '', /root:<web>/, 'suggests the actionable root:<dir> remedy');
   } finally {
     await p.dispose();

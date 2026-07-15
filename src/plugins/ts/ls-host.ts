@@ -24,7 +24,7 @@ import {
   relLabel,
   repoTsconfigsFrom,
   walkRepoFiles,
-  workspaceMemberConfigs,
+  packageConfigLabels,
   type DiscoveredConfig,
 } from './program/discover.ts';
 import { computeCoverage, type Coverage } from './program/coverage.ts';
@@ -155,6 +155,12 @@ export interface TsProjectHost {
    *  `tsconfig*.json` lands in the changed set, so a config ADDED post-warm IS picked up (no
    *  reconnect needed) without a per-reindex re-walk. */
   undiscoveredProgramLabels(): readonly string[];
+  /** Labels of nested PACKAGE configs (a dir carrying its own `package.json`) codemaster loads as
+   *  independent programs — the candidate roots for the `list` inactive-registry disclosure (§3.6): a
+   *  framework plugin autodetects off a package.json, so only such a dir can own a registry as its own
+   *  `root:<dir>`. Computed on demand (bounded: a per-tsconfig `package.json` probe over the cached
+   *  list, only when the rare inactive-registry hint fires — never a repo-scale per-query walk, §19). */
+  nestedPackageLabels(): readonly string[];
   dispose(): void;
 }
 
@@ -215,6 +221,7 @@ export function createTsProjectHost(
       repoTsconfigsList(),
       repoFilesList(),
       ignored(),
+      configPath,
     ));
 
   // Repo tsconfigs found on disk MINUS the loaded set (primary + the adjacent/`references`
@@ -410,8 +417,8 @@ export function createTsProjectHost(
       // refresh); member dirs come from the CACHED tsconfig list (no new walk).
       const addsMemberStray = (): boolean => {
         if (coverageMemo === undefined || repoTsconfigs === undefined) return false;
-        const memberDirs = workspaceMemberConfigs(root, repoTsconfigs).map((c) =>
-          path.posix.dirname(relLabel(root, c)),
+        const memberDirs = packageConfigLabels(root, repoTsconfigs, configPath).map((l) =>
+          path.posix.dirname(l),
         );
         if (memberDirs.length === 0) return false;
         const built = builtSoFar();
@@ -505,6 +512,7 @@ export function createTsProjectHost(
       }),
     programLabels: () => [primary.label, ...discover().map((c) => c.label)],
     undiscoveredProgramLabels: () => undiscoveredLabels(),
+    nestedPackageLabels: () => packageConfigLabels(root, repoTsconfigsList(), configPath),
     dispose() {
       for (const program of builtSoFar()) program.dispose();
       for (const program of fileDriven.values()) program.dispose();

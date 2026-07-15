@@ -364,10 +364,11 @@ probing.
   trigger warm. The heavyweight plugin: gigabytes for large projects (§9).
   **Multi-program (§9/§19).** The host loads the **primary** program (the root tsconfig —
   the mutation/typecheck target) plus the repo's **sibling** programs (adjacent `tsconfig.*.json`,
-  transitive `references`, AND workspace-member configs named by `pnpm-workspace.yaml` /
-  `package.json` `workspaces` globs: the near-universal `tsconfig.test.json`, Vite's app/node split,
-  a pnpm/vite monorepo's packages, build configs), each keeping its **own** `compilerOptions` (a flat single-options Program would
-  be a lie). Siblings are discovered once and warmed **lazily** on the first cross-program
+  transitive `references`, AND every `package.json`-anchored PACKAGE — a dir carrying its own
+  `package.json`, whether a workspace-glob member or an ISOLATED nested package with no workspace
+  manifest at all: the near-universal `tsconfig.test.json`, Vite's app/node split, a pnpm/vite
+  monorepo's packages, build configs, a repo's whole `web/` frontend), each keeping its **own**
+  `compilerOptions` (a flat single-options Program would be a lie). Siblings are discovered once and warmed **lazily** on the first cross-program
   read; the stock-TS programs share one `DocumentRegistry` so files common to two configs
   parse once. `find_usages` / `referenceSpans` / `importers_of` fan out across every program
   containing the target and merge+dedup the sites; `find_unused_exports` checks the primary
@@ -396,14 +397,27 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   discloses the scan's limit — **static import/export only; a dynamic `import()`/`require()` of a
   file under the tree is NOT traced** (inherited from `importersOf`, as `affected` discloses the same
   for its transitive walk). Engine in `plugins/ts/importers-subtree.ts`.
-  Discovery is adjacent-`tsconfig*.json` + transitive `references` + **workspace members** (a dir
-  matched by the repo's `pnpm-workspace.yaml` / `package.json` `workspaces` globs AND holding a
-  `package.json` — a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are
-  otherwise undiscovered and every cross-package query floored; membership is `package.json`-anchored
-  so a bare nested/fixture tsconfig under a matching path is **not** slurped). **Member-stray INJECTION
-  (`program/coverage.ts`, t-232769).** A git-tracked TS-source file physically under a member's dir
-  that the member's OWN tsconfig `include` omits (the near-universal `packages/x/scripts/smoke.ts`
-  under `include:["src"]`) is a **stray-for-that-member**: it is INJECTED into that member's own
+  Discovery is adjacent-`tsconfig*.json` + transitive `references` + **packages** (`program/discover.ts`
+  `packageConfigs`): a `tsconfig*.json` whose DIRECTORY holds a `package.json` — a workspace-glob member
+  OR a truly ISOLATED nested package (its own tsconfig+package.json, NOT referenced and NOT a
+  workspaces-glob member, t-865312). The `package.json` presence is the SOLE anchor (a workspace-glob
+  match is NOT needed), because a repo whose entire frontend lives under a nested `web/` (its own
+  tsconfig+package.json, no workspace manifest at all) otherwise floored every symbol op on that package:
+  a bare-NAME query has no target file for the read-path nearest-config discovery to anchor on, so the
+  program never loaded and the symbol read as "not found anywhere" (root-override was the only escape).
+  A pnpm/vite monorepo wires packages by GLOB not `references`, so members are otherwise undiscovered
+  too. Guards keep the anchor from over-indexing a foreign repo: a bare nested/fixture tsconfig WITHOUT a
+  `package.json` is **not** slurped (→ stays undiscovered/floored, the `programs:` lever's job); a
+  package.json dir under a §10-ignored path (`node_modules`/`dist`/`.claude`/…) never reaches discovery
+  (the shared walk filters it upstream); a workspace-NEGATED (`!`-glob) dir is honored as an explicit
+  exclusion; and the ROOT dir + the primary's own directory are never dir-packages (a root-level
+  `tsconfig.test.json` is an adjacent glob-based sibling). Discovery is §19-bounded — the `package.json`
+  probe rides the ONE cached repo walk, never a per-query repo-scale scan. **Member-stray INJECTION
+  (`program/coverage.ts`, t-232769).** Here "member" means any discovered **package** (a workspace
+  member OR an isolated nested package, t-865312) — the coverage machinery is package.json-anchored and
+  treats them identically. A git-tracked TS-source file physically under a package's dir
+  that the package's OWN tsconfig `include` omits (the near-universal `packages/x/scripts/smoke.ts`
+  under `include:["src"]`) is a **stray-for-that-package**: it is INJECTED into that package's own
   `SingleProgram` file-set (`createSingleProgram` `injectedFiles`), so it compiles under the member's
   OWN compilerOptions and its alias imports (`@x/*`) resolve exactly as the member's src does — the
   file becomes SEARCH-surface, never a new type authority. **POLLUTION GATE:** a stray is injected ONLY
@@ -849,7 +863,8 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   plugin runs one `Program` per package `tsconfig`, each keeping its own `compilerOptions`
   — a flat single-options Program would be a lie (§19). **Built today (§5-L2 / Task G):**
   the host loads the repo's tsconfigs (root + sibling `tsconfig.*.json` + `references` +
-  `workspaces`-glob members) as
+  every `package.json`-anchored package — a workspaces-glob member OR an isolated nested package,
+  t-865312) as
   **independent** programs, and usages / dead-code fan out across them. **Roadmap:** wiring
   them with **project-reference redirects** (what `tsserver` does) so cross-package
   references resolve in-memory as one graph — not yet built; the independent-programs step is
@@ -1129,9 +1144,10 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`@ast-grep/napi`** — syntactic structural match/rewrite for the `codemod` op.
 - **`postcss` + `postcss-scss`** — used by the `scss` plugin.
 - **`diff`** — unified diffs for mutating-op previews.
-- **`yaml`** — parse `pnpm-workspace.yaml` for workspace-member tsconfig discovery (the `ts`
-  plugin's third program-discovery source, §5-L2). Hand-rolling YAML would be a subtly-wrong
-  second oracle; read best-effort (a malformed manifest yields no globs, never a throw).
+- **`yaml`** — parse `pnpm-workspace.yaml` to honor its negative (`!`) workspace-glob exclusions
+  during package discovery (§5-L2): a package.json-anchored dir the manifest explicitly excludes
+  stays unindexed. Hand-rolling YAML would be a subtly-wrong second oracle; read best-effort (a
+  malformed manifest yields no globs, never a throw).
 - **`prettier`** — resolved from the target project **only** (NO bundled fallback);
   post-edit formatting for mutating ops. A repo that ships no prettier — or no prettier
   config — is written unformatted rather than restyled against its intent (§5-L1).
@@ -1434,7 +1450,8 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **Monorepo LS = project references, not a flat Program.** One engine/process, but the
   `ts` plugin runs one `Program` per package `tsconfig`, each keeping its own
   `compilerOptions` (never a flat single-options Program). Built today: the repo's tsconfigs
-  (root + sibling `tsconfig.*.json` + `references` + `workspaces`-glob members) load as **independent** programs that
+  (root + sibling `tsconfig.*.json` + `references` + every `package.json`-anchored package —
+  workspaces-glob member or isolated nested package, t-865312) load as **independent** programs that
   usages / dead-code **and the mutating ops** (rename / change_signature / move / extract +
   the §2.8 typecheck gate) fan out across (§5-L2 / Task G). Roadmap: wiring them with
   project-reference redirects (what `tsserver` does) so cross-package references resolve

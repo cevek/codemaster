@@ -1,43 +1,33 @@
-// The repo's declared workspace-member globs — the THIRD tsconfig-discovery source (spec Task G /
-// dogfood-jul Ask 1). A pnpm/vite/yarn monorepo wires its packages by workspace GLOBS
-// (`packages/*`, `apps/*`), NOT by tsconfig `references`, so member configs are neither adjacent to
-// the primary nor referenced → today they read as UNDISCOVERED and every cross-package query is
-// floored. This reads the two standard declarations so `discoverSiblingConfigs` can load member
-// configs as independent programs.
+// The repo's declared workspace-EXCLUSION globs — the negative (`!`-prefixed) entries of
+// `pnpm-workspace.yaml` / `package.json` `workspaces` (spec Task G / dogfood-jul Ask 1 / t-865312).
+// Package discovery (`packageConfigs`, ./discover) anchors on a dir holding its OWN `package.json`, so
+// positive member globs are NOT needed to FIND packages — but a `!`-negated dir is an EXPLICIT
+// exclusion both ecosystems honor, so a package.json-anchored dir the manifest excludes must stay
+// unindexed. This reads ONLY those exclusions.
 //
-// Two sources, both plain data files (never a boundary that trusts external types — but read
-// best-effort, so a missing/malformed manifest yields NO globs rather than throwing, mirroring
+// Both sources are plain data files (never a boundary that trusts external types — but read
+// best-effort, so a missing/malformed manifest yields NO exclusions rather than throwing, mirroring
 // `referencePaths`' malformed-config handling in ./discover):
 //   1. `pnpm-workspace.yaml` — a top-level `packages:` string list;
 //   2. `package.json` `workspaces` — an array, or the yarn `{ packages: [...] }` object form.
-// A `!`-prefixed entry is an EXCLUSION (both ecosystems honor it), split into `negative`.
 
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
-export interface WorkspaceGlobs {
-  /** Member-dir globs (repo-relative posix, no leading `./`). */
-  positive: string[];
-  /** Exclusion globs (`!`-prefixed entries, `!` stripped). */
-  negative: string[];
-}
-
-/** Read the repo's workspace-member globs from `pnpm-workspace.yaml` + `package.json`. Best-effort:
- *  any read/parse failure contributes no globs (never throws). Called ONCE per host structural
- *  reindex from the memoized `discoverSiblingConfigs`, never per query (§19). */
-export function readWorkspaceGlobs(root: string): WorkspaceGlobs {
+/** Read the repo's workspace-EXCLUSION globs (the `!`-prefixed entries, `!` stripped) from
+ *  `pnpm-workspace.yaml` + `package.json`. Best-effort: any read/parse failure contributes no
+ *  exclusions (never throws). Called ONCE per host structural reindex from `packageConfigs`, never
+ *  per query (§19). */
+export function readWorkspaceExclusions(root: string): string[] {
   const raw = [...pnpmPackages(root), ...packageJsonWorkspaces(root)];
-  const positive: string[] = [];
   const negative: string[] = [];
   for (const entry of raw) {
-    if (typeof entry !== 'string' || entry.length === 0) continue;
-    const negated = entry.startsWith('!');
-    const glob = normalizeGlob(negated ? entry.slice(1) : entry);
-    if (glob.length === 0) continue;
-    (negated ? negative : positive).push(glob);
+    if (typeof entry !== 'string' || !entry.startsWith('!')) continue;
+    const glob = normalizeGlob(entry.slice(1));
+    if (glob.length > 0) negative.push(glob);
   }
-  return { positive, negative };
+  return negative;
 }
 
 /** Strip a leading `./` and any trailing slash so a member-DIR glob compares cleanly against a

@@ -425,6 +425,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return warm().undiscoveredProgramLabels();
     },
 
+    nestedPackageLabels() {
+      return warm().nestedPackageLabels();
+    },
+
     loadPrograms(paths) {
       return warm().loadPrograms(paths);
     },

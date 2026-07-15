@@ -1,7 +1,7 @@
 ---
 id: t-865312
 title: Auto-index an isolated nested package (its own tsconfig, NOT in a parent `references`, NOT a workspace-member glob) — today every symbol op on it FAILs; root-override is the only escape hatch
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

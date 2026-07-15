@@ -10,10 +10,11 @@
 //
 // Two outputs from the one bounded pass (syntactic — `parseJsonConfigFileContent`, no LS build; run
 // once per undiscovered memo, never the LS hot path §19):
-//   • memberStrays — git-tracked source under a workspace MEMBER dir that the member's own `include`
-//     omits (e.g. `packages/x/scripts/smoke.ts` under `include:['src']`). Injected into that member's
-//     program (single.ts `injectedFiles`) so it compiles under the member's OWN options → correct
-//     alias resolution. This is the ONLY un-floor lever: a stray under NO member is never injected.
+//   • memberStrays — git-tracked source under a PACKAGE dir (workspace member OR isolated nested
+//     package, t-865312) that the package's own `include` omits (e.g. `packages/x/scripts/smoke.ts`
+//     under `include:['src']`). Injected into that package's program (single.ts `injectedFiles`) so it
+//     compiles under the package's OWN options → correct alias resolution. This is the ONLY un-floor
+//     lever: a stray under NO package is never injected.
 //   • safe — the tsconfigs to SUBTRACT from the undiscovered floor: any whose entire (non-empty)
 //     TS-source glob ⊆ the correct-resolution union (incl. the injected strays), i.e. a redundant
 //     base/extends config (`tsconfig.base.json`) whose files are all already searched correctly. A
@@ -24,7 +25,7 @@ import * as path from 'node:path';
 import ts from 'typescript';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
-import { relLabel, workspaceMemberConfigs, type DiscoveredConfig } from './discover.ts';
+import { relLabel, packageConfigs, type DiscoveredConfig } from './discover.ts';
 
 /** TS-source extensions a tsconfig `include` owns by default (`.d.ts` ⊂ `.ts$`). `.js/.jsx` are
  *  `allowJs`-conditional, so requiring their coverage would floor on tooling JS no program intends to
@@ -35,8 +36,9 @@ const TS_SOURCE_RE = /\.(ts|tsx|cts|mts)$/;
 export interface Coverage {
   /** Config paths (posix abs) to SUBTRACT from the undiscovered floor. */
   safe: Set<string>;
-  /** Workspace-member config path (posix abs) → its injected stray files (posix abs), to compile in
-   *  that member's program (`createSingleProgram` `injectedFiles`) under the member's own options. */
+  /** Package config path (posix abs) → its injected stray files (posix abs), to compile in that
+   *  package's program (`createSingleProgram` `injectedFiles`) under the package's own options. A
+   *  "package" is a workspace member or an isolated nested package (t-865312). */
   memberStrays: Map<string, string[]>;
 }
 
@@ -53,6 +55,9 @@ export function computeCoverage(
   repoFiles: readonly string[],
   /** The host's memoized git-ignored set (the §10 git arm), computed once per structural reindex. */
   ignored: ReadonlySet<string>,
+  /** The primary config path (posix/native), so a root-level or primary-adjacent config is never
+   *  mistaken for a dir-based package (they are glob-based siblings). Undefined for a no-config root. */
+  primaryConfigPath?: string,
 ): Coverage {
   const rootPosix = toPosix(root);
   const abs = (rel: string): string => `${rootPosix}/${rel}`;
@@ -90,12 +95,14 @@ export function computeCoverage(
   const covered = new Set<string>(primaryFileNames.filter((f) => TS_SOURCE_RE.test(f)));
   for (const c of discovered) for (const f of fileNamesOf(toPosix(c.path))) covered.add(f);
 
-  // 2. Member dir → its config path (deepest-enclosing lookup below).
-  const memberConfigList = workspaceMemberConfigs(root, repoTsconfigs).map(toPosix);
-  const memberConfigs = new Set(memberConfigList);
-  const memberDirToConfig = new Map<string, string>();
-  for (const m of memberConfigList) memberDirToConfig.set(path.posix.dirname(relLabel(root, m)), m);
-  const memberDirs = new Set(memberDirToConfig.keys());
+  // 2. Package dir → its config path (deepest-enclosing lookup below). A "package" is a workspace
+  //    member OR an isolated nested package — both anchored on a `package.json` (t-865312).
+  const packageConfigList = packageConfigs(root, repoTsconfigs, primaryConfigPath).map(toPosix);
+  const packageConfigSet = new Set(packageConfigList);
+  const packageDirToConfig = new Map<string, string>();
+  for (const m of packageConfigList)
+    packageDirToConfig.set(path.posix.dirname(relLabel(root, m)), m);
+  const packageDirs = new Set(packageDirToConfig.keys());
 
   // 3. Member strays: a git-tracked TS-source file under a member dir that the DEEPEST-enclosing
   //    member's OWN config does not glob → injected into THAT member → searched under the member's OWN
@@ -118,16 +125,16 @@ export function computeCoverage(
     return s;
   };
   const memberStrays = new Map<string, string[]>();
-  const strayFloored = new Set<string>(); // members with an un-injectable (polluting) stray
+  const strayFloored = new Set<string>(); // packages with an un-injectable (polluting) stray
   for (const rel of repoFiles) {
     if (!TS_SOURCE_RE.test(rel) || isJunkRelPath(rel, ignored)) continue;
     const a = abs(rel);
-    const dir = enclosingMemberDir(rel, memberDirs);
+    const dir = enclosingPackageDir(rel, packageDirs);
     if (dir === undefined) continue;
-    const cfg = memberDirToConfig.get(dir);
+    const cfg = packageDirToConfig.get(dir);
     if (cfg === undefined || ownGlobOf(cfg).has(a)) continue;
     if (!isInjectableStray(a)) {
-      strayFloored.add(cfg); // an unsearched stray remains under this member → keep it floored
+      strayFloored.add(cfg); // an unsearched stray remains under this package → keep it floored
       continue;
     }
     const list = memberStrays.get(cfg);
@@ -137,19 +144,20 @@ export function computeCoverage(
   }
 
   // 4. Decide, per tsconfig, whether it is subtracted from the undiscovered floor:
-  //    • a workspace MEMBER is DIR-based — every git-tracked TS-source under its dir is in the union
-  //      post-injection (we inject ALL INJECTABLE member-dir strays), so it is safe iff it covers
-  //      SOMETHING (its own src, a `references` hub, or an injected stray) AND has no un-injectable
-  //      (polluting) stray left unsearched. A member covering literally nothing, or one straying a
-  //      file we cannot safely inject, stays floored.
-  //    • a NON-member (a base/extends config like `tsconfig.base.json`, or an undiscovered nested
-  //      config) is GLOB-based — safe iff its entire non-empty TS-source glob ⊆ the correct-resolution
-  //      union (all its files are already searched correctly), else floored. A config globbing a
-  //      fallback-only file (aliases never resolved) or an uncovered orphan stays floored, ANY repo.
+  //    • a PACKAGE (workspace member or isolated nested package) is DIR-based — every git-tracked
+  //      TS-source under its dir is in the union post-injection (we inject ALL INJECTABLE package-dir
+  //      strays), so it is safe iff it covers SOMETHING (its own src, a `references` hub, or an
+  //      injected stray) AND has no un-injectable (polluting) stray left unsearched. A package covering
+  //      literally nothing, or one straying a file we cannot safely inject, stays floored.
+  //    • a NON-package (a base/extends config like `tsconfig.base.json`, or an undiscovered nested
+  //      config with no package.json) is GLOB-based — safe iff its entire non-empty TS-source glob ⊆
+  //      the correct-resolution union (all its files are already searched correctly), else floored. A
+  //      config globbing a fallback-only file (aliases never resolved) or an uncovered orphan stays
+  //      floored, ANY repo.
   const safe = new Set<string>();
   for (const cfg of repoTsconfigs) {
     const glob = fileNamesOf(cfg);
-    if (memberConfigs.has(cfg)) {
+    if (packageConfigSet.has(cfg)) {
       const covers = glob.length > 0 || memberStrays.has(cfg) || declaresReferences(cfg);
       if (covers && !strayFloored.has(cfg)) safe.add(cfg);
       continue;
@@ -188,12 +196,15 @@ function isInjectableStray(absPosix: string): boolean {
   return true;
 }
 
-/** The DEEPEST member directory enclosing `fileRel` (walk-up prefix, bounded by path depth), or
- *  undefined when the file is under no member. */
-function enclosingMemberDir(fileRel: string, memberDirs: ReadonlySet<string>): string | undefined {
+/** The DEEPEST package directory enclosing `fileRel` (walk-up prefix, bounded by path depth), or
+ *  undefined when the file is under no package. */
+function enclosingPackageDir(
+  fileRel: string,
+  packageDirs: ReadonlySet<string>,
+): string | undefined {
   let dir = path.posix.dirname(fileRel);
   while (dir !== '.' && dir !== '' && dir !== '/') {
-    if (memberDirs.has(dir)) return dir;
+    if (packageDirs.has(dir)) return dir;
     const parent = path.posix.dirname(dir);
     if (parent === dir) break;
     dir = parent;

@@ -328,6 +328,11 @@ export interface TsPluginApi extends Plugin {
    *  demotes to a non-`certain`/incomplete verdict and NAMES them, never a silent miss. Empty on
    *  the common repo. Cached once (§19), invalidated when a `tsconfig*.json` lands in reindex. */
   undiscoveredProgramLabels(): readonly string[];
+  /** Labels of nested PACKAGE configs (a dir carrying its own `package.json`) loaded as independent
+   *  programs — the candidate roots for the `list` inactive-registry disclosure (§3.6). A framework
+   *  plugin autodetects off a package.json, so only such a dir can own a registry as its own
+   *  `root:<dir>` when no owning plugin is active at the queried root. Cached once (§19). */
+  nestedPackageLabels(): readonly string[];
   /** Type-aware "which switch/if-chains DISCRIMINATE on a union T?": the `switch` statements and
    *  `if/else-if` chains whose scrutinee reads a DISCRIMINANT of T — including scrutinees reached via
    *  property access (`switch (spec.type.kind)` where `spec.type: T`), which `find_usages` on T's NAME

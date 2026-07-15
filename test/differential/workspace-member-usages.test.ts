@@ -12,7 +12,7 @@
 //       the member config is picked up by dir-match, not just its plain `tsconfig.json`;
 //   (d) SLURP GUARD: a decoy `tsconfig.json` under a glob-matched path but WITHOUT a `package.json`
 //       is NOT a member and is NOT loaded (membership is package.json-anchored, not dir-glob alone);
-//   (e) no workspace declaration → discovery is a NO-OP (no over-discovery of nested configs).
+//   (e) no workspace declaration → an isolated package (its own package.json) IS auto-discovered (t-865312).
 //
 // (Member STRAY INJECTION — a git-tracked file the member's `include` omits — is pinned separately in
 // workspace-member-strays.test.ts, t-232769.)
@@ -198,10 +198,11 @@ test('(d) SLURP GUARD: a glob-matched dir WITHOUT a package.json is not a member
     await p.dispose();
   }
 });
-test('(e) no workspace declaration: discovery is a NO-OP (no over-discovery of nested configs)', async () => {
-  // Without a pnpm-workspace.yaml / package.json workspaces, source 2 contributes nothing — a nested
-  // tsconfig stays undiscovered exactly as before (the conservative default the fixture-slurp risk
-  // demands). This is the shape of codemaster's own repo.
+test('(e) no workspace declaration: an isolated package (package.json) IS auto-discovered (t-865312)', async () => {
+  // Without a pnpm-workspace.yaml / package.json workspaces, a nested dir carrying its OWN
+  // package.json+tsconfig is still an isolated PACKAGE and is auto-discovered on the package.json
+  // anchor (t-865312) — so it is subtracted from the undiscovered floor. A bare nested tsconfig
+  // WITHOUT package.json (codemaster's own fixtures) stays floored; the anchor is what separates them.
   const p: TestProject = await project({
     'package.json': '{"name":"root","private":true}',
     'tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`,
@@ -213,8 +214,8 @@ test('(e) no workspace declaration: discovery is a NO-OP (no over-discovery of n
   try {
     const ue = unusedData(await p.op('find_unused_exports', {}));
     assert.ok(
-      (ue.undiscoveredPrograms ?? []).includes('nested/pkg/tsconfig.json'),
-      'with no workspace decl, the nested config is NOT auto-discovered',
+      !(ue.undiscoveredPrograms ?? []).includes('nested/pkg/tsconfig.json'),
+      `the isolated package is auto-discovered, not floored: ${JSON.stringify(ue.undiscoveredPrograms)}`,
     );
   } finally {
     await p.dispose();

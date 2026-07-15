@@ -12,7 +12,7 @@
 //       no undiscovered config — the floor lifts (complete:true); cold==warm against a member LS;
 //   (B) an alias-only import the fallback CANNOT resolve is found ONLY once the member's own config
 //       (with its `paths`) loads — proves no-root discovery does more than un-flag an already-found hit;
-//   (C) no workspace manifest → discovery is a NO-OP even with an undefined primary (no over-discovery);
+//   (C) no workspace manifest → an isolated package (its own package.json) IS auto-discovered (t-865312);
 //   (D) SLURP GUARD: a glob-matched dir WITHOUT a package.json is not a member and is not loaded — the
 //       package.json-anchoring holds on the undefined-primary path too.
 //
@@ -139,10 +139,11 @@ test('(B) no-root alias-only member the fallback cannot resolve: usage found ONL
   }
 });
 
-test('(C) no-root + no workspace manifest: discovery is a NO-OP (undefined primary does not over-discover)', async () => {
-  // No pnpm-workspace.yaml and no package.json `workspaces` → source 2 yields nothing even though the
-  // primary is undefined. A nested config stays undiscovered (the conservative default the slurp risk
-  // demands) — so the undefined-primary branch is not a blanket "load every nested tsconfig".
+test('(C) no-root + no workspace manifest: an isolated package (package.json) IS auto-discovered (t-865312)', async () => {
+  // No pnpm-workspace.yaml and no package.json `workspaces`, and no root tsconfig (undefined primary).
+  // pkg-a nonetheless carries its own package.json+tsconfig → it is an isolated PACKAGE and is
+  // auto-discovered on the package.json anchor alone (t-865312), so it is NOT floored. The slurp guard
+  // is the package.json requirement (test D), NOT a workspace-manifest requirement.
   const p: TestProject = await project({
     'package.json': '{"name":"root","private":true}',
     'packages/pkg-a/package.json': '{"name":"pkg-a"}',
@@ -152,8 +153,8 @@ test('(C) no-root + no workspace manifest: discovery is a NO-OP (undefined prima
   try {
     const ue = unusedData(await p.op('find_unused_exports', {}));
     assert.ok(
-      (ue.undiscoveredPrograms ?? []).includes('packages/pkg-a/tsconfig.json'),
-      `with no workspace decl the nested config is NOT auto-discovered: ${JSON.stringify(ue.undiscoveredPrograms)}`,
+      !(ue.undiscoveredPrograms ?? []).includes('packages/pkg-a/tsconfig.json'),
+      `the isolated package is auto-discovered, not floored: ${JSON.stringify(ue.undiscoveredPrograms)}`,
     );
   } finally {
     await p.dispose();

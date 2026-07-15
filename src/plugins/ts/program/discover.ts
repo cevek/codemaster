@@ -6,10 +6,11 @@
 // Three sources, all bounded (a fixed cap + a visited set — discovery runs ONCE and is cached by
 // the host, never per query: a per-query directory scan is the §19 hang this project forbids):
 //   1. sibling `tsconfig*.json` files in the primary config's directory;
-//   2. workspace-MEMBER `tsconfig*.json` — a dir matched by the repo's `pnpm-workspace.yaml` /
-//      `package.json` `workspaces` globs AND holding a `package.json` (the actual member definition;
-//      a pnpm/vite monorepo wires packages by GLOB, not `references`, so members are otherwise
-//      undiscovered and every cross-package query is floored — dogfood-jul Ask 1);
+//   2. PACKAGE `tsconfig*.json` — a nested dir holding its own `package.json` (a workspace-glob
+//      member, OR a truly isolated non-referenced non-member package, t-865312). The `package.json`
+//      anchor is the discriminator; the whole point vs. Ask-1 is that a member GLOB is no longer
+//      required, so an isolated frontend package (its own tsconfig+package.json, no manifest) loads
+//      instead of flooring every cross-package query;
 //   3. `references` followed transitively from each discovered config (what a composite repo wires).
 // This is plain DISCOVERY — we load each as its own independent program. The project-reference
 // REDIRECT machinery (composite build graph) is the monorepo story the spec scopes OUT.
@@ -20,7 +21,7 @@ import ts from 'typescript';
 import { matchesAnyGlob } from '../../../common/glob/match.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { walkFiles } from '../../../support/fs/walk.ts';
-import { readWorkspaceGlobs } from './workspace-globs.ts';
+import { readWorkspaceExclusions } from './workspace-globs.ts';
 
 export interface DiscoveredConfig {
   /** Absolute path to the sibling tsconfig. */
@@ -75,9 +76,10 @@ export function discoverSiblingConfigs(
     }
   }
 
-  // Source 2: workspace-member `tsconfig*.json` (dogfood-jul Ask 1) — the ONLY discovery source when
-  // the primary is undefined, so a no-root monorepo's members load as independent programs.
-  for (const abs of workspaceMemberConfigs(root, repoTsconfigs)) add(abs);
+  // Source 2: PACKAGE `tsconfig*.json` (dogfood-jul Ask 1 + t-865312) — a nested dir carrying its own
+  // `package.json`, whether or not it is a workspace-glob member. This is the ONLY discovery source
+  // when the primary is undefined, so a no-root monorepo's packages load as independent programs.
+  for (const abs of packageConfigs(root, repoTsconfigs, primaryConfigPath)) add(abs);
 
   // Source 3: BFS `references` from the primary (if any) and every config found so far (source 1 +
   // 2) — so a member's Vite app/node split reachable only via its hub's `references` is loaded too.
@@ -96,27 +98,58 @@ export function discoverSiblingConfigs(
   return found.map((abs) => ({ path: abs, label: relLabel(root, abs) }));
 }
 
-/** The subset of `repoTsconfigs` that are workspace members: a `tsconfig*.json` whose DIRECTORY is
- *  matched by a positive workspace glob, not matched by a negative (`!`) one, AND holds a
- *  `package.json` (the real npm/pnpm member definition — a dir-glob match alone over-discovers a
- *  nested non-member tsconfig, esp. under a `**` glob where picomatch's single-segment `*` no longer
- *  bounds it). All inputs are already-walked paths (respecting the §10 ignore set), so this is a pure
- *  in-memory filter — no new fs walk. Iterated in `repoTsconfigs` order for a deterministic result
- *  (cold == warm on a capped repo). */
-export function workspaceMemberConfigs(root: string, repoTsconfigs: readonly string[]): string[] {
-  const { positive, negative } = readWorkspaceGlobs(root);
-  if (positive.length === 0) return [];
+/** The subset of `repoTsconfigs` that define an independent PACKAGE: a `tsconfig*.json` whose
+ *  DIRECTORY holds a `package.json` (the real npm/pnpm package definition), sitting in a NESTED
+ *  subdirectory. The `package.json` anchor is the discriminator — a workspace-glob member is one way
+ *  to be a package, but a truly isolated nested package (its own tsconfig+package.json, NOT referenced
+ *  and NOT a workspace-glob member — t-865312) is the same thing and loads the same way. Dropping the
+ *  positive-glob REQUIREMENT is the whole fix: the repro repo has no workspace manifest at all, so a
+ *  member-glob gate floored its entire frontend. A bare nested/fixture tsconfig WITHOUT a package.json
+ *  stays out (→ still undiscovered/floored, the `programs:` lever's job), so this never over-indexes.
+ *
+ *  Excluded: the ROOT dir (`.` — a root-level `tsconfig.test.json` is an adjacent SIBLING, glob-based,
+ *  not a dir-package), the primary config itself, and any config sharing the primary's own directory
+ *  (adjacent siblings). A dir matched by a NEGATIVE (`!`) workspace glob is honored as an explicit
+ *  exclusion. All inputs are already-walked paths (respecting the §10 ignore set — a package.json dir
+ *  under node_modules/dist/.claude never reaches here), so this is a pure in-memory filter over the
+ *  cached list — no new fs walk beyond a bounded per-config `package.json` existence probe. Iterated in
+ *  `repoTsconfigs` order for a deterministic result (cold == warm on a capped repo). */
+export function packageConfigs(
+  root: string,
+  repoTsconfigs: readonly string[],
+  primaryConfigPath?: string,
+): string[] {
+  const negative = readWorkspaceExclusions(root);
+  const primary = primaryConfigPath !== undefined ? toPosix(primaryConfigPath) : undefined;
+  const primaryDir =
+    primaryConfigPath !== undefined
+      ? path.posix.dirname(relLabel(root, primaryConfigPath))
+      : undefined;
   const out: string[] = [];
   for (const abs of repoTsconfigs) {
+    const posix = toPosix(abs);
+    if (posix === primary) continue; // the primary itself
     const rel = relLabel(root, abs);
-    if (path.isAbsolute(rel)) continue; // outside the root — never a member
-    const memberDir = path.posix.dirname(rel);
-    if (!matchesAnyGlob(memberDir, positive)) continue;
-    if (negative.length > 0 && matchesAnyGlob(memberDir, negative)) continue;
-    if (!existsSync(path.join(root, memberDir, 'package.json'))) continue;
+    if (path.isAbsolute(rel)) continue; // outside the root — never a package here
+    const packageDir = path.posix.dirname(rel);
+    if (packageDir === '.') continue; // root-level config — an adjacent sibling, not a dir-package
+    if (packageDir === primaryDir) continue; // shares the primary's dir — a glob-based sibling
+    if (negative.length > 0 && matchesAnyGlob(packageDir, negative)) continue; // workspace-excluded
+    if (!existsSync(path.join(root, packageDir, 'package.json'))) continue;
     out.push(abs);
   }
   return out;
+}
+
+/** `packageConfigs` as repo-relative posix LABELS — the candidate roots the `list` inactive-registry
+ *  disclosure (§3.6) names (a nested dir with its own `package.json`, the only kind that autodetects a
+ *  framework plugin as its own `root:<dir>`). */
+export function packageConfigLabels(
+  root: string,
+  repoTsconfigs: readonly string[],
+  primaryConfigPath?: string,
+): string[] {
+  return packageConfigs(root, repoTsconfigs, primaryConfigPath).map((c) => relLabel(root, c));
 }
 
 /** Resolved tsconfig paths a config `references` (a dir → its `tsconfig.json`, a `.json` as-is).
