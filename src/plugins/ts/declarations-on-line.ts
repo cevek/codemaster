@@ -42,8 +42,9 @@ function isTargetableDeclaration(node: ts.Node): node is ts.NamedDeclaration {
 }
 
 /** A short kind label for the honest pick-list (a `const`/`let`/`var` split for variables, the
- *  syntactic kind otherwise). Display-only — never used for resolution. */
-function kindLabel(node: ts.Node): string {
+ *  syntactic kind otherwise). Display-only — never used for resolution. Shared with the
+ *  member/re-export fallback (member-in-file.ts) so one classifier labels both. */
+export function kindLabel(node: ts.Node): string {
   if (ts.isVariableDeclaration(node)) {
     const flags = node.parent.flags;
     if ((flags & ts.NodeFlags.Const) !== 0) return 'const';

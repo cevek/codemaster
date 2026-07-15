@@ -19,6 +19,7 @@ import { scanJsxCallSites } from './jsx-call-sites.ts';
 import { scanJsxChildSites } from './jsx-child-sites.ts';
 import { scanFieldRenderSites } from './field-render-sites.ts';
 import { scanMemberUsages } from './member-usages.ts';
+import { membersNamedInFile } from './member-in-file.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
@@ -194,6 +195,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       const decls = resolveAllByName(warm(), name);
       return typeof decls === 'string' ? [] : decls.map((d) => d.view);
     },
+
+    membersNamedInFile: (name, file) => membersNamedInFile(warm(), name, file),
 
     expandType(target, options) {
       const resolved = resolve(target);

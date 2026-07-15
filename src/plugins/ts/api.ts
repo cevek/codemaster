@@ -33,6 +33,7 @@ import type { JsxCallSitesView } from './jsx-call-sites.ts';
 import type { JsxChildSitesView } from './jsx-child-sites.ts';
 import type { FieldRenderSitesView } from './field-render-sites.ts';
 import type { MemberUsagesView, MemberUsagesOptions } from './member-usages.ts';
+import type { MemberInFile } from './member-in-file.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
 import type { WideningSinksView } from './type-widening.ts';
 import type { OverlaySymbolType } from './overlay-type.ts';
@@ -87,6 +88,13 @@ export interface TsPluginApi extends Plugin {
    *  (a real count), never a substring match on the failure message. Empty when the name resolves
    *  nowhere. */
   sameNamedDeclarations(name: string): SymbolView[];
+  /** Non-top-level declarations named `name` in `file` — class/interface/type-literal members
+   *  (method/property/get/set), enum members, and export/import specifiers (re-exports) — the
+   *  fallback `find_usages {name,file}` resolves to when NO top-level declaration matches, so a
+   *  member / re-exported name is not a dead-end (t-755152). Each carries a chainable position + its
+   *  containing type/module. A `string` when the file is not in the project; empty array when nothing
+   *  below top level in the file bears that name. */
+  membersNamedInFile(name: string, file: string): MemberInFile[] | string;
   expandType(
     target: TsTargetInput,
     options?: ExpandOptions,

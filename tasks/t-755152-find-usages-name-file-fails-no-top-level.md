@@ -1,7 +1,7 @@
 ---
 id: t-755152
 title: find_usages {name, file} fails "no top-level declaration named X" for a class METHOD / type-alias MEMBER / re-exported name — resolve the member within the given file (or redirect to member_usages), don't dead-end
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

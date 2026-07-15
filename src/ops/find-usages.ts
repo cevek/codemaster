@@ -20,6 +20,7 @@ import { defineOp } from './registry.ts';
 import { withUndiscoveredHint } from './no-symbol-hint.ts';
 import { findUsagesTable } from './find-usages-table.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
+import { memberFallback } from './find-usages-member-fallback.ts';
 import {
   targetOfElement,
   rowsShown,
@@ -104,7 +105,8 @@ export const findUsagesOp = defineOp({
     "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
     'multi-program (see concepts: cross-program-read): each usage carries the `program` that surfaced it (sql column `program`). HONEST ASYMMETRY — a sibling label (tsconfig.test.json) means present ONLY there; the primary label means present in primary, POSSIBLY elsewhere too. Emitted only when >1 program is loaded.',
     'density (text/json, NOT sql): a column CONSTANT across the listed rows is hoisted to a header and dropped per-row — a single `role` filter → `role=<r>` (read effective role as `row.role ?? role`); the dominant program → `allProgram=<p>` (read `row.program ?? allProgram`). `listable` (collapsed-import count tie) appears ONLY when the rows are truncated. sql-mode keeps every value per row.',
-    "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated).",
+    "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated). The ambiguous hard-FAIL surfaces this flag.",
+    '{name, file} member fallback: when no TOP-LEVEL declaration of `name` lives in `file`, a class/type MEMBER, enum member, or re-exported binding of that name is resolved instead (the resolution is disclosed as a leading note); several such bindings → a pick-list + a member_usages redirect. So a method / type-member / re-export is not a dead-end.',
   ],
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
@@ -236,7 +238,20 @@ export const findUsagesOp = defineOp({
         return ok(data, truncated);
       }
 
-      const outcome = ts.findUsages(args, options);
+      let outcome = ts.findUsages(args, options);
+      // Member / re-export fallback (t-755152): a bare `name`+`file` that resolves NO top-level
+      // declaration is not a dead-end — the name may be a class/type MEMBER or a re-exported binding
+      // IN that file. On a unique match, re-issue by position and disclose the resolution (leads the
+      // notes below); several → an honest pick-list; none → the original top-level failure stands.
+      let memberNote: string | undefined;
+      if (typeof outcome === 'string') {
+        const fb = memberFallback(ts, args, options);
+        if (fb?.kind === 'ambiguous') return fail(fb.failure);
+        if (fb?.kind === 'resolved') {
+          outcome = fb.outcome;
+          memberNote = fb.note;
+        }
+      }
       if (typeof outcome === 'string') {
         let message = withUndiscoveredHint(outcome, ts.undiscoveredProgramLabels());
         // Discoverability (t-262491): a bare `name` that hard-FAILs on ambiguity has an opt-in
@@ -281,6 +296,9 @@ export const findUsagesOp = defineOp({
       if (floor.note !== undefined) notes.unshift(floor.note);
       // `programs:` lever notes lead (before the floor note) — they explain WHY the floor did/not lift.
       for (const n of [...lever.notes].reverse()) notes.unshift(n);
+      // The member-fallback resolution note leads all others (t-755152): the agent addressed a name it
+      // expected to be top-level and got a member — that reframe comes first, before any floor/lever.
+      if (memberNote !== undefined) notes.unshift(memberNote);
       const data: Record<string, JsonValue> = {
         ...lever.fields,
         ...floor.fields,
