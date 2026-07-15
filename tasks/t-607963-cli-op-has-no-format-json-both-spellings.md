@@ -1,7 +1,7 @@
 ---
 id: t-607963
 title: CLI `op` has no --format json (both spellings silently ignored) + an unrecognized CLI flag is silently dropped — blocks scripting the dogfood/self-dev loop and violates §3 (silent drop)
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

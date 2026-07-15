@@ -23,7 +23,7 @@ import { createI18nPlugin } from './plugins/i18n/plugin.ts';
 import { createSchemaPlugin } from './plugins/schema/plugin.ts';
 import { frameworkPlugins } from './daemon/framework-plugins.ts';
 import { builtinOps } from './ops/builtins.ts';
-import { renderResult } from './format/render/render-result.ts';
+import { renderResult, renderResultJson } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
 import { defaultUsageLogger } from './support/usage-log/default.ts';
@@ -108,6 +108,20 @@ function argValue(args: string[], flag: string): string | undefined {
   return value;
 }
 
+/** A value-bearing flag accepting BOTH spellings — `--flag value` and `--flag=value` — and
+ *  spliced out either way (the `=` form is one token). The equals form is checked first so a
+ *  `--format=json` never falls through to the space-form lookup and gets left behind. */
+function flagValue(args: string[], flag: string): string | undefined {
+  const eqPrefix = `${flag}=`;
+  const eqIdx = args.findIndex((a) => a.startsWith(eqPrefix));
+  if (eqIdx !== -1) {
+    const value = args[eqIdx]?.slice(eqPrefix.length) ?? '';
+    args.splice(eqIdx, 1);
+    return value;
+  }
+  return argValue(args, flag);
+}
+
 /** A valueless boolean flag (`--apply`, `--summaryOnly`): present → true, and spliced out so it
  *  never collides with the positional JSON-args lookup. */
 function hasFlag(args: string[], flag: string): boolean {
@@ -115,6 +129,14 @@ function hasFlag(args: string[], flag: string): boolean {
   if (idx === -1) return false;
   args.splice(idx, 1);
   return true;
+}
+
+/** After every KNOWN flag has been spliced out, any residual `--`-prefixed token is an
+ *  unrecognized flag. Returns them so the caller can reject LOUDLY (§3: a silent drop is the exact
+ *  intake anti-pattern the tool forbids) — naming the offending flags + the command usage. Empty
+ *  array ⇒ nothing stray, caller proceeds. */
+function unknownFlags(args: readonly string[]): string[] {
+  return args.filter((a) => a.startsWith('--'));
 }
 
 async function main(): Promise<number> {
@@ -223,6 +245,15 @@ async function main(): Promise<number> {
       return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {
+      // `--root` is the only flag `status` accepts (extracted globally above). Anything else
+      // `--`-prefixed is unrecognized — reject, never drop (§3 silent-swallow).
+      const stray = unknownFlags(args);
+      if (stray.length > 0) {
+        process.stderr.write(
+          `unrecognized flag(s): ${stray.join(', ')}\nusage: codemaster status [--root <dir>]\n`,
+        );
+        return 2;
+      }
       const orchestrator = buildOrchestrator();
       const view = await orchestrator.status(process.cwd(), root);
       out(renderStatus(view));
@@ -230,19 +261,35 @@ async function main(): Promise<number> {
       return 0;
     }
     case 'op': {
+      const OP_USAGE =
+        'usage: codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n';
       const name = args.shift();
       if (name === undefined) {
-        process.stderr.write(
-          'usage: codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n',
-        );
+        process.stderr.write(OP_USAGE);
         return 2;
       }
       const verbosity = argValue(args, '--verbosity');
       const v = verbosity === 'normal' || verbosity === 'full' ? verbosity : 'terse';
+      // `--format json` mirrors the MCP `format` flag: json routes the envelope through the SAME
+      // `renderResultJson` the MCP path uses (byte parity, no parallel serializer). An unknown
+      // value is rejected (not silently coerced to text) — the CLI mirror of the MCP zod enum.
+      const format = flagValue(args, '--format');
+      if (format !== undefined && format !== 'text' && format !== 'json') {
+        process.stderr.write(`--format must be 'text' or 'json' (got '${format}')\n${OP_USAGE}`);
+        return 2;
+      }
       // Mutating-op flags (§7): without these a CLI `op` could only ever dry-run, so a mutating op
       // can't be dogfooded from the CLI. Parsed (and spliced) BEFORE the positional JSON-args find.
       const apply = hasFlag(args, '--apply');
       const summaryOnly = hasFlag(args, '--summaryOnly');
+      // Every KNOWN flag is now spliced out; any residual `--`-token is unrecognized → reject,
+      // never drop (§3). Checked before the op runs so a typo'd flag never yields a misleading
+      // "success" over unintended defaults.
+      const stray = unknownFlags(args);
+      if (stray.length > 0) {
+        process.stderr.write(`unrecognized flag(s): ${stray.join(', ')}\n${OP_USAGE}`);
+        return 2;
+      }
       let opArgs: unknown = {};
       const rawArgs = args.find((a) => !a.startsWith('--'));
       if (rawArgs !== undefined) {
@@ -267,8 +314,12 @@ async function main(): Promise<number> {
         return 1;
       }
       for (const r of outcome.results) {
+        // A DISPATCH error renders as plain text in BOTH modes — parity with the MCP `renderOne`
+        // (no json payload to corrupt here). json otherwise emits the bare serialized envelope;
+        // the CLI `op` path prepends no banner, so json stdout is a single clean JSON line (§11:
+        // a prefix would corrupt a bare-JSON payload — there is none to add here).
         if ('error' in r) out(`DISPATCH ${r.error.kind}: ${r.error.message}`);
-        else out(renderResult(r.result, v));
+        else out(format === 'json' ? renderResultJson(r.result) : renderResult(r.result, v));
       }
       await orchestrator.dispose();
       return 0;
@@ -276,7 +327,7 @@ async function main(): Promise<number> {
     case undefined:
     default:
       process.stderr.write(
-        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio (the daemon bridge)\n  codemaster daemon <status|start|stop|restart>   manage the singleton daemon\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
+        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio (the daemon bridge)\n  codemaster daemon <status|start|stop|restart>   manage the singleton daemon\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
       );
       return command === undefined || command === 'help' ? 0 : 2;
   }
