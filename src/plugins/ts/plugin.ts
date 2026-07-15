@@ -27,6 +27,7 @@ import type { UnresolvedTarget } from './query-types.ts';
 import { searchSymbols } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
 import { listCatalogue } from './syntactic-catalogue.ts';
+import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
 import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
@@ -151,7 +152,8 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
       return labels.length > 1 ? `programs: ${labels.join(', ')}` : undefined;
     },
 
-    searchSymbol: (query, limit, filter) => searchSymbols(warm(), query, limit, filter),
+    searchSymbol: (query, limit, filter, includeDecl) =>
+      searchSymbols(warm(), query, limit, filter, includeDecl),
 
     // The syntactic path takes `root` directly and NEVER calls warm() — no LS, no program build
     // (that is the whole point: survive/avoid the navto OOM). So it leaves the plugin cold. The
@@ -165,6 +167,10 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     // cannot see a tsconfig edit).
     listSymbols: (filter) => listCatalogue(root, syntacticCache, filter),
     configMembership: () => computeConfigMembership(root),
+
+    // 0-match file/module hint (t-517121): host-free git-listing lookup — sees files under
+    // undiscovered programs, exactly the case the hint exists for. Never warms the LS.
+    filesNamed: (name) => filesNamedLike(root, name),
 
     findDefinition(target) {
       const resolved = resolve(target);

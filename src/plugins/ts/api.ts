@@ -58,7 +58,15 @@ interface OverlayCheck {
 }
 
 export interface TsPluginApi extends Plugin {
-  searchSymbol(query: string, limit: number, filter?: SearchFilter): SearchView;
+  /** `includeDecl` (opt-in, `verbosity:'full'`): attach a small HEADER-only decl preview span per
+   *  match (the signature line, `elided` when the body continues) — for a direct lookup without a
+   *  chained `source`/`find_definition`. OFF keeps terse/normal answers byte-identical (§12). */
+  searchSymbol(
+    query: string,
+    limit: number,
+    filter?: SearchFilter,
+    includeDecl?: boolean,
+  ): SearchView;
   /** `search_symbol { syntactic: true }` — a raw AST scan (no program build; NEVER warms the LS, so
    *  it survives / avoids the multi-program navto OOM on huge monorepos). COMPLETE for declarations
    *  in the §10 git source surface UNDER the workspace root (≥ navto's recall there), every site
@@ -76,6 +84,11 @@ export interface TsPluginApi extends Plugin {
    *  free + bounded. Never warms the LS, never throws — an over-bound/failed pass returns `degraded`
    *  and the op falls back to a single flat group. */
   configMembership(): ConfigMembership;
+  /** `search_symbol` 0-match file/module hint (t-517121): git-tracked SOURCE files whose basename
+   *  stem equals `name` (case-insensitive, capped). Uses the git listing — NOT the loaded programs —
+   *  so it sees a file under an UNDISCOVERED program (the case that motivates the hint). Host-free +
+   *  bounded (the shared `gitSourceFilesSync` primitive); best-effort — empty on a git failure. */
+  filesNamed(name: string): RepoRelPath[];
   findDefinition(
     target: TsTargetInput,
   ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;

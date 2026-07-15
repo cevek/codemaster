@@ -9,6 +9,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
+import { fileModuleHint } from './search-file-hint.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
 /** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
@@ -80,6 +81,9 @@ function syntacticResult(
   view: { matches: SymbolView[]; total: number; filteredOutByPath?: number },
   query: string,
   exportedOnly: boolean,
+  // Lazy: the file/module hint is computed ONLY on a genuine absence (not the path-filter self-defeat),
+  // so the extra git listing is never paid on a hit or a filter miss.
+  fileHint: () => string,
 ) {
   const { matches, total, filteredOutByPath } = view;
   const baseNote = exportedOnly ? SYNTACTIC_NOTE + EXPORTED_ONLY_CAVEAT : SYNTACTIC_NOTE;
@@ -90,7 +94,7 @@ function syntacticResult(
     const note =
       filteredOutByPath !== undefined && filteredOutByPath > 0
         ? `no matches under the path filter — ${filteredOutByPath} symbol(s) matched '${query}' but pathInclude/pathExclude excluded them all — NOT a symbol absence`
-        : `no symbols matching '${query}' in git-tracked source under the workspace root. ${baseNote}`;
+        : `no symbols matching '${query}'${fileHint()} in git-tracked source under the workspace root. ${baseNote}`;
     return ok({ note, matches: [] });
   }
   return ok(
@@ -147,12 +151,23 @@ export const searchSymbolOp = defineOp({
       // declarations in git-tracked source UNDER the root (outside-root includes disclosed, not
       // scanned); the default navto path below is byte-for-byte unchanged. A git / @internal-TS
       // failure comes back as an honest ToolFailure — passed through, never a false empty (§3.6).
+      // §12: the small header-only decl preview per match is opt-in at `verbosity:'full'` — a direct
+      // lookup then reads the signature without a chained `source`/`find_definition`. terse/normal
+      // stay byte-identical (no `decl` populated), and the extra AST walk is only paid on `full`.
+      const includeDecl = ctx.flags.verbosity === 'full';
       if (args.syntactic === true) {
         const res = ts.searchSymbolSyntactic(args.query, limit, filter);
         if (!res.ok) return fail(res.failure);
-        return syntacticResult(res.data, args.query, args.exportedOnly === true);
+        return syntacticResult(res.data, args.query, args.exportedOnly === true, () =>
+          fileModuleHint(args.query, ts.filesNamed(args.query)),
+        );
       }
-      const { matches, total, filteredOutByPath } = ts.searchSymbol(args.query, limit, filter);
+      const { matches, total, filteredOutByPath } = ts.searchSymbol(
+        args.query,
+        limit,
+        filter,
+        includeDecl,
+      );
       if (matches.length === 0) {
         // §3.4: a path filter that excluded every match is a self-defeating FILTER, not a symbol
         // absence — say so, so an agent never reads the empty answer as "no such symbol". A bare
@@ -162,7 +177,9 @@ export const searchSymbolOp = defineOp({
             ? `no matches under the path filter — ${filteredOutByPath} symbol(s) matched '${args.query}' but pathInclude/pathExclude excluded them all; check the path (a bare dir is auto-expanded to a prefix; a path with glob-special chars like ()@! may need escaping) — NOT a symbol absence`
             : // §3.4: a genuine no-match, but a name declared only under an unloaded nested tsconfig
               // would read the same — append the NAMED unloaded configs (empty on a clean single-repo).
+              // Orthogonally, the name may be a FILE not a symbol — append the file/module hint too.
               `no symbols matching '${args.query}'` +
+              fileModuleHint(args.query, ts.filesNamed(args.query)) +
               undiscoveredHint(ts.undiscoveredProgramLabels());
         return ok({ matches: [], note });
       }

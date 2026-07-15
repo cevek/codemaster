@@ -5,9 +5,11 @@
 // vs shown so a cap never reads as completeness (§3.4).
 
 import type ts from 'typescript';
+import type { RepoRelPath } from '../../core/brands.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
+import { declarationNodeOf } from './declaration.ts';
 import type { SymbolView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
@@ -38,6 +40,11 @@ export function searchSymbols(
   query: string,
   limit: number,
   filter?: SearchFilter,
+  // §12: at `verbosity:'full'` the op asks for a small header-only decl preview per match, so a
+  // direct lookup reads the signature without a chained `source`/`find_definition`. OFF by default —
+  // list-shaped answers (terse/normal) stay byte-identical, and the extra AST walk is only paid when
+  // the agent opted into `full`.
+  includeDecl = false,
 ): SearchView {
   // Across ALL loaded programs (spec Task G): a symbol DECLARED only in a sibling-program file (a
   // `test/**` helper under `tsconfig.test.json`) is invisible to the primary navto — so a name-
@@ -79,7 +86,7 @@ export function searchSymbols(
       }
       total++;
       if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
-      const view = navigateToView(host, program, item);
+      const view = navigateToView(host, program, item, includeDecl);
       if (view !== undefined) views.push(view);
     }
   }
@@ -90,6 +97,7 @@ function navigateToView(
   host: TsProjectHost,
   program: ts.Program,
   item: ts.NavigateToItem,
+  includeDecl: boolean,
 ): SymbolView | undefined {
   const sourceFile = program.getSourceFile(item.fileName);
   if (sourceFile === undefined) return undefined;
@@ -105,11 +113,36 @@ function navigateToView(
   const nameIdx = declText.indexOf(item.name);
   const nameStart = nameIdx >= 0 ? item.textSpan.start + nameIdx : item.textSpan.start;
   const span = spanFromRange(sourceFile, rel, nameStart, nameStart + item.name.length);
+  const decl = includeDecl ? declHeaderSpan(sourceFile, rel, item.textSpan.start) : undefined;
   return {
     id: mintSymbolId(item.name, rel, span.line, span.col, host.rootTag),
     name: item.name,
     kind: item.kind,
     span,
+    ...(decl !== undefined ? { decl } : {}),
     ...(item.containerName !== '' ? { container: item.containerName } : {}),
   };
+}
+
+/** A small HEADER-only preview span for the enclosing declaration at `namePos` — the first
+ *  physical line (the signature), NOT the whole body (that is `source`/`find_definition`). When
+ *  the declaration continues past that line the span is marked `elided:true` so the truncation is
+ *  explicit (§3.4) — never an unmarked partial in `SymbolView.decl`, whose findDefinitions producer
+ *  carries the FULL body. `undefined` when no declaration node encloses the name (a name-span
+ *  fallback carries no useful preview). */
+function declHeaderSpan(
+  sourceFile: ts.SourceFile,
+  rel: RepoRelPath,
+  namePos: number,
+): SymbolView['decl'] {
+  const declNode = declarationNodeOf(sourceFile, namePos);
+  if (declNode === undefined) return undefined;
+  const start = declNode.getStart(sourceFile);
+  const declEnd = declNode.getEnd();
+  const nl = sourceFile.text.indexOf('\n', start);
+  let end = nl === -1 ? declEnd : Math.min(declEnd, nl);
+  if (end > start && sourceFile.text.charCodeAt(end - 1) === 13) end -= 1; // trim a CRLF '\r'
+  const span = spanFromRange(sourceFile, rel, start, end);
+  const more = declEnd > end; // the declaration body continues below the first line
+  return more || span.elided === true ? { ...span, elided: true } : span;
 }

@@ -1,7 +1,7 @@
 ---
 id: t-517121
 title: 'search_symbol: a small decl preview at verbosity:full, and a "no symbol; did you mean a file/module?" hint on a 0-match name'
-status: backlog
+status: done
 priority: medium
 type: dx
 complexity: S

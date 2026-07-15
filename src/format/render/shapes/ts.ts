@@ -18,11 +18,13 @@ import { spanLocOnly, spanTextOf } from './span-text.ts';
  *
  *  COLLAPSE disposition (FULL_DISPOSITION): the decl-BODY proof path is the renderSource
  *  interception (find_definition / source, render-result.ts) which fires BEFORE condense, so
- *  this renderer only ever runs on a no-body symbol-REF (find_usages.definition,
- *  search_symbol.matches, mergedDeclarations) — a compact `id · kind` line at every verbosity.
- *  At full, condense leaves a present `decl` as a verbatim span OBJECT, so the header is built
- *  via `spanTextOf` (never `String(obj)` → `[object Object]`) — a future decl-bearing symbol-row
- *  that reached condense would still surface `loc · firstline`, never a silently-dropped body. */
+ *  this renderer runs on a symbol-REF (find_usages.definition, search_symbol.matches,
+ *  mergedDeclarations). find_usages.definition carries no `decl` → a compact `id · kind` line;
+ *  `search_symbol` at `verbosity:'full'` (t-517121) attaches a HEADER-only decl preview span, so a
+ *  match then renders its signature on a continuation line (` …` when the declaration body continues
+ *  below — an explicit §3.4 marker, never a silent cut). At full, condense leaves the present `decl`
+ *  as a verbatim span OBJECT, so the header is built via `spanTextOf` (never `String(obj)` →
+ *  `[object Object]`); terse/normal populate no `decl` on this path, so those stay byte-stable. */
 export const symbol: ShapeRenderer = (v) => {
   const container = v['container'] !== undefined ? ` in ${String(v['container'])}` : '';
   // provenance is emitted ONLY when set (the search_symbol syntactic path) — a navto/structural
@@ -34,11 +36,15 @@ export const symbol: ShapeRenderer = (v) => {
 
 /** The decl continuation line — `\n  <first line of the declaration>` — or '' when absent.
  *  `decl` is an already-condensed STRING at terse/normal (`loc` / `loc · text`) and a verbatim
- *  span OBJECT at full; both yield the body's first line without the redundant loc. */
+ *  span OBJECT at full; both yield the body's first line without the redundant loc. A ` …` tail
+ *  marks an `elided` preview span (the declaration continues past its first line — §3.4). */
 function declHeader(decl: JsonValue | undefined): string {
   if (decl === undefined) return '';
-  const text = isObject(decl) ? spanTextOf(decl) : declTextOf(String(decl));
-  return text.length > 0 ? `\n  ${text}` : '';
+  const obj = isObject(decl);
+  const text = obj ? spanTextOf(decl) : declTextOf(String(decl));
+  if (text.length === 0) return '';
+  const more = obj && decl['elided'] === true && !text.endsWith('…') ? ' …' : '';
+  return `\n  ${text}${more}`;
 }
 
 /** First line of a condensed-string decl (`loc · <first line>`) — the part after the separator;

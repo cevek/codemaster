@@ -21,10 +21,13 @@ export type SymbolView = {
   kind: string;
   /** The name-token span — the proof of WHERE the symbol is (§3.1). */
   span: Span;
-  /** The FULL enclosing-declaration span (§3.1): `export const X = …;`, the whole
-   *  `interface`/`class`/`function` body. Carries verbatim text, so `find_definition` at
-   *  full verbosity returns a signature+body, not an echo of the identifier. Populated by
-   *  `findDefinitions`; absent where a declaration node couldn't be located. */
+  /** The enclosing-declaration span (§3.1). Two producers, two granularities — both honest:
+   *  `findDefinitions` carries the FULL declaration (`export const X = …;`, the whole
+   *  `interface`/`class`/`function` body), so `find_definition` at full verbosity returns a
+   *  signature+body, not an echo of the identifier; `searchSymbol { includeDecl }` (verbosity:'full',
+   *  t-517121) carries a HEADER-only preview (the signature line), marked `elided:true` when the body
+   *  continues past it (§3.4 — never an unmarked partial). Absent where a declaration node couldn't be
+   *  located, and (search) at terse/normal — those answers stay byte-identical. */
   decl?: Span;
   container?: string;
   /** The symbol's type has a call/construct signature (a function, method, class, OR an
