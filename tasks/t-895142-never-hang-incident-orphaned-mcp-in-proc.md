@@ -34,4 +34,4 @@ Directly violates the north-star §1 invariant ("never hang — the worst failur
 
 **Two-processes-at-once is EXPECTED** for in-process (no singleton; bind-or-connect convergence, §19) — not a separate bug (confirm the client isn't double-spawning for another reason, but don't chase it as the defect).
 
-Subtasks: repro+root-cause (B), daemon kill-on-deadline, in-process worker-watchdog + diagnostic dump, orphan-exit + SIGTERM (A/C).
+Repro + root-cause (B) DONE (above, sample-profiled). Fix split into subtasks: **t-368812** (urgent — walk.ts don't-follow-symlink + depth/entry cap, AND cache the per-op freshness walk; the §1 root fix) and **t-095661** (high, blocked on t-368812 — defense-in-depth: worker_threads breadcrumb watchdog + §9 daemon kill-on-deadline + getppid poll). A/C (orphan-exit/SIGTERM) are near-moot once t-368812 lands (the handler at mcp/server.ts:155 works once the loop isn't wedged); the getppid backstop folds into t-095661.
