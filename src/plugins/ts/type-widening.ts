@@ -16,13 +16,13 @@
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
+import { elideType } from '../../common/truncate/elide-type.ts';
 import { spanFromRange } from './spans.ts';
 import { nodeAt } from './ast-node.ts';
 import { classifyWidening, type WideningKind } from './type-widening-verdict.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
 const REF_SCAN_CAP = 50; // forward references examined per node (never-hang §1; cap reported honestly)
-const TYPE_CAP = 200; // per-type-string cap; the checker's silent `…` would read as completeness (§3.4)
 
 export type WideningRelation = 'assigned-to' | 'passed-to' | 'returned-as' | 'reassigned-to';
 
@@ -267,9 +267,12 @@ function spanOf(host: TsProjectHost, node: ts.Node): Span {
   return spanFromRange(sf, host.relOf(sf.fileName), node.getStart(sf), node.getEnd());
 }
 
-/** `typeToString` with NoTruncation then OUR explicit cap (a silent checker `…` reads as
- *  completeness, §3.4) — the type-expand `typeStr` idiom, local to keep this primitive self-contained. */
+/** `typeToString` with NoTruncation then the `common/truncate` chokepoint (`type-widening` `CapId`,
+ *  `length-only` marker — `trace_type_widening` does not thread `verbosity:full`) — a silent checker
+ *  `…` reads as completeness (§3.4). */
 function typeStr(checker: ts.TypeChecker, type: ts.Type): string {
-  const s = checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > TYPE_CAP ? `${s.slice(0, TYPE_CAP)}… (type elided)` : s;
+  return elideType(
+    checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
+    'type-widening',
+  );
 }

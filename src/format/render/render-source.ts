@@ -6,6 +6,7 @@
 // silent cut (§3.4 / §12 "size to the answer").
 
 import type { JsonValue } from '../../core/json.ts';
+import { elideString } from '../../common/truncate/elide-string.ts';
 
 /** Body-text budget across all targets. Below the renderer's `RENDER_CHAR_CAP` so the
  *  graceful "… source elided for K" collapse happens before the blunt output cap. */
@@ -95,5 +96,5 @@ function meta(s: SourceEntry): string[] {
 
 function firstLine(text: string): string {
   const first = text.split('\n')[0] ?? '';
-  return first.length > 80 ? `${first.slice(0, 80)}…` : first;
+  return elideString(first, 80).text;
 }

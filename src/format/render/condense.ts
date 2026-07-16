@@ -14,6 +14,7 @@
 
 import type { JsonValue } from '../../core/json.ts';
 import type { Verbosity } from '../../core/result.ts';
+import { elideString } from '../../common/truncate/elide-string.ts';
 import { SHAPE_KEY, type ShapeTag } from '../../common/shape-tag/tag.ts';
 import { FULL_DISPOSITION, SHAPE_RENDERERS } from './shapes/index.ts';
 
@@ -65,8 +66,7 @@ function renderSpanLine(span: Record<string, JsonValue>, verbosity: Verbosity): 
   const loc = `${String(span['file'])}:${String(span['line'])}:${String(span['col'])}`;
   if (verbosity === 'terse') return loc;
   const firstLine = String(span['text']).split('\n')[0] ?? '';
-  const text =
-    firstLine.length > NORMAL_TEXT_CAP ? `${firstLine.slice(0, NORMAL_TEXT_CAP)}…` : firstLine;
+  const text = elideString(firstLine, NORMAL_TEXT_CAP).text;
   return text.length > 0 ? `${loc} · ${text}` : loc;
 }
 

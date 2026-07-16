@@ -19,6 +19,7 @@
 
 import ts from 'typescript';
 import type { Span } from '../../core/span.ts';
+import { elideString } from '../../common/truncate/elide-string.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { nodeAt } from './ast-node.ts';
 import { spanFromRange } from './spans.ts';
@@ -185,5 +186,7 @@ function readAttribute(sourceFile: ts.SourceFile, attr: ts.JsxAttribute): JsxChi
 }
 
 function cap(s: string): string {
-  return s.length > VALUE_TEXT_CAP ? `${s.slice(0, VALUE_TEXT_CAP)}…` : s;
+  // Base char-elide (bare `…`) via the chokepoint (`common/truncate`) — a JSX attribute-value text
+  // preview, not a type render, so no recovery marker; output byte-identical, guard-conformant.
+  return elideString(s, VALUE_TEXT_CAP).text;
 }

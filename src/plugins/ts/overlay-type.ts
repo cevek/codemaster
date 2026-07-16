@@ -21,6 +21,7 @@
 
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
+import { elideType } from '../../common/truncate/elide-type.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { typeAtNode } from './type-at-node.ts';
 
@@ -37,8 +38,6 @@ export interface OverlaySymbolType {
   baseline: SymbolTypeState;
   overlay: SymbolTypeState;
 }
-
-const TYPE_CAP = 200; // mirror type-widening.ts: a silent checker `…` would read as completeness (§3.4)
 
 /** The resolved type of the top-level symbol `name` in `declFile`, BEFORE and under `overlay` — read
  *  IDENTICALLY on both sides (same node, same checker idiom) so a diff is the edit's effect, not a
@@ -163,9 +162,12 @@ function flagCollapse(type: ts.Type): TypeCollapse | undefined {
   return undefined;
 }
 
-/** `typeToString` with NoTruncation then OUR explicit cap (a silent checker `…` reads as
- *  completeness, §3.4) — the `type-widening` idiom, local to keep this primitive self-contained. */
+/** `typeToString` with NoTruncation then the `common/truncate` chokepoint (`overlay-type` `CapId`,
+ *  `length-only` marker — this op does not thread `verbosity:full`) — a silent checker `…` reads as
+ *  completeness (§3.4). */
 function typeStr(checker: ts.TypeChecker, type: ts.Type): string {
-  const s = checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > TYPE_CAP ? `${s.slice(0, TYPE_CAP)}… (type elided)` : s;
+  return elideType(
+    checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
+    'overlay-type',
+  );
 }

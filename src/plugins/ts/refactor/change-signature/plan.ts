@@ -10,6 +10,7 @@
 // catches anything type-incompatible. A clean refusal beats a silent corruption (truth > speed).
 
 import ts from 'typescript';
+import { elideString } from '../../../../common/truncate/elide-string.ts';
 import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.ts';
@@ -334,7 +335,7 @@ export function planChangeSignature(
       if (dropped !== undefined && mayHaveSideEffect(dropped)) {
         const { line } = refSf.getLineAndCharacterOfPosition(dropped.getStart(refSf));
         const text = dropped.getText(refSf);
-        const shown = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+        const shown = elideString(text, 40).text;
         sideEffectNotes.push(
           `${at}:${line + 1}: removed argument \`${shown}\` may have a side effect — dropped`,
         );

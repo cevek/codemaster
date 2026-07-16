@@ -1,7 +1,7 @@
 ---
 id: t-487095
 title: Consolidate the 4 `elide(s, cap)` copies + add §3.4 recovery hints to the 3 twins
-status: backlog
+status: done
 priority: medium
 parent: t-188210
 tags:

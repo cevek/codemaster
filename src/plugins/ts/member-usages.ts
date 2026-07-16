@@ -16,6 +16,7 @@
 
 import ts from 'typescript';
 import type { Span } from '../../core/span.ts';
+import { elideString } from '../../common/truncate/elide-string.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { nodeAt } from './ast-node.ts';
@@ -218,7 +219,11 @@ function typeNameOf(checker: ts.TypeChecker, type: ts.Type): string {
   const name = type.getSymbol()?.getName() ?? type.aliasSymbol?.getName();
   if (name !== undefined && name !== '__type') return name;
   const s = checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > TYPE_NAME_CAP ? `${s.slice(0, TYPE_NAME_CAP)}…` : s;
+  // Base char-elide only (bare `…`, no recovery marker): this is a short type-NAME hint, not a full
+  // type render — a `verbosity:full` recovery would be a lie (there is no full-type mode here). It is
+  // DELIBERATELY excluded from `elideType` (t-487095); it routes the `slice+…` mechanism through the
+  // chokepoint (`common/truncate`) to satisfy the deny-by-default guard, output byte-identical.
+  return elideString(s, TYPE_NAME_CAP).text;
 }
 
 /** A short hint listing the type's apparent members when the requested one is absent (a typo aid). */

@@ -6,6 +6,7 @@
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import type { HandleRebind } from '../../core/ids.ts';
+import type { Verbosity } from '../../core/result.ts';
 import type { UsageRole } from './usage-roles.ts';
 
 /** A target that could not be resolved but whose stale handle DID rebind — carries the
@@ -214,8 +215,9 @@ export type TypeView = {
   membersTruncated?: { shown: number; total: number };
 };
 
-/** Depth + member bounds for structural type expansion (§3.3). `typeCap` is the per-string length
- *  cap applied to every rendered signature / member-type before an explicit `… (elided)` marker
- *  (never a silent checker `...`, §3.4); at `verbosity:'full'` the op lifts it to a large finite
- *  bound (never Infinity — §1 / §12), so `full` is effectively complete for real types. */
-export type ExpandOptions = { depth: number; memberLimit: number; typeCap: number };
+/** Depth + member bounds for structural type expansion (§3.3). `verbosity` selects the per-string
+ *  length cap applied to every rendered signature / member-type via the `expand-type-*` `CapId`s
+ *  (`common/truncate`): the default cap, lifted at `verbosity:'full'` to a large finite bound
+ *  (never Infinity — §1 / §12), before an explicit `… (elided)` marker (never a silent checker
+ *  `...`, §3.4) — so `full` is effectively complete for real types. */
+export type ExpandOptions = { depth: number; memberLimit: number; verbosity: Verbosity };

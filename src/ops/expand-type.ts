@@ -9,7 +9,6 @@ import { tag } from '../common/shape-tag/tag.ts';
 import { tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { MemberView } from '../plugins/ts/query-types.ts';
-import { TYPE_CAP_DEFAULT, TYPE_CAP_FULL } from '../plugins/ts/type-expand.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT } from './ts-target.ts';
 
@@ -61,14 +60,14 @@ export const expandTypeOp = defineOp({
       // at full — its overflow then rides `Result.truncated` (below), never a soft note.
       const full = ctx.flags.verbosity === 'full';
       const memberLimit = args.memberLimit ?? (full ? Number.POSITIVE_INFINITY : 40);
-      // Mirror the memberLimit uncap for the per-string length cap: `full` lifts it to a large
-      // FINITE bound (never Infinity — §1/§12: the per-item `(… elided)` marker must fire before
-      // the blunt RENDER_CHAR_CAP so a pathological type stays bounded and keeps its precise marker).
-      const typeCap = full ? TYPE_CAP_FULL : TYPE_CAP_DEFAULT;
+      // The per-string length cap is selected by verbosity inside the `expand-type-*` CapId
+      // descriptors (common/truncate): the default cap, lifted at `full` to a large FINITE bound
+      // (never Infinity — §1/§12: the per-item `(… elided)` marker must fire before the blunt
+      // RENDER_CHAR_CAP so a pathological type stays bounded and keeps its precise marker).
       const outcome = ts.expandType(args, {
         depth: args.depth ?? 1,
         memberLimit,
-        typeCap,
+        verbosity: ctx.flags.verbosity ?? 'normal',
       });
       if (typeof outcome === 'string') return fail({ tool: 'ts-ls', message: outcome });
       if ('unresolved' in outcome) {

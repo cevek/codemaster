@@ -11,11 +11,11 @@
 
 import ts from 'typescript';
 import type { Span } from '../../core/span.ts';
+import { elideType } from '../../common/truncate/elide-type.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { nodeAt } from './ast-node.ts';
 import { spanFromRange } from './spans.ts';
 
-const MEMBER_TYPE_CAP = 200;
 /** Bound the member set (§19) — a props type is small, but an HTML-attribute intersection can
  *  carry hundreds; cap and report rather than emit an unbounded list. */
 const MEMBER_CAP = 500;
@@ -160,9 +160,13 @@ export function memberNameNode(decl: ts.Declaration): ts.Node {
   return decl;
 }
 
-/** `typeToString` with NoTruncation + our explicit cap — a silent checker `...` reads as
- *  completeness (§3.4). Mirrors type-expand.ts's `typeStr`. */
+/** `typeToString` with NoTruncation, then the `common/truncate` chokepoint (`first-param-member-type`
+ *  `CapId`) — a silent checker `...` reads as completeness (§3.4). `length-only` marker: this op
+ *  (`find_unused_props`) does not thread `verbosity:full`, so the cut reports the full length WITHOUT
+ *  a bogus `verbosity:full` recovery. */
 function typeStr(checker: ts.TypeChecker, type: ts.Type): string {
-  const s = checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
-  return s.length > MEMBER_TYPE_CAP ? `${s.slice(0, MEMBER_TYPE_CAP)}… (type elided)` : s;
+  return elideType(
+    checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
+    'first-param-member-type',
+  );
 }
