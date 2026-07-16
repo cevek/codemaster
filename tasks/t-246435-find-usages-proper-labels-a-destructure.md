@@ -1,7 +1,7 @@
 ---
 id: t-246435
 title: find_usages (proper) labels a destructure binding as write — the role classifier maps LS isWriteAccess; a destructure is a READ
-status: backlog
+status: done
 priority: low
 type: bug
 complexity: S

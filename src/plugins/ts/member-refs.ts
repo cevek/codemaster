@@ -10,12 +10,13 @@
 // syntactic role check makes. The `node`/`sourceFile` handles are retained on each ref for a consumer's
 // further per-site classification; the clean view types stay in each consumer.
 
-import ts from 'typescript';
+import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross } from './cross-program.ts';
 import { classifyRole, findEncloser } from './usage-roles.ts';
+import { destructureRole } from './destructure-role.ts';
 import { nodeAt } from './ast-node.ts';
 import { spanFromRange } from './spans.ts';
 
@@ -108,45 +109,13 @@ export function scanMemberRefs(
 
 /** A property reference that reads the field OUT into a local via a destructuring pattern is a
  *  DESTRUCTURE — the field flows into a local whose downstream reads member-level references can no
- *  longer follow. Two syntactic forms: a BINDING-pattern destructure (`const {email}=u`,
- *  `const {email: e}=u` — the ref lands on the `email` property token in an ObjectBindingPattern), and
- *  an ASSIGNMENT destructure (`({email}=u)` — the token sits in a ShorthandPropertyAssignment/
- *  PropertyAssignment of an ObjectLiteralExpression that is the LHS of `=`, which the LS otherwise
- *  reports as a write of the OBJECT). Both must classify `destructure`, not `write`, or the
- *  downstream-invisible floor goes undisclosed. Else the LS write-access bit decides read vs write. */
+ *  longer follow. The syntactic forms live in the shared `destructureRole` classifier so this and
+ *  `classifyRole` can never disagree (§3). A member query is ALWAYS reading the member out, so BOTH
+ *  its `member-read` and `local-write` verdicts are a `destructure` here (the shorthand `({email}=u)`
+ *  token reads `obj.email` out for a member query); only `none` falls through to the LS write bit. */
 export function memberRefKind(node: ts.Node | undefined, isWrite: boolean): MemberRefKind {
-  const parent = node?.parent;
-  if (
-    parent !== undefined &&
-    ts.isBindingElement(parent) &&
-    ts.isObjectBindingPattern(parent.parent)
-  )
-    return 'destructure';
-  if (node !== undefined && isAssignmentDestructureTarget(node)) return 'destructure';
+  if (destructureRole(node) !== 'none') return 'destructure';
   return isWrite ? 'write' : 'read';
-}
-
-/** True when `node` (a property-name token) sits in an ASSIGNMENT destructure — a
- *  Shorthand/PropertyAssignment inside an ObjectLiteralExpression that is (through parens) the LEFT
- *  side of an `=`. This reads the member out into a local, not a write of the member. */
-function isAssignmentDestructureTarget(node: ts.Node): boolean {
-  const parent = node.parent;
-  if (
-    parent === undefined ||
-    !(ts.isShorthandPropertyAssignment(parent) || ts.isPropertyAssignment(parent))
-  )
-    return false;
-  const obj = parent.parent;
-  if (!ts.isObjectLiteralExpression(obj)) return false;
-  let up: ts.Node = obj;
-  while (up.parent !== undefined && ts.isParenthesizedExpression(up.parent)) up = up.parent;
-  const bin = up.parent;
-  return (
-    bin !== undefined &&
-    ts.isBinaryExpression(bin) &&
-    bin.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-    bin.left === up
-  );
 }
 
 /** Build the enclosing-declaration address (the name-token span a consumer chains onward). */

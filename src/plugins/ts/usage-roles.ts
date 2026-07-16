@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import { nodeAt } from './ast-node.ts';
 import { qualifyMember } from './encloser-id.ts';
+import { destructureRole } from './destructure-role.ts';
 
 /** Syntactic role of one reference site. `decl` = the definition itself. `reexport` =
  *  an `export { X }` / `export { X } from …` barrel specifier — structurally load-bearing
@@ -84,6 +85,14 @@ export function classifyRole(
     }
     if (ts.isStatement(up)) break; // role context never crosses a statement boundary
   }
+  // A destructure token that PURELY reads a source member out (`const {email}=u`, or the key of
+  // `({email: local}=u)`) is a `read`, though the LS marks it `isWriteAccess` — else the fallthrough
+  // presents a READ as a `write` (§3 role mislabel). Only `member-read` reclassifies: a `local-write`
+  // (the shorthand `({email}=u)` token, which is also the local write-target) keeps the LS write bit,
+  // so a genuine local write is never fabricated into a read. `member_usages` reads the same verdict
+  // through the shared classifier (a member query maps `local-write` → destructure). A reassignment
+  // `u.email = x` is `none` → still `write` below (t-381844 discriminant preserved).
+  if (destructureRole(node) === 'member-read') return 'read';
   return flags.isWrite ? 'write' : 'read';
 }
 
