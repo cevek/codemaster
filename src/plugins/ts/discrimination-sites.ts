@@ -216,7 +216,7 @@ function emptyNote(siteCount: number, name: string, truncated: boolean): string 
   if (truncated) {
     return `no discriminating switch/if-chain among the examined statements — but the cap was hit and MORE are unscanned; raise limit or narrow pathInclude before concluding nothing switches on ${name}`;
   }
-  return `no switch/if-chain in scope discriminates on ${name} (identity-gated on a value of type ${name}) — a switch on an unrelated union, a structural supertype, or a non-discriminant property is correctly excluded; widen pathInclude if you scoped it`;
+  return `no switch/if-chain in scope discriminates on a scrutinee whose type is EXACTLY ${name} (identity-gated) — a switch on an unrelated union, a structural supertype (\`{ kind: string }\`), or a non-discriminant property is correctly excluded, BUT a scrutinee typed as an INTERSECTION (\`${name} & X\`, incl. the distributed form an \`in\`-narrowing yields) or a mapped-type wrapper (\`Readonly<${name}>\`) is honest UNDER-COVERAGE — the identity gate deliberately cannot recover ${name} from those (structural matching there would flood every kind-union), so such a site is MISSED, not proven absent; widen pathInclude if you scoped it`;
 }
 
 /** A `switch` statement or an `if`-chain HEAD → its RawSite; `undefined` for any other node. */
