@@ -22,11 +22,19 @@ const I18N_CONFIG =
   "export default defineConfig({ i18n: { locales: ['locales/*.json'] } });\n";
 
 /** Run `op find_unused_i18n_keys` from `cwd`, optionally with `--root`, capturing stdout.
- *  The op exits 0 even on a DISPATCH error (it's a structured result, not a process failure),
- *  so execFileSync returns the rendered line either way — we read the marker from stdout. */
+ *  A DISPATCH error (e.g. `unavailable` when i18n is inactive) exits NON-zero (§3, t-337633 — the
+ *  CLI mirror of the MCP `isError`), so execFileSync throws; the rendered marker still lands on the
+ *  child's stdout, which we read from the thrown error. This arm tests `--root` SCOPING (which repo's
+ *  config governs), not the exit code — so reading stdout on either exit path keeps the subject. */
 function runI18nOp(cwd: string, root?: string): string {
   const args = [BIN, 'op', 'find_unused_i18n_keys', '{}', ...(root ? ['--root', root] : [])];
-  return execFileSync('node', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  try {
+    return execFileSync('node', args, { cwd, encoding: 'utf8', timeout: 60_000 });
+  } catch (e) {
+    const stdout = (e as { stdout?: string }).stdout;
+    if (typeof stdout === 'string') return stdout;
+    throw e;
+  }
 }
 
 /** `status` is a DISTINCT CLI call-site (`orchestrator.status(cwd, root)`) from `op`

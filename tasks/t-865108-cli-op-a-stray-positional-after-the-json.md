@@ -1,7 +1,7 @@
 ---
 id: t-865108
 title: 'CLI `op`: a stray positional after the JSON args is silently ignored (§3 silent-swallow, positional half)'
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood

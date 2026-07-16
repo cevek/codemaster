@@ -1,7 +1,7 @@
 ---
 id: t-337633
 title: "CLI/MCP `op` under format:'json': a DISPATCH error emits non-JSON text with exit 0 — a `| jq` trap on the success exit code"
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood

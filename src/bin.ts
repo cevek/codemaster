@@ -26,6 +26,7 @@ import { builtinOps } from './ops/builtins.ts';
 import { renderResult, renderResultJson } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
+import { dispatchErrorLine } from './mcp/render-dispatch-error.ts';
 import { defaultUsageLogger } from './support/usage-log/default.ts';
 import { serveDaemon } from './daemon/daemon-server.ts';
 import { connectOrSpawnDaemon } from './daemon/connect-or-spawn.ts';
@@ -290,8 +291,15 @@ async function main(): Promise<number> {
         process.stderr.write(`unrecognized flag(s): ${stray.join(', ')}\n${OP_USAGE}`);
         return 2;
       }
+      // Every known flag and any unrecognized `--` token is now handled, so `args` holds only
+      // positionals. The op takes at most ONE (the JSON args); a second bareword is stray input →
+      // reject LOUDLY (exit 2, named), never drop it (§3 silent-swallow, positional half — t-865108).
+      if (args.length > 1) {
+        process.stderr.write(`unexpected argument(s): ${args.slice(1).join(', ')}\n${OP_USAGE}`);
+        return 2;
+      }
       let opArgs: unknown = {};
-      const rawArgs = args.find((a) => !a.startsWith('--'));
+      const rawArgs = args[0];
       if (rawArgs !== undefined) {
         try {
           opArgs = JSON.parse(rawArgs);
@@ -313,16 +321,21 @@ async function main(): Promise<number> {
         await orchestrator.dispose();
         return 1;
       }
+      // A dispatch error (unknown_op / bad_args / op_threw / unavailable) is a request-level
+      // NON-result: under json it serializes as a valid envelope via the SHARED `dispatchErrorJson`
+      // (byte-parity with the MCP path, no parallel serializer), else the dense `DISPATCH` line. It
+      // also flips the exit code non-zero (§3, t-337633) — the CLI mirror of the MCP `isError:true`
+      // — so a `--format json | jq` consumer never reads a non-result on a success exit code. A
+      // structured ok:false ToolFailure stays a JSON success-exit answer (it's an honest result).
+      let dispatchFailed = false;
       for (const r of outcome.results) {
-        // A DISPATCH error renders as plain text in BOTH modes — parity with the MCP `renderOne`
-        // (no json payload to corrupt here). json otherwise emits the bare serialized envelope;
-        // the CLI `op` path prepends no banner, so json stdout is a single clean JSON line (§11:
-        // a prefix would corrupt a bare-JSON payload — there is none to add here).
-        if ('error' in r) out(`DISPATCH ${r.error.kind}: ${r.error.message}`);
-        else out(format === 'json' ? renderResultJson(r.result) : renderResult(r.result, v));
+        if ('error' in r) {
+          out(dispatchErrorLine(r.error, format));
+          dispatchFailed = true;
+        } else out(format === 'json' ? renderResultJson(r.result) : renderResult(r.result, v));
       }
       await orchestrator.dispose();
-      return 0;
+      return dispatchFailed ? 1 : 0;
     }
     case undefined:
     default:

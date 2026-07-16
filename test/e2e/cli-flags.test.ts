@@ -4,7 +4,10 @@
 //      the MCP path uses, so the WHOLE stdout is one clean JSON envelope (no prefix banner
 //      corrupting a bare-JSON payload, §11), and
 //  (3) REJECT an unrecognized flag loudly (exit 2, flag named) instead of silently dropping it
-//      (§3 silent-swallow) — on both `op` and `status`.
+//      (§3 silent-swallow) — on both `op` and `status`,
+//  (4) serialize a DISPATCH error under `--format json` as a valid JSON envelope on a NON-zero exit
+//      (t-337633 — no `| jq` trap on a success exit code), and
+//  (5) REJECT a stray positional after the JSON args (t-865108 — the §3 positional half).
 // The oracle is a real subprocess (`node src/bin.ts`) — the genuine CLI path — with JSON.parse of
 // the full stdout as the structural check and the process exit code as the reject check.
 
@@ -129,6 +132,47 @@ test('t-607963: an unrecognized flag on `status` is REJECTED, not dropped (§3)'
     assert.equal(r.status, 2, 'unrecognized flag exits 2');
     assert.match(r.stderr, /--bogus-flag/, 'stderr names the offending flag');
     assert.equal(r.stdout, '', 'the manifest was NOT rendered');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('t-337633: a DISPATCH error under `--format json` is valid JSON on a NON-zero exit', async () => {
+  const p = await fixture();
+  try {
+    const r = runCli(['op', 'no_such_op', '{}', '--format', 'json', '--root', p.root]);
+    // The whole stdout must parse — on the bug this was a plain `DISPATCH unknown_op: …` line that
+    // threw in JSON.parse, on a success exit code (§3: a `| jq` trap).
+    let env: unknown;
+    assert.doesNotThrow(() => {
+      env = JSON.parse(r.stdout);
+    }, 'the dispatch error stdout parses as one JSON envelope');
+    const e = env as { ok?: unknown; dispatch?: { kind?: unknown } };
+    assert.equal(e.ok, false, 'a dispatch error is an ok:false envelope');
+    assert.equal(
+      e.dispatch?.kind,
+      'unknown_op',
+      'the dispatch cause is machine-recoverable via .dispatch.kind',
+    );
+    assert.notEqual(
+      r.status,
+      0,
+      'a dispatch error exits non-zero (mirrors MCP isError) — no success-code trap',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('t-865108: a stray positional after the JSON args is REJECTED, not dropped (§3)', async () => {
+  const p = await fixture();
+  try {
+    const r = runCli(['op', 'search_symbol', '{"name":"Widget"}', 'EXTRA_JUNK', '--root', p.root]);
+    // Repro-negative: on the bug `args.find(!--)` picked the JSON positional and silently dropped
+    // EXTRA_JUNK, running the op to a success exit.
+    assert.equal(r.status, 2, 'a second positional exits 2');
+    assert.match(r.stderr, /EXTRA_JUNK/, 'stderr names the stray positional');
+    assert.equal(r.stdout, '', 'the op did NOT run');
   } finally {
     await p.dispose();
   }

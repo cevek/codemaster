@@ -33,6 +33,7 @@ import {
 } from './schema.ts';
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
+import { dispatchErrorJson, dispatchErrorLine } from './render-dispatch-error.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -315,14 +316,15 @@ export function opResultText(
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
   // A THUNK so the banner is computed once, after the success/error branch is known. §3.6 is
-  // ALWAYS-ON: an op-level `error` (e.g. `unknown_op` for a freshly-added op the stale daemon never
-  // loaded) is exactly where the "restart the daemon" remedy matters MOST, so the banner ships on
-  // the error branch too. The error branch is plain text in BOTH modes (no json payload to corrupt
-  // here); json-suppression of the banner is encoded by the caller's thunk for consistency with the
-  // success path, where json consumers instead read the structured `sourceStale` from `status`.
+  // ALWAYS-ON: an op-level `error` (e.g. a stale-daemon `unknown_op`) is exactly where "restart the
+  // daemon" matters MOST, so the banner ships on the TEXT error branch too. Json suppresses it (the
+  // caller's thunk returns '' under json — a bare JSON envelope, §12; json reads `sourceStale`).
   banner: () => string = () => '',
 ): CallToolResult {
   if ('error' in result) {
+    // Under json a dispatch rejection is a valid JSON envelope so a `| jq` consumer never meets
+    // non-JSON text on a success-shaped payload (§3, t-337633). Text keeps the dense line + banner.
+    if (format === 'json') return errorText(dispatchErrorJson(result.error));
     return errorText(`${banner()}${result.error.kind}: ${result.error.message}`);
   }
   return text(banner() + renderOne(result, format, verbosity));
@@ -333,7 +335,7 @@ function renderOne(
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
 ): string {
-  if ('error' in result) return `DISPATCH ${result.error.kind}: ${result.error.message}`;
+  if ('error' in result) return dispatchErrorLine(result.error, format);
   if (format === 'json') return renderResultJson(result.result);
   return renderResult(result.result, verbosity ?? 'terse');
 }
@@ -409,11 +411,7 @@ function classify(
   results: readonly OpResult[],
   ops: string[],
 ): HandledCall {
-  return { result, ok: results.every(opResultOk), ops };
-}
-
-function opResultOk(r: OpResult): boolean {
-  return !('error' in r) && r.result.ok;
+  return { result, ok: results.every((r) => !('error' in r) && r.result.ok), ops };
 }
 
 /** The text payload of a response, for the telemetry `response` field. */
