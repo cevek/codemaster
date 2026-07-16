@@ -6,7 +6,14 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { capList } from '../common/truncate/cap-list.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+
+/** A `Truncation` as an inline `JsonValue` field (the core type carries no index signature, so it
+ *  is not assignable to `JsonValue` directly — projected here for the `*Truncated` data fields). */
+function truncField(t: Truncation): JsonValue {
+  return { shown: t.shown, total: t.total, hint: t.hint };
+}
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
@@ -111,15 +118,26 @@ function subtreeResult(
   const blockers = new Set(external.map((r) => fileOf(r.at))).size;
   const safe = blockers === 0 && complete && unconfirmed.length === 0;
 
-  const shownExternal = external.slice(0, limit);
-  const truncated: Truncation | undefined =
-    external.length > shownExternal.length
-      ? {
-          shown: shownExternal.length,
-          total: external.length,
-          hint: "raise limit, or project with sql (SELECT … WHERE scope = 'external')",
-        }
-      : undefined;
+  // Every capped array co-produces its own §3.4 {shown,total,hint} (t-145509): `external` (the
+  // blocker list) rides the envelope `truncated`; `internal`/`unconfirmed` carry their own inline
+  // `*Truncated` field, placed with the verdict scalars BEFORE the row bulk so the §12 char-cap can
+  // only ever trim a re-fetchable row, never a truncation channel. `blockers`/`safe` read the FULL
+  // external set (below), so a capped list never weakens the verdict.
+  const ext = capList(
+    external,
+    limit,
+    "raise limit, or project with sql (SELECT … WHERE scope = 'external')",
+  );
+  const int = capList(
+    internal,
+    limit,
+    "raise limit, or project with sql (SELECT … WHERE scope = 'internal')",
+  );
+  const unc = capList(
+    unconfirmed,
+    limit,
+    "raise limit, or project with sql (SELECT … WHERE confidence = 'unconfirmed')",
+  );
 
   const baseNote = subtreeNote(
     safe,
@@ -140,16 +158,15 @@ function subtreeResult(
       complete,
       internalCount: internal.length,
       unconfirmedCount: unconfirmed.length,
+      ...(int.truncation !== undefined ? { internalTruncated: truncField(int.truncation) } : {}),
+      ...(unc.truncation !== undefined ? { unconfirmedTruncated: truncField(unc.truncation) } : {}),
       ...(undiscovered.length > 0 ? { undiscoveredPrograms: undiscovered } : {}),
       note: [baseNote, ...lever.notes].join(' '),
-      // `internal`/`unconfirmed` rows are capped too, but the `Truncation` envelope points only at
-      // `external` (the blocker list). The full counts (`internalCount`/`unconfirmedCount`) carry the
-      // truth, so a capped array is never silently complete; neither list feeds the safety verdict.
-      external: shownExternal.map((r) => tag('subtree-importer', r)),
-      internal: internal.slice(0, limit).map((r) => tag('subtree-importer', r)),
-      unconfirmed: unconfirmed.slice(0, limit).map((r) => tag('subtree-unconfirmed', r)),
+      external: ext.shown.map((r) => tag('subtree-importer', r)),
+      internal: int.shown.map((r) => tag('subtree-importer', r)),
+      unconfirmed: unc.shown.map((r) => tag('subtree-unconfirmed', r)),
     },
-    truncated !== undefined ? { truncated } : undefined,
+    ext.truncation !== undefined ? { truncated: ext.truncation } : undefined,
   );
 }
 
@@ -267,15 +284,13 @@ export const importersOfOp = defineOp({
       // threads MAX_TABLE_ROWS as `tableRowBound` so the op caps exactly where the engine would —
       // uncapped for sql; `total > shown.length` below still reports truncation, marking it partial.
       const limit = ctx.tableRowBound ?? args.limit ?? DEFAULT_LIMIT;
-      const shown = view.importers.slice(0, limit);
-      const truncated: Truncation | undefined =
-        view.total > shown.length
-          ? {
-              shown: shown.length,
-              total: view.total,
-              hint: 'raise limit, or scope by importing dir with sql (SELECT … WHERE file LIKE …)',
-            }
-          : undefined;
+      const capped = capList(
+        view.importers,
+        limit,
+        'raise limit, or scope by importing dir with sql (SELECT … WHERE file LIKE …)',
+      );
+      const shown = capped.shown;
+      const truncated = capped.truncation;
       // An UNRESOLVED specifier that still has importers matched them by LITERAL string (a `.scss`
       // path, a package spec the TS resolver doesn't map to a file) — say so, since the match is
       // weaker than a resolved-module identity match (§3 honesty). Resolved matches add no note.
