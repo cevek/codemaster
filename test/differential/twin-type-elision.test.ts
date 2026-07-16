@@ -33,7 +33,7 @@ const FIXTURE = {
   'src/Card.tsx':
     `export interface CardProps { used: string; heavy: ${HEAVY} }\n` +
     'export const Card = (p: CardProps) => <div>{p.used}</div>;\n',
-  'src/App.tsx': "import { Card } from './Card';\nexport const App = () => <Card used=\"x\"/>;\n",
+  'src/App.tsx': 'import { Card } from \'./Card\';\nexport const App = () => <Card used="x"/>;\n',
 };
 
 function unusedRows(r: OpResult): { name: string; type?: string }[] {
@@ -60,8 +60,16 @@ test('find_unused_props: a cut member type carries the §3.4 length marker `(typ
 
     const m = /… \(type elided: (\d+) chars\)$/.exec(t);
     assert.ok(m !== null, `the cut type must carry the length marker (was: ${t})`);
-    assert.equal(Number(m[1]), cold.type.length, 'marker reports the true full length (§3.4 total)');
-    assert.equal(t.slice(0, 200), cold.type.slice(0, 200), 'shown prefix is the cold type verbatim');
+    assert.equal(
+      Number(m[1]),
+      cold.type.length,
+      'marker reports the true full length (§3.4 total)',
+    );
+    assert.equal(
+      t.slice(0, 200),
+      cold.type.slice(0, 200),
+      'shown prefix is the cold type verbatim',
+    );
     // length-only: this op does not thread verbosity:full, so it must NOT be offered as recovery.
     assert.ok(!t.includes('verbosity:full'), 'no verbosity:full steer on a length-only twin');
   } finally {

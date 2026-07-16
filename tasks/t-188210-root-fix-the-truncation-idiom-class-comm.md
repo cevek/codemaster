@@ -1,7 +1,7 @@
 ---
 id: t-188210
 title: 'Root-fix the truncation-idiom class: common/truncate/ chokepoint + CapId registry + ESLint guard'
-status: backlog
+status: done
 priority: medium
 tags:
   - copy-paste

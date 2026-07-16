@@ -43,7 +43,11 @@ test('elideType: signature recovery names both verbosity:full and expand_type (e
 
 test('elideType: verbosity:full lifts the cap for a verbosity-aware CapId (10000 bound, under it = verbatim)', () => {
   const s = 'y'.repeat(300);
-  assert.equal(elideType(s, 'expand-type-type', 'full'), s, 'under the full cap → verbatim, no marker');
+  assert.equal(
+    elideType(s, 'expand-type-type', 'full'),
+    s,
+    'under the full cap → verbatim, no marker',
+  );
   const huge = 'y'.repeat(10_500);
   const cut = elideType(huge, 'expand-type-type', 'full');
   assert.ok(cut.endsWith('(type elided: 10500 chars — verbosity:full)'), 'full still bounded (§1)');
@@ -63,7 +67,11 @@ test('elideType: length-only twin reports length ALONE — no verbosity:full ste
 test('capFor: value at default, valueFull at full only when the descriptor is verbosity-aware', () => {
   assert.equal(capFor(CAP_DESCRIPTORS['expand-type-type'], 'normal'), 200);
   assert.equal(capFor(CAP_DESCRIPTORS['expand-type-type'], 'full'), 10_000);
-  assert.equal(capFor(CAP_DESCRIPTORS['type-widening'], 'full'), 200, 'no valueFull → value at full');
+  assert.equal(
+    capFor(CAP_DESCRIPTORS['type-widening'], 'full'),
+    200,
+    'no valueFull → value at full',
+  );
 });
 
 test('capList: under cap ships no truncation; over cap co-produces {shown,total,hint}', () => {

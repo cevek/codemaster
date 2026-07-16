@@ -83,6 +83,32 @@ export default tseslint.config(
   },
 
   {
+    // ── Truncation deny-by-default (§3.4, t-188210) ──────────────────────────
+    // The recurring silent-truncation class was the copy-pasted string-elide idiom
+    // `s.length > CAP ? `${s.slice(0, CAP)}…` : s` — a bare `…` with no length/recovery, re-spelled
+    // at ~15 sites so a fix to one never reached its siblings. Ban that exact shape everywhere but the
+    // `common/truncate/` chokepoint, which owns it: a new string truncation MUST route through
+    // `elideString` / `elideType` (which co-produce the §3.4 marker by construction). This is the
+    // "realistic mirror" of the `~shape` Record precedent; the GENUINE compile mirror is the exhaustive
+    // `Record<CapId, …>` registry. SCOPE (honest, §3.6): this catches the string-elide TERNARY idiom,
+    // NOT list-cap truncation — a display-list `.slice` deny-by-default rests on routing through
+    // `capList` + review, not this lint (a runtime `limit` cap has no fixed shape to match).
+    files: ['src/**/*.ts'],
+    ignores: ['src/common/truncate/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'ConditionalExpression[test.operator=">"][consequent.type="TemplateLiteral"]:has(CallExpression[callee.property.name="slice"]):has(MemberExpression[property.name="length"])',
+          message:
+            'Ad-hoc string truncation (`x.length > CAP ? `${x.slice(0,CAP)}…` : x`) — route through common/truncate: elideString for a bare `…`, or elideType (CapId) for a type/signature marker. A silent/bare `…` reads as completeness (§3.4).',
+        },
+      ],
+    },
+  },
+
+  {
     // node:test's top-level `test()` returns a promise that the runner itself awaits;
     // forcing `void test(...)` on every case is pure noise.
     files: ['test/**/*.ts'],

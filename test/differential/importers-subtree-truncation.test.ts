@@ -66,7 +66,11 @@ test('importers_of subtree: internal/unconfirmed each carry their own §3.4 {sho
     assert.equal(d['unconfirmedCount'], 2, 'oracle: 2 unconfirmed refs placed');
     assert.equal((d['unconfirmed'] as unknown[]).length, 1, 'unconfirmed capped to limit');
     assert.equal((d['unconfirmedTruncated'] as unknown as Trunc).shown, 1);
-    assert.equal((d['unconfirmedTruncated'] as unknown as Trunc).total, 2, 'unconfirmed total is the true count');
+    assert.equal(
+      (d['unconfirmedTruncated'] as unknown as Trunc).total,
+      2,
+      'unconfirmed total is the true count',
+    );
 
     // The external (blocker) list still rides the ENVELOPE truncation, not an inline field — and the
     // blocker verdict reads the FULL set, so a capped list never weakens `blockers`.
