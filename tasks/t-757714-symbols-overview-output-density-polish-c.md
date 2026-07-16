@@ -1,7 +1,7 @@
 ---
 id: t-757714
 title: symbols_overview output density polish — config legend for duplicatesOnly, short group headers, tightened note, count-sorted groups (§12 house style, no info loss)
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood

@@ -34,11 +34,12 @@ export const endpointCard: ShapeRenderer = (v) => {
 
 /** One `symbols_overview` per-tsconfig group: { config, shown, total, more?, alsoIn?, names }. Renders as
  *  a config header (`config [shown/total]`) + the flat comma-separated NAME blob, so thousands of bare
- *  names fit. The `shown/total` count + the `+N more` marker are the AUTHORITATIVE per-group
- *  truncation signal (§3.4) — placed BEFORE the bulky names line (verdict-first, §12) so the format
- *  char-cap can only ever trim the names tail, never the count. `(shared: also in …)` flags a group
- *  whose files are also included by other tsconfigs (the file's names appear only here — never
- *  double-counted). */
+ *  names fit. `config` (and every `alsoIn` entry) arrives PRE-SHORTENED from the op (the redundant
+ *  standard `/tsconfig.json` basename stripped — t-757714), so the renderer prints the label verbatim.
+ *  The `shown/total` count + the `+N more` marker are the AUTHORITATIVE per-group truncation signal
+ *  (§3.4) — placed BEFORE the bulky names line (verdict-first, §12) so the format char-cap can only ever
+ *  trim the names tail, never the count. `(shared: also in …)` flags a group whose files are also
+ *  included by other tsconfigs (the file's names appear only here — never double-counted). */
 export const symbolCatalogueGroup: ShapeRenderer = (v) => {
   const shown = Number(v['shown']);
   const total = Number(v['total']);

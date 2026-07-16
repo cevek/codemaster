@@ -30,7 +30,13 @@ import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { FileNames } from '../plugins/ts/syntactic-catalogue.ts';
 import type { ConfigMembership } from '../plugins/ts/program/config-membership.ts';
-import { aggregate, collisions, collisionToken, histogramLine } from './symbols-overview-facets.ts';
+import {
+  aggregate,
+  collisions,
+  collisionToken,
+  configLegend,
+  histogramLine,
+} from './symbols-overview-facets.ts';
 import { defineOp } from './registry.ts';
 
 const DEFAULT_PER_GROUP = 300;
@@ -38,15 +44,18 @@ const NO_CONFIG = '(no tsconfig)';
 const FLAT_GROUP = '(all)';
 const COLLISIONS = '(collisions)';
 
+// Terse note: the always-on line carries ONLY the ever-relevant honesty signals (syntactic = NAMES not
+// type-verified, a re-export may appear; scope = git source under root, outside-root not covered; pick
+// → search). The flag-specific caveats below are appended ONLY when their flag is active (§12 — no wall
+// of prose when the flags aren't). Cap markers live per-group (`+N more`) + on the envelope, not here.
 const SYNTACTIC_NOTE =
-  'syntactic catalogue (bare NAMES, not a type-verified index): scanned all git-tracked source under the workspace root — complete for declarations there, may include a re-export name; an outside-root tsconfig include/reference is NOT covered. Pick a name → search_symbol / find_definition on it.';
-const EXPORTED_ONLY_CAVEAT =
-  ' Showing the EXPORTED surface (syntactic, no checker: an export/export-default modifier or a re-export) — pass all:true to add non-exported locals.';
-const ALL_NOTE = ' Showing ALL declared names incl non-exported locals (all:true).';
+  'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: git-tracked source under the workspace root — an outside-root tsconfig include is NOT covered. Pick a name → search_symbol / find_definition.';
+const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
+const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
 const HISTOGRAM_NOTE =
-  ' histogram counts distinct names per-declaration-kind — a value+type merged name (const+type) counts in EACH of its kind buckets, so buckets may sum above the name-total.';
+  ' Histogram: a name counts in each of its kind buckets (a value+type merge → both), so buckets may sum above the name-total.';
 const DUP_NOTE =
-  ' duplicatesOnly: only names with a REAL declaration in ≥2 files (a `find_usages {name}` ambiguity landmine) — a barrel re-export is NOT a collision. `name ×N (configs)`.';
+  ' duplicatesOnly: names with a real decl in ≥2 files (a find_usages ambiguity); a barrel re-export is not a collision.';
 
 const argsSchema = z.strictObject({
   /** Keep only this TOP-LEVEL syntactic kind (function / class / interface / type / const / let / var /
@@ -86,10 +95,21 @@ interface Group {
   alsoIn: Set<string>;
 }
 
-/** The primary tsconfig label a file's names land under (deepest-dir wins; degraded → one flat group). */
+/** Drop the redundant trailing `/tsconfig.json` from a config label (`apps/x/tsconfig.json` → `apps/x`):
+ *  the standard basename carries no signal — grouping is per-tsconfig, stated once. A VARIANT basename
+ *  (`tsconfig.test.json`) keeps its name (the `.test.` IS signal); a root `tsconfig.json` (no dir) and
+ *  the sentinels (`(all)`/`(no tsconfig)`) pass through. The short→full map is unique (only the exact
+ *  standard basename is stripped), so no config is dropped and no two labels collide (§3.4). */
+function shortConfigLabel(label: string): string {
+  return /^(.+)\/tsconfig\.json$/.exec(label)?.[1] ?? label;
+}
+
+/** The primary tsconfig label a file's names land under (deepest-dir wins; degraded → one flat group),
+ *  in its SHORT display form — one chokepoint, so groups/subgroups/byConfig/collisions stay consistent. */
 function labelForFile(file: string, membership: ConfigMembership, flat: boolean): string {
   if (flat) return FLAT_GROUP;
-  return membership.byFile.get(file)?.primary ?? NO_CONFIG;
+  const primary = membership.byFile.get(file)?.primary;
+  return primary !== undefined ? shortConfigLabel(primary) : NO_CONFIG;
 }
 
 /** Assemble file→names into per-config groups (flat name set + per-kind subsets for subgroupByKind).
@@ -118,17 +138,27 @@ function assemble(
       }
     }
     if (!flat) {
+      // alsoIn references OTHER configs in the same short form (§3.4 signal kept, path shortened); the
+      // owner is shortened BEFORE the self-compare, else the group's own (short) label would leak in.
       const own = membership.byFile.get(String(file));
-      if (own !== undefined) for (const o of own.owners) if (o !== label) g.alsoIn.add(o);
+      if (own !== undefined)
+        for (const o of own.owners) {
+          const so = shortConfigLabel(o);
+          if (so !== label) g.alsoIn.add(so);
+        }
     }
   }
   return groups;
 }
 
-/** Real configs alphabetical; `(no tsconfig)` and the flat `(all)` sink to the end. Deterministic. */
-function orderLabels(labels: Iterable<string>): string[] {
+/** Group order: by NAME-COUNT descending (the real project surface leads; small fixture/example groups
+ *  sink), `(no tsconfig)` and the flat `(all)` last, path-asc tie-break → deterministic (cold == warm). */
+function orderGroups(groups: Map<string, Group>): string[] {
   const rank = (l: string): number => (l === FLAT_GROUP ? 2 : l === NO_CONFIG ? 1 : 0);
-  return [...labels].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const sizeOf = (l: string): number => groups.get(l)?.names.size ?? 0;
+  return [...groups.keys()].sort(
+    (a, b) => rank(a) - rank(b) || sizeOf(b) - sizeOf(a) || a.localeCompare(b),
+  );
 }
 
 /** Fixed kind order within a config's subsections (count-desc, kind asc) → deterministic. */
@@ -179,7 +209,7 @@ function renderBody(
   global: ReturnType<typeof aggregate>,
   args: Args,
   cap: number,
-): { rows: JsonValue[]; shown: number; total: number } {
+): { rows: JsonValue[]; shown: number; total: number; legend?: string } {
   const rows: JsonValue[] = [];
   let shown = 0;
   let total = 0;
@@ -190,17 +220,20 @@ function renderBody(
   };
   if (args.duplicatesOnly === true) {
     // collisions are pre-sorted count-desc → pass tokens through the shared builder without re-sorting.
+    // The legend maps every config → a short code once; tokens reference the codes (§12, no repeat).
+    const cols = collisions(global);
+    const { legend, codeOf } = configLegend(cols);
     const r = catalogueRow(
       COLLISIONS,
-      collisions(global).map(collisionToken),
+      cols.map((c) => collisionToken(c, codeOf)),
       cap,
       [],
       'raise limit',
     );
     push(r);
-    return { rows, shown, total };
+    return { rows, shown, total, ...(legend.length > 0 ? { legend } : {}) };
   }
-  for (const label of orderLabels(groups.keys())) {
+  for (const label of orderGroups(groups)) {
     const group = groups.get(label);
     if (group === undefined) continue;
     if (args.subgroupByKind === true) {
@@ -288,7 +321,7 @@ export const symbolsOverviewOp = defineOp({
 
       const histogram = wantSummary ? histogramLine(global) : undefined;
       const byConfig = wantSummary
-        ? orderLabels(groups.keys())
+        ? orderGroups(groups)
             .map((l) => `${l} ${groups.get(l)?.names.size ?? 0}`)
             .join(' · ')
         : undefined;
@@ -309,6 +342,9 @@ export const symbolsOverviewOp = defineOp({
           summary: `groups: ${groups.size} · names: ${global.size} (per-group cap ${cap})`,
           ...(histogram !== undefined ? { histogram } : {}),
           ...(byConfig !== undefined ? { byConfig } : {}),
+          // The duplicatesOnly config legend (`A=…, B=…`) — BEFORE the catalogue (verdict-first §12) so
+          // the char-cap can only trim the collision tail, never the codes the tokens resolve against.
+          ...(body.legend !== undefined ? { configs: body.legend } : {}),
           note,
           grouping,
           groups: groups.size,

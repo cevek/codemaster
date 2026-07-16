@@ -22,7 +22,18 @@ interface Data {
   groups: number;
   histogram?: string;
   byConfig?: string;
+  configs?: string;
+  note?: string;
   catalogue?: GroupRow[];
+}
+/** Parse an `A=cfgA, B=cfgB` legend line into a code→config map. */
+function legend(d: Data): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const part of (d.configs ?? '').split(', ')) {
+    const i = part.indexOf('=');
+    if (i > 0) out.set(part.slice(0, i), part.slice(i + 1));
+  }
+  return out;
 }
 
 async function list(p: TestProject, args: JsonValue): Promise<Data> {
@@ -160,11 +171,14 @@ test('duplicatesOnly flags a genuine cross-file collision, never a barrel re-exp
     const d = await list(p, { duplicatesOnly: true, limit: 1000 });
     const tokens = namesOf((d.catalogue ?? [])[0]);
     // Dup has 2 real decls (a.ts, b.ts) → ×2. The barrel re-export adds a 3rd MENTION but no real decl.
+    // The config is referenced by its LEGEND CODE (§12), not repeated inline.
     assert.deepEqual(
       tokens,
-      ['Dup ×2 (tsconfig.json)'],
-      'exactly Dup ×2 — barrel re-export not counted as a 3rd site',
+      ['Dup ×2 (A)'],
+      'exactly Dup ×2 — barrel re-export not counted as a 3rd site; config by legend code',
     );
+    // 0 info loss: the code A resolves to the real config via the legend line.
+    assert.equal(legend(d).get('A'), 'tsconfig.json', 'legend maps A → the collision config');
     assert.ok(
       !tokens.some((t) => t.startsWith('Uniq')),
       'Uniq (one real decl + a re-export) is NOT a collision',

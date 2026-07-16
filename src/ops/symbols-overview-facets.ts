@@ -73,10 +73,46 @@ export function collisions(global: Map<string, GlobalName>): Collision[] {
   return out.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
-/** Render a collision to its flat `name ×N (config | config)` token — ` | `-joined configs (config
- *  labels themselves contain `/`, so a `/` separator would be unreadable) with no `, ` so the flat
- *  catalogue's `, ` name-join stays cleanly splittable. */
-export function collisionToken(c: Collision): string {
-  const where = c.configs.length > 0 ? ` (${c.configs.join(' | ')})` : '';
+/** Render a collision to its flat `name ×N (A|B)` token — configs referenced by their LEGEND CODE
+ *  (`configLegend`), `|`-joined with no `, ` so the flat catalogue's `, ` name-join stays cleanly
+ *  splittable. The long config paths live once in the legend, never repeated per collision (§12). */
+export function collisionToken(c: Collision, codeOf: Map<string, string>): string {
+  // `?? cfg` is a defensive fallback: the legend is a SUPERSET of every shown collision's configs
+  // (built from ALL collisions), so a miss is unreachable today — but if a future caller rebuilt the
+  // legend from the post-cap subset, this emits the raw label rather than a dangling, unresolvable code.
+  const codes = c.configs.map((cfg) => codeOf.get(cfg) ?? cfg);
+  const where = codes.length > 0 ? ` (${codes.join('|')})` : '';
   return `${c.name} ×${c.count}${where}`;
+}
+
+/** Deterministic spreadsheet-style code for the Nth legend entry: A…Z, then AA, AB, … (0→A). */
+function letterCode(i: number): string {
+  let n = i + 1;
+  let s = '';
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+/** Build the duplicatesOnly config LEGEND: every distinct config label across ALL collisions (a superset
+ *  of the shown, post-cap set — so every rendered code always resolves), sorted path-asc → assigned A,
+ *  B, C… deterministically (cold == warm). Returns the one-line `A=…, B=…` legend + the code map the
+ *  collision tokens reference. No config is dropped — each label appears once in the legend (short form,
+ *  as everywhere in the op) instead of repeated inline per collision row. */
+export function configLegend(cols: readonly Collision[]): {
+  legend: string;
+  codeOf: Map<string, string>;
+} {
+  const configs = [...new Set(cols.flatMap((c) => c.configs))].sort((a, b) => a.localeCompare(b));
+  const codeOf = new Map<string, string>();
+  const parts: string[] = [];
+  configs.forEach((cfg, i) => {
+    const code = letterCode(i);
+    codeOf.set(cfg, code);
+    parts.push(`${code}=${cfg}`);
+  });
+  return { legend: parts.join(', '), codeOf };
 }

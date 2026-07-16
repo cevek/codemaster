@@ -539,7 +539,17 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `.json` edit, §3.5). A file included by several configs lands under ONE primary config (deepest-dir,
   base-`tsconfig.json` tie-break), flagged `(shared: also in …)`, never double-counted / dropped; the
   flat blob dedups globally. Same honest scope as the syntactic search (under-root only) + per-group
-  caps with `+N more` and a verdict-first totals line (§3.4/§12).
+  caps with `+N more` and a verdict-first totals line (§3.4/§12). **Density render (t-757714):** group
+  headers show the SHORT config label (the redundant standard `/tsconfig.json` basename dropped — dir
+  kept, a variant basename like `tsconfig.test.json` and a root config preserved, so the short→full map
+  stays unique/lossless); groups are ordered by name-count DESC (the real project surface leads, small
+  fixture groups sink) with a path-asc tie-break (deterministic → cold == warm); and `duplicatesOnly`
+  emits a one-line config LEGEND (`configs: A=…, B=…`, path-asc codes, verdict-first so the char-cap
+  can't strip a code) with each collision referencing the codes (`name ×N (A|B)`) instead of repeating
+  the long paths per row. The `note` is terse: the always-on line carries the ever-relevant honesty
+  signals (syntactic-not-verified · outside-root-not-covered · pick→search) plus the exported-surface /
+  `all` caveat; the histogram multi-bucket and `duplicatesOnly`-definition caveats are appended ONLY
+  under their flag (no wall of prose when inactive) — every signal kept, none dropped silently (§3.4).
   **ORIENTATION FACETS (t-960572)** — five cheap views on that SAME one no-program pass (no extra scan,
   no LS warm), each OFF by default so the flat catalogue stays byte-stable: `query` (navto fuzzy name
   filter — the SHARED `createPatternMatcher`, `syntactic-matcher.ts`, that the syntactic search reuses;
@@ -550,7 +560,7 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   bucket, so buckets may sum above the name-total — disclosed, no arbitrary "primary kind"); `kind` as
   a scalar OR an array (matches ANY listed kind); `duplicatesOnly` (only names with a REAL declaration
   in ≥2 files — the `find_usages {name}` ambiguity landmines; a barrel re-export adds no real decl so
-  it is NOT a collision, rendered `name ×N (configs)`); `subgroupByKind` (partition each tsconfig group
+  it is NOT a collision, rendered `name ×N (A|B)` against the config legend below); `subgroupByKind` (partition each tsconfig group
   into deterministic `config › kind` subsections, reusing the `symbol-catalogue-group` shape — no new
   render tag — with the shared-config flag preserved). `query` filtering rides the engine
   (`syntactic-catalogue.ts`); the histogram + collision aggregation are pure helpers in
