@@ -1,4 +1,4 @@
-// t-960572 — the honesty gate for the `list_symbols` orientation facets (query / summary /
+// t-960572 — the honesty gate for the `symbols_overview` orientation facets (query / summary /
 // duplicatesOnly / kind[] / subgroupByKind). Each claim against an independent oracle or a
 // discriminating behavioral pin (never grep, never golden-only); each fails BEFORE the facet exists
 // (the strict schema rejects the new arg). The central invariant — NEVER warms the LS (OOM-safe) — is
@@ -26,11 +26,11 @@ interface Data {
 }
 
 async function list(p: TestProject, args: JsonValue): Promise<Data> {
-  const [res] = await p.request([{ name: 'list_symbols', args }]);
+  const [res] = await p.request([{ name: 'symbols_overview', args }]);
   assert.ok(res !== undefined && 'result' in res, 'dispatched');
   assert.ok(
     res.result.ok,
-    `list_symbols ok (${JSON.stringify((res.result as { failure?: unknown }).failure)})`,
+    `symbols_overview ok (${JSON.stringify((res.result as { failure?: unknown }).failure)})`,
   );
   return res.result.data as unknown as Data;
 }
@@ -119,7 +119,7 @@ test('summary histogram: fixture-known per-kind counts, multi-bucket, NOT capped
   const p = await project(SHAPES);
   try {
     // Tiny cap: proves the counts are of the FULL set, not the shown body.
-    const d = await list(p, { summaryOnly: true, limit: 1 });
+    const d = await list(p, { countsOnly: true, limit: 1 });
     const h = histogram(d);
     assert.equal(h.get('interface'), 3, 'interface count = full set (3), not capped');
     assert.equal(h.get('const'), 3, 'const bucket = Ca,Cb,Merge');
@@ -137,8 +137,8 @@ test('summary histogram: fixture-known per-kind counts, multi-bucket, NOT capped
       'multi-bucket: buckets sum ABOVE the name-total (the merge double-counts)',
     );
 
-    // summaryOnly omits the names body; the counts still stand.
-    assert.equal(d.catalogue, undefined, 'summaryOnly omits the catalogue body');
+    // countsOnly omits the names body; the counts still stand.
+    assert.equal(d.catalogue, undefined, 'countsOnly omits the catalogue body');
     assert.match(String(d.byConfig), /tsconfig\.json 7/, 'per-config total is the full 7');
     assert.ok(await tsIsCold(p), 'summary never warms the LS');
   } finally {
@@ -250,15 +250,16 @@ test('subgroupByKind preserves the (shared: also in …) annotation', async () =
   try {
     const d = await list(p, { subgroupByKind: true, limit: 1000 });
     const base = (d.catalogue ?? []).filter((g) => g.config.startsWith('tsconfig.json › '));
-    assert.ok(base.length > 0, 'base config has kind subsections');
-    // The shared flag lands on the FIRST subsection of the config (not lost, not repeated on all).
+    assert.ok(base.length > 1, 'base config has ≥2 kind subsections (const + interface)');
+    // The shared flag lands on exactly ONE subsection — the FIRST in the deterministic kind order
+    // (count-desc, then kind asc): both kinds tie at 1, so `const` sorts before `interface`.
     const flagged = base.filter(
       (g) => g.alsoIn !== undefined && g.alsoIn.includes('tsconfig.test.json'),
     );
-    assert.equal(
-      flagged.length,
-      1,
-      'shared annotation on exactly one subsection of the shared config',
+    assert.deepEqual(
+      flagged.map((g) => g.config),
+      ['tsconfig.json › const'],
+      'shared annotation on exactly the FIRST subsection (tsconfig.json › const), never lost / repeated',
     );
   } finally {
     await p.dispose();

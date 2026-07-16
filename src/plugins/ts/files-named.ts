@@ -5,7 +5,7 @@
 // is WHY no symbol was found), so a program-based lookup would miss exactly the case that matters.
 //
 // Bounded / never-hang (§1/§19): reuses the SAME `gitSourceFilesSync` primitive as
-// list_symbols/syntactic-search (each git call deadline-guarded, caught) — no fresh per-call FS
+// symbols_overview/syntactic-search (each git call deadline-guarded, caught) — no fresh per-call FS
 // tree-walk. Best-effort: a git failure yields no hint (empty), never a throw or a fabricated path.
 
 import path from 'node:path';

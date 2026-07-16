@@ -1,6 +1,6 @@
 // The `@internal` TS pattern matcher — the ONE fuzzy-name matcher shared by the two no-program
 // syntactic paths (t-515730 / t-960572): the fuzzy `search_symbol { syntactic: true }` scan and the
-// `list_symbols { query }` catalogue filter. Kept in one module so the two consumers can never drift
+// `symbols_overview { query }` catalogue filter. Kept in one module so the two consumers can never drift
 // on the match semantics (the copy-paste risk the extraction removes) and so both reuse navto's OWN
 // matcher (identical recall by construction, §4).
 //

@@ -32,7 +32,7 @@ export const endpointCard: ShapeRenderer = (v) => {
   return `${String(v['method'])} ${String(v['path'])}${status}${ref('query', 'q')}${ref('body', 'body')}${ref('response', 'resp')}${confTail(v['confidence'])}${note}`;
 };
 
-/** One `list_symbols` per-tsconfig group: { config, shown, total, more?, alsoIn?, names }. Renders as
+/** One `symbols_overview` per-tsconfig group: { config, shown, total, more?, alsoIn?, names }. Renders as
  *  a config header (`config [shown/total]`) + the flat comma-separated NAME blob, so thousands of bare
  *  names fit. The `shown/total` count + the `+N more` marker are the AUTHORITATIVE per-group
  *  truncation signal (§3.4) — placed BEFORE the bulky names line (verdict-first, §12) so the format

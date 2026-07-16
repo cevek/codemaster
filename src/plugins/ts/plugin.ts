@@ -166,7 +166,7 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
     searchSymbolSyntactic: (query, limit, filter) =>
       searchSymbolsSyntactic(root, query, limit, filter, syntacticCache),
 
-    // `list_symbols` (t-143952): both no-program, host-independent — like the syntactic search they
+    // `symbols_overview` (t-143952): both no-program, host-independent — like the syntactic search they
     // take `root` directly and NEVER call warm() (OOM-safe first-contact). The catalogue reuses the
     // memoized parsed surface; membership is a bounded per-call pass (never cached — syntactic-cache
     // cannot see a tsconfig edit).

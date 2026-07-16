@@ -46,7 +46,7 @@ import type { SymbolView } from './query-types.ts';
 
 // ── @internal TS surface (the ONE documented boundary) ───────────────────────────────────────
 // `getNamedDeclarations` (below) and `createPatternMatcher` (syntactic-matcher.ts — shared with the
-// `list_symbols` catalogue filter) are TS `@internal` (absent from the public typescript.d.ts) but
+// `symbols_overview` catalogue filter) are TS `@internal` (absent from the public typescript.d.ts) but
 // are pure, project-agnostic functions navto itself is built on — reusing them is what guarantees
 // identical recall (proven: 0 misses vs navto under-root over 25 queries × 2 repos). This is NOT a
 // second parser or a standalone structural index ahead of the LS (the §4a concern): both helpers run

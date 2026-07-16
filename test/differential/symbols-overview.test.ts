@@ -1,4 +1,4 @@
-// t-143952 — the honesty gate for `list_symbols` (the flat, no-program, per-tsconfig symbol-name
+// t-143952 — the honesty gate for `symbols_overview` (the flat, no-program, per-tsconfig symbol-name
 // catalogue). Four claims, each against an INDEPENDENT oracle (never grep, never golden-only):
 //   1. ⊇ oracle — the syntactic catalogue (default exportedOnly) is a SUPERSET of a cold `ts.Program`
 //      checker's exported-symbol names (a genuinely independent path: checker vs our getNamedDeclarations
@@ -53,9 +53,9 @@ interface CatalogueData {
 }
 
 async function listSymbols(p: TestProject, args: JsonValue): Promise<CatalogueData> {
-  const [res] = await p.request([{ name: 'list_symbols', args }]);
-  assert.ok(res !== undefined && 'result' in res, 'list_symbols dispatched');
-  assert.ok(res.result.ok, 'list_symbols ok');
+  const [res] = await p.request([{ name: 'symbols_overview', args }]);
+  assert.ok(res !== undefined && 'result' in res, 'symbols_overview dispatched');
+  assert.ok(res.result.ok, 'symbols_overview ok');
   return res.result.data as unknown as CatalogueData;
 }
 
@@ -100,7 +100,7 @@ function coldExportedNames(root: string, configRel: string): Set<string> {
   return out;
 }
 
-test('list_symbols ⊇ cold-checker exported names (§3.4 completeness, independent oracle)', async () => {
+test('symbols_overview ⊇ cold-checker exported names (§3.4 completeness, independent oracle)', async () => {
   const p = await project(REPO);
   try {
     const data = await listSymbols(p, { limit: 1000 });
@@ -170,7 +170,7 @@ test('per-group cap emits a +N more marker + envelope truncation (never a silent
   const p = await project(REPO);
   try {
     // The base group has 4 exported names (SharedThing, sharedFn, SharedProps, SharedKind) — cap at 2.
-    const [res] = await p.request([{ name: 'list_symbols', args: { limit: 2 } }]);
+    const [res] = await p.request([{ name: 'symbols_overview', args: { limit: 2 } }]);
     assert.ok(res !== undefined && 'result' in res && res.result.ok);
     const data = res.result.data as unknown as CatalogueData;
     const base = groupFor(data, 'tsconfig.json');
@@ -234,7 +234,7 @@ test('members are NOT catalogued; the container IS (BLOCK 2 §3.4 — no confide
   }
 });
 
-test('list_symbols never warms the LS (OOM-safe) + is deterministic (cold == warm)', async () => {
+test('symbols_overview never warms the LS (OOM-safe) + is deterministic (cold == warm)', async () => {
   const p = await project(REPO);
   try {
     const first = await listSymbols(p, { limit: 1000 });
@@ -244,7 +244,7 @@ test('list_symbols never warms the LS (OOM-safe) + is deterministic (cold == war
     assert.equal(
       tsPlugin?.fingerprint,
       'cold',
-      'list_symbols must NOT warm the LS / build a program',
+      'symbols_overview must NOT warm the LS / build a program',
     );
     // Determinism: a second identical call returns byte-identical group data.
     const second = await listSymbols(p, { limit: 1000 });

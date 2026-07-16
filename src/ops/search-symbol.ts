@@ -114,7 +114,7 @@ function syntacticResult(
 export const searchSymbolOp = defineOp({
   name: 'search_symbol',
   summary:
-    'Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops',
+    'Find symbols by (fuzzy) name across the workspace; returns SymbolIds to chain into other ops. One known target → a handle to chain. (Just browsing what EXISTS, not resolving one? → symbols_overview.)',
   mutating: false,
   requires: ['ts'],
   argsSchema,

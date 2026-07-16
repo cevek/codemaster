@@ -1,4 +1,4 @@
-// `list_symbols` orientation facets (t-960572) — the cheap aggregates derived from the SAME
+// `symbols_overview` orientation facets (t-960572) — the cheap aggregates derived from the SAME
 // no-program syntactic pass the catalogue already runs (no LS warm, no second scan): the kind
 // HISTOGRAM and the cross-file COLLISION set. All counts are of the FULL post-filter set (never the
 // per-group cap) — capping a count would lie about the repo's size / ambiguity (§3.4).

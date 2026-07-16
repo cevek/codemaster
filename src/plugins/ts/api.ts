@@ -75,12 +75,12 @@ export interface TsPluginApi extends Plugin {
    *  scanned (use the default for those). Returns a `ToolFailure` on git / @internal-TS unavailability
    *  — never a false empty. Default `searchSymbol` is unchanged (t-515730). */
   searchSymbolSyntactic(query: string, limit: number, filter?: SearchFilter): Result<SearchView>;
-  /** `list_symbols` catalogue core (t-143952): every declared NAME per file in the §10 git surface,
+  /** `symbols_overview` catalogue core (t-143952): every declared NAME per file in the §10 git surface,
    *  via the SAME no-program surface parse as the syntactic search — NEVER warms the LS (OOM-safe
    *  first-contact browse). Complete for declarations under the root; a `ToolFailure` on git /
    *  @internal-TS unavailability, never a false empty. */
   listSymbols(filter: CatalogueFilter): Result<FileNames[]>;
-  /** `list_symbols` grouping layer (t-143952): file→tsconfig ownership for per-config grouping, host-
+  /** `symbols_overview` grouping layer (t-143952): file→tsconfig ownership for per-config grouping, host-
    *  free + bounded. Never warms the LS, never throws — an over-bound/failed pass returns `degraded`
    *  and the op falls back to a single flat group. */
   configMembership(): ConfigMembership;

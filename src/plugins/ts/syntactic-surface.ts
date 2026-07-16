@@ -1,5 +1,5 @@
 // The parsed §10 git-source surface shared by the no-program syntactic paths (t-515730): the
-// fuzzy `search_symbol { syntactic: true }` scan AND the `list_symbols` catalogue. Extracted here so
+// fuzzy `search_symbol { syntactic: true }` scan AND the `symbols_overview` catalogue. Extracted here so
 // BOTH build the surface through one function (no duplicate parse / cache wiring) and both files stay
 // under the line cap. NEVER warms the LS / builds a program — the whole point of the syntactic paths.
 //

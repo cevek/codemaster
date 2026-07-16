@@ -1,4 +1,4 @@
-// `list_symbols` (t-143952 / t-960572) — a first-contact / orientation browse: dump the flat,
+// `symbols_overview` (t-143952 / t-960572) — a first-contact / orientation browse: dump the flat,
 // comma-separated, BARE names of every symbol declared in the repo, grouped per tsconfig, so an agent
 // entering an unfamiliar codebase READS the map and picks a name (then a normal search_symbol /
 // find_definition on it) instead of throwing guessed names at search_symbol "на бум".
@@ -12,7 +12,7 @@
 //     flat `(all)` group on any over-bound / failure (never a hang, never a lie).
 //
 // ORIENTATION FACETS (t-960572), all derived from the SAME no-program pass (no extra scan, no warm):
-//   query (navto fuzzy name filter, BEFORE the per-group cap) · summary/summaryOnly (kind histogram +
+//   query (navto fuzzy name filter, BEFORE the per-group cap) · summary/countsOnly (kind histogram +
 //   per-config totals of the FULL post-filter set) · duplicatesOnly (cross-file collision landmines)
 //   · kind[] (multi-kind) · subgroupByKind (partition each config into kind subsections). Every new
 //   facet is OFF by default → the default flat catalogue stays byte-stable.
@@ -30,7 +30,7 @@ import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { FileNames } from '../plugins/ts/syntactic-catalogue.ts';
 import type { ConfigMembership } from '../plugins/ts/program/config-membership.ts';
-import { aggregate, collisions, collisionToken, histogramLine } from './list-symbols-facets.ts';
+import { aggregate, collisions, collisionToken, histogramLine } from './symbols-overview-facets.ts';
 import { defineOp } from './registry.ts';
 
 const DEFAULT_PER_GROUP = 300;
@@ -59,7 +59,7 @@ const argsSchema = z.strictObject({
   /** Lead with a kind HISTOGRAM + per-config totals of the FULL (uncapped) post-filter set. */
   summary: z.boolean().optional(),
   /** summary + OMIT the names (the shape/size signal alone). Wins over `summary`. */
-  summaryOnly: z.boolean().optional(),
+  countsOnly: z.boolean().optional(),
   /** Only cross-file collision names (`name ×N (configs)`) — the ambiguous-name landmines. Wins over
    *  the normal / subgrouped body. */
   duplicatesOnly: z.boolean().optional(),
@@ -138,25 +138,39 @@ function orderKinds(byKind: Map<string, Set<string>>): string[] {
   );
 }
 
-/** Project a name set to its tagged, capped render row (names sorted alphabetically). */
-function nameRow(
+/** The ONE `symbol-catalogue-group` row builder — shared by the flat name rows, the kind subsections,
+ *  and the collisions section, so every row that reaches `list.symbolCatalogueGroup` carries the SAME
+ *  field set (no per-row divergence to drift). Takes ALREADY-SORTED display tokens (the caller owns the
+ *  order: alphabetical for names, count-desc for collisions) + the `+N more` parenthetical hint. */
+function catalogueRow(
   label: string,
-  names: Set<string>,
-  alsoIn: string[],
+  tokens: readonly string[],
   cap: number,
+  alsoIn: readonly string[],
+  moreHint: string,
 ): { shown: number; total: number; row: JsonValue } {
-  const sorted = [...names].sort((a, b) => a.localeCompare(b));
-  const total = sorted.length;
+  const total = tokens.length;
   const shown = Math.min(total, cap);
   const row = tag('symbol-catalogue-group', {
     config: label,
     shown,
     total,
     ...(alsoIn.length > 0 ? { alsoIn } : {}),
-    ...(total > shown ? { more: `+${total - shown} more (narrow by token/path/kind)` } : {}),
-    names: sorted.slice(0, shown).join(', '),
+    ...(total > shown ? { more: `+${total - shown} more (${moreHint})` } : {}),
+    names: tokens.slice(0, shown).join(', '),
   });
   return { shown, total, row };
+}
+
+/** A flat name group / kind subsection — names sorted alphabetically. */
+function nameRow(
+  label: string,
+  names: Set<string>,
+  alsoIn: readonly string[],
+  cap: number,
+): { shown: number; total: number; row: JsonValue } {
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  return catalogueRow(label, sorted, cap, alsoIn, 'narrow by token/path/kind');
 }
 
 /** The rendered body rows for the selected mode, plus the running shown/total for the envelope cap. */
@@ -175,19 +189,16 @@ function renderBody(
     total += r.total;
   };
   if (args.duplicatesOnly === true) {
-    const cols = collisions(global);
-    const t = cols.length;
-    const s = Math.min(t, cap);
-    rows.push(
-      tag('symbol-catalogue-group', {
-        config: COLLISIONS,
-        shown: s,
-        total: t,
-        ...(t > s ? { more: `+${t - s} more (raise limit)` } : {}),
-        names: cols.slice(0, s).map(collisionToken).join(', '),
-      }),
+    // collisions are pre-sorted count-desc → pass tokens through the shared builder without re-sorting.
+    const r = catalogueRow(
+      COLLISIONS,
+      collisions(global).map(collisionToken),
+      cap,
+      [],
+      'raise limit',
     );
-    return { rows, shown: s, total: t };
+    push(r);
+    return { rows, shown, total };
   }
   for (const label of orderLabels(groups.keys())) {
     const group = groups.get(label);
@@ -221,10 +232,10 @@ function renderBody(
   return { rows, shown, total };
 }
 
-export const listSymbolsOp = defineOp({
-  name: 'list_symbols',
+export const symbolsOverviewOp = defineOp({
+  name: 'symbols_overview',
   summary:
-    "First-contact orientation: a flat, comma-separated catalogue of the repo's declared symbol NAMES, grouped per tsconfig — on the OOM-safe no-program syntactic scan (no LS warm)",
+    "Browse the repo's declared symbol NAMES as a flat catalogue (per tsconfig + kind) to orient / discover / match a hunch — NAMES only, no locations, on the OOM-safe no-program syntactic scan (no LS warm). Survey many → pick one → search_symbol / find_definition it. (Want the handle of ONE specific symbol to act on? → search_symbol.)",
   mutating: false,
   requires: ['ts'],
   argsSchema,
@@ -232,13 +243,13 @@ export const listSymbolsOp = defineOp({
   // reaches the fuzzy filter, disclosed via Result.intake; the canonical schema stays the sole gate.
   intake: { aliases: { name: 'query' } },
   argsHint:
-    '{ query?: string, kind?: string | string[], summary?: boolean, summaryOnly?: boolean, duplicatesOnly?: boolean, subgroupByKind?: boolean, exportedOnly?: boolean, all?: boolean, pathInclude?: string[], pathExclude?: string[], limit?: number }',
+    '{ query?: string, kind?: string | string[], summary?: boolean, countsOnly?: boolean, duplicatesOnly?: boolean, subgroupByKind?: boolean, exportedOnly?: boolean, all?: boolean, pathInclude?: string[], pathExclude?: string[], limit?: number }',
   example: { args: { query: 'Clinic', kind: ['interface', 'type'] } },
   notes: [
     'FLAT bare names (no file:line decoration) so thousands fit — scan the list, pick a name, then run search_symbol / find_definition on it. Deduped + sorted per group.',
     'SYNTACTIC (no program build, no LS warm): OOM-safe first-contact browse on a huge monorepo — exactly where the name-addressed path can run out of memory. Names only, NOT type-verified: a re-export name may appear; scope is git-tracked source UNDER the root (an outside-root include is not covered).',
     'grouped per tsconfig (best-effort: degrades to a single flat `(all)` group on a pathological repo). A file included by several configs lands under ONE primary config (deepest-dir wins) — never double-counted — and the group is flagged `(shared: also in …)`.',
-    'FACETS: query (navto fuzzy name filter, before the cap) · kind (a kind or a kind[] — matches ANY) · summary/summaryOnly (a kind histogram + per-config totals of the FULL uncapped set) · duplicatesOnly (only cross-file collision names, the `find_usages {name}` ambiguity landmines) · subgroupByKind (partition each config into kind subsections). All OFF by default → the flat catalogue is byte-stable. exportedOnly defaults TRUE; all:true adds locals. Each group caps at `limit` (default 300) with a `+N more` marker.',
+    'FACETS: query (navto fuzzy name filter, before the cap) · kind (a kind or a kind[] — matches ANY) · summary/countsOnly (a kind histogram + per-config totals of the FULL uncapped set) · duplicatesOnly (only cross-file collision names, the `find_usages {name}` ambiguity landmines) · subgroupByKind (partition each config into kind subsections). All OFF by default → the flat catalogue is byte-stable. exportedOnly defaults TRUE; all:true adds locals. Each group caps at `limit` (default 300) with a `+N more` marker.',
   ],
   async run(ctx, args: Args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -259,8 +270,8 @@ export const listSymbolsOp = defineOp({
       const groups = assemble(catalogue.data, membership, flat);
       const global = aggregate(catalogue.data, (file) => labelForFile(file, membership, flat));
 
-      const wantSummary = args.summary === true || args.summaryOnly === true;
-      const bodyless = args.summaryOnly === true && args.duplicatesOnly !== true;
+      const wantSummary = args.summary === true || args.countsOnly === true;
+      const bodyless = args.countsOnly === true && args.duplicatesOnly !== true;
       const body = bodyless
         ? { rows: [] as JsonValue[], shown: 0, total: 0 }
         : renderBody(groups, global, args, cap);

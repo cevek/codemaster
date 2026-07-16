@@ -1,6 +1,6 @@
-// `list_symbols` grouping layer (t-143952) — assign each git-source file to the tsconfig(s) that
+// `symbols_overview` grouping layer (t-143952) — assign each git-source file to the tsconfig(s) that
 // include it, so the catalogue can group names per config ("the app config has these; the test config
-// has these"). This is the ONLY part of list_symbols that walks the tree + expands globs, so it is the
+// has these"). This is the ONLY part of symbols_overview that walks the tree + expands globs, so it is the
 // only part that can be slow — it is bounded on THREE dimensions (config count, total globbed files,
 // and any throw) and the op DEGRADES to the flat single-group catalogue on `degraded`. It NEVER warms
 // the LS / builds a program: config file-sets come from `parseJsonConfigFileContent` (syntactic, the

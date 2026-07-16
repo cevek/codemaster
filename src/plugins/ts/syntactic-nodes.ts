@@ -1,6 +1,6 @@
 // Pure, project-agnostic classifiers over a `getNamedDeclarations` node — shared by the two
 // no-program syntactic paths (t-515730): the fuzzy `search_symbol { syntactic: true }` scan and the
-// `list_symbols` catalogue. Syntactic only (no checker): they read the AST node, never a type.
+// `symbols_overview` catalogue. Syntactic only (no checker): they read the AST node, never a type.
 // Kept in one module so the two consumers can never drift on what counts as an import / a real decl /
 // an export (the copy-paste risk the extraction removes).
 
@@ -37,7 +37,7 @@ export function isImportSite(node: ts.Node): boolean {
  *  the AST: an `export`/`export default` modifier (getCombinedModifierFlags walks a var-decl up to its
  *  statement), or a re-export node (`export {X}` / `export * as ns`). This is PRECISE for a top-level
  *  export and correctly EXCLUDES a non-exported local, an enum member, and a class/interface member
- *  (none carry the modifier) — so `list_symbols`' default `exportedOnly` shows the public surface, not
+ *  (none carry the modifier) — so `symbols_overview`' default `exportedOnly` shows the public surface, not
  *  every local. It cannot see a name exported ONLY via a separate `export { X }` FROM the decl node
  *  itself, but getNamedDeclarations also yields that export-specifier node (caught by the second arm),
  *  so the name still appears. Still syntactic (no checker) — disclosed by the op. */
@@ -48,7 +48,7 @@ export function isExportedDeclaration(node: ts.Node): boolean {
 }
 
 /** A type/class/enum MEMBER declaration (method / accessor / property / enum member / constructor /
- *  parameter) — a sub-symbol, never a module-level declaration in its own right. `list_symbols`
+ *  parameter) — a sub-symbol, never a module-level declaration in its own right. `symbols_overview`
  *  excludes these: the orientation catalogue lists TOP-LEVEL declared names (the class, not its
  *  methods), and a member never carries an export modifier so it could never satisfy the default
  *  `exportedOnly` — surfacing an advertised member `kind` as a confident empty would be a §3.4 lie. */
@@ -70,7 +70,7 @@ export function isMemberDeclaration(node: ts.Node): boolean {
  *  import/export aliases + a SyntaxKind fallback. Kept DELIBERATELY DISTINCT from
  *  `declarations-on-line.ts`'s addressing-only `kindLabel` (which emits `namespace` / `enum-member`):
  *  this vocabulary (`module` / `enum member`) is a USER-FACING contract — the `kind:` filter value for
- *  `list_symbols` and the reported kind for `search_symbol` — so a naive DRY-merge to the display
+ *  `symbols_overview` and the reported kind for `search_symbol` — so a naive DRY-merge to the display
  *  labeler would silently break the documented `kind` filter (a §3.4 regression). Not to be unified. */
 export function nodeKindLabel(node: ts.Node): string {
   if (ts.isVariableDeclaration(node)) {

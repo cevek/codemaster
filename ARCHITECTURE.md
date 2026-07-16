@@ -229,12 +229,12 @@ typecheck + capture gate is still the backstop — so a co-move now completes in
 leaf-first reorder. The rescue fork still serves the residual overlap shapes these don't pre-empt.
 
 **Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
-and `list_symbols` (the OOM-survival discovery paths, §5-L2 / t-515730 / t-143952) parse files with the
+and `symbols_overview` (the OOM-survival discovery paths, §5-L2 / t-515730 / t-143952) parse files with the
 **same** `ts.createSourceFile` (a shared surface build) and read them with the TS `@internal`
 `getNamedDeclarations` helper (the declaration set) — both share the `createPatternMatcher` wrapper
 (navto's own name matcher, project-agnostic — `syntactic-matcher.ts`) for their fuzzy match:
-`search_symbol` for its query, `list_symbols` for its optional `query` name filter (t-960572);
-`list_symbols` otherwise enumerates the whole surface. This is **not** a second parser
+`search_symbol` for its query, `symbols_overview` for its optional `query` name filter (t-960572);
+`symbols_overview` otherwise enumerates the whole surface. This is **not** a second parser
 or a second oracle: there is one AST, produced by the one TS parser; the helpers only read it. It is
 purely a note about **`@internal`-API stability** — the helpers are absent from the public
 `typescript.d.ts`, so they are behind a single typed `as unknown as` boundary block (never `any`) and
@@ -526,7 +526,7 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
   stat-walk (§1). The syntactic path leaves navto's default output untouched (navto at terse/normal
   stays byte-identical; `verbosity:'full'` adds an opt-in header-only decl preview per match, t-517121).
-  **`list_symbols` rides the same no-program surface (t-143952).** A first-contact ORIENTATION browse:
+  **`symbols_overview` rides the same no-program surface (t-143952).** A first-contact ORIENTATION browse:
   a flat, comma-separated catalogue of the repo's TOP-LEVEL declared symbol NAMES (bare — no
   `file:line` decoration, so thousands fit), grouped per tsconfig. It reuses the SAME `surfaceSources`
   parse + `getNamedDeclarations` (`syntactic-catalogue.ts`, `listSymbols`) — no program build, NEVER
@@ -545,15 +545,16 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   filter — the SHARED `createPatternMatcher`, `syntactic-matcher.ts`, that the syntactic search reuses;
   applied to each parsed name BEFORE the per-group cap, so a narrowed catalogue is still
   capped-with-honesty; a `query` whose @internal matcher is unavailable fails honestly, never a silent
-  unfiltered dump); `summary`/`summaryOnly` (a kind HISTOGRAM + per-config totals of the FULL
+  unfiltered dump); `summary`/`countsOnly` (a kind HISTOGRAM + per-config totals of the FULL
   post-filter set — never the capped body; MULTI-BUCKET: a value+type merged name counts in EACH kind
   bucket, so buckets may sum above the name-total — disclosed, no arbitrary "primary kind"); `kind` as
   a scalar OR an array (matches ANY listed kind); `duplicatesOnly` (only names with a REAL declaration
   in ≥2 files — the `find_usages {name}` ambiguity landmines; a barrel re-export adds no real decl so
   it is NOT a collision, rendered `name ×N (configs)`); `subgroupByKind` (partition each tsconfig group
   into deterministic `config › kind` subsections, reusing the `symbol-catalogue-group` shape — no new
-  render tag — with the shared-config flag preserved). The facets live in `ops/list-symbols-facets.ts`
-  (histogram + collision aggregation, pure over the catalogue rows).
+  render tag — with the shared-config flag preserved). `query` filtering rides the engine
+  (`syntactic-catalogue.ts`); the histogram + collision aggregation are pure helpers in
+  `ops/symbols-overview-facets.ts`; `kind[]` / `subgroupByKind` dispatch in the op (`ops/symbols-overview.ts`).
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
@@ -639,7 +640,7 @@ A small number of ops ship by default:
 | `expand_type`              | `ts.expandType`                                                                                                                                                   |
 | `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                                                                             |
 | `list`                     | dispatches to the plugin owning the requested registry                                                                                                            |
-| `list_symbols`             | `ts.listSymbols` (no-program syntactic name catalogue; query/summary/duplicatesOnly/kind[]/subgroupByKind facets) + `ts.configMembership` (per-tsconfig grouping) |
+| `symbols_overview`         | `ts.listSymbols` (no-program syntactic name catalogue; query/summary/duplicatesOnly/kind[]/subgroupByKind facets) + `ts.configMembership` (per-tsconfig grouping) |
 | `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)                                                                                                          |
 | `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`                                                                                                           |
 | `move_file`                | `ts` plugin + `support/text-edits`                                                                                                                                |
@@ -1267,7 +1268,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + list_symbols scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: list_symbols per-tsconfig grouping)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1279,7 +1280,7 @@ codemaster/
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
-      search-symbol.ts  source.ts  list.ts  list-symbols.ts  list-symbols-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      search-symbol.ts  source.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
