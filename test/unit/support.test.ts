@@ -2,7 +2,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, mkdirSync, symlinkSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { RepoRelPath } from '../../src/core/brands.ts';
 import { project } from '../helpers/project.ts';
@@ -161,4 +162,104 @@ test('config load: valid file parses, unknown key fails pointedly, none is fine'
   } finally {
     await p.dispose();
   }
+});
+
+// A hermetic tmp dir the test owns end-to-end — created, exercised, removed. The symlink-cycle
+// case would spin the OLD `statSync`-follow walk forever, so it must NEVER be run against a
+// borrowed tree (t-895142). `realpathSync` canonicalizes macOS `/var → /private/var` so the
+// ancestor symlinks point at the true root.
+function withTmp(build: (dir: string) => void, run: (dir: string) => void): void {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'cm-walk-')));
+  try {
+    build(dir);
+    run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('§1 walk: K≥2 ancestor-symlink cycle terminates BOUNDED with partial, never hangs', () => {
+  withTmp(
+    (dir) => {
+      const pkg = path.join(dir, 'pkg');
+      mkdirSync(pkg);
+      writeFileSync(path.join(pkg, 'a.ts'), 'export const X = 1;\n');
+      writeFileSync(path.join(pkg, 'b.ts'), 'export const Y = 2;\n');
+      // The exact incident shape: ≥2 symlinks to an ancestor. The OLD walk exploded into
+      // ~K^32 virtual paths; the bounded walk skips them and returns immediately.
+      symlinkSync(dir, path.join(pkg, 'back1'), 'dir');
+      symlinkSync(dir, path.join(pkg, 'back2'), 'dir');
+    },
+    (dir) => {
+      const walked = walkFiles(path.join(dir, 'pkg'));
+      // Un-followed symlinks are honest incompleteness — partial, never silent (§3.4).
+      assert.ok(!walked.ok, 'a walk that skipped symlinks discloses partial');
+      assert.equal(walked.failure.partial, true);
+      assert.match(walked.failure.message, /symlink\(s\) not followed/);
+      assert.ok(walked.data, 'the real files are still returned alongside the disclosure');
+      const paths = (walked.data ?? []).map((f) => f.path);
+      assert.deepEqual([...paths].sort(), ['a.ts', 'b.ts'], 'real source found, cycle broken');
+    },
+  );
+});
+
+test('§1 walk: wall-clock deadline overrun returns ToolFailure{timeout}, never spins', () => {
+  withTmp(
+    (dir) => {
+      // Ten top-level files so the walk collects several entries BEFORE the deadline trips —
+      // exercises a mid-walk crossing, not just an already-past deadline.
+      for (let i = 0; i < 10; i++)
+        writeFileSync(path.join(dir, `f${i}.ts`), 'export const n = 1;\n');
+    },
+    (dir) => {
+      // An advancing clock: the deadline is crossed on a LATER poll, so the sync walk collects
+      // some files and then stops — the REAL §1 time-deadline mechanism firing mid-walk.
+      let t = 100;
+      const now = () => (t += 10);
+      const walked = walkFiles(dir, { now, deadlineMs: 155 });
+      assert.ok(!walked.ok, 'an overrun walk fails, never a complete-looking answer');
+      assert.equal(walked.failure.tool, 'timeout', 'the §1 timeout mechanism, labelled honestly');
+      assert.equal(walked.failure.partial, true);
+      const collected = (walked.data ?? []).length;
+      assert.ok(collected > 0 && collected < 10, 'stopped mid-walk: some collected, not all');
+
+      // And the already-past edge: a deadline behind the first poll stops immediately.
+      let u = 100;
+      const past = walkFiles(dir, { now: () => (u += 10), deadlineMs: 0 });
+      assert.ok(!past.ok && past.failure.tool === 'timeout', 'an already-past deadline trips too');
+    },
+  );
+});
+
+test('§1 walk: entry-count cap bounds a large acyclic tree with a partial (size bound)', () => {
+  withTmp(
+    (dir) => {
+      for (let i = 0; i < 20; i++)
+        writeFileSync(path.join(dir, `f${i}.ts`), 'export const n = 1;\n');
+    },
+    (dir) => {
+      const walked = walkFiles(dir, { maxEntries: 5 });
+      assert.ok(!walked.ok, 'hitting the entry cap discloses partial, never a silent truncation');
+      assert.equal(walked.failure.partial, true);
+      assert.match(walked.failure.message, /entry cap 5 reached/);
+      assert.ok((walked.data ?? []).length <= 5, 'the cap actually bounded the collected set');
+    },
+  );
+});
+
+test('§1 walk: a clean tree with no symlinks still returns ok and finds real files', () => {
+  withTmp(
+    (dir) => {
+      mkdirSync(path.join(dir, 'src'));
+      writeFileSync(path.join(dir, 'src', 'App.tsx'), 'export const App = 1;\n');
+    },
+    (dir) => {
+      const walked = walkFiles(dir);
+      assert.ok(walked.ok, 'a symlink-free tree is complete — no spurious partial');
+      assert.ok(
+        walked.data.some((f) => f.path === 'src/App.tsx'),
+        'normal discovery intact',
+      );
+    },
+  );
 });

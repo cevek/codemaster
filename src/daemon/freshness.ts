@@ -19,10 +19,19 @@ import { gitRepoFingerprint } from '../support/git/fingerprint.ts';
 import { gitDiffNames } from '../support/git/diff-changed.ts';
 import { runGit, type GitRunner } from '../support/git/run.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
-import { walkFiles } from '../support/fs/walk.ts';
+import { walkFiles, type WalkRunner } from '../support/fs/walk.ts';
 import { hashFileContent, statFingerprint } from '../support/fs/stat-fingerprint.ts';
 
 export type FreshnessMode = 'git' | 'mtime-walk';
+
+/** The non-git mtime-walk is coalesced: within this window of the last walk a burst of ops
+ *  reuses the prior fingerprint instead of re-walking the tree per call (a §1 hazard — work
+ *  scaling with repo size). Short, because non-git freshness is best-effort anyway (§19). */
+const WALK_TTL_MS = 1000;
+
+/** Wall-clock budget for a single freshness walk. On overrun the walk returns an honest
+ *  `timeout` (§1) and the op carries `unverified`, never a silently-stale clean answer. */
+const WALK_DEADLINE_MS = 5000;
 
 export interface DriftCheck {
   mode: FreshnessMode;
@@ -101,9 +110,14 @@ export function createFreshnessGuard(
   clock: Clock,
   debug: DebugSystem,
   git: GitRunner = runGit,
+  walk: WalkRunner = walkFiles,
 ): FreshnessGuard {
   const trace = debug.ns('resync');
   let state: GitState | WalkState | undefined;
+  /** Debounce bookkeeping for the non-git walk (§1). `lastWalkFailure` rides a debounce-hit
+   *  so a coalesced answer never launders a timed-out/partial baseline into clean (§3.5). */
+  let lastWalkAtMs = 0;
+  let lastWalkFailure: ToolFailure | undefined;
 
   const checkGit = async (): Promise<DriftCheck | undefined> => {
     const captured = await gitRepoFingerprint(root, git);
@@ -126,7 +140,7 @@ export function createFreshnessGuard(
       // the tracked tree (a transition is rare; a stale answer dressed as fresh is the §3.5
       // lie). After the reindex the clean-commit anchor is honest.
       state = next;
-      const all = walkFiles(root);
+      const all = walk(root, { now: clock.now, deadlineMs: clock.now() + WALK_DEADLINE_MS });
       const allPaths = (all.ok ? all.data : (all.data ?? [])).map((f) => f.path);
       return {
         mode: 'git',
@@ -180,17 +194,33 @@ export function createFreshnessGuard(
   };
 
   const checkWalk = (): DriftCheck => {
-    const walked = walkFiles(root);
-    const files = new Map<RepoRelPath, FileFingerprint>();
     const nowMs = clock.now();
+    const prev = state;
+    // Debounce (§1): a full re-walk of a non-git tree on every op is itself "per-call work that
+    // scales with repo size". Within a short TTL of the last walk, reuse the prior fingerprint —
+    // coalescing an op burst into ONE walk. Gated on an existing mtime-walk baseline: a cold start
+    // and a git→walk transition MUST walk (to seed / force the reindex). The last walk's failure
+    // rides along, so a debounce-hit never dresses a timed-out/partial baseline as clean (§3.5).
+    if (prev?.mode === 'mtime-walk' && nowMs - lastWalkAtMs < WALK_TTL_MS) {
+      return {
+        mode: 'mtime-walk',
+        changed: [],
+        cleanAtCommit: undefined,
+        failure: lastWalkFailure,
+      };
+    }
+
+    const walked = walk(root, { now: clock.now, deadlineMs: nowMs + WALK_DEADLINE_MS });
+    lastWalkAtMs = nowMs;
+    lastWalkFailure = walked.ok ? undefined : walked.failure;
+    const files = new Map<RepoRelPath, FileFingerprint>();
     const walkedFiles = walked.ok ? walked.data : (walked.data ?? []);
     for (const f of walkedFiles) {
       files.set(f.path, { path: f.path, size: f.size, mtimeMs: f.mtimeMs, recordedAtMs: nowMs });
     }
     const next: WalkState = { mode: 'mtime-walk', files };
-    const prev = state;
     state = next;
-    const failure = walked.ok ? undefined : walked.failure;
+    const failure = lastWalkFailure;
 
     if (prev === undefined) {
       // Cold first check: plugins index lazily from the current tree (no reindex needed).

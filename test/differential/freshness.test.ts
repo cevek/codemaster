@@ -304,6 +304,10 @@ test('racy-clean mtime tie is resolved by content end-to-end (§19, mtime-walk m
     // same value → only a content hash can tell them apart.
     p.write('src/a.module.scss', '.two { color: red; }\n');
     pin('src/a.module.scss');
+    // The non-git mtime-walk is debounced (§1: no per-op repo-scale re-walk); advance past the
+    // window so this op re-walks. The racy-clean tie itself is unaffected — it is fixed by the
+    // FIRST walk's recorded-at-vs-mtime distance, not by when the second walk runs (§19).
+    p.clock.advance(1001);
     const second = await p.op('scss_classes', {});
     assert.ok('result' in second && second.result.ok);
     assert.deepEqual(

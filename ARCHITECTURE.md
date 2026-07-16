@@ -153,8 +153,10 @@ This is the section that the rest of the design serves.
    check would miss a file that _should_ have been in a find-all result but wasn't, which
    is itself a completeness lie (§3.4). Every query takes a cheap whole-repo fingerprint —
    `git rev-parse HEAD` **plus** `git status --porcelain` (adds/removes/dirty in one
-   call), with a file-mtime rollup (a per-query stat-walk, so in-place edits aren't missed) as the
-   non-git fallback. On drift, the changed set comes
+   call), with a file-mtime rollup as the non-git fallback — a **bounded, burst-coalesced**
+   stat-walk (never follows a symlink, is depth/entry/time-capped per §1, and is not re-run at
+   repo scale on every op — a short debounce reuses the prior fingerprint within a ~1s window,
+   so a same-second non-git edit is best-effort, §19). On drift, the changed set comes
    from `git diff --name-only` (not the answer's touch-set); we reindex-on-read or attach a
    `FreshnessNote`. **This global check is the correctness guarantee; the watcher is only
    an optimization** that keeps the read path usually-already-fresh. A fingerprint, not a
@@ -1467,7 +1469,14 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   a tie. The non-git mtime fallback copies the same racy-clean rule across the whole tree — size
   - mtime, treating a file within the FS mtime-resolution window of the recorded stamp as
     dirty (hash-on-tie) — else a same-tick edit is silently missed on coarse FS (HFS+, FAT,
-    some network mounts). (§3.5, §8)
+    some network mounts). That whole-tree walk is **bounded and burst-coalesced** so it can neither
+    hang nor scale per-op (§1): `walkFiles` uses `lstat` and **never follows a symlink** (a dir with
+    ≥2 ancestor symlinks otherwise explodes into ~K^32 virtual paths — an eternal 100% CPU sync spin
+    that kills the event loop; skipped symlinks are counted + disclosed as `partial`, never silently
+    dropped — §3.4), is depth- and entry-capped, and is stopped by a wall-clock deadline →
+    `partial{tool:'timeout'}` on overrun; the per-op freshness re-walk is debounced (a ~1s window
+    reuses the prior fingerprint, the baseline's failure riding along so a timed-out/partial walk is
+    never laundered into a clean answer). (§3.5, §8)
 - **Monorepo LS = project references, not a flat Program.** One engine/process, but the
   `ts` plugin runs one `Program` per package `tsconfig`, each keeping its own
   `compilerOptions` (never a flat single-options Program). Built today: the repo's tsconfigs

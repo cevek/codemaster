@@ -1,7 +1,7 @@
 ---
 id: t-368812
 title: "walk.ts symlink-cycle busy-loop: don't-follow symlink dirs + depth/entry cap; AND cache the per-op freshness walk (§1 never-hang root fix)"
-status: backlog
+status: done
 priority: urgent
 parent: t-895142
 tags:
