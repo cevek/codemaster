@@ -39,33 +39,24 @@ import { spanFromRange } from './spans.ts';
 import { deriveRootTag, mintSymbolId } from './symbol-id.ts';
 import type { SyntacticCache, SyntacticSources } from './syntactic-cache.ts';
 import { surfaceSources } from './syntactic-surface.ts';
+import { createPatternMatcher, type PatternMatcher } from './syntactic-matcher.ts';
 import { isImportSite, isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { SymbolView } from './query-types.ts';
 
 // ── @internal TS surface (the ONE documented boundary) ───────────────────────────────────────
-// `getNamedDeclarations` and `createPatternMatcher` are TS `@internal` (absent from the public
-// typescript.d.ts) but are pure, project-agnostic functions navto itself is built on — reusing
-// them is what guarantees identical recall (proven: 0 misses vs navto under-root over 25 queries ×
-// 2 repos). This is NOT a second parser or a standalone structural index ahead of the LS (the §4a
-// concern): both helpers run on the SAME `ts.createSourceFile` AST, syntactic-only, and this path is
-// an opt-in fallback populated only on `syntactic:true` — so it is only a note about @internal-API
-// stability (distinct from the §4/§14 TS-fork edit-producer exception). Typed via a single boundary
-// block of `as unknown as` casts (never `any`); their presence is capability-checked once so a TS
-// bump that drops them fails honestly, and a shape drift is caught by the oracle test.
-interface PatternMatch {
-  readonly kind: number; // exact=0 < prefix=1 < substring=2 < camelCase=3 (rank order)
-}
-interface PatternMatcher {
-  getMatchForLastSegmentOfPattern(candidate: string): PatternMatch | undefined;
-}
+// `getNamedDeclarations` (below) and `createPatternMatcher` (syntactic-matcher.ts — shared with the
+// `list_symbols` catalogue filter) are TS `@internal` (absent from the public typescript.d.ts) but
+// are pure, project-agnostic functions navto itself is built on — reusing them is what guarantees
+// identical recall (proven: 0 misses vs navto under-root over 25 queries × 2 repos). This is NOT a
+// second parser or a standalone structural index ahead of the LS (the §4a concern): both helpers run
+// on the SAME `ts.createSourceFile` AST, syntactic-only, and this path is an opt-in fallback populated
+// only on `syntactic:true` — so it is only a note about @internal-API stability (distinct from the
+// §4/§14 TS-fork edit-producer exception). Typed via a single boundary block of `as unknown as` casts
+// (never `any`); their presence is capability-checked once so a TS bump that drops them fails
+// honestly, and a shape drift is caught by the oracle test.
 interface SourceFileNamedDecls {
   getNamedDeclarations(): Map<string, readonly ts.Declaration[]>;
-}
-function createPatternMatcher(pattern: string): PatternMatcher | undefined {
-  return (
-    ts as unknown as { createPatternMatcher(p: string): PatternMatcher | undefined }
-  ).createPatternMatcher(pattern);
 }
 function namedDeclarations(sf: ts.SourceFile): Map<string, readonly ts.Declaration[]> {
   return (sf as unknown as SourceFileNamedDecls).getNamedDeclarations();

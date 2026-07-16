@@ -231,9 +231,10 @@ leaf-first reorder. The rescue fork still serves the residual overlap shapes the
 **Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
 and `list_symbols` (the OOM-survival discovery paths, §5-L2 / t-515730 / t-143952) parse files with the
 **same** `ts.createSourceFile` (a shared surface build) and read them with the TS `@internal`
-`getNamedDeclarations` helper (the declaration set) — `search_symbol` additionally uses
-`createPatternMatcher` (navto's own name matcher, project-agnostic) for its fuzzy match, while
-`list_symbols` enumerates the whole surface. This is **not** a second parser
+`getNamedDeclarations` helper (the declaration set) — both share the `createPatternMatcher` wrapper
+(navto's own name matcher, project-agnostic — `syntactic-matcher.ts`) for their fuzzy match:
+`search_symbol` for its query, `list_symbols` for its optional `query` name filter (t-960572);
+`list_symbols` otherwise enumerates the whole surface. This is **not** a second parser
 or a second oracle: there is one AST, produced by the one TS parser; the helpers only read it. It is
 purely a note about **`@internal`-API stability** — the helpers are absent from the public
 `typescript.d.ts`, so they are behind a single typed `as unknown as` boundary block (never `any`) and
@@ -539,6 +540,20 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   base-`tsconfig.json` tie-break), flagged `(shared: also in …)`, never double-counted / dropped; the
   flat blob dedups globally. Same honest scope as the syntactic search (under-root only) + per-group
   caps with `+N more` and a verdict-first totals line (§3.4/§12).
+  **ORIENTATION FACETS (t-960572)** — five cheap views on that SAME one no-program pass (no extra scan,
+  no LS warm), each OFF by default so the flat catalogue stays byte-stable: `query` (navto fuzzy name
+  filter — the SHARED `createPatternMatcher`, `syntactic-matcher.ts`, that the syntactic search reuses;
+  applied to each parsed name BEFORE the per-group cap, so a narrowed catalogue is still
+  capped-with-honesty; a `query` whose @internal matcher is unavailable fails honestly, never a silent
+  unfiltered dump); `summary`/`summaryOnly` (a kind HISTOGRAM + per-config totals of the FULL
+  post-filter set — never the capped body; MULTI-BUCKET: a value+type merged name counts in EACH kind
+  bucket, so buckets may sum above the name-total — disclosed, no arbitrary "primary kind"); `kind` as
+  a scalar OR an array (matches ANY listed kind); `duplicatesOnly` (only names with a REAL declaration
+  in ≥2 files — the `find_usages {name}` ambiguity landmines; a barrel re-export adds no real decl so
+  it is NOT a collision, rendered `name ×N (configs)`); `subgroupByKind` (partition each tsconfig group
+  into deterministic `config › kind` subsections, reusing the `symbol-catalogue-group` shape — no new
+  render tag — with the shared-config flag preserved). The facets live in `ops/list-symbols-facets.ts`
+  (histogram + collision aggregation, pure over the catalogue rows).
 - **`scss`** — SCSS classes & their usages via `postcss-scss` CST. Syntactic only;
   `@use`/`@forward` cross-module checks are `partial` (§19).
 - **`i18n`** — locale-JSON keys + `t('…')` usages (template literals flagged `dynamic`),
@@ -616,29 +631,29 @@ plugin boundaries, not from internal pokes.
 
 A small number of ops ship by default:
 
-| Op                         | Composes                                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)                                                           |
-| `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`)                                                         |
-| `search_symbol`            | `ts.searchSymbol` (LS navto); `{syntactic:true}` → `ts.searchSymbolSyntactic` (no-program AST scan, OOM-survival) |
-| `expand_type`              | `ts.expandType`                                                                                                   |
-| `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                             |
-| `list`                     | dispatches to the plugin owning the requested registry                                                            |
-| `list_symbols`             | `ts.listSymbols` (no-program syntactic name catalogue) + `ts.configMembership` (per-tsconfig grouping)            |
-| `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)                                                          |
-| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`                                                           |
-| `move_file`                | `ts` plugin + `support/text-edits`                                                                                |
-| `extract_symbol`           | `ts` plugin + `support/text-edits`                                                                                |
-| `move_symbol`              | `ts` plugin (LS "Move to file") + `support/text-edits`                                                            |
-| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms                                                            |
-| `codemod`                  | ast-grep matcher + `support/text-edits`                                                                           |
-| `find_unused_scss_classes` | `ts` + `scss`                                                                                                     |
-| `find_unused_i18n_keys`    | `ts` + `i18n`                                                                                                     |
-| `find_phantom_deps`        | `ts` (node_modules-resolving bare imports) + `support/framework-detect` (per-package manifest deps join)          |
-| `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)                                                            |
-| `impact`                   | `ts` (type-aware reference blast radius)                                                                          |
-| `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck                                                                 |
-| `affected`                 | `ts` import graph + `support/git`                                                                                 |
+| Op                         | Composes                                                                                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)                                                                                                           |
+| `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`)                                                                                                         |
+| `search_symbol`            | `ts.searchSymbol` (LS navto); `{syntactic:true}` → `ts.searchSymbolSyntactic` (no-program AST scan, OOM-survival)                                                 |
+| `expand_type`              | `ts.expandType`                                                                                                                                                   |
+| `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                                                                             |
+| `list`                     | dispatches to the plugin owning the requested registry                                                                                                            |
+| `list_symbols`             | `ts.listSymbols` (no-program syntactic name catalogue; query/summary/duplicatesOnly/kind[]/subgroupByKind facets) + `ts.configMembership` (per-tsconfig grouping) |
+| `trace_*` (invalidation/…) | walk plugin-to-plugin per hop, proof-carrying (§17 Ph 6)                                                                                                          |
+| `rename_symbol`            | `ts.renameSites` + `support/text-edits` + `support/git`                                                                                                           |
+| `move_file`                | `ts` plugin + `support/text-edits`                                                                                                                                |
+| `extract_symbol`           | `ts` plugin + `support/text-edits`                                                                                                                                |
+| `move_symbol`              | `ts` plugin (LS "Move to file") + `support/text-edits`                                                                                                            |
+| `change_signature`         | `ts` plugin + `support/text-edits` + caller transforms                                                                                                            |
+| `codemod`                  | ast-grep matcher + `support/text-edits`                                                                                                                           |
+| `find_unused_scss_classes` | `ts` + `scss`                                                                                                                                                     |
+| `find_unused_i18n_keys`    | `ts` + `i18n`                                                                                                                                                     |
+| `find_phantom_deps`        | `ts` (node_modules-resolving bare imports) + `support/framework-detect` (per-package manifest deps join)                                                          |
+| `transaction`              | ordered chain of mutating ops, one typecheck gate (§7)                                                                                                            |
+| `impact`                   | `ts` (type-aware reference blast radius)                                                                                                                          |
+| `impact_type_error`        | `ts` trial-edit overlay + cross-program typecheck                                                                                                                 |
+| `affected`                 | `ts` import graph + `support/git`                                                                                                                                 |
 
 The table is illustrative, not exhaustive — `status` is authoritative for the per-repo
 op catalogue.
@@ -1252,7 +1267,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,cache}.ts: the no-program OOM-survival search_symbol + list_symbols scans; program/config-membership.ts: list_symbols per-tsconfig grouping)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + list_symbols scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: list_symbols per-tsconfig grouping)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1264,7 +1279,7 @@ codemaster/
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
-      search-symbol.ts  source.ts  list.ts  list-symbols.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      search-symbol.ts  source.ts  list.ts  list-symbols.ts  list-symbols-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …

@@ -1,7 +1,7 @@
 ---
 id: t-960572
 title: 'list_symbols: add a name/fuzzy filter (`query` arg) — reuse the syntactic createPatternMatcher so a multi-thousand-name catalogue narrows by NAME, not just path/kind (OOM-safe)'
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood
