@@ -322,8 +322,8 @@ async function main(): Promise<number> {
         return 1;
       }
       // A dispatch error (unknown_op / bad_args / op_threw / unavailable) is a request-level
-      // NON-result: under json it serializes as a valid envelope via the SHARED `dispatchErrorJson`
-      // (byte-parity with the MCP path, no parallel serializer), else the dense `DISPATCH` line. It
+      // NON-result: `dispatchErrorLine` (SHARED with the MCP path, no parallel serializer) emits a
+      // valid JSON envelope under json, else the dense `DISPATCH` line. It
       // also flips the exit code non-zero (§3, t-337633) — the CLI mirror of the MCP `isError:true`
       // — so a `--format json | jq` consumer never reads a non-result on a success exit code. A
       // structured ok:false ToolFailure stays a JSON success-exit answer (it's an honest result).
