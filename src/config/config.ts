@@ -17,6 +17,13 @@ export interface TsConfig {
   packages?: string[];
   /** tsconfig to drive the LanguageService (autodetected when omitted). */
   tsconfig?: string;
+  /** Pre-warm size guard (ARCHITECTURE.md §9): the source-file count above which a DEFAULT
+   *  (navto) `search_symbol` refuses to warm the LanguageService — warming a huge multi-program
+   *  fan-out risks OOM (kills the in-process daemon) and squats memory for a throwaway discovery
+   *  query. Over it the op redirects to `symbols_overview` / `search_symbol {syntactic:true}`;
+   *  `force:true` overrides per-call. Default 4000 (codemaster ~629 files passes; a monorepo that
+   *  OOM'd was ~6076). Raise it for a big machine, lower it to redirect sooner. */
+  searchWarmMaxFiles?: number;
 }
 
 export interface I18nConfig {

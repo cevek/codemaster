@@ -90,6 +90,17 @@ export interface TsPluginApi extends Plugin {
    *  file under an UNDISCOVERED program (the case that motivates the hint). Host-free + bounded (the
    *  shared `gitSourceFilesSync` primitive); best-effort — empty on a git failure. */
   filesNamed(name: string): { files: RepoRelPath[]; total: number };
+  /** Pre-warm size guard (t-333163): the file-count threshold above which a DEFAULT (navto)
+   *  `search_symbol` refuses to warm the LS — warming a huge multi-program fan-out risks OOM
+   *  (kills the in-process daemon) and squats memory for a throwaway discovery query. Resolved
+   *  from `config.ts.searchWarmMaxFiles` (default applied at construction). */
+  readonly searchWarmMaxFiles: number;
+  /** The cheap, §19-bounded pre-warm size estimate: the count of git-tracked source files the
+   *  default navto path would fan across (`.ts/.tsx/.mts/.cts`, minus `.d.ts`), WITHOUT warming the
+   *  LS / building any program — one cheap git listing of the §10 git-source surface. File-count, not
+   *  bytes (a per-file stat over the surface is the O(surface) hang-class §19 forbids). A git failure
+   *  surfaces honestly — the guard falls through to warm rather than over-refuse on a git hiccup. */
+  estimateSourceFileCount(): Result<number>;
   findDefinition(
     target: TsTargetInput,
   ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;

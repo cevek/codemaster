@@ -49,7 +49,9 @@ function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin
   // ops register unconditionally and are gated by plugin presence via `requires`
   // (§ spec-i18n-plugin / spec-schema-plugin).
   return [
-    createTsPlugin(root, config.ts?.tsconfig),
+    createTsPlugin(root, config.ts?.tsconfig, {
+      searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+    }),
     createScssPlugin(root),
     ...(config.i18n !== undefined
       ? [

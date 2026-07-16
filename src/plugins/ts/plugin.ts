@@ -30,6 +30,7 @@ import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
 import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
+import { estimateSourceFileCount } from './surface-size.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
@@ -83,7 +84,17 @@ export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 export type { ResolvedTarget, TsTargetInput };
 export type { TsPluginApi };
 
-export function createTsPlugin(root: string, tsconfigOverride?: string): TsPluginApi {
+/** Default file-count above which a bare `search_symbol` (navto) refuses to warm (t-333163). Data-
+ *  informed: codemaster is ~629 source files (must pass, ~6× headroom); a monorepo that OOM'd the
+ *  daemon was ~6076 — 4000 sits between, and the asymmetry favours a conservative default (a
+ *  false-refuse is a soft redirect to `symbols_overview`; a false-allow is an OOM/crash). */
+const DEFAULT_SEARCH_WARM_MAX_FILES = 4000;
+
+export function createTsPlugin(
+  root: string,
+  tsconfigOverride?: string,
+  guard?: { searchWarmMaxFiles?: number | undefined },
+): TsPluginApi {
   let host: TsProjectHost | undefined;
   let pendingBeforeWarm: RepoRelPath[] = [];
 
@@ -159,6 +170,12 @@ export function createTsPlugin(root: string, tsconfigOverride?: string): TsPlugi
 
     searchSymbol: (query, limit, filter, includeDecl) =>
       searchSymbols(warm(), query, limit, filter, includeDecl),
+
+    // Pre-warm size guard (t-333163): the resolved threshold + the cheap no-warm estimate. Both take
+    // `root`/`syntacticCache` directly and NEVER call warm() — the guard must not warm the very LS it
+    // exists to protect from warming.
+    searchWarmMaxFiles: guard?.searchWarmMaxFiles ?? DEFAULT_SEARCH_WARM_MAX_FILES,
+    estimateSourceFileCount: () => estimateSourceFileCount(root),
 
     // The syntactic path takes `root` directly and NEVER calls warm() — no LS, no program build
     // (that is the whole point: survive/avoid the navto OOM). So it leaves the plugin cold. The

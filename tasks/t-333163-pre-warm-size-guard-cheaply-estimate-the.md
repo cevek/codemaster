@@ -1,7 +1,7 @@
 ---
 id: t-333163
 title: 'Pre-warm size guard: cheaply estimate the fan-out surface before warming the LS for a bare-name search_symbol; over a threshold → refuse + redirect to symbols_overview / syntactic (anti-OOM in-process, anti-memory-bloat in process-mode)'
-status: backlog
+status: done
 priority: medium
 parent: t-031282
 tags:

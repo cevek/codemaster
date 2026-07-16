@@ -170,7 +170,12 @@ export async function project(
     // overrides it with a value that changes after spawn.
     sourceFingerprint: options?.sourceFingerprint ?? ((): string => 'test-src'),
     pluginsFor: (config, repoRoot) => [
-      faultTs(createTsPlugin(repoRoot, config.ts?.tsconfig), options?.faultTsMethod),
+      faultTs(
+        createTsPlugin(repoRoot, config.ts?.tsconfig, {
+          searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+        }),
+        options?.faultTsMethod,
+      ),
       createScssPlugin(repoRoot),
       ...(config.i18n !== undefined
         ? [

@@ -12,6 +12,7 @@ const tsSection = z.strictObject({
   ignore: z.array(z.string()).optional(),
   packages: z.array(z.string()).optional(),
   tsconfig: z.string().optional(),
+  searchWarmMaxFiles: z.number().int().positive().optional(),
 });
 
 const i18nSection = z

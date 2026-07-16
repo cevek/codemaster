@@ -59,7 +59,23 @@ const argsSchema = z.strictObject({
    *  use the default for those. Use it if a default call fails or times out; drop it for the exact
    *  result. Default OFF (precise). */
   syntactic: z.boolean().optional(),
+  /** Override the pre-warm size guard (t-333163): on a very large repo the default (navto) path
+   *  refuses to warm the LS (OOM / memory-squat risk) and redirects; `force:true` warms anyway.
+   *  Ignored on the `syntactic` path (already no-warm). Default OFF. */
+  force: z.boolean().optional(),
 });
+
+/** The pre-warm size guard's refuse message (§1 never-crash / resource-respect): honest about WHY
+ *  (OOM + throwaway memory) and actionable (the three no-warm / opt-in escapes). */
+function sizeGuardRefusal(count: number, threshold: number): string {
+  return (
+    `repo is large (${count} source files > threshold ${threshold}) — a repo-wide navto search over ` +
+    `this many programs risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
+    `throwaway discovery query. Browse via symbols_overview, then find_definition / find_usages on the ` +
+    `specific symbol; or search_symbol {syntactic:true} for an OOM-safe fuzzy search; or pass ` +
+    `force:true to warm anyway.`
+  );
+}
 
 /** Guardrail 4 (t-515730): every syntactic-path answer states its provenance and does NOT claim to
  *  match the LS provider. Positive scope (§3.6 report-capability), never "may have missed": states
@@ -119,7 +135,7 @@ export const searchSymbolOp = defineOp({
   requires: ['ts'],
   argsSchema,
   argsHint:
-    '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean }',
+    '{ query: string, limit?, kind?: string, exportedOnly?: boolean, pathExclude?: string[], pathInclude?: string[], syntactic?: boolean, force?: boolean }',
   // §7 Postel: the op-map advertises this op as "fuzzy-find a symbol BY NAME", so `name` is the
   // intuitive-but-wrong spelling of the canonical `query` (the single most-recurring dogfood
   // friction). Aliased, disclosed via Result.intake; the canonical schema stays the sole gate.
@@ -133,6 +149,11 @@ export const searchSymbolOp = defineOp({
     // DEAD and cannot say "retry with the flag" post-hoc (t-515730). Actionable without the agent
     // knowing the isolation mode.
     'on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).',
+    // t-333163: the default path pre-checks the source-file count and REFUSES to warm the LS above a
+    // configurable threshold (config `ts.searchWarmMaxFiles`, default 4000) — warming a huge fan-out
+    // risks OOM and squats memory for a throwaway query. The refusal redirects to symbols_overview /
+    // `syntactic:true`; `force:true` warms anyway. Advertised so the behaviour is not a surprise.
+    'on a repo above `ts.searchWarmMaxFiles` (default 4000 source files) the default path REFUSES to warm (OOM/memory-squat risk) and redirects to symbols_overview or `syntactic:true`; pass `force:true` to warm regardless.',
   ],
   table: searchSymbolTable,
   async run(ctx, args) {
@@ -162,6 +183,21 @@ export const searchSymbolOp = defineOp({
         return syntacticResult(res.data, args.query, args.exportedOnly === true, () =>
           fileModuleHint(args.query, ts.filesNamed(args.query)),
         );
+      }
+      // Pre-warm size guard (t-333163): BEFORE the navto path warms the LS, cheaply estimate the
+      // fan-out surface; over the threshold, refuse + redirect instead of warming (an OOM on the
+      // in-process daemon is uncatchable; even in process-mode the warmed program squats memory for
+      // a throwaway query). `syntactic` (above) and `force` bypass. An estimate FAILURE (git hiccup)
+      // falls THROUGH to warm — the guard is an optimization, not a correctness gate, so a git error
+      // must not over-refuse a legitimate search.
+      if (args.force !== true) {
+        const estimate = ts.estimateSourceFileCount();
+        if (estimate.ok && estimate.data > ts.searchWarmMaxFiles) {
+          return fail({
+            tool: 'size-guard',
+            message: sizeGuardRefusal(estimate.data, ts.searchWarmMaxFiles),
+          });
+        }
       }
       const { matches, total, filteredOutByPath } = ts.searchSymbol(
         args.query,

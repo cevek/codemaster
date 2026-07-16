@@ -69,7 +69,9 @@ export async function multiRepo(
     stateDir: path.join(mkdtempSync(path.join(tmpdir(), 'cm-state-')), 'state'),
     ...(opts?.maxEngines !== undefined ? { maxEngines: opts.maxEngines } : {}),
     pluginsFor: (config, repoRoot) => [
-      createTsPlugin(repoRoot, config.ts?.tsconfig),
+      createTsPlugin(repoRoot, config.ts?.tsconfig, {
+        searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+      }),
       createScssPlugin(repoRoot),
     ],
     opsFor: () => builtinOps(),
