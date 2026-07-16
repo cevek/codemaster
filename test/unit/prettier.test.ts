@@ -45,6 +45,55 @@ test('resolvePrettier reports unavailable when the project ships no prettier (no
   }
 });
 
+test('resolvePrettier stays unavailable when prettier lives only in an ANCESTOR node_modules (bound to repo root)', async () => {
+  // The inspected repo ships no prettier, but a prettier install sits in an ancestor dir ABOVE
+  // the repo root (a hoisted / dev-tree layout). Node's bare-specifier lookup walks up into it;
+  // resolution must NOT — formatting the repo with an ancestor's prettier is the §5-L1 lie.
+  const ancestor = mkdtempSync(path.join(os.tmpdir(), 'cm-prettier-anc-'));
+  const repoRoot = path.join(ancestor, 'repo');
+  try {
+    // ancestor/node_modules/prettier — a real copy ABOVE the inspected root
+    mkdirSync(path.join(ancestor, 'node_modules'), { recursive: true });
+    symlinkSync(prettierDir, path.join(ancestor, 'node_modules', 'prettier'), 'dir');
+    // repo/ ships nothing of its own
+    mkdirSync(repoRoot, { recursive: true });
+    writeFileSync(path.join(repoRoot, 'package.json'), '{}', 'utf8');
+    const resolved = await resolvePrettier(repoRoot);
+    assert.equal(resolved.available, false);
+    if (!resolved.available) assert.match(resolved.reason, /does not ship prettier/);
+  } finally {
+    rmSync(ancestor, { recursive: true, force: true });
+  }
+});
+
+test('resolvePrettier stays unavailable when only NODE_PATH points at a foreign prettier', async () => {
+  // The real leak vector: an env-set NODE_PATH (dev/agent shells set it) makes Node's
+  // bare-specifier fallback resolve a prettier OUTSIDE the repo. Pin it directly: a repo that
+  // ships no prettier must read `unavailable` even with NODE_PATH aimed at a foreign copy.
+  const foreignNodeModules = path.dirname(prettierDir); // the node_modules dir that holds prettier/
+  const dir = tempProject({ 'package.json': '{}' });
+  const savedNodePath = process.env.NODE_PATH;
+  try {
+    process.env.NODE_PATH = foreignNodeModules;
+    // Re-read NODE_PATH into the module system so the fallback is actually armed for this test.
+    // `_initPaths` is a private Node API — assert it exists so a future Node dropping it fails
+    // LOUD here instead of silently no-op'ing the arm (which would make this test pass trivially
+    // against the very bug it pins, §16 "a test green on the bug is a lie").
+    const mod = require('node:module') as { _initPaths?: () => void };
+    assert.ok(mod._initPaths, 'test needs Module._initPaths to arm the NODE_PATH fallback');
+    mod._initPaths();
+    const resolved = await resolvePrettier(dir);
+    assert.equal(resolved.available, false);
+    if (!resolved.available) assert.match(resolved.reason, /does not ship prettier/);
+  } finally {
+    if (savedNodePath === undefined) delete process.env.NODE_PATH;
+    else process.env.NODE_PATH = savedNodePath;
+    const mod = require('node:module') as { _initPaths?: () => void };
+    mod._initPaths?.();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("resolvePrettier resolves the project's own prettier", async () => {
   const dir = tempProject({ 'package.json': '{}' }, { withPrettier: true });
   try {

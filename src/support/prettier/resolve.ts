@@ -4,10 +4,11 @@
 // prettier would get every file restyled — a lie about "we kept your formatting"). So there
 // is no bundled fallback: if the inspected repo doesn't ship prettier, we report
 // `available: false` and the mutating ops write the (already type-checked) content
-// unformatted. The project copy is loaded with `createRequire` rooted at the project, so its
-// `node_modules` wins (ARCHITECTURE.md §5-L1).
+// unformatted. Resolution is BOUNDED to the inspected repo's own `node_modules/prettier` and
+// never escapes upward into an ancestor / `NODE_PATH` / global copy (ARCHITECTURE.md §5-L1).
 
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
 /** Hand-rolled surface of the prettier module we use — avoids an `@types/prettier` dep
@@ -43,8 +44,18 @@ function asPrettierApi(mod: unknown): PrettierApi | undefined {
 
 function loadProjectPrettier(projectRoot: string): PrettierApi | undefined {
   try {
-    const req = createRequire(path.join(projectRoot, 'package.json'));
-    const mod: unknown = req('prettier');
+    // Bound resolution to the inspected repo's OWN `node_modules/prettier`. We deliberately do
+    // NOT resolve the bare `'prettier'` specifier: Node's bare-specifier lookup walks up the dir
+    // tree AND falls back to `NODE_PATH` / global folders, so an ancestor / env-leaked / global
+    // prettier outside the repo would satisfy it — restyling a repo that ships none (the §5-L1
+    // lie). Instead: confirm the project's own copy exists, then load it via a relative `'.'`
+    // require rooted at that package.json, which stays inside the package dir by construction
+    // (no NODE_PATH / no ancestor escape). A monorepo is unaffected — its hoisted prettier lives
+    // at `<inspected-root>/node_modules/prettier`, INSIDE the root callers pass.
+    const pkg = path.join(projectRoot, 'node_modules', 'prettier', 'package.json');
+    if (!existsSync(pkg)) return undefined;
+    const req = createRequire(pkg);
+    const mod: unknown = req('.');
     // Unwrap a `.default` (ESM-interop) wrapper — else a project prettier exposed under
     // `.default` would fail the surface check and read as not-available.
     return asPrettierApi(mod) ?? asPrettierApi((mod as { default?: unknown }).default);

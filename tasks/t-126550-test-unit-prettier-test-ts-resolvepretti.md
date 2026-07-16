@@ -1,7 +1,7 @@
 ---
 id: t-126550
 title: 'test/unit/prettier.test.ts: "resolvePrettier reports unavailable when project ships no prettier" fails — hoisted prettier leaks into a no-prettier fixture'
-status: backlog
+status: done
 priority: medium
 tags:
   - dogfood
