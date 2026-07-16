@@ -6,6 +6,7 @@
 import type { JsonValue } from '../core/json.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
+import { lowerBoundNote } from './lower-bound-note.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
 
 /** Classify a `symbols[]` element into the canonical target it denotes — a `ts:` SymbolId, a
@@ -135,11 +136,9 @@ export function usagesFloor(view: UsagesView): {
 } {
   const u = view.undiscoveredPrograms;
   if (u === undefined || u.length === 0) return { fields: {} };
-  const named = u.slice(0, 3).join(', ');
-  const more = u.length > 3 ? `, +${u.length - 3} more` : '';
   return {
     fields: { complete: false, undiscoveredPrograms: u },
-    note: `!! LOWER BOUND — ${u.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); usages under them were NOT searched. A symbol used ONLY there reads as fewer/zero usages here — do NOT treat a low/zero count as proof of deadness. Load/reference the config to recover a complete count.`,
+    note: lowerBoundNote(u, { subject: 'usages', noun: 'usage', negation: 'of deadness' }),
   };
 }
 

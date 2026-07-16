@@ -7,7 +7,9 @@ import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { capList } from '../common/truncate/cap-list.ts';
+import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { lowerBoundNote } from './lower-bound-note.ts';
 
 /** A `Truncation` as an inline `JsonValue` field (the core type carries no index signature, so it
  *  is not assignable to `JsonValue` directly — projected here for the `*Truncated` data fields). */
@@ -27,11 +29,13 @@ import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 function importersFloor(view: ImportersView): { fields: Record<string, JsonValue>; note?: string } {
   const u = view.undiscoveredPrograms;
   if (u === undefined || u.length === 0) return { fields: {} };
-  const named = u.slice(0, 3).join(', ');
-  const more = u.length > 3 ? `, +${u.length - 3} more` : '';
   return {
     fields: { complete: false, undiscoveredPrograms: u },
-    note: `!! LOWER BOUND — ${u.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); importers under them were NOT scanned. A module imported ONLY there reads as fewer/zero importers here — do NOT treat a low/zero count as proof nothing depends on it. Load/reference the config to recover a complete list.`,
+    note: lowerBoundNote(u, {
+      subject: 'importers',
+      noun: 'importer',
+      negation: 'that nothing depends on it',
+    }),
   };
 }
 
@@ -191,10 +195,8 @@ function subtreeNote(
     );
   }
   if (!complete) {
-    const named = undiscovered.slice(0, 3).join(', ');
-    const more = undiscovered.length > 3 ? `, +${undiscovered.length - 3} more` : '';
     parts.push(
-      `!! LOWER BOUND — ${undiscovered.length} repo tsconfig(s) NOT scanned (${named}${more}); an external importer ONLY there is unseen`,
+      `!! LOWER BOUND — ${undiscovered.length} repo tsconfig(s) NOT scanned (${nameWithMore(undiscovered, 3)}); an external importer ONLY there is unseen`,
     );
   }
   return `NOT safe to delete: ${parts.join('; ')}.`;

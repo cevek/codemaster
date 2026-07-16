@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import * as path from 'node:path';
 import type { Confidence } from '../../core/span.ts';
+import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import { classifyRole } from './usage-roles.ts';
@@ -130,11 +131,9 @@ function demote(
   // the primary nor `references`d) — its files could reference this export and are not searched, so
   // a `certain`-dead here would be a false dead (§3.4). Name the config(s) — proof of WHY partial.
   if (undiscovered.length > 0) {
-    const named = undiscovered.slice(0, 3).join(', ');
-    const more = undiscovered.length > 3 ? `, +${undiscovered.length - 3} more` : '';
     return {
       confidence: 'partial',
-      note: `repo has TS program(s) codemaster did not load (${named}${more}) — a nested-package tsconfig may reference this export; could not prove dead`,
+      note: `repo has TS program(s) codemaster did not load (${nameWithMore(undiscovered, 3)}) — a nested-package tsconfig may reference this export; could not prove dead`,
     };
   }
   return { confidence: 'certain' };

@@ -13,6 +13,7 @@
 // far cheaper than a silent miss (§3.6), so when in doubt we disclose wider.
 
 import type { PluginRegistry } from '../core/plugin.ts';
+import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 
 const MAX_NAMED = 3;
@@ -42,13 +43,11 @@ export function inactiveRegistryDisclosure(
   }
   if (labels.length === 0) return undefined;
   const dirs = [...new Set(labels.map(configDir))];
-  const named = dirs.slice(0, MAX_NAMED).join(', ');
-  const more = dirs.length > MAX_NAMED ? `, +${dirs.length - MAX_NAMED} more` : '';
   // `root:` takes ONE dir — so a single `root:<dir>` when there's one candidate, else name the choices
   // ("root: at one of: …") rather than emit `root:<a, b>` which reads as an (invalid) multi-dir arg.
   const remedy =
     dirs.length === 1
       ? `root:<${dirs[0]}>`
       : `root: at one of: ${dirs.slice(0, MAX_NAMED).join(', ')}`;
-  return `!! no plugin owning registry '${registry}' is active at this root — a framework plugin (autodetected off each package's OWN package.json) may own it only inside a nested package: ${dirs.length} nested package(s) (${named}${more}). Re-run with ${remedy} to activate that package's plugins. This is NOT proof the repo has no '${registry}'.`;
+  return `!! no plugin owning registry '${registry}' is active at this root — a framework plugin (autodetected off each package's OWN package.json) may own it only inside a nested package: ${dirs.length} nested package(s) (${nameWithMore(dirs, MAX_NAMED)}). Re-run with ${remedy} to activate that package's plugins. This is NOT proof the repo has no '${registry}'.`;
 }

@@ -7,6 +7,8 @@
 // unindexed — and only on a GENUINE absence (an ambiguity / a positional miss / a found-but-no-refs
 // is a resolution, not a miss, so it gets no hint).
 
+import { nameWithMore } from '../common/truncate/name-with-more.ts';
+
 const MAX_NAMED = 3;
 
 /** True when `message` is a genuine "symbol not found" (the name-addressed absence). An ambiguity
@@ -22,9 +24,7 @@ export function isSymbolAbsence(message: string): boolean {
  *  Names up to `MAX_NAMED` configs, then `+N more`. */
 export function undiscoveredHint(labels: readonly string[]): string {
   if (labels.length === 0) return '';
-  const named = labels.slice(0, MAX_NAMED).join(', ');
-  const more = labels.length > MAX_NAMED ? `, +${labels.length - MAX_NAMED} more` : '';
-  return ` — but ${labels.length} nested tsconfig(s) are NOT loaded as programs (${named}${more}); the symbol may be declared ONLY under one of them (unindexed here). This is NOT proof it is gone — add the config to a parent \`references\` (or place it adjacent to the primary/main config) to index it.`;
+  return ` — but ${labels.length} nested tsconfig(s) are NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)}); the symbol may be declared ONLY under one of them (unindexed here). This is NOT proof it is gone — add the config to a parent \`references\` (or place it adjacent to the primary/main config) to index it.`;
 }
 
 /** Append the undiscovered-program hint to `message` when it is a genuine name-absence AND some
@@ -47,10 +47,8 @@ export function definitionFloor(labels: readonly string[]): {
   note?: string;
 } {
   if (labels.length === 0) return { fields: {} };
-  const named = labels.slice(0, MAX_NAMED).join(', ');
-  const more = labels.length > MAX_NAMED ? `, +${labels.length - MAX_NAMED} more` : '';
   return {
     fields: { complete: false, undiscoveredPrograms: labels },
-    note: `!! LOWER BOUND — ${labels.length} repo tsconfig(s) NOT loaded as programs (${named}${more}); a DISTINCT same-named symbol may be declared under one of them (unindexed here), so this definition may NOT be the one you want. This is NOT proof it is the only/right declaration — add the config to a parent \`references\` (or place it adjacent to the primary) to resolve across all programs.`,
+    note: `!! LOWER BOUND — ${labels.length} repo tsconfig(s) NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)}); a DISTINCT same-named symbol may be declared under one of them (unindexed here), so this definition may NOT be the one you want. This is NOT proof it is the only/right declaration — add the config to a parent \`references\` (or place it adjacent to the primary) to resolve across all programs.`,
   };
 }

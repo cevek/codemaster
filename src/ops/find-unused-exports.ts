@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
+import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { Truncation } from '../core/result.ts';
 import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
@@ -52,10 +53,8 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
     }
     const u = (data as { undiscoveredPrograms?: string[] }).undiscoveredPrograms;
     if (u !== undefined && u.length > 0) {
-      const named = u.slice(0, 3).join(', ');
-      const more = u.length > 3 ? `, +${u.length - 3} more` : '';
       out.push(
-        `repo has ${u.length} tsconfig(s) NOT loaded as a program (${named}${more}) — a nested-package config neither adjacent to the main config nor \`references\`d. Every otherwise-certain claim here is demoted to partial (that program may use the export); load/reference it to recover certain verdicts.`,
+        `repo has ${u.length} tsconfig(s) NOT loaded as a program (${nameWithMore(u, 3)}) — a nested-package config neither adjacent to the main config nor \`references\`d. Every otherwise-certain claim here is demoted to partial (that program may use the export); load/reference it to recover certain verdicts.`,
       );
     }
     const t = (data as { truncated?: { examined: number; candidates: number } }).truncated;
