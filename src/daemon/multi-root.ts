@@ -12,7 +12,6 @@ import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import { mergeFreshness } from '../common/result/merge-freshness.ts';
 import type { ProjectHost } from './host.ts';
-import type { WorkspaceEngine } from './engine.ts';
 import { runSqlBatch, type SqlBounds } from './sql-batch.ts';
 import type { SqlRunner } from '../support/sql/runner.ts';
 import type { Result } from '../core/result.ts';
@@ -25,12 +24,6 @@ export type SpawnHost = (
   repoId: RepoId,
   root: string,
 ) => Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }>;
-
-/** In-process hosts expose the engine directly (no serialization boundary); a
- *  process-isolated host returns `undefined` and answers over its IPC channel. */
-export function engineOf(host: ProjectHost): WorkspaceEngine | undefined {
-  return (host as ProjectHost & { engine?: WorkspaceEngine }).engine;
-}
 
 /** Group request indices by resolved engine, dropping unresolved ones to their error. */
 function groupByEngine(
@@ -134,17 +127,8 @@ export async function crossRootSql(
     const spawned = await deps.spawn(repoId, g.root);
     if (!spawned.ok)
       return [{ name: 'sql', error: { kind: 'unavailable', message: spawned.message } }];
-    const engine = engineOf(spawned.host);
-    if (engine === undefined) {
-      return [
-        {
-          name: 'sql',
-          error: { kind: 'bad_args', message: 'cross-root sql needs in-process engines' },
-        },
-      ];
-    }
     const groupReqs = g.idxs.flatMap((i) => (reqs[i] !== undefined ? [reqs[i] as OpRequest] : []));
-    const out = await engine.produceSql(groupReqs);
+    const out = await spawned.host.produceSql(groupReqs);
     out.results.forEach((res, k) => {
       const req = reqs[g.idxs[k] ?? -1];
       if (req !== undefined) produced.set(req, res);

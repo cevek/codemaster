@@ -6,14 +6,13 @@
 import type { ProjectHost } from './host.ts';
 import type { WorkspaceEngine } from './engine.ts';
 
-export function createInProcessHost(engine: WorkspaceEngine): ProjectHost & {
-  /** In-process only: direct access for `status` (no serialization boundary). */
-  engine: WorkspaceEngine;
-} {
+export function createInProcessHost(engine: WorkspaceEngine): ProjectHost {
   return {
     repoId: engine.repoId,
-    engine,
+    isolation: 'in-process',
     request: (reqs, batch) => engine.request(reqs, batch),
+    status: () => engine.status(),
+    produceSql: (reqs) => engine.produceSql(reqs),
     dispose: () => engine.dispose(),
   };
 }

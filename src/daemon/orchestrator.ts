@@ -20,7 +20,6 @@ import type { TextScanner } from '../support/text-search/scan.ts';
 import type { GitRunner } from '../support/git/run.ts';
 import {
   crossRootSql,
-  engineOf,
   groupedDispatch,
   type RouteOk,
   type RouteOutcome,
@@ -175,16 +174,21 @@ export class Orchestrator implements ServingOrchestrator {
     const routed = await this.route(cwd, root);
     // §4c: surface WHY no workspace resolved (bad root / not a TS project), never a silent none.
     let workspaceError = routed.ok ? undefined : routed.message;
+    // The real transport of the resolved workspace's host (§2) — never a hard-coded guess.
+    // No workspace resolved → the daemon's default mode.
+    let isolation: 'in-process' | 'process' = 'in-process';
     if (routed.ok) {
       const spawned = await this.getOrSpawn(routed.repoId, routed.root);
-      if (spawned.ok) workspace = await statusOf(spawned.slot.host);
-      else workspaceError = spawned.message;
+      if (spawned.ok) {
+        workspace = await spawned.slot.host.status();
+        isolation = spawned.slot.host.isolation;
+      } else workspaceError = spawned.message;
     }
     const info = this.daemonInfo();
     return {
       daemonVersion: this.deps.version,
       pid: info.pid,
-      isolation: 'in-process',
+      isolation,
       engines: info.engines,
       engineRoots: info.engineRoots,
       workspace,
@@ -370,8 +374,4 @@ export class Orchestrator implements ServingOrchestrator {
       }
     }
   }
-}
-
-async function statusOf(host: ProjectHost): Promise<WorkspaceStatusView | undefined> {
-  return engineOf(host)?.status();
 }
