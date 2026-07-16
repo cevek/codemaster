@@ -70,7 +70,7 @@ const argsSchema = z.strictObject({
 function sizeGuardRefusal(count: number, threshold: number): string {
   return (
     `repo is large (${count} source files > threshold ${threshold}) — a repo-wide navto search over ` +
-    `this many programs risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
+    `this many files risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
     `throwaway discovery query. Browse via symbols_overview, then find_definition / find_usages on the ` +
     `specific symbol; or search_symbol {syntactic:true} for an OOM-safe fuzzy search; or pass ` +
     `force:true to warm anyway.`
