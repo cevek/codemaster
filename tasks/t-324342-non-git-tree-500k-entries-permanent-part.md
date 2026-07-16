@@ -3,6 +3,7 @@ id: t-324342
 title: non-git tree ≥500k entries → permanent partial/unverified freshness (walkFiles entry-cap; honest degradation, non-git roots only)
 status: backlog
 priority: low
+parent: t-031282
 tags:
   - platform
 type: imp

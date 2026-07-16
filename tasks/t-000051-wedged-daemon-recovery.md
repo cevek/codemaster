@@ -3,6 +3,7 @@ id: t-000051
 title: Wedged-daemon recovery
 status: backlog
 priority: medium
+parent: t-031282
 type: bug
 complexity: L
 area: platform

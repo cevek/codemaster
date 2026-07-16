@@ -3,6 +3,7 @@ id: t-000013
 title: detectReverseImportCaptures` adds an O(repo) AST walk to every `move_file`/`extract_symbol
 status: backlog
 priority: medium
+parent: t-031282
 type: perf
 complexity: M
 area: ts-refactor

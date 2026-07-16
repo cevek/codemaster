@@ -18,7 +18,7 @@ priorities: [ low, medium, high, urgent ]
 defaults:
   status: backlog
   priority: low
-maxDepth: 2
+maxDepth: 3
 archive:
   mode: manual
 # Fields mirror the backlog's own taxonomy: `type · imp · cx` + the subsystem section.

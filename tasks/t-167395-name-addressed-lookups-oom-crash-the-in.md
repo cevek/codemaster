@@ -3,6 +3,7 @@ id: t-167395
 title: Name-addressed lookups OOM-crash the in-process daemon on large monorepos
 status: backlog
 priority: high
+parent: t-031282
 depends_on:
   - t-000052
 tags:

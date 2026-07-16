@@ -3,6 +3,7 @@ id: t-000030
 title: 'impact: wall-clock deadline'
 status: backlog
 priority: medium
+parent: t-031282
 type: perf
 complexity: M
 area: impact-usages
