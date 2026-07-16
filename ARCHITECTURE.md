@@ -1237,6 +1237,7 @@ codemaster/
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
+      truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore
     support/                 # L1 — external-tool wrappers; per-tool subfolders
       git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync; + ls-source-files.ts: ls-files --recurse-submodules ∪ --others --exclude-standard for the no-program syntactic scan), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat

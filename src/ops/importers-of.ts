@@ -10,17 +10,17 @@ import { capList } from '../common/truncate/cap-list.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { lowerBoundNote } from './lower-bound-note.ts';
+import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
+import { defineOp } from './registry.ts';
+import type { Cell, TableSpec } from './registry.ts';
+import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 /** A `Truncation` as an inline `JsonValue` field (the core type carries no index signature, so it
  *  is not assignable to `JsonValue` directly — projected here for the `*Truncated` data fields). */
 function truncField(t: Truncation): JsonValue {
   return { shown: t.shown, total: t.total, hint: t.hint };
 }
-import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
-import { defineOp } from './registry.ts';
-import type { Cell, TableSpec } from './registry.ts';
-import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 /** §3.4 FLOOR (mirrors `affected` / `find_usages`): repo tsconfigs NOT scanned make the importer
  *  list a LOWER BOUND. Returns the set-level machine-readable verdict (`complete:false` + the named

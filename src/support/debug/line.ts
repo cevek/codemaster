@@ -5,6 +5,8 @@
 // `k=v` pairs are machine-greppable; big payloads are elided with a length marker
 // (`type=…(214ch)`). Values are rendered flat — this is a trace line, not a JSON dump.
 
+import { elideString } from '../../common/truncate/elide-string.ts';
+
 const VALUE_CAP = 120;
 
 export function formatDebugLine(
@@ -32,11 +34,10 @@ function formatTime(timeMs: number): string {
 }
 
 function formatValue(value: unknown): string {
-  const rendered = render(value);
-  if (rendered.length > VALUE_CAP) {
-    return `${rendered.slice(0, VALUE_CAP)}…(${rendered.length}ch)`;
-  }
-  return rendered;
+  // Char-elide through the chokepoint (§3.4); the debug line keeps its own `(Nch)` length suffix on a
+  // cut (cut.total is the full pre-cut length). Byte-identical to the former hand-rolled slice.
+  const cut = elideString(render(value), VALUE_CAP);
+  return cut.elided ? `${cut.text}(${cut.total}ch)` : cut.text;
 }
 
 function render(value: unknown): string {

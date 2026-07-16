@@ -6,6 +6,7 @@
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Span } from '../../core/span.ts';
+import { elideString } from '../../common/truncate/elide-string.ts';
 
 const SPAN_TEXT_CAP = 400;
 
@@ -27,15 +28,18 @@ export function spanFromRange(
   const s = sourceFile.getLineAndCharacterOfPosition(start);
   const e = sourceFile.getLineAndCharacterOfPosition(end);
   const raw = sourceFile.text.slice(start, end);
-  const elided = raw.length > cap;
+  // Route the char-elide through the chokepoint (§3.4). The cut text rides `Span.text`; the `elided`
+  // flag is this span's own honesty channel (a consumer re-fetches at `full` via the loc), so no `…`
+  // recovery marker is appended — the base `elideString` (bare `…`) is exactly right here.
+  const cut = elideString(raw, cap);
   return {
     file,
     line: s.line + 1,
     col: s.character + 1,
     endLine: e.line + 1,
     endCol: e.character + 1,
-    text: elided ? `${raw.slice(0, cap)}…` : raw,
-    ...(elided ? { elided: true } : {}),
+    text: cut.text,
+    ...(cut.elided ? { elided: true } : {}),
   };
 }
 

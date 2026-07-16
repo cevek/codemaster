@@ -44,3 +44,11 @@ test('guard is SILENT on a legit length-ternary whose consequent is NOT a trunca
   const legit = 'const f = (a: number[], p: number[]) => (a.length > 0 ? a : p.slice(0, 1));';
   assert.equal(truncationHits(legit), 0, 'no false positive on a non-truncation length-ternary');
 });
+
+test('guard is SILENT on a length-ternary that slices from a NON-zero index (not a truncation)', () => {
+  // A join-preview `a.length > 0 ? `[${a.slice(1).join(",")}]` : ''` — a `.length` test AND a `.slice`
+  // inside a template, but `slice(1)` (not `slice(0,…)`) is not a head-truncation. The
+  // `arguments.0.value=0` clause must exclude it — else a legit expression is a lint false positive.
+  const notTrunc = 'const f = (a: string[]) => (a.length > 0 ? `[${a.slice(1).join(",")}]` : "");';
+  assert.equal(truncationHits(notTrunc), 0, 'slice-from-nonzero is not flagged (FP guard)');
+});

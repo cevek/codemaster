@@ -90,9 +90,14 @@ export default tseslint.config(
     // `common/truncate/` chokepoint, which owns it: a new string truncation MUST route through
     // `elideString` / `elideType` (which co-produce the §3.4 marker by construction). This is the
     // "realistic mirror" of the `~shape` Record precedent; the GENUINE compile mirror is the exhaustive
-    // `Record<CapId, …>` registry. SCOPE (honest, §3.6): this catches the string-elide TERNARY idiom,
-    // NOT list-cap truncation — a display-list `.slice` deny-by-default rests on routing through
-    // `capList` + review, not this lint (a runtime `limit` cap has no fixed shape to match).
+    // `Record<CapId, …>` registry. SCOPE (honest, §3.6): this catches the string-elide TERNARY whose
+    // consequent SLICES-FROM-0 into a template — the exact recurring idiom. It does NOT catch every
+    // truncation shape: a structured `if`-guarded or `elided?`-boolean cut, a `>=`/reversed test, or
+    // `.substring` slip past it (those conform by routing through common/truncate + review, e.g.
+    // spans.ts / debug/line.ts), and list-cap truncation is out of reach entirely (a runtime `limit`
+    // has no fixed shape — its deny-by-default rests on `capList` + review). The `arguments.0.value=0`
+    // clause requires slice-from-0, so a legit non-truncation length-ternary that slices from a
+    // non-zero index (`a.length>0 ? `[${a.slice(1)}]` : ''`) is NOT falsely flagged.
     files: ['src/**/*.ts'],
     ignores: ['src/common/truncate/**'],
     rules: {
@@ -100,7 +105,7 @@ export default tseslint.config(
         'error',
         {
           selector:
-            'ConditionalExpression[test.operator=">"][consequent.type="TemplateLiteral"]:has(CallExpression[callee.property.name="slice"]):has(MemberExpression[property.name="length"])',
+            'ConditionalExpression[test.operator=">"][consequent.type="TemplateLiteral"]:has(CallExpression[callee.property.name="slice"][arguments.0.value=0]):has(MemberExpression[property.name="length"])',
           message:
             'Ad-hoc string truncation (`x.length > CAP ? `${x.slice(0,CAP)}…` : x`) — route through common/truncate: elideString for a bare `…`, or elideType (CapId) for a type/signature marker. A silent/bare `…` reads as completeness (§3.4).',
         },
