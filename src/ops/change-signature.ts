@@ -6,7 +6,8 @@
 import { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
-import { fail, failFromThrown } from '../common/result/construct.ts';
+import { fail } from '../common/result/construct.ts';
+import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
@@ -44,12 +45,17 @@ export const changeSignatureOp = defineOp<ChangeArgs, JsonValue>({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planChangeSignature(targetOf(args), {
-        ...(args.removeParam !== undefined ? { removeParam: args.removeParam } : {}),
-        ...(args.reorder !== undefined ? { reorder: args.reorder } : {}),
-      });
+      plan = await ts.planChangeSignature(
+        targetOf(args),
+        {
+          ...(args.removeParam !== undefined ? { removeParam: args.removeParam } : {}),
+          ...(args.reorder !== undefined ? { reorder: args.reorder } : {}),
+        },
+        undefined,
+        ctx.deadline,
+      );
     } catch (thrown) {
-      return failFromThrown('ts-ls', thrown);
+      return failTimeoutOr('change_signature', 'ts-ls', thrown);
     }
     if (typeof plan === 'string') return fail({ tool: 'ts-ls', message: plan });
     return applyRefactorPlan(ctx, plan, {

@@ -7,7 +7,8 @@ import { z } from 'zod';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
-import { fail, failFromThrown } from '../common/result/construct.ts';
+import { fail } from '../common/result/construct.ts';
+import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
@@ -39,9 +40,16 @@ export const moveFileOp = defineOp<MoveArgs, JsonValue>({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planMove(args.source as RepoRelPath, args.dest as RepoRelPath);
+      // §1 never-hang: bound the importer-rewrite planning by the op's budget → honest `timeout`
+      // BEFORE any write (§7), never a hang on a high-blast-radius move.
+      plan = await ts.planMove(
+        args.source as RepoRelPath,
+        args.dest as RepoRelPath,
+        undefined,
+        ctx.deadline,
+      );
     } catch (thrown) {
-      return failFromThrown('ts-ls', thrown);
+      return failTimeoutOr('move_file', 'ts-ls', thrown);
     }
     if (typeof plan === 'string') return fail({ tool: 'ts-ls', message: plan });
     return applyRefactorPlan(ctx, plan, {

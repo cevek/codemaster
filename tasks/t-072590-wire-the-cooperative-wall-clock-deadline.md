@@ -1,7 +1,7 @@
 ---
 id: t-072590
 title: Wire the cooperative wall-clock deadline into the mutating ops (rename/move/extract/change_signature/transaction) — a huge refactoring should degrade to an honest ToolFailure{timeout} before the atomic write, not hang until the watchdog
-status: backlog
+status: done
 priority: medium
 parent: t-031282
 tags:

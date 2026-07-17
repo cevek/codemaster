@@ -7,6 +7,7 @@ import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import type { Deadline } from '../../common/async/deadline.ts';
 import type { ResolvedTarget, TsTargetInput } from './resolve-target.ts';
 import type { UnresolvedTarget } from './query-types.ts';
 import { scanLiteralCalls } from './literal-calls.ts';
@@ -92,6 +93,11 @@ export interface PlanningHelpers {
   planUnderOverlay<T>(
     overlay: PlanningOverlay | undefined,
     body: (h: TsProjectHost, tree: VFSTree, options: ts.CompilerOptions) => T,
+    /** Bounds the SYNCHRONOUS plan body (the LS reference/refactor fan-out) by the op's wall-clock
+     *  budget (§1 never-hang) — only the sync `runWithOverlay` section is wrapped, never the async
+     *  git tree-load. On overrun → `DeadlineExceededError` → the op's honest `timeout`, BEFORE any
+     *  write. Omitted → unbounded (byte-identical to no wrap). */
+    deadline?: Deadline,
   ): Promise<T | string>;
 }
 
@@ -119,12 +125,16 @@ export function createPlanningHelpers(warm: () => TsProjectHost, root: string): 
   return {
     runWithOverlay,
     planTree,
-    async planUnderOverlay(overlay, body) {
+    async planUnderOverlay(overlay, body, deadline) {
       const h = warm();
       const t = await planTree(overlay);
       if ('error' in t) return t.error;
       const options = h.service.getProgram()?.getCompilerOptions() ?? {};
-      return runWithOverlay(overlay, () => body(h, t.tree, options));
+      // Wrap ONLY the synchronous plan body (the LS fan-out) in the deadline — the async
+      // git tree-load above is already complete, so the cancellation predicate covers exactly
+      // the cancellable work and is reset in `withDeadline`'s finally before the method returns.
+      const run = () => runWithOverlay(overlay, () => body(h, t.tree, options));
+      return deadline !== undefined ? h.withDeadline(deadline, run) : run();
     },
   };
 }

@@ -71,7 +71,7 @@ function planRename(
   overlay: PlanningOverlay | undefined,
 ): Promise<RefactorPlan | string> {
   const a = args as TargetArgs & { newName: string };
-  const outcome = tsApi(ctx).renameSites(targetOf(a), a.newName, overlay);
+  const outcome = tsApi(ctx).renameSites(targetOf(a), a.newName, overlay, ctx.deadline);
   if (typeof outcome === 'string') return Promise.resolve(outcome);
   const notes: string[] = [];
   if (outcome.dropped.length > 0) {
@@ -95,7 +95,7 @@ function planMoveStep(
   overlay: PlanningOverlay | undefined,
 ): Promise<RefactorPlan | string> {
   const a = args as { source: string; dest: string };
-  return tsApi(ctx).planMove(a.source as RepoRelPath, a.dest as RepoRelPath, overlay);
+  return tsApi(ctx).planMove(a.source as RepoRelPath, a.dest as RepoRelPath, overlay, ctx.deadline);
 }
 
 function planExtractStep(
@@ -109,7 +109,13 @@ function planExtractStep(
       'css co-extract is not supported inside a transaction — run extract_symbol standalone (follow-up: docs/backlog.md)',
     );
   }
-  return tsApi(ctx).planExtract(targetOf(a), a.dest as RepoRelPath, { css: false }, overlay);
+  return tsApi(ctx).planExtract(
+    targetOf(a),
+    a.dest as RepoRelPath,
+    { css: false },
+    overlay,
+    ctx.deadline,
+  );
 }
 
 function planMoveSymbolStep(
@@ -118,7 +124,7 @@ function planMoveSymbolStep(
   overlay: PlanningOverlay | undefined,
 ): Promise<RefactorPlan | string> {
   const a = args as TargetArgs & { dest: string };
-  return tsApi(ctx).planMoveSymbol(targetOf(a), a.dest as RepoRelPath, overlay);
+  return tsApi(ctx).planMoveSymbol(targetOf(a), a.dest as RepoRelPath, overlay, ctx.deadline);
 }
 
 function planChangeSignatureStep(
@@ -134,6 +140,7 @@ function planChangeSignatureStep(
       ...(a.reorder !== undefined ? { reorder: a.reorder } : {}),
     },
     overlay,
+    ctx.deadline,
   );
 }
 

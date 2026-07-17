@@ -14,6 +14,7 @@ import type { JsonValue } from '../core/json.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import { fail, failFromThrown } from '../common/result/construct.ts';
+import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
@@ -61,11 +62,15 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
     const scssActive = ctx.daemon?.plugins.some((p) => p.id === 'scss') ?? false;
     let plan: RefactorPlan | string;
     try {
-      plan = await ts.planExtract(targetOf(args), args.dest as RepoRelPath, {
-        css: wantsCss && scssActive,
-      });
+      plan = await ts.planExtract(
+        targetOf(args),
+        args.dest as RepoRelPath,
+        { css: wantsCss && scssActive },
+        undefined,
+        ctx.deadline,
+      );
     } catch (thrown) {
-      return failFromThrown('ts-ls', thrown);
+      return failTimeoutOr('extract_symbol', 'ts-ls', thrown);
     }
     if (typeof plan === 'string') return fail({ tool: 'ts-ls', message: plan });
 

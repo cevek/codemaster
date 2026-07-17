@@ -67,6 +67,16 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
     const compose = new TxnCompose(root, ls.data.map(brandGitPath));
 
     for (const [i, step] of args.steps.entries()) {
+      // §1 never-hang — a loop-boundary poll between steps: a long chain degrades to an honest
+      // `timeout` (naming the step reached) BEFORE the final gate/commit, so NOTHING is written.
+      // Each step's own plan/gate is separately deadline-bounded (refactor-steps → plugin plan
+      // methods); this bounds the accumulation across steps.
+      if (ctx.deadline?.expired() === true) {
+        return fail({
+          tool: 'timeout',
+          message: `transaction exceeded its wall-clock budget at step ${i} '${step.name}' — nothing written; split the chain or fall back`,
+        });
+      }
       const planner = STEP_PLANNERS[step.name];
       if (planner === undefined) {
         return fail({

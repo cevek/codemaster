@@ -9,7 +9,8 @@ import { createTwoFilesPatch } from 'diff';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
-import { ok, fail, failFromThrown } from '../common/result/construct.ts';
+import { ok, fail } from '../common/result/construct.ts';
+import { failTimeout, failTimeoutOr } from './refactor-timeout.ts';
 import type { TsDiagnostic, TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
 import {
@@ -122,13 +123,14 @@ export async function applyRefactorPlan(
   try {
     // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set — the
     // gate refuses on errors THIS refactor introduces, not on the repo's pre-existing ones.
-    const g = ts.gateAcross(overlayFiles, { ...gateScope, removed: plan.removed });
+    const g = ts.gateAcross(overlayFiles, { ...gateScope, removed: plan.removed }, ctx.deadline);
     baselineDiag = g.baseline;
     diag = g.overlay;
     gateProgms = g.programs; // pin post-apply to this set (a move shifts program membership)
     gateDegraded = g.degraded;
   } catch (thrown) {
-    return failFromThrown('ts-ls', thrown);
+    // §1 never-hang: the typecheck gate ran past the budget (BEFORE any write) → honest `timeout`.
+    return failTimeoutOr(`this ${opts.refusalLabel}`, 'ts-ls', thrown);
   }
   // A whole-file move renames the file, so its OWN pre-existing errors would leave the baseline
   // under the old path and re-surface under the new path as "introduced" — refusing a
@@ -259,6 +261,11 @@ export async function applyRefactorPlan(
     );
   }
 
+  // §1 never-hang — the LAST gate before the atomic commit. Even if the LS-cancellation predicate
+  // never tripped (compute finished just under budget), this cheap poll guarantees ZERO files
+  // written on an exhausted budget (§7 write-last) — an honest `timeout`, never a partial move.
+  if (ctx.deadline?.expired() === true) return failTimeout(`this ${opts.refusalLabel}`);
+
   const commitPlan: CommitMovePlan = {
     moves: plan.moves,
     newFiles: plan.newFiles.map((f) => ({ path: f.path, content: contentOf(f.path, f.content) })),
@@ -310,7 +317,7 @@ export async function applyRefactorPlan(
     // baseline — a pre-existing repo error must not roll back a sound refactor.
     postGate = buildTypecheckField(
       baselineDiag,
-      ts.diagnosticsAcross(gateScope, gateProgms),
+      ts.diagnosticsAcross(gateScope, gateProgms, ctx.deadline),
       remapBaselineFile,
     );
   } catch (thrown) {

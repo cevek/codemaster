@@ -21,7 +21,8 @@ import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { HandleRebind } from '../core/ids.ts';
 import type { RepoRelPath } from '../core/brands.ts';
-import { ok, fail, failFromThrown, messageOfThrown } from '../common/result/construct.ts';
+import { ok, fail, messageOfThrown } from '../common/result/construct.ts';
+import { failTimeout, failTimeoutOr } from './refactor-timeout.ts';
 import { writeFileAtomic } from '../support/text-edits/write.ts';
 import type { Capture, TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
@@ -188,13 +189,14 @@ export async function applyMutation(
     // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set —
     // so a pre-existing repo error is told apart from one THIS edit introduced. The gate refuses on
     // the latter only; a repo's unrelated errors never make a sound rename/move inapplicable.
-    const g = ts.gateAcross(overlayFiles, gateScope);
+    const g = ts.gateAcross(overlayFiles, gateScope, ctx.deadline);
     baselineDiag = g.baseline;
     overlayDiag = g.overlay;
     gateProgms = g.programs; // pin the post-apply check to this same program set (symmetry)
     gateDegraded = g.degraded;
   } catch (thrown) {
-    return failFromThrown('ts-ls', thrown);
+    // §1 never-hang: the typecheck gate ran past the budget (BEFORE any write) → honest `timeout`.
+    return failTimeoutOr('this refactor', 'ts-ls', thrown);
   }
   const gate = buildTypecheckField(baselineDiag, overlayDiag);
   const typecheck = gate.field;
@@ -287,6 +289,13 @@ export async function applyMutation(
     );
   };
 
+  // §1 never-hang — the LAST gate before the atomic write. Even if the LS-cancellation predicate
+  // was never tripped (the compute finished just under budget), this cheap poll guarantees the
+  // never-CORRUPT invariant's twin: on an exhausted budget we degrade to an honest `timeout` with
+  // ZERO files written (§7 write-last), never a partial edit. A tiny injected budget forces exactly
+  // this path deterministically (the abort-before-write test).
+  if (ctx.deadline?.expired() === true) return failTimeout('this refactor');
+
   // Write, then verify against the project's own TS reading the real files.
   for (const c of changes) {
     const w = writeFileAtomic(absOf(root, c.path), c.after);
@@ -300,7 +309,10 @@ export async function applyMutation(
     await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
     // Diff post-apply disk diagnostics (across the same affected programs) against the SAME pre-edit
     // baseline — a pre-existing repo error must not trigger a (byte-exact, but pointless) rollback.
-    postGate = buildTypecheckField(baselineDiag, ts.diagnosticsAcross(gateScope, gateProgms));
+    postGate = buildTypecheckField(
+      baselineDiag,
+      ts.diagnosticsAcross(gateScope, gateProgms, ctx.deadline),
+    );
   } catch (thrown) {
     const reverted = await revertAll(root, changes, ts);
     return appliedWithRollback(

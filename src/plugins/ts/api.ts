@@ -265,6 +265,7 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     newName: string,
     overlay?: PlanningOverlay,
+    deadline?: Deadline,
   ): (RenameOutcome & { rebind?: HandleRebind }) | string;
   /** Typecheck post-edit `content` for each file via the overlay (§2.7/§2.8) — set, diagnose,
    *  ALWAYS clear (self-contained: the overlay never leaks into a later read as a fact).
@@ -287,12 +288,17 @@ export interface TsPluginApi extends Plugin {
   gateAcross(
     files: readonly { path: RepoRelPath; content: string }[],
     scope: GateScope,
+    deadline?: Deadline,
   ): { baseline: TsDiagnostic[]; overlay: TsDiagnostic[]; programs: string[]; degraded: string[] };
   /** Disk diagnostics across every affected program — the post-apply half of `gateAcross`
    *  (call `reindex` first so each program's LS sees the freshly written files). `restrictTo` pins
    *  the program set to the pre-apply baseline's (`gateAcross().programs`), so a move that shifts
    *  program membership can't mis-count a newly-sampled program's pre-existing errors as introduced. */
-  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
+  diagnosticsAcross(
+    scope: GateScope,
+    restrictTo?: readonly string[],
+    deadline?: Deadline,
+  ): TsDiagnostic[];
   /** The resolved TYPE of the top-level symbol `name` in `declFile`, BEFORE and under the trial
    *  `overlay` — the FACT behind `impact_type_error`'s clean widen-to-`any` masking guard: a trial
    *  edit can collapse the edited symbol's own type to `any` with NO intra-file error, silencing
@@ -314,6 +320,7 @@ export interface TsPluginApi extends Plugin {
     source: RepoRelPath,
     dest: RepoRelPath,
     overlay?: PlanningOverlay,
+    deadline?: Deadline,
   ): Promise<RefactorPlan | string>;
   /** Plan extracting the top-level symbol at `target` to a NEW file `dest` via the LS
    *  "Move to file" refactor (dest as the not-yet-existing `targetFile`). A message on a bad
@@ -324,6 +331,7 @@ export interface TsPluginApi extends Plugin {
     dest: RepoRelPath,
     opts?: { css?: boolean },
     overlay?: PlanningOverlay,
+    deadline?: Deadline,
   ): Promise<RefactorPlan | string>;
   /** Plan moving the top-level symbol at `target` into the EXISTING file `dest` (§7) — the dest's
    *  imports/exports are merged, every importer rewritten. A message on a bad target / dest.
@@ -333,6 +341,7 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     dest: RepoRelPath,
     overlay?: PlanningOverlay,
+    deadline?: Deadline,
   ): Promise<RefactorPlan | string>;
   /** Plan a parameter remove/reorder on the function at `target`, applied to the declaration
    *  and every call site (§7). A message on a bad target / invalid change. */
@@ -340,6 +349,7 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     change: SignatureChange,
     overlay?: PlanningOverlay,
+    deadline?: Deadline,
   ): Promise<RefactorPlan | string>;
   /** Capture-safety for `codemod` (§): a metavar-preserved reference inside a rewritten span that
    *  silently re-resolves to a DIFFERENT declaration (type-compatible → invisible to §2.8). Keeps

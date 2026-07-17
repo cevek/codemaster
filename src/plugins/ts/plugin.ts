@@ -323,47 +323,53 @@ export function createTsPlugin(
 
     unusedExports: (filter, deadline) => findUnusedExports(warm(), filter, deadline),
 
-    renameSites(target, newName, overlay) {
-      return runWithOverlay(overlay, () => {
-        const resolved = resolve(target);
-        if (!resolved.ok) return resolved.message;
-        // Refuse for a NON-PRIMARY target (t-773499): the capture-safety gate is structurally
-        // primary-only (the overlay `setOverlay` lives on the primary program, ls-host §), so it
-        // CANNOT run against a symbol declared outside the primary. Skipping it to ship a
-        // reduced-safety MUTATION would risk a silent type-compatible re-bind (unrecoverable once
-        // written). So refuse honestly (§3.6 / §7 — never a silent gate-skip on a mutation). A READ
-        // (find_definition) still resolves the same target; only the write refuses. `sourceFileAcross`
-        // names the owner; a NESTED-PACKAGE owner (its config in a subdir) gets an actionable
-        // `root:<pkg-dir>` redirect (re-rooting there makes its program primary → the full gate runs).
-        // A ROOT-LEVEL sibling (e.g. `tsconfig.test.json` — dirname `.`) has no sub-root to redirect
-        // to (re-rooting still finds the root `tsconfig.json` as primary), so no bogus redirect.
-        const h = warm();
-        if (!primaryHasFile(resolved.abs)) {
-          const owner = h.sourceFileAcross(resolved.abs)?.program.label;
-          const pkgDir = owner !== undefined ? path.posix.dirname(owner) : '.';
-          const redirect =
-            pkgDir !== '.' && pkgDir !== ''
-              ? ` Re-run with root:${pkgDir} (the owning package), where its program is primary and the full capture-safety gate runs.`
-              : '';
-          const declaredIn = owner !== undefined ? ` (declared in ${owner})` : '';
-          return `capture-safety cannot be checked for a symbol outside the primary program${declaredIn} — the rename is REFUSED (the gate is primary-only).${redirect}`;
-        }
-        // Fan the site computation across programs ONLY off the transaction path: an `overlay`
-        // means the primary carries a planning overlay, so a sibling reading stale disk is unsound
-        // (ls-host TRAP). The cross-program §2.8 gate still backstops a transaction dangle.
-        const outcome = computeRename(
-          warm(),
-          resolved.abs,
-          resolved.offset,
-          newName,
-          overlay === undefined,
-        );
-        if (typeof outcome === 'string') return outcome;
-        return {
-          ...outcome,
-          ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
-        };
-      });
+    renameSites(target, newName, overlay, deadline) {
+      // Bound the reference-site computation (the LS `findRenameLocations` fan-out, which polls the
+      // cancellation token) by the op's wall-clock budget (§1 never-hang). On overrun `withDeadline`
+      // raises a `DeadlineExceededError` the op turns into an honest `timeout` — BEFORE any write
+      // (§7 write-last), so a huge rename degrades instead of hanging. Omitted → unbounded.
+      const body = () =>
+        runWithOverlay(overlay, () => {
+          const resolved = resolve(target);
+          if (!resolved.ok) return resolved.message;
+          // Refuse for a NON-PRIMARY target (t-773499): the capture-safety gate is structurally
+          // primary-only (the overlay `setOverlay` lives on the primary program, ls-host §), so it
+          // CANNOT run against a symbol declared outside the primary. Skipping it to ship a
+          // reduced-safety MUTATION would risk a silent type-compatible re-bind (unrecoverable once
+          // written). So refuse honestly (§3.6 / §7 — never a silent gate-skip on a mutation). A READ
+          // (find_definition) still resolves the same target; only the write refuses. `sourceFileAcross`
+          // names the owner; a NESTED-PACKAGE owner (its config in a subdir) gets an actionable
+          // `root:<pkg-dir>` redirect (re-rooting there makes its program primary → the full gate runs).
+          // A ROOT-LEVEL sibling (e.g. `tsconfig.test.json` — dirname `.`) has no sub-root to redirect
+          // to (re-rooting still finds the root `tsconfig.json` as primary), so no bogus redirect.
+          const h = warm();
+          if (!primaryHasFile(resolved.abs)) {
+            const owner = h.sourceFileAcross(resolved.abs)?.program.label;
+            const pkgDir = owner !== undefined ? path.posix.dirname(owner) : '.';
+            const redirect =
+              pkgDir !== '.' && pkgDir !== ''
+                ? ` Re-run with root:${pkgDir} (the owning package), where its program is primary and the full capture-safety gate runs.`
+                : '';
+            const declaredIn = owner !== undefined ? ` (declared in ${owner})` : '';
+            return `capture-safety cannot be checked for a symbol outside the primary program${declaredIn} — the rename is REFUSED (the gate is primary-only).${redirect}`;
+          }
+          // Fan the site computation across programs ONLY off the transaction path: an `overlay`
+          // means the primary carries a planning overlay, so a sibling reading stale disk is unsound
+          // (ls-host TRAP). The cross-program §2.8 gate still backstops a transaction dangle.
+          const outcome = computeRename(
+            warm(),
+            resolved.abs,
+            resolved.offset,
+            newName,
+            overlay === undefined,
+          );
+          if (typeof outcome === 'string') return outcome;
+          return {
+            ...outcome,
+            ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
+          };
+        });
+      return deadline !== undefined ? warm().withDeadline(deadline, body) : body();
     },
 
     detectCodemodCaptures(edits) {
@@ -387,36 +393,47 @@ export function createTsPlugin(
       }
     },
 
-    planMove(source, dest, overlay) {
-      return planUnderOverlay(overlay, (h, tree, options) =>
-        planMove(h, tree, options, source, dest, overlay),
+    planMove(source, dest, overlay, deadline) {
+      return planUnderOverlay(
+        overlay,
+        (h, tree, options) => planMove(h, tree, options, source, dest, overlay),
+        deadline,
       );
     },
 
-    planExtract(target, dest, opts, overlay) {
+    planExtract(target, dest, opts, overlay, deadline) {
       const css = opts?.css ?? false;
-      return planUnderOverlay(overlay, (h, tree, options) =>
-        withRebind(resolve(target), (r) =>
-          planExtractTo(h, tree, options, r.abs, r.offset, dest, css, overlay),
-        ),
+      return planUnderOverlay(
+        overlay,
+        (h, tree, options) =>
+          withRebind(resolve(target), (r) =>
+            planExtractTo(h, tree, options, r.abs, r.offset, dest, css, overlay),
+          ),
+        deadline,
       );
     },
 
-    planMoveSymbol(target, dest, overlay) {
-      return planUnderOverlay(overlay, (h, tree, options) =>
-        withRebind(resolve(target), (r) =>
-          planMoveSymbolTo(h, tree, options, r.abs, r.offset, dest, overlay),
-        ),
+    planMoveSymbol(target, dest, overlay, deadline) {
+      return planUnderOverlay(
+        overlay,
+        (h, tree, options) =>
+          withRebind(resolve(target), (r) =>
+            planMoveSymbolTo(h, tree, options, r.abs, r.offset, dest, overlay),
+          ),
+        deadline,
       );
     },
 
-    planChangeSignature(target, change, overlay) {
-      return planUnderOverlay(overlay, (h, tree, options) =>
-        withRebind(resolve(target), (r) =>
-          // Fan call-site search across programs only off the transaction path (overlay present →
-          // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
-          planChangeSignature(h, tree, options, r.abs, r.offset, change, overlay === undefined),
-        ),
+    planChangeSignature(target, change, overlay, deadline) {
+      return planUnderOverlay(
+        overlay,
+        (h, tree, options) =>
+          withRebind(resolve(target), (r) =>
+            // Fan call-site search across programs only off the transaction path (overlay present →
+            // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
+            planChangeSignature(h, tree, options, r.abs, r.offset, change, overlay === undefined),
+          ),
+        deadline,
       );
     },
 
@@ -428,9 +445,19 @@ export function createTsPlugin(
       );
     },
 
-    gateAcross: (files, scope) => warm().gateAcross(files, scope),
+    // Bound the §2.8 typecheck gate (each program's semantic diagnostics poll the cancellation
+    // token) by the op's budget (§1 never-hang). Both the pre-write gate and the post-apply disk
+    // check run BEFORE the atomic write completes / while a rollback is still possible, so an
+    // overrun degrades to an honest `timeout` (or triggers a byte-exact rollback) — never a spin.
+    gateAcross: (files, scope, deadline) => {
+      const run = () => warm().gateAcross(files, scope);
+      return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
+    },
 
-    diagnosticsAcross: (scope, restrictTo) => warm().diagnosticsAcross(scope, restrictTo),
+    diagnosticsAcross: (scope, restrictTo, deadline) => {
+      const run = () => warm().diagnosticsAcross(scope, restrictTo);
+      return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
+    },
 
     overlaySymbolType: (declFile, name, overlay) =>
       overlaySymbolType(warm(), declFile, name, overlay),
