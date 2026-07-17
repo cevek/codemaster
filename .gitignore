@@ -14,3 +14,4 @@ tools/grep-analysis/commands.jsonl
 tools/grep-analysis/classified.jsonl
 tools/grep-analysis/samples/
 tasks/.*.tmp
+test-timing.html

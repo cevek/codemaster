@@ -37,6 +37,7 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "test:differential": "node --test \"test/differential/**/*.test.ts\"",
     "test:golden": "node --test \"test/golden/**/*.test.ts\"",
+    "test:timing": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \"test/**/*.test.ts\"",
     "prepare": "husky"
   },
   "lint-staged": {
