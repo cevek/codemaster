@@ -81,6 +81,11 @@ export interface DaemonConfig {
   /** How often (seconds) the orchestrator `stat()`s each engine's `repoRoot` to detect
    *  vanished worktrees (path-existence eviction, §9). Default ~60. */
   pathExistenceSweepSeconds?: number;
+  /** `process`-mode only: the child engine's heap ceiling (`--max-old-space-size`, MB, §9). A
+   *  warm that exceeds it OOMs the child honestly — the daemon stays up — instead of the shared
+   *  daemon (t-167395). Default ≥ Node's own ~4 GB, so a legitimately large repo isn't killed
+   *  needlessly. Ignored in `in-process` mode. */
+  maxOldSpaceMB?: number;
 }
 
 export interface DebugConfig {

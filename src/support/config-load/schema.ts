@@ -64,6 +64,7 @@ const daemonSection = z.strictObject({
   isolation: z.enum(['in-process', 'process']).optional(),
   idleEvictionMinutes: z.number().positive().optional(),
   pathExistenceSweepSeconds: z.number().positive().optional(),
+  maxOldSpaceMB: z.number().int().positive().optional(),
 });
 
 const debugSection = z.strictObject({

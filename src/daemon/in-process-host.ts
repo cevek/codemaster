@@ -1,7 +1,8 @@
 // `in-process` `ProjectHost` (§2): the engine lives in the orchestrator's process; a
-// host call is a direct in-memory call. The default at this stage — one heap, trivial
-// to debug. The `process` host (child process + IPC round-trip) lands when scale
-// demands it; the seam means engine code will not change when it does.
+// host call is a direct in-memory call. The default — one heap, trivial to debug. The
+// `process` host (child process + IPC round-trip, `process-host.ts`) is the isolation
+// alternative, chosen by `config.daemon.isolation`; the seam means engine code is the
+// same under both.
 
 import type { ProjectHost } from './host.ts';
 import type { WorkspaceEngine } from './engine.ts';

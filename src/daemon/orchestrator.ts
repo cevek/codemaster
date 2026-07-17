@@ -4,7 +4,6 @@
 // debug surface. It only routes; heavy work lives in the engines.
 
 import { existsSync } from 'node:fs';
-import * as path from 'node:path';
 import { createSourceStaleTracker, type SourceStaleTracker } from './source-fingerprint.ts';
 import type { RepoId } from '../core/brands.ts';
 import type { Plugin } from '../core/plugin.ts';
@@ -32,10 +31,8 @@ import { gitRepoRoot } from '../support/git/repo-root.ts';
 import { tsProjectRefusal } from './ts-project-check.ts';
 import { loadConfig } from '../support/config-load/load.ts';
 import { configChanged, configFingerprint } from '../support/config-load/fingerprint.ts';
-import { attachRepoLogSink } from './repo-log-sink.ts';
 import type { CodemasterConfig } from '../config/config.ts';
-import { createEngine } from './engine.ts';
-import { createInProcessHost } from './in-process-host.ts';
+import { buildWorkspaceHost } from './host-build.ts';
 import type { ProjectHost } from './host.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
 import type { DaemonInfo, ServingOrchestrator } from './orchestrator-api.ts';
@@ -63,6 +60,18 @@ export interface OrchestratorDeps {
   /** Codemaster's OWN source fingerprint (self-staleness — §3.6). Recorded at spawn; a later
    *  difference means the daemon is behind its source. Test seam; default = `src/**` rollup. */
   sourceFingerprint?: () => string;
+  /** Build a `process`-mode host (§2): fork one engine child per workspace. Injected by the
+   *  composition root (it knows the child bin path); absent in builds without process support, so
+   *  `isolation: 'process'` then fails honestly rather than silently degrading to in-process.
+   *  `onExit` fires when the child dies — the orchestrator evicts the slot so the next request
+   *  respawns. */
+  spawnProcessHost?: (args: {
+    repoId: RepoId;
+    root: string;
+    config: CodemasterConfig;
+    stateDir: string;
+    onExit: () => void;
+  }) => Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }>;
 }
 
 interface EngineSlot {
@@ -180,8 +189,14 @@ export class Orchestrator implements ServingOrchestrator {
     if (routed.ok) {
       const spawned = await this.getOrSpawn(routed.repoId, routed.root);
       if (spawned.ok) {
-        workspace = await spawned.slot.host.status();
         isolation = spawned.slot.host.isolation;
+        // A process host rejects if its child died mid-status (no honest manifest to synthesize);
+        // surface it as a workspaceError, never a crash or a fabricated 0-plugin view (§3.6).
+        try {
+          workspace = await spawned.slot.host.status();
+        } catch (thrown) {
+          workspaceError = messageOfThrown(thrown);
+        }
       } else workspaceError = spawned.message;
     }
     const info = this.daemonInfo();
@@ -255,46 +270,22 @@ export class Orchestrator implements ServingOrchestrator {
     // §4c: refuse a non-TS folder before warming (a config opts in explicitly → trust it).
     const tsRefusal = await tsProjectRefusal(root, source);
     if (tsRefusal !== undefined) return { ok: false, message: tsRefusal };
-    if (config.daemon?.isolation === 'process') {
-      return {
-        ok: false,
-        message:
-          "daemon.isolation 'process' is not implemented yet — remove it (or set 'in-process') in codemaster.config",
-      };
-    }
-    if (config.debug?.namespaces !== undefined && config.debug.namespaces.length > 0) {
-      this.deps.debug.configure(config.debug.namespaces.join(','));
-    }
-
-    // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.
-    const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
-    const stateDir = this.deps.stateDir ?? path.join(home, '.codemaster');
-    attachRepoLogSink(this.deps.debug, stateDir, repoId, root, config.debug?.logMaxMB);
-
-    const created = await createEngine({
-      repoId,
-      root,
-      configSource: source,
-      version: this.deps.version,
-      stateDir,
-      plugins: this.deps.pluginsFor?.(config, root) ?? [],
-      ops: this.deps.opsFor?.(config) ?? [],
-      clock: this.deps.clock,
-      debug: this.deps.debug,
-      watcher: this.deps.watcher,
-      ...(this.deps.sqlBounds !== undefined ? { sqlBounds: this.deps.sqlBounds } : {}),
-      ...(this.deps.createSqlRunner !== undefined
-        ? { createSqlRunner: this.deps.createSqlRunner }
-        : {}),
-      ...(this.deps.createTextScanner !== undefined
-        ? { createTextScanner: this.deps.createTextScanner }
-        : {}),
-      ...(this.deps.gitRunner !== undefined ? { gitRunner: this.deps.gitRunner } : {}),
+    const built = await buildWorkspaceHost(this.deps, { repoId, root, config, source }, (host) => {
+      // A process child died — drop the slot iff it still holds this exact host, so the next
+      // request respawns instead of reusing a dead engine.
+      const slot = this.engines.get(repoId);
+      if (slot !== undefined && slot.host === host) {
+        this.engines.delete(repoId);
+        this.deps.debug.ns('eviction')('evict', () => ({
+          repo: repoId,
+          reason: 'engine child exited',
+        }));
+      }
     });
-    if (!created.ok) return { ok: false, message: created.message };
+    if (!built.ok) return { ok: false, message: built.message };
 
     const slot: EngineSlot = {
-      host: createInProcessHost(created.engine),
+      host: built.host,
       root,
       lastUsedMs: this.deps.clock.now(),
       idleEvictionMs: (config.daemon?.idleEvictionMinutes ?? DEFAULT_IDLE_EVICTION_MIN) * 60_000,

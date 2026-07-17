@@ -7,9 +7,8 @@
 // the debug subsystem (§13).
 
 import process from 'node:process';
+import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CodemasterConfig } from './config/config.ts';
-import type { Plugin } from './core/plugin.ts';
 import { systemClock } from './common/async/clock.ts';
 import { createDebugSystem } from './support/debug/system.ts';
 import { createStderrSink } from './support/debug/stderr-sink.ts';
@@ -17,11 +16,7 @@ import { createChokidarWatcher } from './support/watch/chokidar.ts';
 import { Orchestrator, DEFAULT_IDLE_EVICTION_MIN } from './daemon/orchestrator.ts';
 import { loadConfig } from './support/config-load/load.ts';
 import { isOk } from './common/result/narrow.ts';
-import { createTsPlugin } from './plugins/ts/plugin.ts';
-import { createScssPlugin } from './plugins/scss/plugin.ts';
-import { createI18nPlugin } from './plugins/i18n/plugin.ts';
-import { createSchemaPlugin } from './plugins/schema/plugin.ts';
-import { frameworkPlugins } from './daemon/framework-plugins.ts';
+import { builtinPlugins } from './daemon/builtin-plugins.ts';
 import { builtinOps } from './ops/builtins.ts';
 import { renderResult, renderResultJson } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
@@ -36,6 +31,8 @@ import { createRemoteOrchestrator } from './daemon/remote-orchestrator.ts';
 import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
+import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
+import { serveEngineChild } from './daemon/engine-child.ts';
 
 /** Per-request reply deadline for the bridge (§1 never-hang). Generous — a cold find_usages on a
  *  huge repo can run tens of seconds (§1 latency budget) — but bounded so a wedged daemon yields an
@@ -44,37 +41,13 @@ const BRIDGE_REPLY_DEADLINE_MS = 120_000;
 
 const VERSION = '0.1.0';
 
-function builtinPlugins(config: CodemasterConfig, root: string): readonly Plugin[] {
-  // The i18n + schema plugins are config-gated (no autodetection v1): enabled iff their
-  // config section is present. The gate lives HERE in pluginsFor, never in opsFor — the
-  // ops register unconditionally and are gated by plugin presence via `requires`
-  // (§ spec-i18n-plugin / spec-schema-plugin).
-  return [
-    createTsPlugin(root, config.ts?.tsconfig, {
-      searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
-    }),
-    createScssPlugin(root),
-    ...(config.i18n !== undefined
-      ? [
-          createI18nPlugin(root, config.i18n.locales, config.i18n.functions, {
-            module: config.i18n.module,
-            hook: config.i18n.hook,
-          }),
-        ]
-      : []),
-    // Only the `openapi-typescript` shape is parsed; `generator: 'custom'` (orval etc.) is a
-    // stated follow-up, so don't load a parser that can't read it — keep `list_endpoints` out
-    // of the catalogue honestly rather than offer an op that yields zero cards.
-    ...(config.schema !== undefined && config.schema.generator !== 'custom'
-      ? [createSchemaPlugin(root, [config.schema.entrypoint])]
-      : []),
-    ...frameworkPlugins(config, root),
-  ];
-}
-
 function buildOrchestrator(): Orchestrator {
   const debug = createDebugSystem(systemClock, process.env['CODEMASTER_DEBUG'] ?? '');
   if (process.env['CODEMASTER_DEBUG'] !== undefined) debug.addSink(createStderrSink());
+  // The child bin for `process`-mode isolation (§2) — this same entry, re-invoked as
+  // `daemon serve-engine`. Under a global/npx install `import.meta.url` still points at
+  // codemaster's own source, so the child resolves the SAME bundled TS as the parent (§19).
+  const binPath = fileURLToPath(import.meta.url);
   return new Orchestrator({
     clock: systemClock,
     debug,
@@ -82,6 +55,12 @@ function buildOrchestrator(): Orchestrator {
     version: VERSION,
     pluginsFor: builtinPlugins,
     opsFor: () => builtinOps(),
+    spawnProcessHost: makeProcessHostFactory({
+      binPath,
+      version: VERSION,
+      requestDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
+      sockDir: process.env['CODEMASTER_SOCK_DIR'],
+    }),
   });
 }
 
@@ -187,6 +166,26 @@ async function main(): Promise<number> {
           throw err;
         }
         return -1; // long-lived
+      }
+      if (verb === 'serve-engine') {
+        // The INTERNAL process-mode engine child (§2/§9), forked by `createProcessHost`. Hosts
+        // ONE workspace engine over the fork IPC channel; its heap is bounded by the parent's
+        // `--max-old-space-size`, so a warm that would OOM the shared daemon dies HERE instead.
+        // Config (root/stateDir/version) arrives via env from `forkEngineChild`.
+        const engineRoot = process.env['CODEMASTER_ENGINE_ROOT'];
+        if (engineRoot === undefined) {
+          process.stderr.write('daemon serve-engine: CODEMASTER_ENGINE_ROOT not set\n');
+          return 2;
+        }
+        const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
+        await serveEngineChild({
+          root: engineRoot,
+          version: process.env['CODEMASTER_ENGINE_VERSION'] ?? VERSION,
+          stateDir: process.env['CODEMASTER_ENGINE_STATE_DIR'] ?? path.join(home, '.codemaster'),
+          pluginsFor: builtinPlugins,
+          opsFor: () => builtinOps(),
+        });
+        return -1; // long-lived until the parent disposes or dies
       }
       if (verb === undefined) {
         process.stderr.write(

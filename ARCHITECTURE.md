@@ -66,10 +66,11 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
   amortized across all connections, not duplicated per worktree. The daemon idle-self-exits
   (zero open bridges, TTL) and unlinks its socket. **Honest scope:** a bridge's loop never
   blocks (no heavy work), so its stdin-EOF is always processed and a per-request reply deadline
-  yields an honest `ToolFailure` if the daemon stalls — but a **permanently wedged daemon**
-  (accepts-but-never-replies / a wedged sync loop holding the socket) is _not_ reaped here; that
-  needs process-mode engine isolation + kill-on-deadline (§9, separate roadmap), though the
-  user-facing **management verbs** (`codemaster daemon start|stop|restart|status`,
+  yields an honest `ToolFailure` if the daemon stalls. Heavy engine work is moved off the front
+  door by **`process`-mode engine isolation + kill-on-deadline** (§9, built): a wedged engine op
+  runs in a killable child, not the daemon loop, so the daemon stays responsive and reaps the
+  child on overrun. A daemon whose **own** front-door loop wedges (not an engine) is still not
+  self-reaped; the user-facing **management verbs** (`codemaster daemon start|stop|restart|status`,
   spec-daemon-cli) give a manual path: a bounded socket-probe `status`, a control-message
   `stop` (graceful; honest "kill pid X" if the daemon is wedged past the deadline), and
   `restart` — the "pick up new code" command that kills the stale-code daemon so the next
@@ -921,9 +922,12 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   `stat()`s each engine's `repoRoot` (and `.git`); if either is gone, dispose immediately
   (don't wait for idle TTL). On routing entry, a pre-flight `stat()` of the target's
   `repoRoot` covers the case where an agent calls into a deleted worktree.
-- **Memory governor** — the orchestrator knows every workspace process and its RSS, so it
-  evicts the LRU workspace when the total crosses a machine budget, protecting the user's
-  box. (Meaningful in `process` mode.)
+- **Memory governor** — an **engine-count** LRU budget is built (`maxEngines`): past it the
+  orchestrator evicts the least-recently-used workspace. The per-engine `--max-old-space-size`
+  bound (set at fork in `process` mode) is the built RAM ceiling per child; an OOM there kills only
+  that child (honest `ToolFailure`, daemon survives), not the box. A cross-engine **RSS-based**
+  governor (evict the LRU workspace when total RSS crosses a machine budget — meaningful in
+  `process` mode, where each child's RSS is separately measurable/killable) is roadmap.
 - **Monorepo = one engine, not one-per-package** — a single workspace process whose `ts`
   plugin runs one `Program` per package `tsconfig`, each keeping its own `compilerOptions`
   — a flat single-options Program would be a lie (§19). **Built today (§5-L2 / Task G):**
@@ -948,7 +952,8 @@ are **per-plugin**, plus a few engine-wide ones:
 `ts` (globs/ignore/packages/tsconfig override, `searchWarmMaxFiles` pre-warm guard §9), `i18n` (locales, function names,
 template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
 generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
-(verbosity, limits), `daemon` (idle eviction, path-existence sweep interval), `debug`
+(verbosity, limits), `daemon` (isolation mode, idle eviction, path-existence sweep interval,
+`maxOldSpaceMB` process-mode child heap ceiling §9), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
 all it still works: `codemod` / text-search drive off git `ls-files` (the `.gitignore`-aware
@@ -1314,7 +1319,7 @@ codemaster/
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
-    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts)
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
@@ -1554,12 +1559,21 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   `sun_path`'s ~104/108-byte limit → honest throw) and created user-only (0600). A `Transport` seam
   (mirroring `ProjectHost`, built in `support/transport/`) carries the unix-socket impl now; a
   Windows named-pipe impl drops in behind it later. (§2, §18)
-- **`process`-mode child bootstrap.** Specify the child entry script and how it loads the
-  engine when codemaster is global / `npx` (its `__dirname` is not in the project); how
-  the `ts` plugin resolves the **project's own TS** (resolve-from-project-root, passed as
-  an arg — §5-L2);
-  `--max-old-space-size` set at spawn from the governor budget; orphan-child reaping if the
-  orchestrator is `SIGKILL`ed. (§2, §9)
+- **`process`-mode child bootstrap (built).** The child is this same bin re-invoked as
+  `codemaster daemon serve-engine` (`fork-engine.ts`), forked by `process-host.ts` and served by
+  `engine-child.ts` — it hosts ONE workspace engine over the fork's JSON IPC, reusing `createEngine`
+  unchanged. Config (root/stateDir/version) arrives via env; the child rebuilds its plugins/ops from
+  the project's own config (closures can't cross the fork, so it reconstructs them via the same
+  `builtinPlugins`/`builtinOps` the in-process orchestrator uses — the parity contract). Because the
+  child's `import.meta.url` base is codemaster's own source (same as the parent) even under a global
+  / `npx` install, it resolves the SAME bundled `typescript` as the parent — no project-TS-resolution
+  seam is needed at the current stage (the aspirational resolve-from-project-root TS is §5-L2
+  roadmap). `--max-old-space-size` is appended to the child's inherited `execArgv` at fork (default ≥
+  Node's own ~4 GB, `config.daemon.maxOldSpaceMB` overrides) — a warm that would OOM the shared
+  daemon dies in the child instead (t-167395), and the daemon settles the pending request as an
+  honest `ToolFailure` (oom-hinted on a SIGABRT/134 signature) and respawns on the next request.
+  Orphan-child reaping is `process.on('disconnect')` in the child: a `SIGKILL`ed orchestrator drops
+  the IPC channel → the child self-exits, so a warm LS never squats. (§2, §9)
 - **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
   evict with `SIGTERM` → drain → `SIGKILL` on timeout; hard-kill is the OOM emergency
   only. (§9)
