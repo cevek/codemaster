@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
-import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { passesPathFilter } from '../common/glob/path-filter.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
@@ -79,7 +79,11 @@ function impactNotes(
   total: number,
 ): string[] {
   const notes: string[] = [];
-  if (closure.capped?.by === 'nodes') {
+  if (closure.capped?.by === 'timeout') {
+    notes.push(
+      `!! wall-clock budget exhausted mid-walk — dependent set INCOMPLETE (${closure.capped.boundaryNodes} node(s) left un-expanded); the dependents below are a PARTIAL closure. Narrow with kind/path filters or a smaller depth/nodes to finish within budget.`,
+    );
+  } else if (closure.capped?.by === 'nodes') {
     notes.push(
       `!! reached node cap (${maxNodes}) — dependent set INCOMPLETE (${closure.capped.boundaryNodes} node(s) left un-expanded); raise nodes: or narrow with kind/path filters.`,
     );
@@ -231,7 +235,12 @@ export const impactOp = defineOp({
         return outcomeFromView(outcome.view);
       };
 
-      const closure = buildClosure({ id: def.id, name: def.name }, expand, { maxDepth, maxNodes });
+      const closure = buildClosure(
+        { id: def.id, name: def.name },
+        expand,
+        { maxDepth, maxNodes },
+        ctx.deadline,
+      );
       const data = shape(
         { id: def.id, name: def.name, kind: def.kind },
         closure,
@@ -240,6 +249,19 @@ export const impactOp = defineOp({
         maxNodes,
       );
       const extras = seed.rebind !== undefined ? { handle: seed.rebind } : undefined;
+      // The wall-clock budget ran out mid-walk (§1 never-hang): the closure IS a real partial —
+      // return the accumulated dependents under an honest `timeout` failure so an agent never reads
+      // the truncated set as a complete blast radius (§3.4). The node/depth DESIGN caps stay `ok`.
+      if (closure.capped?.by === 'timeout') {
+        return partial(
+          data,
+          {
+            tool: 'timeout',
+            message: `impact exceeded its wall-clock budget after ${closure.nodes.length} dependent(s) — partial blast radius; narrow with kind/path filters or a smaller depth/nodes`,
+          },
+          extras,
+        );
+      }
       return ok(data, extras);
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);

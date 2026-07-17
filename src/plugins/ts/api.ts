@@ -40,6 +40,7 @@ import type { WideningSinksView } from './type-widening.ts';
 import type { OverlaySymbolType } from './overlay-type.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
+import type { Deadline } from '../../common/async/deadline.ts';
 import type { RenameOutcome } from './refactor/rename/rename-sites.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
 import type { ImportRewrite } from './refactor/extract/css-usage.ts';
@@ -243,8 +244,11 @@ export interface TsPluginApi extends Plugin {
   nodeModuleImports(): NodeModuleImportSite[];
   /** Locally-declared exports with no importer/usage anywhere (semantic, via the LS). A
    *  barrel-/`export *`-/dynamic-`import()`-reached export demotes to `partial` ("could not
-   *  prove dead"), never `certain` unused. Bounded: the candidate set is scoped + hard-capped. */
-  unusedExports(filter?: TsUnusedExportsFilter): UnusedExportsView;
+   *  prove dead"), never `certain` unused. Bounded: the candidate set is scoped + hard-capped.
+   *  `deadline` (§1 never-hang) is polled between per-candidate reference searches; on overrun the
+   *  loop stops and the view is flagged `timedOut` (the op returns the examined-so-far as a
+   *  `partial`), never a spin over a whole-repo candidate set. */
+  unusedExports(filter?: TsUnusedExportsFilter, deadline?: Deadline): UnusedExportsView;
   /** Symbol-anchored rename (§7): every semantic reference site as a per-file before/after
    *  pair, or a message when the position cannot be renamed. A rebound stale handle (§6)
    *  surfaces on `rebind`. The new name's legality is the post-edit typecheck's call. */

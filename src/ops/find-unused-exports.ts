@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, ok, partial } from '../common/result/construct.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { Truncation } from '../core/result.ts';
@@ -108,11 +108,14 @@ export const findUnusedExportsOp = defineOp({
       // reads `certain` again over an otherwise-floored nested config. A partial-coverage config stays
       // floored — disclosed, never a false lift.
       const lever = applyProgramsLever(ts, args.programs);
-      const view = ts.unusedExports({
-        ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),
-        ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
-        ...(args.limit !== undefined ? { limit: args.limit } : {}),
-      });
+      const view = ts.unusedExports(
+        {
+          ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),
+          ...(args.pathExclude !== undefined ? { pathExclude: args.pathExclude } : {}),
+          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        },
+        ctx.deadline,
+      );
       const truncated: Truncation | undefined =
         view.truncated !== undefined
           ? {
@@ -131,23 +134,31 @@ export const findUnusedExportsOp = defineOp({
       const filterSet = args.pathInclude !== undefined || args.pathExclude !== undefined;
       const filterMatchedNoFiles =
         filterSet && view.scannedFiles === 0 ? FILTER_NO_FILES_WARNING : undefined;
-      return ok(
-        {
-          ...(filterMatchedNoFiles !== undefined ? { filterMatchedNoFiles } : {}),
-          // `programs:` verdict-first (§12): what the lever loaded / left floored / couldn't find,
-          // ahead of the bulk `unused` list.
-          ...lever.fields,
-          ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
-          unused: view.unused.map((u) => tag('unused-export', u)),
-          scanned: { exports: view.scannedExports, files: view.scannedFiles },
-          ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
-          ...(view.undiscoveredPrograms !== undefined
-            ? { undiscoveredPrograms: view.undiscoveredPrograms }
-            : {}),
-          ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
-        },
-        truncated !== undefined ? { truncated } : undefined,
-      );
+      const data = {
+        ...(filterMatchedNoFiles !== undefined ? { filterMatchedNoFiles } : {}),
+        // `programs:` verdict-first (§12): what the lever loaded / left floored / couldn't find,
+        // ahead of the bulk `unused` list.
+        ...lever.fields,
+        ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
+        unused: view.unused.map((u) => tag('unused-export', u)),
+        scanned: { exports: view.scannedExports, files: view.scannedFiles },
+        ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
+        ...(view.undiscoveredPrograms !== undefined
+          ? { undiscoveredPrograms: view.undiscoveredPrograms }
+          : {}),
+        ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
+      };
+      // §1 never-hang: the wall-clock budget ran out mid-scan — the `unused` list is a PARTIAL
+      // answer (an unexamined export might be dead), so return it as an honest timeout `partial`,
+      // never a complete "these are all the dead exports" (§3.4). A clean scan stays `ok`.
+      if (view.timedOut === true) {
+        const total = view.truncated?.candidates ?? view.scannedExports;
+        return partial(data, {
+          tool: 'timeout',
+          message: `find_unused_exports exceeded its wall-clock budget after ${view.scannedExports} of ${total} candidate export(s) — the list is partial; scope with pathInclude to finish within budget`,
+        });
+      }
+      return ok(data, truncated !== undefined ? { truncated } : undefined);
     } catch (thrown) {
       return failFromThrown('ts', thrown);
     }

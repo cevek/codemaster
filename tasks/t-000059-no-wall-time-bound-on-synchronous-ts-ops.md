@@ -1,7 +1,7 @@
 ---
 id: t-000059
 title: No wall-time bound on synchronous TS ops
-status: backlog
+status: in-progress
 priority: medium
 parent: t-031282
 type: perf

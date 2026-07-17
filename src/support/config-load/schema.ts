@@ -65,6 +65,7 @@ const daemonSection = z.strictObject({
   idleEvictionMinutes: z.number().positive().optional(),
   pathExistenceSweepSeconds: z.number().positive().optional(),
   maxOldSpaceMB: z.number().int().positive().optional(),
+  opDeadlineSeconds: z.number().positive().optional(),
 });
 
 const debugSection = z.strictObject({

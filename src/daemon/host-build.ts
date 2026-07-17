@@ -13,6 +13,12 @@ import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { OrchestratorDeps } from './orchestrator.ts';
 
+/** Default per-op cooperative wall-clock budget (§1 never-hang, config `daemon.opDeadlineSeconds`).
+ *  120 s — comfortably above the legitimate 5–60 s answer ceiling (§1), so it fires only on a
+ *  runaway call, never a slow-but-valid one; and shorter than the process-mode kill backstop (§9),
+ *  so the cooperative partial returns before any hard SIGKILL. */
+export const DEFAULT_OP_DEADLINE_SECONDS = 120;
+
 export interface HostBuildArgs {
   repoId: RepoId;
   root: string;
@@ -65,6 +71,9 @@ export async function buildWorkspaceHost(
 
   // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.
   attachRepoLogSink(deps.debug, stateDir, repoId, root, config.debug?.logMaxMB);
+  // Per-op cooperative wall-clock budget (§1): a direct `opDeadlineMs` dep (test seam) wins,
+  // else the config seconds (default 120) × 1000. The engine treats it as a hard bound.
+  const deadlineSec = config.daemon?.opDeadlineSeconds ?? DEFAULT_OP_DEADLINE_SECONDS;
   const created = await createEngine({
     repoId,
     root,
@@ -74,6 +83,7 @@ export async function buildWorkspaceHost(
     plugins: deps.pluginsFor?.(config, root) ?? [],
     ops: deps.opsFor?.(config) ?? [],
     clock: deps.clock,
+    opDeadlineMs: deps.opDeadlineMs ?? deadlineSec * 1000,
     debug: deps.debug,
     watcher: deps.watcher,
     ...(deps.sqlBounds !== undefined ? { sqlBounds: deps.sqlBounds } : {}),

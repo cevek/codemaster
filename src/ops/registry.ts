@@ -10,6 +10,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { OpExample } from '../core/op-example.ts';
 import type { PluginRegistry } from '../core/plugin.ts';
 import type { TextScanner } from '../support/text-search/scan.ts';
+import type { Deadline } from '../common/async/deadline.ts';
 import type { OpFlags } from './contracts.ts';
 
 /** What an op sees at run time. Ops compose plugins through the registry's public
@@ -39,6 +40,15 @@ export interface OpContext {
   /** The textual-occurrence scanner for `find_usages text:true` (§ text-overlay). A
    *  one-type seam (default pure-JS; ripgrep can drop in) — present on every op call. */
   textScanner?: TextScanner;
+  /** The op's cooperative wall-clock budget (§1 never-hang), Clock-backed and constructed
+   *  fresh per op by the engine. Always present — `NO_DEADLINE` when nothing is wired, so a
+   *  loop-/LS-bounded op never has to guard `undefined`. An op that polls it (`impact`'s BFS,
+   *  `find_unused_exports`' candidate loop, `find_usages`' LS cancellation) degrades to an
+   *  honest `ToolFailure{tool:'timeout'}` / `partial` on overrun instead of spinning. Distinct
+   *  from the process-mode kill-on-deadline backstop (§9), a hard SIGKILL for uncancellable work
+   *  (a TS program build): this cooperative budget is set SHORTER than that kill, so the graceful
+   *  partial always returns first. */
+  deadline?: Deadline;
   /** Engine-level (NOT an agent-visible OpFlag — §5.2): set ONLY when this op is feeding
    *  an in-call SQLite table. A capped producer feeding a `NOT IN` makes the SQL answer a
    *  lie (§2.3), so a table-bearing op replaces its per-op `limit` with this bound — the

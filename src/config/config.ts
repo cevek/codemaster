@@ -86,6 +86,14 @@ export interface DaemonConfig {
    *  daemon (t-167395). Default ≥ Node's own ~4 GB, so a legitimately large repo isn't killed
    *  needlessly. Ignored in `in-process` mode. */
   maxOldSpaceMB?: number;
+  /** Per-op cooperative wall-clock budget in SECONDS (§1 never-hang). A synchronous TS op that
+   *  polls the budget (`impact`, `find_unused_exports`, a large `find_usages`) degrades to an
+   *  honest `ToolFailure{tool:'timeout'}` / `partial` instead of spinning. Generous by default
+   *  (`DEFAULT_OP_DEADLINE_SECONDS` = 120) — well above the legitimate 5–60 s answer ceiling (§1),
+   *  so it fires only on a runaway whole-repo call, never a legitimately slow one; a too-tight
+   *  budget would false-timeout a live op (a regression). MUST stay shorter than the process-mode
+   *  kill-on-deadline backstop (§9), so the graceful partial returns before any hard SIGKILL. */
+  opDeadlineSeconds?: number;
 }
 
 export interface DebugConfig {

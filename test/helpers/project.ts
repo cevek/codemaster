@@ -75,6 +75,11 @@ export interface ProjectOptions {
    *  constant so tests never walk the real `src/`; a staleness test injects a value that
    *  changes after spawn to drive the "daemon behind source" signal. */
   sourceFingerprint?: () => string;
+  /** Per-op wall-clock budget in ms (§1 never-hang). Overrides the config default so a timeout
+   *  test can force the degrade deterministically with a `0` (immediately-expired) budget under
+   *  the frozen manual clock. Omitted → the generous production default (never trips in a fast
+   *  test → behaviour byte-identical). */
+  opDeadlineMs?: number;
 }
 
 /** Replace one method on the `ts` plugin object with a throwing stub (§3.6 fault injection
@@ -166,6 +171,7 @@ export async function project(
       ? { createTextScanner: options.createTextScanner }
       : {}),
     ...(options?.gitRunner !== undefined ? { gitRunner: options.gitRunner } : {}),
+    ...(options?.opDeadlineMs !== undefined ? { opDeadlineMs: options.opDeadlineMs } : {}),
     // Default to a constant so the suite never stat-walks the real `src/`; a staleness test
     // overrides it with a value that changes after spawn.
     sourceFingerprint: options?.sourceFingerprint ?? ((): string => 'test-src'),

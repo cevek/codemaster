@@ -57,6 +57,11 @@ export interface OrchestratorDeps {
   createTextScanner?: () => TextScanner;
   /** Git runner for the freshness path (§3.6) — test seam, forwarded to every engine. */
   gitRunner?: GitRunner;
+  /** Per-op cooperative wall-clock budget in ms (§1 never-hang) — test seam. When set, OVERRIDES
+   *  the config-derived `daemon.opDeadlineSeconds`, so a timeout test can force the degrade with a
+   *  `0` (immediately-expired) budget without writing a config file. Production leaves it unset and
+   *  the config default (`daemon.opDeadlineSeconds`, 120 s) applies. */
+  opDeadlineMs?: number;
   /** Codemaster's OWN source fingerprint (self-staleness — §3.6). Recorded at spawn; a later
    *  difference means the daemon is behind its source. Test seam; default = `src/**` rollup. */
   sourceFingerprint?: () => string;

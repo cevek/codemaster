@@ -1,7 +1,7 @@
 ---
 id: t-000030
 title: 'impact: wall-clock deadline'
-status: backlog
+status: in-progress
 priority: medium
 parent: t-031282
 type: perf

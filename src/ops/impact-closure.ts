@@ -36,6 +36,7 @@
 // closure instead.
 
 import type { GroupRow } from '../plugins/ts/query-types.ts';
+import { type Deadline, NO_DEADLINE } from '../common/async/deadline.ts';
 
 /** What `expand` returns for one node: its dependent enclosers (each a chainable
  *  `GroupRow`) plus the completeness facts the closure must propagate. `ok:false` is a
@@ -79,8 +80,11 @@ export interface ClosureResult {
   /** Dependents we could not re-expand (module rollups / unresolved ids reached by a
    *  value/call edge) — their own transitive dependents are a genuine gap. */
   unexpandable: number;
-  /** Set when a hard bound stopped the traversal — the dependent set is INCOMPLETE. */
-  capped?: { by: 'nodes' | 'depth'; boundaryNodes: number };
+  /** Set when a hard bound stopped the traversal — the dependent set is INCOMPLETE. `nodes`/`depth`
+   *  are DESIGN caps (the op reports them as `ok` + a `!!` note); `timeout` is the wall-clock budget
+   *  running out mid-walk (§1 never-hang) — an abnormal degrade the op turns into a
+   *  `ToolFailure{tool:'timeout', partial}`, honest about the un-walked remainder. */
+  capped?: { by: 'nodes' | 'depth' | 'timeout'; boundaryNodes: number };
   /** Set when some single hub returned more dependents than find_usages' per-call limit. */
   hubTruncated: boolean;
 }
@@ -141,6 +145,11 @@ export function buildClosure(
   seed: ClosureSeed,
   expand: Expand,
   limits: ClosureLimits,
+  /** The op's cumulative wall-clock budget (§1). Polled at each frontier node BEFORE its
+   *  `expand` (the costly find_usages), so the accumulated closure-so-far is a real partial the
+   *  op returns honestly. `NO_DEADLINE` (the default) never expires — the pure node/depth caps
+   *  stay the only bounds, so an existing call is byte-identical. */
+  deadline: Deadline = NO_DEADLINE,
 ): ClosureResult {
   const visited = new Set<string>([seed.id]);
   const nodes: ClosureNode[] = [];
@@ -165,6 +174,13 @@ export function buildClosure(
       // is not yet expanded, so it is part of the un-expanded boundary.
       if (nodes.length >= limits.maxNodes) {
         capped = { by: 'nodes', boundaryNodes: frontier.length - i + next.length };
+        return finish();
+      }
+      // Wall-clock budget (§1): checked at the SAME pre-expand point, so `parent` is un-expanded
+      // and counted in the boundary exactly like the node cap. The accumulated `nodes` are a real
+      // partial closure — the op returns them under an honest `timeout` failure, never as complete.
+      if (deadline.expired()) {
+        capped = { by: 'timeout', boundaryNodes: frontier.length - i + next.length };
         return finish();
       }
       const outcome = expand(parent.id);

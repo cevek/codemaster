@@ -14,6 +14,12 @@ export function unknownOpMessage(name: string, ops: Map<string, AnyOpDefinition>
   return `unknown op '${name}'${guess !== undefined ? ` — did you mean '${guess}'?` : ''} (known: ${known.join(', ')})`;
 }
 
+/** The `unavailable` message: an op the workspace knows but whose required plugin(s) aren't
+ *  active here (§11). Named the missing plugins so the agent knows what to enable. */
+export function unavailableMessage(name: string, missing: readonly string[]): string {
+  return `op '${name}' needs plugin(s) [${missing.join(', ')}] which are not active in this workspace`;
+}
+
 /** A structural subset of a zod issue — enough to format it and to spot an unrecognized key. */
 interface ArgIssue {
   readonly code?: string;

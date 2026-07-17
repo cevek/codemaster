@@ -15,6 +15,7 @@
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
+import { type Deadline, NO_DEADLINE } from '../../common/async/deadline.ts';
 import { matchesPathFilter } from '../../common/glob/path-filter.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { classifyExport, collectModuleEdges } from './unused-exports-classify.ts';
@@ -51,6 +52,11 @@ export type UnusedExportsView = {
   undiscoveredPrograms?: string[];
   /** Present when the candidate cap was hit: `examined` of `candidates` total. */
   truncated?: { examined: number; candidates: number };
+  /** Set when the wall-clock budget (§1 never-hang) ran out mid-scan: the loop stopped after
+   *  `scannedExports` of the candidate set, so `unused` is a PARTIAL answer (an unexamined export
+   *  might be dead). The op returns it as a `ToolFailure{tool:'timeout', partial}`, never as a
+   *  complete "these are all the dead exports". `scannedExports < examined` when this is set. */
+  timedOut?: boolean;
 };
 
 export interface TsUnusedExportsFilter {
@@ -81,6 +87,10 @@ export type Candidate = {
 export function findUnusedExports(
   host: TsProjectHost,
   filter?: TsUnusedExportsFilter,
+  /** Cooperative wall-clock budget (§1), polled between per-candidate reference searches. The
+   *  default never expires, so an existing call is byte-identical; a spent budget stops the loop
+   *  and flags `timedOut`. */
+  deadline: Deadline = NO_DEADLINE,
 ): UnusedExportsView {
   const program = host.service.getProgram();
   if (program === undefined) {
@@ -129,20 +139,34 @@ export function findUnusedExports(
   const undiscovered = host.undiscoveredProgramLabels();
 
   const unused: UnusedExportView[] = [];
+  let scanned = 0;
+  let timedOut = false;
   for (const c of examined) {
+    // §1 never-hang: each candidate costs one findReferences (O(import-graph)). Poll the budget
+    // BEFORE the search, so on overrun `unused` holds only the fully-examined candidates — a real
+    // partial the op surfaces as `timeout`, never a spin over a whole-repo candidate set.
+    if (deadline.expired()) {
+      timedOut = true;
+      break;
+    }
+    scanned++;
     const verdict = classifyExport(host, program, c, edges, undiscovered);
     if (verdict !== undefined) unused.push(verdict);
   }
 
   return {
     unused,
-    scannedExports: examined.length,
+    scannedExports: scanned,
     scannedFiles,
     computedDynamicImport: edges.computedDynamicImport,
     ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
-    ...(candidates.length > examined.length
-      ? { truncated: { examined: examined.length, candidates: candidates.length } }
+    // `examined` is what was ACTUALLY scanned (`scanned`), not the cap slice — a timeout that cut
+    // below the cap must not overstate coverage. Present whenever some candidate went unexamined,
+    // whether by the cap or the budget.
+    ...(candidates.length > scanned
+      ? { truncated: { examined: scanned, candidates: candidates.length } }
       : {}),
+    ...(timedOut ? { timedOut: true } : {}),
   };
 }
 

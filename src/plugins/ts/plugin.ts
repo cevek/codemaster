@@ -313,7 +313,7 @@ export function createTsPlugin(
 
     nodeModuleImports: () => nodeModuleImports(warm()),
 
-    unusedExports: (filter) => findUnusedExports(warm(), filter),
+    unusedExports: (filter, deadline) => findUnusedExports(warm(), filter, deadline),
 
     renameSites(target, newName, overlay) {
       return runWithOverlay(overlay, () => {
