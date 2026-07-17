@@ -30,6 +30,7 @@ import { runDaemonCommand } from './daemon/manage.ts';
 import { createRemoteOrchestrator } from './daemon/remote-orchestrator.ts';
 import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
+import { pidfilePathFor } from './support/pidfile/write.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
@@ -161,6 +162,8 @@ async function main(): Promise<number> {
             transport,
             clock: systemClock,
             idleMs: mcpIdleMs(process.cwd()),
+            // Kill-target-hint pidfile (t-000051) for the management-verb wedge recovery.
+            pidfile: { path: pidfilePathFor(socket), socket, version: VERSION },
           });
         } catch (err) {
           // Lost the bind race (§19) — another daemon already holds the socket. Exit cleanly; the
@@ -203,6 +206,7 @@ async function main(): Promise<number> {
       const result = await runDaemonCommand(verb, {
         transport,
         socketPath: socket,
+        pidfilePath: pidfilePathFor(socket),
         clock: systemClock,
         spawnDaemon: () => spawnDaemon(binPath, process.env['CODEMASTER_SOCK_DIR']),
       });

@@ -4,8 +4,9 @@ Status: **implemented** (Stage 1 + Stage 2). Realizes the process topology ARCHI
 the §19 "daemon singleton" decision. The `Transport` seam lives in `support/transport/`
 (unix-socket impl + NDJSON framing); the daemon in `daemon/daemon-server.ts`, the bridge +
 convergence in `bin.ts` (`mcp` command) + `daemon/connect-or-spawn.ts` + `daemon/remote-orchestrator.ts`.
-The one residual — reaping a **permanently wedged** daemon — is tracked in the `task-manager` backlog and needs
-process-mode engine isolation (§9), out of scope here.
+Reaping a **permanently wedged** daemon is handled by the management verbs' pidfile-targeted
+force-kill (spec-daemon-cli / t-000051) — external to the convergence here; only the read-path
+AUTO-recovery from the bridge (kill-on-N-timeouts without a user verb) stays deferred (t-783490).
 
 ## 1. Problem & evidence
 
@@ -109,8 +110,9 @@ daemon without the socket. The socket daemon is a `mcp`-only concern.
   hold cancels it, the last release re-arms, it never fires while a hold is active). On the
   `--in-process` serve path a hold = an in-flight request → the server can't be reaped mid-call;
   TTL = `daemon.idleEvictionMinutes` (with the `CODEMASTER_MCP_IDLE_MS` test override). Bounds an
-  orphan's life to the TTL once the loop is free; a **permanently** wedged sync loop stays out of
-  scope. The CLI one-shot path (§5) never serves, so no timer leaks into it.
+  orphan's life to the TTL once the loop is free; a **permanently** wedged sync loop can't self-reap
+  (its own loop is stopped) and is reaped externally by the management verbs' pidfile-targeted
+  force-kill (spec-daemon-cli / t-000051). The CLI one-shot path (§5) never serves, so no timer leaks into it.
 - **Stage 2 — the singleton (amortization + convergence). ✅ shipped.** The §2–§4 daemon + bridge
   split: `support/transport/` (seam + unix socket + NDJSON), `daemon/daemon-server.ts` (hosts one
   in-process orchestrator, routes per-message async), `daemon/remote-orchestrator.ts` (the bridge's
@@ -142,8 +144,9 @@ seam, §16). One real-socket smoke test, like the chokidar smoke test.
 
 ## 8. Doc reconciliation (done with the code)
 
-- ARCHITECTURE.md §2 and §19 are present-tense: the singleton/bind-or-connect is built, with the
-  honest scope that a permanently wedged daemon is not reaped (process-mode, separate roadmap).
+- ARCHITECTURE.md §2 and §19 are present-tense: the singleton/bind-or-connect is built; a permanently
+  wedged daemon is reaped by the management verbs' pidfile-targeted force-kill (t-000051), with only
+  the bridge's read-path AUTO-recovery deferred (t-783490).
 - plan.md's deferred bullet (`daemon singleton (bind-or-connect)`) points here; check its box per
   stage.
 

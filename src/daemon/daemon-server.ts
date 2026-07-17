@@ -7,9 +7,15 @@
 // Lifecycle (§3): an open bridge connection is a "hold" (via `createIdleExit`); the daemon
 // idle-self-exits only with ZERO open connections after the TTL, closing the listener (which
 // unlinks the socket → a racing connect gets ECONNREFUSED → recovery) and disposing the engines.
-// This subsumes the Stage-1 server-level idle-exit at the daemon level. A permanently-wedged
-// synchronous loop is NOT reaped here (its own idle loop is wedged) — that is a process-mode /
-// kill-on-deadline concern (§9, out of scope), the same boundary Stage 1 drew.
+// This subsumes the Stage-1 server-level idle-exit at the daemon level. A permanently-wedged front
+// door (a sync-spin holding the socket, or — in the default in-process mode — a heavy op blocking
+// the shared loop) is NOT reaped from inside: its own idle loop is wedged too. Recovery is EXTERNAL
+// (spec-daemon-cli / t-000051): the daemon drops a pidfile next to the socket at bind, so the
+// management verbs (`daemon stop|restart`) can pidfile-target a SIGTERM→SIGKILL when the graceful
+// shutdown-message goes unanswered. The pidfile is a KILL-TARGET HINT only — the socket stays the
+// sole liveness oracle (§3.5); it is written AFTER a successful bind (so a bind-race loser leaves
+// none) and removed on graceful shutdown (so a lingering pidfile means a daemon that never exited
+// cleanly — exactly the wedge the recovery targets).
 
 import process from 'node:process';
 import type { Clock } from '../common/async/clock.ts';
@@ -17,6 +23,7 @@ import { messageOfThrown } from '../common/result/construct.ts';
 import type { JsonValue } from '../core/json.ts';
 import { createIdleExit } from '../common/async/idle-exit.ts';
 import type { Transport, TransportConnection } from '../support/transport/seam.ts';
+import { writePidfile, removePidfile } from '../support/pidfile/write.ts';
 import type { ServingOrchestrator } from './orchestrator-api.ts';
 import { parseWireRequest, type WireReply } from './protocol.ts';
 
@@ -26,6 +33,10 @@ export interface DaemonServerDeps {
   clock: Clock;
   /** Idle-exit TTL (ms) — zero connections for this long → self-exit. */
   idleMs: number;
+  /** Where to drop this daemon's kill-target-hint pidfile (t-000051), and the facts it carries.
+   *  Written after a successful bind, removed on graceful shutdown. Omitted by tests that don't
+   *  exercise recovery (no file is touched). */
+  pidfile?: { path: string; socket: string; version: string };
   /** Injected for tests (assert the exit code without killing the runner). */
   exit?: (code: number) => void;
   /** Optional trace sink (the `daemon` debug ns); default no-op. */
@@ -43,6 +54,18 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
   const trace = deps.trace ?? ((): void => undefined);
   const exit = deps.exit ?? ((code: number): void => process.exit(code));
   const server = await deps.transport.listen();
+
+  // Bind succeeded (a bind-race loser threw above and never reaches here), so this process owns the
+  // socket → drop the kill-target-hint pidfile (t-000051). Wrapped inside writePidfile → a write
+  // failure is an honest no-hint, never a crash of the serve path (§3.6).
+  if (deps.pidfile !== undefined) {
+    writePidfile(deps.pidfile.path, {
+      pid: process.pid,
+      socket: deps.pidfile.socket,
+      version: deps.pidfile.version,
+      startedAt: deps.clock.now(),
+    });
+  }
 
   let shuttingDown = false;
   const idle = createIdleExit({
@@ -62,6 +85,9 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
       .catch((thrown: unknown) =>
         trace('close failed', () => ({ error: messageOfThrown(thrown) })),
       );
+    // Graceful exit → drop the kill-target hint (best-effort, never throws). A lingering pidfile
+    // now unambiguously marks a daemon that did NOT exit cleanly — the wedge recovery targets.
+    if (deps.pidfile !== undefined) removePidfile(deps.pidfile.path);
     await deps.orchestrator
       .dispose()
       .catch((thrown: unknown) =>

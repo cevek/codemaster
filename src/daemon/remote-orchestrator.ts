@@ -6,6 +6,15 @@
 // not reply — fall back"), never an unbounded wait. A dropped connection fails all in-flight
 // requests at once. `sourceStale` rides the daemon's spawn fingerprint, cached from each reply
 // envelope (the banner reflects the DAEMON's code age, not the bridge's — §3.6 / spec §3).
+//
+// Wedge probe (t-000051): on a reply-timeout the bridge fires ONE short-deadline `daemon-info`
+// liveness ping (a pure read that touches no engine) to tell "busy/slow" from "front door
+// UNRESPONSIVE". Any reply — even an error — proves the front door services requests (busy/slow);
+// only a second timeout (or a closed link) is unresponsive, which enriches the honest failure with a
+// `codemaster daemon restart` steer. The bridge NEVER auto-kills (that is B2, deferred t-783490); a
+// SINGLE-listener transport means the probe reuses this same pending/onMessage machinery, not a
+// second handler. "unresponsive", not "wedged": in the default in-process mode a genuinely busy
+// daemon can't answer either, so the signal is ambiguous by construction and stated as such.
 
 import type { Clock, CancelTimer } from '../common/async/clock.ts';
 import type { JsonValue } from '../core/json.ts';
@@ -13,6 +22,7 @@ import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { StatusView } from '../format/render/render-status.ts';
 import type { TransportConnection } from '../support/transport/seam.ts';
 import type { OrchestratorApi } from './orchestrator-api.ts';
+import { daemonInfoEnvelope } from './manage-io.ts';
 import { parseWireReply, type WireReply } from './protocol.ts';
 
 type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
@@ -22,9 +32,14 @@ export interface RemoteOrchestratorDeps {
   clock: Clock;
   /** Per-request reply deadline (ms). On overrun the request fails honestly — the agent falls back. */
   replyDeadlineMs: number;
+  /** Short deadline for the post-timeout `daemon-info` liveness ping (ms). Default 5000. */
+  probeDeadlineMs?: number;
   /** The bridge's version — used to synthesize a degraded `status` view on a daemon failure. */
   version: string;
 }
+
+const CLOSED_MESSAGE = 'daemon connection closed';
+const DEFAULT_PROBE_DEADLINE_MS = 5000;
 
 export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): OrchestratorApi {
   let nextId = 1;
@@ -35,7 +50,7 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
   deps.connection.onClose(() => {
     closed = true;
     for (const [id, resolve] of pending) {
-      resolve({ id, kind: 'error', message: 'daemon connection closed' });
+      resolve({ id, kind: 'error', message: CLOSED_MESSAGE });
     }
     pending.clear();
   });
@@ -58,46 +73,86 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
     }
   });
 
-  function sendAndAwait(envelope: JsonValue, id: number): Promise<WireReply> {
-    if (closed) return Promise.resolve({ id, kind: 'error', message: 'daemon connection closed' });
-    return new Promise<WireReply>((resolve) => {
+  // Outcome-based so a deadline overrun is DISTINGUISHABLE from a real error reply — the wedge probe
+  // needs that difference (a real error still proves the front door is live).
+  function sendAndAwait(
+    envelope: JsonValue,
+    id: number,
+    deadlineMs: number,
+  ): Promise<AwaitOutcome> {
+    if (closed)
+      return Promise.resolve({
+        kind: 'reply',
+        reply: { id, kind: 'error', message: CLOSED_MESSAGE },
+      });
+    return new Promise<AwaitOutcome>((resolve) => {
       let cancelTimer: CancelTimer = () => undefined;
-      const settle = (reply: WireReply): void => {
+      const settle = (o: AwaitOutcome): void => {
         cancelTimer();
         pending.delete(id);
-        resolve(reply);
+        resolve(o);
       };
-      pending.set(id, settle);
-      cancelTimer = deps.clock.schedule(deps.replyDeadlineMs, () =>
-        settle({
-          id,
-          kind: 'error',
-          message: `daemon did not reply in ${deps.replyDeadlineMs}ms — fall back`,
-        }),
-      );
+      pending.set(id, (reply) => settle({ kind: 'reply', reply }));
+      cancelTimer = deps.clock.schedule(deadlineMs, () => settle({ kind: 'timeout' }));
       deps.connection.send(envelope);
     });
+  }
+
+  /** One short-deadline `daemon-info` ping. Any reply — even an old daemon's error — proves the
+   *  front door services requests; only a timeout or a closed link means unresponsive. */
+  async function probeLiveness(): Promise<'alive' | 'unresponsive'> {
+    if (closed) return 'unresponsive';
+    const id = nextId++;
+    const out = await sendAndAwait(
+      daemonInfoEnvelope(id),
+      id,
+      deps.probeDeadlineMs ?? DEFAULT_PROBE_DEADLINE_MS,
+    );
+    if (out.kind === 'timeout') return 'unresponsive';
+    if (out.reply.kind === 'error' && out.reply.message === CLOSED_MESSAGE) return 'unresponsive';
+    return 'alive';
+  }
+
+  /** The honest failure message for a reply-timeout, enriched by the liveness probe. */
+  async function wedgeMessage(): Promise<string> {
+    const base = `daemon did not reply in ${deps.replyDeadlineMs}ms`;
+    return (await probeLiveness()) === 'alive'
+      ? `${base} — daemon is busy/slow (still responsive); falling back — retry shortly`
+      : `${base} and its front door is UNRESPONSIVE — run \`codemaster daemon restart\` then reconnect; falling back`;
   }
 
   return {
     async request(cwd, root, reqs, batch) {
       const id = nextId++;
-      const reply = await sendAndAwait(wireRequest(id, cwd, root, reqs, batch), id);
+      const out = await sendAndAwait(
+        wireRequest(id, cwd, root, reqs, batch),
+        id,
+        deps.replyDeadlineMs,
+      );
+      if (out.kind === 'timeout') return { ok: false, message: await wedgeMessage() };
+      const reply = out.reply;
       if (reply.kind === 'error') return { ok: false, message: reply.message };
       if (reply.kind === 'request') return reply.outcome as RequestOutcome;
       return { ok: false, message: 'unexpected reply kind for request' };
     },
     async status(cwd, root) {
       const id = nextId++;
-      const reply = await sendAndAwait(statusRequest(id, cwd, root), id);
-      if (reply.kind === 'status') return reply.view;
-      const message = reply.kind === 'error' ? reply.message : 'unexpected reply kind for status';
+      const out = await sendAndAwait(statusRequest(id, cwd, root), id, deps.replyDeadlineMs);
+      if (out.kind === 'reply' && out.reply.kind === 'status') return out.reply.view;
+      const message =
+        out.kind === 'timeout'
+          ? await wedgeMessage()
+          : out.reply.kind === 'error'
+            ? out.reply.message
+            : 'unexpected reply kind for status';
       return degradedStatus(deps.version, sourceStaleCache, message);
     },
     sourceStale: () => sourceStaleCache,
     dispose: () => deps.connection.close(),
   };
 }
+
+type AwaitOutcome = { kind: 'reply'; reply: WireReply } | { kind: 'timeout' };
 
 function wireRequest(
   id: number,

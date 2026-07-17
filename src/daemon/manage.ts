@@ -12,16 +12,28 @@
 // to an honest "speaks an older protocol — restart" rather than a misreport.
 
 import type { Clock } from '../common/async/clock.ts';
-import type { JsonValue } from '../core/json.ts';
 import type { Transport, TransportConnection } from '../support/transport/seam.ts';
 import type { DaemonInfo } from './orchestrator-api.ts';
 import { connectOrSpawnDaemon, tryConnect } from './connect-or-spawn.ts';
-import { parseWireReply, type WireReply } from './protocol.ts';
+import { forceRecoverDaemon, type ForceRecoverResult } from './force-recover.ts';
+import {
+  awaitClose,
+  awaitReply,
+  daemonInfoEnvelope,
+  fmtUptime,
+  shutdownEnvelope,
+} from './manage-io.ts';
 
 export interface DaemonManageDeps {
   transport: Transport;
   socketPath: string;
   clock: Clock;
+  /** The daemon's kill-target-hint pidfile (t-000051). When set, a wedged `stop`/`restart`
+   *  escalates to a pidfile-targeted force-kill; when absent it degrades to the manual-kill hint. */
+  pidfilePath?: string;
+  /** The force-kill escalation (injectable so tests drive each outcome deterministically without a
+   *  real process; defaults to the real `forceRecoverDaemon`). */
+  forceRecover?: typeof forceRecoverDaemon;
   /** Fire the detached daemon spawn (injectable so tests start an in-process daemon instead). */
   spawnDaemon: () => void;
   /** Bounded await-reply deadline for `daemon-info` (ms). Default 5000. */
@@ -157,16 +169,61 @@ async function daemonStop(deps: DaemonManageDeps): Promise<ManageResult> {
     const pidPart = pid !== undefined ? ` (socket released, pid ${pid})` : ' (socket released)';
     return { code: 0, lines: [`daemon stopped${pidPart}`, RECONNECT_NOTE] };
   }
-  // Did not close within the budget — wedged. Honest, never hang.
+  // Did not close within the budget — the front door is wedged. Escalate to a pidfile-targeted
+  // force-kill (t-000051): the socket already proved it unresponsive, so this is a warranted kill,
+  // not a guess. Never hang — force-recover is bounded at every step.
   await conn.close().catch(() => undefined);
+  if (deps.pidfilePath !== undefined) {
+    const recovered = await (deps.forceRecover ?? forceRecoverDaemon)({
+      socketPath: deps.socketPath,
+      pidfilePath: deps.pidfilePath,
+      clock: deps.clock,
+    });
+    const mapped = mapForceRecover(recovered, stopMs(deps));
+    if (mapped !== undefined) return mapped; // `undefined` = no target → manual fallback below.
+  }
+  return manualKillFallback(pid, stopMs(deps));
+}
+
+/** Map a force-kill outcome to a management result. `undefined` = no trustworthy pidfile target, so
+ *  the caller degrades to the honest manual-kill hint. */
+function mapForceRecover(r: ForceRecoverResult, budgetMs: number): ManageResult | undefined {
+  switch (r.kind) {
+    case 'killed':
+      return {
+        code: 0,
+        lines: [`daemon was wedged — force-killed pid ${r.pid} (socket released)`, RECONNECT_NOTE],
+      };
+    case 'already-gone':
+      return {
+        code: 0,
+        lines: ['daemon was already gone — cleared its stale pidfile', RECONNECT_NOTE],
+      };
+    case 'target-changed':
+      return {
+        code: 0,
+        lines: ['daemon was already recovered by another actor — run `codemaster daemon status`'],
+      };
+    case 'still-alive':
+      return {
+        code: 1,
+        lines: [
+          `couldn't stop daemon within ${budgetMs}ms and force-kill did not confirm — kill it: kill -9 ${r.pid}`,
+        ],
+      };
+    case 'no-target':
+      return undefined;
+  }
+}
+
+/** The honest fallback when there is no pidfile hint: tell the agent which pid to kill (or how to
+ *  find it). Matches a legacy bare-`daemon` process too. */
+function manualKillFallback(pid: number | undefined, budgetMs: number): ManageResult {
   const killHint =
     pid !== undefined
       ? `pid ${pid} still running — kill it: kill ${pid}`
-      : `pid unknown — find it: pgrep -f 'codemaster.*daemon'`; // matches legacy bare-daemon too
-  return {
-    code: 1,
-    lines: [`couldn't stop daemon gracefully within ${stopMs(deps)}ms — ${killHint}`],
-  };
+      : `pid unknown — find it: pgrep -f 'codemaster.*daemon'`;
+  return { code: 1, lines: [`couldn't stop daemon gracefully within ${budgetMs}ms — ${killHint}`] };
 }
 
 async function daemonRestart(deps: DaemonManageDeps): Promise<ManageResult> {
@@ -218,67 +275,3 @@ const describe = (o: InfoOutcome): string =>
     : o.kind === 'unsupported'
       ? 'speaks an older protocol'
       : 'ok';
-
-type ReplyOutcome = { kind: 'reply'; reply: WireReply } | { kind: 'timeout' };
-
-/** Single in-flight request/reply, correlated by id, bounded by a deadline. A corrupt or
- *  unmatched line is ignored (the deadline is the backstop), never thrown into the transport. */
-function awaitReply(
-  conn: TransportConnection,
-  clock: Clock,
-  envelope: JsonValue,
-  id: number,
-  deadlineMs: number,
-): Promise<ReplyOutcome> {
-  return new Promise<ReplyOutcome>((resolve) => {
-    let settled = false;
-    const cancel = clock.schedule(deadlineMs, () => {
-      if (settled) return;
-      settled = true;
-      resolve({ kind: 'timeout' });
-    });
-    conn.onMessage((raw) => {
-      if (settled) return;
-      const parsed = parseWireReply(raw);
-      if (!parsed.ok || parsed.value.id !== id) return;
-      settled = true;
-      cancel();
-      resolve({ kind: 'reply', reply: parsed.value });
-    });
-    conn.send(envelope);
-  });
-}
-
-/** Await the connection closing (the `stop` confirmation), bounded. Resolves `true` on close,
- *  `false` on deadline overrun (a wedged daemon that never closed). */
-function awaitClose(conn: TransportConnection, clock: Clock, deadlineMs: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const cancel = clock.schedule(deadlineMs, () => {
-      if (settled) return;
-      settled = true;
-      resolve(false);
-    });
-    conn.onClose(() => {
-      if (settled) return;
-      settled = true;
-      cancel();
-      resolve(true);
-    });
-  });
-}
-
-const daemonInfoEnvelope = (id: number): JsonValue =>
-  ({ id, kind: 'daemon-info' }) as unknown as JsonValue;
-const shutdownEnvelope = (id: number): JsonValue =>
-  ({ id, kind: 'shutdown' }) as unknown as JsonValue;
-
-/** ms → a compact human duration (`45s`, `3m12s`, `2h05m`). */
-function fmtUptime(ms: number): string {
-  const totalS = Math.floor(ms / 1000);
-  if (totalS < 60) return `${totalS}s`;
-  const m = Math.floor(totalS / 60);
-  if (m < 60) return `${m}m${String(totalS % 60).padStart(2, '0')}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${String(m % 60).padStart(2, '0')}m`;
-}

@@ -73,13 +73,22 @@ agent ──MCP tool──▶ orchestrator (daemon) ──host──▶ workspac
   yields an honest `ToolFailure` if the daemon stalls. Heavy engine work is moved off the front
   door by **`process`-mode engine isolation + kill-on-deadline** (§9, built): a wedged engine op
   runs in a killable child, not the daemon loop, so the daemon stays responsive and reaps the
-  child on overrun. A daemon whose **own** front-door loop wedges (not an engine) is still not
-  self-reaped; the user-facing **management verbs** (`codemaster daemon start|stop|restart|status`,
-  spec-daemon-cli) give a manual path: a bounded socket-probe `status`, a control-message
-  `stop` (graceful; honest "kill pid X" if the daemon is wedged past the deadline), and
-  `restart` — the "pick up new code" command that kills the stale-code daemon so the next
-  bridge spawns a fresh one. The internal long-lived process is spawned as `codemaster daemon
-serve` (split from the management verbs). The
+  child on overrun. A daemon whose **own** front-door loop wedges (not an engine — a sync-spin, or,
+  in the default in-process mode, a heavy op blocking the shared loop) is not self-reaped, but is
+  recovered EXTERNALLY (spec-wedged-recovery / t-000051): the daemon drops a **kill-target-hint
+  pidfile** beside its socket at bind (removed on graceful shutdown — a lingering one marks a daemon
+  that never exited cleanly). The user-facing **management verbs** (`codemaster daemon
+start|stop|restart|status`, spec-daemon-cli) give a bounded socket-probe `status`, a control-message
+  `stop` and a `restart` — the "pick up new code" command; when the graceful `shutdown` message goes
+  unanswered past the deadline, `stop`/`restart` **escalate to a pidfile-targeted SIGTERM→SIGKILL**
+  (SIGKILL is the real backstop — a sync-spin can't service SIGTERM), guarded against a recycled pid
+  by socket-identity + a re-read + a liveness check, then `restart` respawns through the SAME
+  bind-or-connect convergence (never a bespoke unlink-then-spawn, §19). Independently, on the read
+  path a **bridge**, on a reply-timeout, fires one short `daemon-info` liveness ping to tell a
+  busy-but-alive daemon from an UNRESPONSIVE front door and steers the agent to `codemaster daemon
+restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-target HINT, never a
+  liveness oracle — the socket stays that (§3.5). The internal long-lived process is spawned as
+  `codemaster daemon serve` (split from the management verbs). The
   `--in-process` flag bypasses the socket and serves a local orchestrator directly (debug /
   self-dev), carrying its own idle self-exit.
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
@@ -1557,7 +1566,12 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   idle-self-exits at zero open bridges and unlinks its socket; a stale socket from a SIGKILLed
   daemon is recovered by the next bridge (unlink + rebind), never a hang. If the daemon can't be
   reached within the budget the bridge falls back to in-process serving (worst case: Stage-1
-  behavior). (§2)
+  behavior). A **permanently-wedged** daemon (accepts but never replies — a sync-spin, or an
+  in-process heavy op) is recovered by the management verbs via a kill-target-hint **pidfile**
+  dropped at bind: `stop`/`restart` escalate an unanswered graceful shutdown to a pidfile-targeted
+  SIGTERM→SIGKILL (guarded against a recycled pid by socket-identity + re-read + liveness), and
+  `restart` respawns through this same convergence — the socket-unlink stays the convergence path's,
+  not the kill's, so a sibling's fresh daemon is never unlinked. (§2, spec-wedged-recovery / t-000051)
 - **IPC endpoint portability.** Socket at a short, hashed path under an **env-independent** base
   dir (`os.userInfo().homedir/.codemaster/run` — the passwd home, never `$HOME`/`XDG_RUNTIME_DIR`/
   `$TMPDIR`, so the stripped-env bridge and a normal-shell management verb compute the SAME path and

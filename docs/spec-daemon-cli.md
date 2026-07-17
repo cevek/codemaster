@@ -27,14 +27,27 @@ The `daemon` command is a sub-router. `serve` is the INTERNAL long-lived verb th
 - **`start`** — already up → "already running (pid X)". Else `connectOrSpawnDaemon` (the same
   race-safe bind-or-connect the bridge uses) → "daemon started (pid X)"; spawn-budget overrun →
   honest "failed to start".
-- **`stop`** — graceful: read the pid (for the fallback), send a `shutdown` control message, await
-  the connection CLOSING (the daemon closes its listener → unlink → dispose → exit) — the close IS
-  the confirmation, no pidfile race. Closed → "daemon stopped (socket released, pid X)". Did not
-  close within the deadline (wedged) → honest "couldn't stop gracefully — pid X still running, kill
-  it: kill X". No daemon → "none running".
-- **`restart`** — `stop` then `start`. If `stop` could not stop a wedged daemon it does NOT start
-  (a new daemon can't bind while the old holds the socket → `EADDRINUSE`); it tells the user to kill
-  the pid first. The "pick up new code" command.
+- **`stop`** — graceful first: read the pid, send a `shutdown` control message, await the connection
+  CLOSING (the daemon closes its listener → unlink → dispose → exit) — the close IS the confirmation,
+  no pidfile race. Closed → "daemon stopped (socket released, pid X)". Did not close within the
+  deadline (WEDGED) → **escalate to a pidfile-targeted force-kill** (`force-recover.ts`, t-000051):
+  read the kill-target-hint pidfile the daemon dropped at bind, guard it (its `socket` == the managed
+  socket, the pid is alive, re-read the pid unchanged — the anti-recycle guard), then SIGTERM→(grace)→
+  SIGKILL and confirm gone → "daemon was wedged — force-killed pid X (socket released)". A SIGKILL
+  that does not confirm within the budget, or no trustworthy pidfile hint → honest "kill it: kill -9
+  X" / "kill X" fallback. No daemon → "none running".
+- **`restart`** — `stop` then `start`. When `stop` **force-killed** a wedged daemon (or it stopped
+  gracefully) it proceeds to `start`, which respawns through `connectOrSpawnDaemon` (the same
+  race-safe bind-or-connect convergence — never a bespoke unlink-then-spawn). Only if `stop` could
+  NOT reap the daemon (force-kill unconfirmed / no hint) does it refuse to start (a new daemon can't
+  bind while the old holds the socket → `EADDRINUSE`) and tell the user to kill the pid first. The
+  "pick up new code" command.
+
+The pidfile (`<socket>.pid`, `support/pidfile/`) is a **kill-target HINT only** — the socket is the
+sole liveness oracle (§3.5). It is written AFTER a successful bind (a bind-race loser leaves none)
+and removed on graceful shutdown, so a lingering pidfile marks a daemon that never exited cleanly.
+The kill escalation never unlinks the socket itself — that stays `connectOrSpawnDaemon`'s job (whose
+re-probe is what keeps a sibling's freshly-bound daemon from being unlinked).
 
 `stop`/`restart` forcibly disconnect any live bridges (a kill of the shared daemon), so both emit a
 "connected MCP clients must reconnect" note.
@@ -55,10 +68,13 @@ so the bridge's `RemoteOrchestrator` is not forced to fake daemon-process facts 
 
 The hang risk is NOT `connect()` (it fails fast on ENOENT/ECONNREFUSED) but a daemon that accepts
 the connection and never replies (a wedged accept loop). So every await is deadline-bounded —
-await-REPLY for `daemon-info`, await-CLOSE for `stop` — and on overrun the verb reports an honest
-failure ("unresponsive" / "kill the pid"), never spins. A pre-this-version daemon on the same socket
-rejects the new kinds (its zod is stricter) → an ERROR reply, mapped to an honest "speaks an older
-protocol — restart", never a misreport or a throw.
+await-REPLY for `daemon-info`, await-CLOSE for `stop`, and the force-recover kill ladder (SIGTERM
+grace + SIGKILL-confirm poll, each budgeted) — and on overrun the verb reports an honest failure
+("unresponsive" / force-kill result / "kill the pid"), never spins. `force-recover` holds the event
+loop open with a REF'd keep-alive across its poll (the real `Clock`'s timers are `unref`ed, and the
+wedged connection is already closed by then — without it Node would exit 0 mid-wait and abandon the
+SIGKILL). A pre-this-version daemon on the same socket rejects the new kinds (its zod is stricter) →
+an ERROR reply, mapped to an honest "speaks an older protocol — restart", never a misreport or a throw.
 
 ## 5. Tests (§16 — independent oracles; determinism via injectable clock + socket-dir seam)
 
@@ -70,4 +86,13 @@ protocol — restart", never a misreport or a throw.
   smoke can't reach.
 - **Per-verb units** on an injected in-process daemon: already-running, none-running, restart
   refuses-to-start when stop is wedged, old-daemon error-reply mapping.
+- **Force-recover units** (`force-recover.test.ts`, injected liveness/signal/pidfile seams + manual
+  clock): the guard branches (no hint / socket-mismatch → no-target; already-gone; re-read pid change
+  → target-changed → never signals) and the SIGTERM→SIGKILL escalation (killed / still-alive), each
+  bounded. **Mapping units** in `daemon-manage.test.ts` (injected `forceRecover`): each outcome →
+  correct verb code/lines; restart proceeds after a force-kill.
+- **SIGSTOP real-spawn smoke** (`wedged-daemon-recovery.test.ts`): a real spawned daemon frozen with
+  SIGSTOP (the true accepts-but-never-replies wedge, no production test hooks) — `daemon restart`
+  force-kills it (old pid provably gone) and binds a fresh one (new pid answers). This is what caught
+  the unref'd-timer event-loop-exit bug the fake-clock units cannot.
 - **Protocol zod round-trip** for the new `daemon-info` / `shutdown` envelopes.

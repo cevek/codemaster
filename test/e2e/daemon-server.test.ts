@@ -13,6 +13,8 @@ import { serveDaemon, type DaemonHandle } from '../../src/daemon/daemon-server.t
 import type { ServingOrchestrator } from '../../src/daemon/orchestrator-api.ts';
 import { createUnixSocketTransport } from '../../src/support/transport/unix-socket.ts';
 import { socketPath } from '../../src/support/transport/socket-path.ts';
+import { pidfilePathFor } from '../../src/support/pidfile/write.ts';
+import { readPidfile } from '../../src/support/pidfile/read.ts';
 import type { Transport, TransportConnection } from '../../src/support/transport/seam.ts';
 import type { Clock } from '../../src/common/async/clock.ts';
 import type { JsonValue } from '../../src/core/json.ts';
@@ -261,6 +263,35 @@ test('daemon: idle self-exits + unlinks socket only at zero connections after th
     assert.equal(existsSync(sock), false, 'socket unlinked on idle-exit');
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test('daemon: writes a kill-target-hint pidfile at bind and removes it on graceful shutdown (t-000051)', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'cm-dmn-pid-'));
+  const sock = socketPath('test', dir);
+  const pidfilePath = pidfilePathFor(sock);
+  const transport = createUnixSocketTransport(sock);
+  const clock = manualClock();
+  const exits: number[] = [];
+  const daemon = await serveDaemon({
+    orchestrator: stubOrch(),
+    transport,
+    clock,
+    idleMs: 600_000, // not under test — we drive shutdown explicitly
+    exit: (c) => exits.push(c),
+    pidfile: { path: pidfilePath, socket: sock, version: 'test' },
+  });
+  try {
+    const rec = readPidfile(pidfilePath);
+    assert.ok(rec !== undefined, 'pidfile written after a successful bind');
+    assert.equal(rec?.pid, process.pid, 'names this process');
+    assert.equal(rec?.socket, sock, 'carries the socket for the identity guard');
+    assert.equal(rec?.version, 'test');
+    await daemon.shutdown();
+    assert.deepEqual(exits, [0]);
+    assert.equal(readPidfile(pidfilePath), undefined, 'pidfile removed on graceful shutdown');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
