@@ -1,7 +1,7 @@
 ---
 id: t-895142
 title: 'never-hang incident: orphaned `mcp --in-process` server spins at 100% CPU (SIGTERM-deaf, reparented to launchd) — §1 violation'
-status: backlog
+status: done
 priority: urgent
 parent: t-031282
 tags:

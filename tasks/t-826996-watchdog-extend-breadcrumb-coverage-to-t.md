@@ -3,7 +3,7 @@ id: t-826996
 title: 'watchdog: extend breadcrumb coverage to the spawn/routing path (config-load, getOrSpawn, daemon routing loop)'
 status: backlog
 priority: low
-parent: t-895142
+parent: t-031282
 tags:
   - platform
 type: feat

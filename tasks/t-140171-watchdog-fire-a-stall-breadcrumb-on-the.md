@@ -3,7 +3,7 @@ id: t-140171
 title: 'watchdog: fire a stall breadcrumb on the §19 cancellable-deadline path (partial-stall diagnostic)'
 status: backlog
 priority: low
-parent: t-895142
+parent: t-031282
 tags:
   - platform
 type: feat
