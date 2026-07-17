@@ -114,6 +114,68 @@ test('move over-refusal guard: a clean move with NO shadow applies + cold-compil
   }
 });
 
+test('move REVERSE capture via a WILDCARD alias import → caught', async () => {
+  // `bar.ts` imports `@lib/shared` (paths: `@lib/* → src/lib/*`) → the dir `src/lib/shared/index.ts`
+  // pre-move. Moving `orphan.ts` to `src/lib/shared.ts` makes a file that wins resolution → the alias
+  // silently re-binds. Coverage for a reverse shadow reached through an ALIAS specifier (the existing
+  // suite only exercised relative ones). Also a required guard for a future reverse-resolve pre-filter
+  // (t-442016): a tail-preserving alias skip must not drop this.
+  const p = await project({
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"preserve","baseUrl":".","paths":{"@lib/*":["src/lib/*"]}}}',
+    'src/lib/shared/index.ts': "export const x: string = 'from-dir';\n",
+    'src/lib/bar.ts': "import { x } from '@lib/shared';\nexport const useBar: string = x;\n",
+    'src/orphan.ts': "export const x: string = 'from-moved-file';\n",
+  });
+  try {
+    const dry = await op(p, 'move_file', { source: 'src/orphan.ts', dest: 'src/lib/shared.ts' });
+    const reverse = (dry.captures ?? []).filter((c) => c.kind === 'reverse');
+    assert.ok(
+      reverse.length > 0,
+      `expected a reverse capture on the alias import, got ${JSON.stringify(dry.captures)}`,
+    );
+    assert.ok(
+      reverse[0] !== undefined && reverse[0].at.startsWith('src/lib/bar.ts:'),
+      `capture at bar: ${reverse[0]?.at}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('move REVERSE capture via a MULTI-TARGET `paths` alias → caught (tail-mismatch)', async () => {
+  // A NON-wildcard, multi-target `paths` key whose resolved basename need NOT equal the specifier's
+  // tail. `@thing → [a.ts, b.ts]` resolves to `b.ts` pre-move (a.ts absent); moving `orphan.ts` to
+  // `src/a.ts` makes the higher-priority target exist, so `@thing` silently re-binds to `a.ts`. The
+  // specifier tail (`thing`) does NOT match the arrival basename (`a`). Both export `x: string` → tsc
+  // stays clean, so only the reverse-capture gate distinguishes the shadow. A required guard for a
+  // future reverse-resolve pre-filter (t-442016): any tail-based skip must resolve this, not drop it.
+  const p = await project({
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"preserve","baseUrl":".","paths":{"@thing":["src/a.ts","src/b.ts"]}}}',
+    'src/b.ts': "export const x: string = 'from-b';\n",
+    'src/bar.ts': "import { x } from '@thing';\nexport const useBar: string = x;\n",
+    'src/orphan.ts': "export const x: string = 'from-moved-a';\n",
+  });
+  try {
+    const dry = await op(p, 'move_file', { source: 'src/orphan.ts', dest: 'src/a.ts' });
+    const reverse = (dry.captures ?? []).filter((c) => c.kind === 'reverse');
+    assert.ok(
+      reverse.length > 0,
+      `multi-target paths shadow must be caught despite tail-mismatch, got ${JSON.stringify(dry.captures)}`,
+    );
+    assert.ok(
+      reverse[0] !== undefined && reverse[0].at.startsWith('src/bar.ts:'),
+      `capture at bar: ${reverse[0]?.at}`,
+    );
+    // Prove the gate is doing real work: the §2.8 typecheck itself is CLEAN (both targets are
+    // type-compatible), so only the reverse-capture gate distinguishes the shadow.
+    assert.equal(dry.typecheck.clean, true, 'typecheck clean → gate not just echoing tsc');
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('emptied-dir tombstoning: a move that DRAINS its source dir still applies (no over-refusal)', async () => {
   // Moving the lone file out of `src/solo/` empties that directory. The post-move resolution host
   // tombstones the drained dir (so a stale resolution can't land there and mask a capture); this

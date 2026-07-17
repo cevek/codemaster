@@ -19,6 +19,7 @@ import type { RepoRelPath } from '../../../../core/brands.ts';
 import type { TsProjectHost } from '../../ls-host.ts';
 import { toPosix } from '../../../../support/fs/canonicalize.ts';
 import { moduleSpecifierOf } from '../ast/specifier.ts';
+import { createReverseResolver } from './reverse-resolver.ts';
 import type { Capture } from './types.ts';
 
 /** The cumulative state of PRIOR transaction steps (a `PlanningOverlay`'s `files`/`removed`,
@@ -139,23 +140,10 @@ export function detectReverseImportCaptures(
   const rewrittenSites = new Set(
     rewrites.map((r) => `${toPosix(r.importerCurrentAbs)}:${r.line}:${r.col}`),
   );
-  // Resolution is a pure function of (dir, spec, host); memoize per host to bound the scan to
-  // O(distinct dir×spec) instead of O(imports).
-  const postCache = new Map<string, string | undefined>();
-  const preCache = new Map<string, string | undefined>();
-  const resolve = (
-    spec: string,
-    fromAbs: string,
-    h: ts.ModuleResolutionHost,
-    cache: Map<string, string | undefined>,
-  ): string | undefined => {
-    const key = `${toPosix(fromAbs).slice(0, toPosix(fromAbs).lastIndexOf('/'))}|${spec}`;
-    const hit = cache.get(key);
-    if (hit !== undefined || cache.has(key)) return hit;
-    const r = ts.resolveModuleName(spec, fromAbs, options, h).resolvedModule?.resolvedFileName;
-    cache.set(key, r);
-    return r;
-  };
+  // Resolution is a pure function of (dir, spec, host); a shared `ModuleResolutionCache` per host
+  // memoizes dir/`package.json` probes across specifiers, and a `(dir, spec)` string memo dedups
+  // identical imports — together bounding the scan to O(distinct dir×spec) instead of O(imports).
+  const resolver = createReverseResolver(options, program.getCurrentDirectory(), postHost);
 
   const out: Capture[] = [];
   for (const sf of program.getSourceFiles()) {
@@ -186,10 +174,10 @@ export function detectReverseImportCaptures(
         const line = lc.line + 1;
         const col = lc.character + 1;
         if (!rewrittenSites.has(`${abs}:${line}:${col}`)) {
-          const rpost = resolve(lit.text, sf.fileName, postHost, postCache);
+          const rpost = resolver.resolvePost(lit.text, sf.fileName);
           // Only a specifier that NOW lands on a move-introduced file can be a reverse shadow.
           if (rpost !== undefined && newArrivalAbs.has(toPosix(rpost))) {
-            const rpre = resolve(lit.text, sf.fileName, ts.sys, preCache);
+            const rpre = resolver.resolvePre(lit.text, sf.fileName);
             // Require a prior REAL target that differs — a previously-dangling import is not a
             // positive divergence (never over-refuse a move that merely satisfies an old dangle).
             if (rpre !== undefined && toPosix(rpre) !== toPosix(rpost)) {
