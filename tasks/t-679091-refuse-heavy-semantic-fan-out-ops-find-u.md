@@ -1,7 +1,7 @@
 ---
 id: t-679091
 title: Refuse heavy semantic fan-out ops (find_usages/impact/importers_of) on an oversized in-process repo — honest redirect to isolation:'process' instead of OOM-crash
-status: backlog
+status: done
 priority: high
 parent: t-031282
 tags:
