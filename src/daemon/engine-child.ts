@@ -70,6 +70,7 @@ export async function serveEngineChild(deps: EngineChildDeps): Promise<void> {
     configSource: source,
     version: deps.version,
     stateDir: deps.stateDir,
+    isolation: 'process',
     plugins: deps.pluginsFor(config, deps.root),
     ops: deps.opsFor(config),
     clock: systemClock,

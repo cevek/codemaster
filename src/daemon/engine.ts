@@ -46,6 +46,12 @@ export interface EngineDeps {
   /** State base (`~/.codemaster` by default; a temp dir under test) — where the
    *  `feedback` inbox lives. The same seam the per-repo debug log uses. */
   stateDir: string;
+  /** How this engine is hosted (§2) — `in-process` shares the orchestrator's heap (an OOM is
+   *  uncatchable → kills the daemon, §1), `process` runs in a killable forked child. Fixed by the
+   *  construction path (host-build in-process vs engine-child fork); surfaced to ops via
+   *  `ctx.daemon.isolation` so the semantic-fanout guard (t-679091) refuses a heavy fan-out only
+   *  in-process. Optional, default `in-process` (a stray direct-createEngine test call). */
+  isolation?: 'in-process' | 'process';
   plugins: readonly Plugin[];
   ops: readonly AnyOpDefinition[];
   clock: Clock;

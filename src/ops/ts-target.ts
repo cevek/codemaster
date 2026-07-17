@@ -48,10 +48,6 @@ export const requireTarget = {
   message: "pass 'symbolId' (a ts: SymbolId), or 'name', or file+line (col optional)",
 };
 
-export const tsTargetSchema = z
-  .strictObject(tsTargetShape)
-  .refine(requireTarget.predicate, { message: requireTarget.message });
-
 export const TS_TARGET_HINT =
   "{ symbolId?: 'ts:…', name?: string, file?: string, line?: number, col?: number }";
 

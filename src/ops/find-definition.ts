@@ -1,27 +1,53 @@
 // `find_definition` — passthrough to `ts.findDefinition` (§5-L3). A rebound handle
 // surfaces on `Result.handle`, never silently (§6).
 
+import { z } from 'zod';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { withUndiscoveredHint, definitionFloor } from './no-symbol-hint.ts';
-import { TS_TARGET_HINT, tsTargetSchema, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_HINT, tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+
+// The shared ts-target schema PLUS `force` (t-679091): a bare-`name` find_definition resolves via
+// `resolveByName`→`searchSymbols`, which fans navto across every program (the OOM surface), so it is
+// size-guarded like the reference-fanout ops — `force:true` bypasses. The symbolId/position/name+file
+// paths are single-program-exact and never guarded, so the extra field is inert for them.
+const argsSchema = z
+  .strictObject({ ...tsTargetShape, force: z.boolean().optional() })
+  .refine(requireTarget.predicate, { message: requireTarget.message });
 
 export const findDefinitionOp = defineOp({
   name: 'find_definition',
   summary: 'Resolve a symbol to its definition site(s), proof-carrying',
   mutating: false,
   requires: ['ts'],
-  argsSchema: tsTargetSchema,
+  argsSchema,
   argsHint: TS_TARGET_HINT,
   intake: tsTargetIntake,
   example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
   notes: [
     'verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).',
+    "a BARE-`name` target, or a `symbolId` whose file moved (the §6 rebind), resolves via a repo-wide navto fan-out; on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000) it REFUSES to warm (would OOM-kill the daemon) and redirects to `daemon.isolation:'process'` (or `force:true`). A file+line+col / name+file target is single-program-exact and is never guarded.",
   ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-679091), only for FAN-CAPABLE addressing — the targets that resolve via
+    // `searchSymbols` = the all-program navto fan (the original t-167395 OOM) when Fix A's pruning
+    // does not subsume: a bare `name` (`resolveByName`), OR a `symbolId` whose recorded position no
+    // longer matches → the §6 REBIND branch (`resolveSymbolId`→`searchSymbols`, resolve-target.ts).
+    // The rebind fan is conditional (a fresh handle resolves cheaply), but the op can't see that
+    // pre-resolve, so it guards all symbolId lookups in-process-oversized (a false refusal redirects
+    // honestly to process-mode — §1: refuse > crash; consistent with the unconditional fanout ops).
+    // A file+line+col / name+file / file+line target is single-program-exact (no `searchSymbols`)
+    // and is NEVER guarded. `force` bypasses; process-mode + estimate-failure fall through.
+    const fanCapable =
+      args.symbolId !== undefined || (args.name !== undefined && args.file === undefined);
+    if (fanCapable) {
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      if (refusal !== undefined) return fail(refusal);
+    }
     try {
       const outcome = ts.findDefinition(args);
       if (typeof outcome === 'string')

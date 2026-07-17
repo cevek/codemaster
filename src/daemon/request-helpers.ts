@@ -59,7 +59,13 @@ export function buildFreshnessNote(
  *  call so `nowMs` reflects the injectable clock at op entry. `meta` is the engine's deps
  *  (structurally a superset of the fields named here). */
 export function buildDaemonInfo(
-  meta: { clock: Clock; version: string; root: string; stateDir: string },
+  meta: {
+    clock: Clock;
+    version: string;
+    root: string;
+    stateDir: string;
+    isolation?: 'in-process' | 'process';
+  },
   plugins: readonly Plugin[],
   opNames: readonly string[],
 ): DaemonInfo {
@@ -70,6 +76,8 @@ export function buildDaemonInfo(
     stateDir: meta.stateDir,
     plugins: plugins.map((p) => ({ id: p.id, version: p.version })),
     opNames,
+    // Default in-process: the mode where the guard matters; a forked child passes 'process' explicitly.
+    isolation: meta.isolation ?? 'in-process',
   };
 }
 

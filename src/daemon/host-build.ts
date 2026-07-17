@@ -80,6 +80,7 @@ export async function buildWorkspaceHost(
     configSource: source,
     version: deps.version,
     stateDir,
+    isolation: 'in-process',
     plugins: deps.pluginsFor?.(config, root) ?? [],
     ops: deps.opsFor?.(config) ?? [],
     clock: deps.clock,

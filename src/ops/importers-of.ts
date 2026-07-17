@@ -5,7 +5,8 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok } from '../common/result/construct.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { capList } from '../common/truncate/cap-list.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
@@ -210,6 +211,8 @@ const argsSchema = z.strictObject({
   module: z.string().min(1),
   /** Max importer rows to list (default 200); overflow is reported as truncation, never silent. */
   limit: z.number().int().positive().optional(),
+  /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+  force: z.boolean().optional(),
   ...programsArgShape,
 });
 
@@ -228,6 +231,7 @@ export const importersOfOp = defineOp({
   intake: { aliases: { path: 'module', file: 'module' }, moduleTarget: true },
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (a repo-wide import fan-out would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
     'importers are found across ALL loaded programs (a `test/**` importer under a sibling tsconfig too) — see concepts: cross-program-read.',
     'the result carries `resolved`: `false` means the specifier did NOT resolve to a file (a typo / out-of-project path) — a `0` there is a bad arg, said LOUDLY (`module unresolved`), distinct from an honest resolved-0. §3.6.',
@@ -236,6 +240,10 @@ export const importersOfOp = defineOp({
   table: importersOfTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-679091): importersOf fans import resolution across every program — refuse on
+    // an oversized in-process repo before warming (would OOM-kill the daemon, §1).
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       // Widen the search first (t-228533) — a `programs:`-loaded config joins the fan-out + drops from
       // the floor BEFORE `importersOf` reads it, so an importer only under a nested config is found.

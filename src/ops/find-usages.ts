@@ -12,6 +12,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
 import { DeadlineExceededError } from '../common/async/deadline.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { UsageOptions } from '../plugins/ts/query-types.ts';
@@ -53,6 +54,8 @@ const destructuresIgnored = (args: {
 const argsSchema = z
   .strictObject({
     ...tsTargetShape,
+    /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+    force: z.boolean().optional(),
     /** Several targets by exact name, answered as one sectioned result. */
     symbols: z.array(z.string().min(1)).min(1).max(20).optional(),
     limit: z.number().int().positive().max(2000).optional(),
@@ -109,6 +112,7 @@ export const findUsagesOp = defineOp({
     },
   },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm the type-checker (a repo-wide reference fan-out would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'` (a killable child that survives the OOM honestly); pass `force:true` to warm anyway. No refusal in process-mode.",
     'role = what a ref syntactically IS: jsx (<X/> tags, closing deduped) · call · type · import · reexport (barrel `export {X} from` — never collapsed) · read · write · decl.',
     'role:read/write is SYNTACTIC (is the identifier read vs assigned) — it does NOT resolve store-field access: a zustand `useStore(s => s.count)` or a `set(...)` call reads as a `call`, not a read/write of `count`. Use it for variable/binding reads-vs-writes, not store-field tracing.',
     'collapseImports (default true): an import is hidden once its file also has a real usage (count returns as importsCollapsed); import-only files & re-exports always stay. collapseImports:false or role:import to list all. sql-mode keeps every import row.',
@@ -125,6 +129,12 @@ export const findUsagesOp = defineOp({
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-679091): a heavy reference fan-out warms the LS across every program — on an
+    // oversized in-process repo that OOMs and kills the daemon (§1). Refuse with a process-mode
+    // redirect BEFORE any resolve/warm (a name-addressed call warms inside resolveByName). `force`
+    // bypasses; process-mode + an estimate failure fall through (see the guard).
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     // sql-mode signal (§2.3): the engine sets tableRowBound only when this op feeds a
     // SQLite table. Import collapse is forced OFF there — the table projects from the
     // UNCOLLAPSED ref set, so "files that import X but don't render it" (NOT IN over the

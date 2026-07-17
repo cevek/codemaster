@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { passesPathFilter } from '../common/glob/path-filter.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
@@ -53,6 +54,8 @@ const argsSchema = z
     pathExclude: z.array(z.string()).min(1).optional(),
     /** Counts-per-depth only — gauge the blast radius without the node list. */
     summary: z.boolean().optional(),
+    /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+    force: z.boolean().optional(),
   })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
@@ -195,6 +198,7 @@ export const impactOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'createEngine', depth: 2 } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its nodes×find_usages fan-out would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'bounded BFS over find_usages: who transitively depends on the target (encloser rollup → those enclosers’ usages → …). Each dependent is a chainable SymbolId, grouped by its SHALLOWEST depth (proximity), sorted by fan-in within a depth.',
     'HARD bounds (never-hang): a depth cap AND a global node cap (total work = nodes × find_usages). Hitting either — or a dependent that cannot be re-expanded (a module-level rollup) — is flagged `!!`; a truncated closure NEVER reads as complete.',
     'value-flow boundary: a dependent that reads a callable target as a VALUE (not call/jsx) is where dynamic dispatch can carry impact past what find_usages sees — flagged `dynamic`, NOT traversed, the closure reported PARTIAL (never silently bridged).',
@@ -202,6 +206,10 @@ export const impactOp = defineOp({
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-679091): impact's transitive fan-out is `nodes × find_usages` across every
+    // program — the heaviest OOM surface. Refuse on an oversized in-process repo before warming.
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     const maxDepth = args.depth ?? DEFAULT_DEPTH;
     const maxNodes = args.nodes ?? DEFAULT_NODES;
     // Traverse UNFILTERED — filters are applied as a projection in `shape` so a hidden node

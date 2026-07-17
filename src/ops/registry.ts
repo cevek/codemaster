@@ -30,6 +30,10 @@ export interface DaemonInfo {
   plugins: readonly { id: string; version: string }[];
   /** The op catalogue at filing time — a "wish: op X should exist" is triaged against it. */
   opNames: readonly string[];
+  /** How the engine is hosted (§2): `in-process` shares the daemon heap (an OOM is uncatchable),
+   *  `process` is a killable child. The semantic-fanout guard (t-679091) refuses a heavy LS fan-out
+   *  only when `in-process`; process-mode survives via the t-000052 kill/respawn mechanism. */
+  isolation: 'in-process' | 'process';
 }
 
 export interface OpContext {
