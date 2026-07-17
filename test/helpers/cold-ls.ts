@@ -330,6 +330,32 @@ export function coldAssignableLiterals(
   return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
+/** Independent completeness oracle for `search_symbol` discovery pruning (t-167395): the
+ *  `{name, file}` set a fresh-from-cold WHOLE-REPO `ts.Program` navto returns for `query`
+ *  (node_modules filtered, deduped by declaration site), sorted for set comparison. On a
+ *  loose-root repo the daemon prunes to the primary alone; this cold program has NO pruning, so an
+ *  equal set proves the pruned warm answer dropped (and added) nothing. */
+export function coldNavtoNames(
+  root: string,
+  query: string,
+  configRel = 'tsconfig.json',
+): { name: string; file: string }[] {
+  const { service } = coldLanguageService(root, configRel);
+  const seen = new Set<string>();
+  const out: { name: string; file: string }[] = [];
+  for (const item of service.getNavigateToItems(query, 400, undefined, true)) {
+    if (item.fileName.includes('/node_modules/')) continue;
+    const key = `${item.fileName}|${item.textSpan.start}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name: item.name,
+      file: path.relative(root, item.fileName).split(path.sep).join('/'),
+    });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file));
+}
+
 /** Independent edit-safety oracle (§16.4): the pre-emit diagnostics a cold compile of the
  *  on-disk tree produces — never the warm LS that performed the edit. A missed/wrong import
  *  rewrite surfaces here as a real "no exported member" error, so a clean list IS the

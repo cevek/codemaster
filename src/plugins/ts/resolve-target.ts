@@ -35,10 +35,14 @@ export type TsTargetInput = {
 /** Resolve any `TsTargetInput` to a concrete `{abs, offset}` (with a §6 rebind when a held
  *  SymbolId's file moved). Pure over the host — the shared entry every symbol-addressed read
  *  method funnels through, so SymbolId / file:line:col / name dispatch lives in one place. */
-export function resolveTarget(h: TsProjectHost, target: TsTargetInput): ResolvedTarget {
+export function resolveTarget(
+  h: TsProjectHost,
+  target: TsTargetInput,
+  root: string,
+): ResolvedTarget {
   // `target`/`symbol` aliases are collapsed to `symbolId`/`name` by the intake layer (§7)
   // before any args reach here, so the resolver sees only the canonical fields.
-  if (target.symbolId !== undefined) return resolveSymbolId(h, target.symbolId);
+  if (target.symbolId !== undefined) return resolveSymbolId(h, target.symbolId, root);
   if (target.file !== undefined && target.line !== undefined && target.col !== undefined) {
     const abs = h.absOf(target.file as RepoRelPath);
     // Across ALL loaded programs (spec Task G): a `test/**` file lives only in a sibling program,
@@ -68,7 +72,7 @@ export function resolveTarget(h: TsProjectHost, target: TsTargetInput): Resolved
   if (target.file !== undefined && target.name !== undefined) {
     return resolveNameInFile(h, target.name, target.file);
   }
-  if (target.name !== undefined) return resolveByName(h, target.name);
+  if (target.name !== undefined) return resolveByName(h, target.name, root);
   return {
     ok: false,
     message: 'target needs symbolId, name, file+line (col optional), or name+file',
@@ -144,8 +148,8 @@ function resolveByLine(
  *  ONE logical symbol seen twice (a declaration + its `export { X }` specifier — the shadcn
  *  module pattern), so candidates are deduped by definition; a genuine ambiguity returns the
  *  candidate list with file:line:col (+ kind) so the agent can pick one. */
-function resolveByName(h: TsProjectHost, name: string): ResolvedTarget {
-  const matches = searchSymbols(h, name, 10).matches.filter((m) => m.name === name);
+function resolveByName(h: TsProjectHost, name: string, root: string): ResolvedTarget {
+  const matches = searchSymbols(h, name, 10, root).matches.filter((m) => m.name === name);
   const first = matches[0];
   if (first === undefined) return { ok: false, message: `no symbol named '${name}'` };
   const distinct = matches.length === 1 ? [first] : dedupeByDefinition(h, matches);
@@ -180,12 +184,16 @@ export type ResolvedDeclaration = { abs: string; offset: number; view: SymbolVie
  *  fails on that ambiguity. Each entry carries the SymbolView (id/name/kind/span) so the caller can
  *  list what it merged (`UsagesView.mergedDeclarations`). Returns a message when nothing matches or
  *  a declaration can't be located. */
-export function resolveAllByName(h: TsProjectHost, name: string): ResolvedDeclaration[] | string {
+export function resolveAllByName(
+  h: TsProjectHost,
+  name: string,
+  root: string,
+): ResolvedDeclaration[] | string {
   // The navto cap is comfortably above any realistic count of DISTINCT declarations of one exact
   // name (the interface + host + impl pattern is 3; a same-named-everywhere method a handful) — far
   // more than 50 would be a degenerate name, not a merge an agent reasons over. Same silent-bound
   // class as `resolveByName`'s navto cap; raising it never un-truncates a smaller real answer.
-  const matches = searchSymbols(h, name, 50).matches.filter((m) => m.name === name);
+  const matches = searchSymbols(h, name, 50, root).matches.filter((m) => m.name === name);
   if (matches.length === 0) return `no symbol named '${name}'`;
   const distinct = matches.length === 1 ? matches : dedupeByDefinition(h, matches);
   const out: ResolvedDeclaration[] = [];
@@ -201,7 +209,7 @@ export function resolveAllByName(h: TsProjectHost, name: string): ResolvedDeclar
   return out;
 }
 
-function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
+function resolveSymbolId(h: TsProjectHost, id: string, root: string): ResolvedTarget {
   const decoded = decodeSymbolId(id);
   // A real SymbolId's payload always carries the `@file` separator (`plugin:Name@rel:line:col`).
   // A value with no usable prefix (a bare name) — OR one whose first `:` is incidental and leaves
@@ -262,7 +270,7 @@ function resolveSymbolId(h: TsProjectHost, id: string): ResolvedTarget {
   }
 
   // Rebind (§6): re-locate by name — same file first, then workspace-wide.
-  const candidates = searchSymbols(h, name, 20).matches.filter((c) => c.name === name);
+  const candidates = searchSymbols(h, name, 20, root).matches.filter((c) => c.name === name);
   const sameFile = candidates.find((c) => c.span.file === rel);
   const candidate = sameFile ?? candidates[0];
   if (candidate === undefined) {

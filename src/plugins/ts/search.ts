@@ -7,6 +7,7 @@
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
+import { coversInRootSurface } from './discovery-prune.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import { declarationNodeOf } from './declaration.ts';
@@ -39,6 +40,11 @@ export function searchSymbols(
   host: TsProjectHost,
   query: string,
   limit: number,
+  /** The workspace root — threaded explicitly (the plugin's `root`, the established idiom for every
+   *  no-program surface helper) so the t-167395 discovery-prune coverage test measures the git
+   *  surface against the SAME root the programs are built with, never an implicit
+   *  `getCurrentDirectory()` invariant that a future host refactor could silently invert. */
+  root: string,
   filter?: SearchFilter,
   // §12: at `verbosity:'full'` the op asks for a small header-only decl preview per match, so a
   // direct lookup reads the signature without a chained `source`/`find_definition`. OFF by default —
@@ -63,7 +69,22 @@ export function searchSymbols(
   const seen = new Set<string>(); // `fileName|textSpan.start` — one declaration counted once
   let total = 0;
   let filteredOutByPath = 0;
-  for (const p of host.programs()) {
+  // Discovery pruning (t-167395): when the PRIMARY program already covers the in-root git source
+  // surface, every sibling/member program's declarations are a subset (declarations are
+  // resolution-independent; dedup below drops the rest anyway) — so navto over the primary alone
+  // is byte-identical while skipping the member builds that OOM a loose-root monorepo. All-or-
+  // nothing: a proper `references` monorepo's primary does NOT cover → prune nothing → unchanged
+  // full fan-out. The prune sits on the name→DECLARATION step only (this navto): under coverage the
+  // primary holds every in-root decl, so the resolved set — and resolveByName's ambiguity detection
+  // — is identical pruned or not. The decl→USAGE-site fan-out (find_usages) runs via
+  // `programsContaining`/`findReferencesAcross`, which are NEVER pruned (§3.4).
+  const programs = host.programs();
+  const primary = programs[0];
+  const active =
+    primary !== undefined && programs.length > 1 && coversInRootSurface(programs, host, root)
+      ? [primary]
+      : programs;
+  for (const p of active) {
     const program = p.getProgram();
     if (program === undefined) continue;
     for (const item of p.service.getNavigateToItems(query, limit * 4, undefined, true)) {

@@ -108,7 +108,7 @@ export function createTsPlugin(
 
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
-  const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target);
+  const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target, root);
 
   // "Is this ABSOLUTE file a source in the PRIMARY program right now?" — one instance, shared by the
   // public `primaryContains` and the rename refuse-on-non-primary guard so the two can't drift.
@@ -169,7 +169,7 @@ export function createTsPlugin(
     },
 
     searchSymbol: (query, limit, filter, includeDecl) =>
-      searchSymbols(warm(), query, limit, filter, includeDecl),
+      searchSymbols(warm(), query, limit, root, filter, includeDecl),
 
     // Pre-warm size guard (t-333163): the resolved threshold + the cheap no-warm estimate. Both take
     // `root`/`syntacticCache` directly and NEVER call warm() — the guard must not warm the very LS it
@@ -207,7 +207,7 @@ export function createTsPlugin(
       // preserved (`UsageView.decls`), so unrelated same-named symbols are never conflated (§3.3).
       const byName = target.name !== undefined && target.symbolId === undefined;
       if (options.mergeDeclarations === true && byName && target.name !== undefined) {
-        const decls = resolveAllByName(warm(), target.name);
+        const decls = resolveAllByName(warm(), target.name, root);
         if (typeof decls === 'string') return decls;
         const view = findUsagesMerged(warm(), decls, options);
         if (view === undefined) return 'no references for any declaration of this name';
@@ -221,7 +221,7 @@ export function createTsPlugin(
     },
 
     sameNamedDeclarations(name) {
-      const decls = resolveAllByName(warm(), name);
+      const decls = resolveAllByName(warm(), name, root);
       return typeof decls === 'string' ? [] : decls.map((d) => d.view);
     },
 

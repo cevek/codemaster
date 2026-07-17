@@ -17,6 +17,7 @@ import { mintRepoRelPath, toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
+import type { TsProgram } from './program/queryable-program.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
   discoverSiblingConfigs,
@@ -36,16 +37,6 @@ import {
 } from './program/explicit-load.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
-
-/** One queryable program exposed to the cross-program fan-out — the primary or a sibling. */
-interface TsProgram {
-  readonly service: ts.LanguageService;
-  /** Provenance label (`tsconfig.json` / `tsconfig.test.json`) for status + cross-program origin. */
-  readonly label: string;
-  getProgram(): ts.Program | undefined;
-  /** Is `absPosix` a source file in this built program right now? */
-  containsFile(absPosix: string): boolean;
-}
 
 export interface TsProjectHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
