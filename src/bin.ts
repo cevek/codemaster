@@ -34,10 +34,14 @@ import { installWatchdog } from './support/watchdog/install.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
 
-/** Per-request reply deadline for the bridge (§1 never-hang). Generous — a cold find_usages on a
- *  huge repo can run tens of seconds (§1 latency budget) — but bounded so a wedged daemon yields an
- *  honest failure and the agent falls back, never an unbounded wait. */
-const BRIDGE_REPLY_DEADLINE_MS = 120_000;
+/** Per-request reply deadline for the bridge (§1 never-hang), ALSO the process-mode child's
+ *  request/kill deadline (one constant → the two-tier scheme). Set STRICTLY above the in-op graceful
+ *  op deadline (120s, HostCancellationToken → `ToolFailure{timeout,partial}`) so a cancellable heavy
+ *  op returns its graceful partial BEFORE the bridge gives up or the process host hard-kills the
+ *  child — a truly-wedged (uncancellable program build) op is caught by the SIGKILL at 150s, the
+ *  bridge relays the kill-induced failure. Generous — a cold find_usages runs tens of seconds — but
+ *  bounded so nothing waits unboundedly. */
+const BRIDGE_REPLY_DEADLINE_MS = 150_000;
 
 const VERSION = '0.1.0';
 
