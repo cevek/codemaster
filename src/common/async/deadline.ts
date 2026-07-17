@@ -15,7 +15,9 @@ import type { Clock } from './clock.ts';
 
 export interface Deadline {
   /** True once the wall-clock budget is spent — poll it at loop boundaries and inside the LS
-   *  cancellation token. Monotonic: once true it stays true (the clock only moves forward). */
+   *  cancellation token. Tracks the injected `Clock` (in production `Date.now`, so a rare NTP
+   *  step-BACK could briefly un-expire it — a benign budget imprecision, never a false LS-cancel
+   *  or a hang; the accumulated partial stays real either way). */
   expired(): boolean;
   /** Milliseconds left before expiry (0 once spent). `Infinity` for `NO_DEADLINE`. */
   remainingMs(): number;

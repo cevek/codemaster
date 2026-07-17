@@ -306,7 +306,9 @@ Initial topics (each populated as Phase 0+ work demands):
 - **`plugin-registry/`** — topological sort + cycle detection, the algorithm the
   `PluginRegistry` runs at init.
 - **`async/`** — `Clock` interface (injectable seam for tests, §16); `debounce` /
-  `deferred` / `withTimeout` built on top of `Clock`.
+  `deferred` / `withTimeout` built on top of `Clock`; the cooperative wall-clock `Deadline`
+  (`createDeadline` / `NO_DEADLINE` / `DeadlineExceededError`, §1 never-hang) — a synchronous
+  poll-able budget an op / the LS cancellation token checks to degrade to `timeout` / `partial`.
 - **`debug-spec/`** — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
   (`DebugSystem.configure` consumes this, §13).
 - **`lru/`** — generic LRU map, used by the orchestrator's memory governor (§9) and
@@ -957,7 +959,7 @@ are **per-plugin**, plus a few engine-wide ones:
 template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
 generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
 (verbosity, limits), `daemon` (isolation mode, idle eviction, path-existence sweep interval,
-`maxOldSpaceMB` process-mode child heap ceiling §9), `debug`
+`maxOldSpaceMB` process-mode child heap ceiling §9, `opDeadlineSeconds` per-op wall-clock budget §1/§19), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
 all it still works: `codemod` / text-search drive off git `ls-files` (the `.gitignore`-aware
@@ -1289,7 +1291,7 @@ codemaster/
       glob/                  # glob matching over RepoRelPath
       json/                  # JsonValue zod schema (boundary validation)
       plugin-registry/       # topological sort + cycle detection for the Plugin DAG
-      async/                 # Clock seam; debounce / deferred / withTimeout over Clock
+      async/                 # Clock seam; debounce / deferred / withTimeout over Clock; Deadline (§1 never-hang)
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
@@ -1602,9 +1604,10 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   codemaster's _own_ synchronous code (host callbacks, plugin loops); those must be bounded by
   DESIGN — cache/scope inputs, never a per-call tree scan (the `ls-host` config-reparse hang) — and,
   for the hard guarantee on truly-uncancellable sync, by engine isolation + kill-on-deadline (the
-  orchestrator stays responsive in `process` mode and reaps an overrun child). **Layering invariant:
-  the cooperative in-op deadline (120 s) is strictly SHORTER than the process-mode kill-on-deadline
-  backstop**, so the graceful timeout / partial always returns before any hard SIGKILL. An op never
+  orchestrator stays responsive in `process` mode and reaps an overrun child — the process-mode
+  kill-on-deadline itself is roadmap, §2/§9). **Layering constraint on the 120 s choice:** it is set
+  below that _future_ process-mode kill-on-deadline backstop, so once the backstop lands the
+  cooperative graceful timeout / partial still returns before any hard SIGKILL. An op never
   spins unbounded; an abandoned query is otherwise dropped only _between_ serialized requests.
   (§1, §2, §8, §9)
 - **In-process never-hang backstop — the worker-thread watchdog (`support/watchdog/`).** The
