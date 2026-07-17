@@ -47,7 +47,10 @@ export default async function* timingReporter(source) {
   }
   const files = [...byFile.values()].sort((a, b) => b.ms - a.ms);
   // Slowest individual test cases (leaf tests, not suite aggregates).
-  const cases = rows.filter((r) => !r.suite).sort((a, b) => b.ms - a.ms).slice(0, 60);
+  const cases = rows
+    .filter((r) => !r.suite)
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, 60);
   const totalMs = files.reduce((s, f) => s + f.ms, 0);
 
   writeFileSync(OUT, renderHtml(files, cases, totalMs));
