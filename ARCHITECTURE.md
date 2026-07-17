@@ -1610,6 +1610,7 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   cooperative graceful timeout / partial still returns before any hard SIGKILL. An op never
   spins unbounded; an abandoned query is otherwise dropped only _between_ serialized requests.
   (§1, §2, §8, §9)
+
 - **In-process never-hang backstop — the worker-thread watchdog (`support/watchdog/`).** The
   `mcp --in-process` path (dev / dogfood, spec §5) has NO external killer, so a FUTURE unknown
   sync-wedge would spin forever exactly as the incident did (a busy event loop cannot service
