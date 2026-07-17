@@ -1,7 +1,7 @@
 ---
 id: t-000052
 title: process`-mode engine isolation
-status: in-progress
+status: done
 priority: medium
 parent: t-031282
 type: feat
