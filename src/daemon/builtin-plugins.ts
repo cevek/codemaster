@@ -21,6 +21,7 @@ export function builtinPlugins(config: CodemasterConfig, root: string): readonly
   return [
     createTsPlugin(root, config.ts?.tsconfig, {
       searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+      searchWarmPeakMaxFiles: config.ts?.searchWarmPeakMaxFiles,
     }),
     createScssPlugin(root),
     ...(config.i18n !== undefined

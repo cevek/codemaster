@@ -68,13 +68,15 @@ const argsSchema = z.strictObject({
 
 /** The pre-warm size guard's refuse message (§1 never-crash / resource-respect): honest about WHY
  *  (OOM + throwaway memory) and actionable (the three no-warm / opt-in escapes). */
-function sizeGuardRefusal(count: number, threshold: number): string {
+function sizeGuardRefusal(peakFiles: number, threshold: number, pruned: boolean): string {
+  const shape = pruned
+    ? `even after discovery-pruning to the primary program, its ${peakFiles} files would build`
+    : `warming would build ${peakFiles} files across its programs`;
   return (
-    `repo is large (${count} source files > threshold ${threshold}) — a repo-wide navto search over ` +
-    `this many files risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
-    `throwaway discovery query. Browse via symbols_overview, then find_definition / find_usages on the ` +
-    `specific symbol; or search_symbol {syntactic:true} for an OOM-safe fuzzy search; or pass ` +
-    `force:true to warm anyway.`
+    `repo is large (${shape}, over the peak threshold ${threshold}) — this navto search risks OOM ` +
+    `(can kill the daemon) and holds large type-checker memory for a throwaway discovery query. ` +
+    `Browse via symbols_overview, then find_definition / find_usages on the specific symbol; or ` +
+    `search_symbol {syntactic:true} for an OOM-safe fuzzy search; or pass force:true to warm anyway.`
   );
 }
 
@@ -150,11 +152,13 @@ export const searchSymbolOp = defineOp({
     // DEAD and cannot say "retry with the flag" post-hoc (t-515730). Actionable without the agent
     // knowing the isolation mode.
     'on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).',
-    // t-333163: the default path pre-checks the source-file count and REFUSES to warm the LS above a
-    // configurable threshold (config `ts.searchWarmMaxFiles`, default 4000) — warming a huge fan-out
-    // risks OOM and squats memory for a throwaway query. The refusal redirects to symbols_overview /
-    // `syntactic:true`; `force:true` warms anyway. Advertised so the behaviour is not a surprise.
-    'on a repo above `ts.searchWarmMaxFiles` (default 4000 source files) the default path REFUSES to warm (OOM/memory-squat risk) and redirects to symbols_overview or `syntactic:true`; pass `force:true` to warm regardless.',
+    // t-333163 (pruning-aware t-399909): the default path pre-checks the POST-PRUNING PEAK file count
+    // (what will actually build — a single pruned primary on a loose-root monorepo, else the summed
+    // fan-out) and REFUSES to warm the LS above a configurable threshold (config
+    // `ts.searchWarmPeakMaxFiles`, default 9000) — warming a peak that big risks OOM and squats memory
+    // for a throwaway query. The refusal redirects to symbols_overview / `syntactic:true`;
+    // `force:true` warms anyway.
+    'on a repo whose post-pruning peak exceeds `ts.searchWarmPeakMaxFiles` (default 9000 files that would build) the default path REFUSES to warm (OOM/memory-squat risk) and redirects to symbols_overview or `syntactic:true`; pass `force:true` to warm regardless.',
   ],
   table: searchSymbolTable,
   async run(ctx, args) {
@@ -185,18 +189,25 @@ export const searchSymbolOp = defineOp({
           fileModuleHint(args.query, ts.filesNamed(args.query)),
         );
       }
-      // Pre-warm size guard (t-333163): BEFORE the navto path warms the LS, cheaply estimate the
-      // fan-out surface; over the threshold, refuse + redirect instead of warming (an OOM on the
-      // in-process daemon is uncatchable; even in process-mode the warmed program squats memory for
-      // a throwaway query). `syntactic` (above) and `force` bypass. An estimate FAILURE (git hiccup)
-      // falls THROUGH to warm — the guard is an optimization, not a correctness gate, so a git error
-      // must not over-refuse a legitimate search.
+      // Pre-warm size guard (t-333163, pruning-aware t-399909): BEFORE the navto path warms the LS,
+      // cheaply estimate the POST-PRUNING PEAK (the files that will actually build — a single pruned
+      // primary on a loose-root monorepo, else the summed multi-program fan-out); over the threshold,
+      // refuse + redirect instead of warming (an OOM on the in-process daemon is uncatchable; even in
+      // process-mode the warmed program squats memory for a throwaway query). Gating the peak — not
+      // the total surface — un-refuses the now-safe pruned loose-root case while still refusing a
+      // `references` fan-out that would OOM. `syntactic` (above) and `force` bypass. An estimate
+      // FAILURE (git hiccup) falls THROUGH to warm — the guard is an optimization, not a correctness
+      // gate, so a git error must not over-refuse a legitimate search.
       if (args.force !== true) {
-        const estimate = ts.estimateSourceFileCount();
-        if (estimate.ok && estimate.data > ts.searchWarmMaxFiles) {
+        const estimate = ts.estimateSearchPeak();
+        if (estimate.ok && estimate.data.peakFiles > ts.searchWarmPeakMaxFiles) {
           return fail({
             tool: 'size-guard',
-            message: sizeGuardRefusal(estimate.data, ts.searchWarmMaxFiles),
+            message: sizeGuardRefusal(
+              estimate.data.peakFiles,
+              ts.searchWarmPeakMaxFiles,
+              estimate.data.pruned,
+            ),
           });
         }
       }

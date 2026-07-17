@@ -17,13 +17,24 @@ export interface TsConfig {
   packages?: string[];
   /** tsconfig to drive the LanguageService (autodetected when omitted). */
   tsconfig?: string;
-  /** Pre-warm size guard (ARCHITECTURE.md §9): the source-file count above which a DEFAULT
-   *  (navto) `search_symbol` refuses to warm the LanguageService — warming a huge multi-program
-   *  fan-out risks OOM (kills the in-process daemon) and squats memory for a throwaway discovery
-   *  query. Over it the op redirects to `symbols_overview` / `search_symbol {syntactic:true}`;
-   *  `force:true` overrides per-call. Default 4000 (codemaster ~629 files passes; a monorepo that
-   *  OOM'd was ~6076). Raise it for a big machine, lower it to redirect sooner. */
+  /** Pre-warm size guard (ARCHITECTURE.md §9): the TOTAL in-root source-file count above which the
+   *  SEMANTIC fan-out ops (`find_usages` / `impact` / `importers_of` / bare-name `find_definition`)
+   *  refuse to warm the LanguageService — those ops never prune (their decl→usage fan-out spans every
+   *  program), so the total surface is a conservative proxy. Over it the op redirects to
+   *  `daemon.isolation:'process'`; `force:true` overrides per-call. Default 4000 (codemaster ~629
+   *  files passes; a monorepo that OOM'd was ~6076). Raise it for a big machine, lower it to redirect
+   *  sooner. (The DEFAULT `search_symbol` gates on the pruning-aware `searchWarmPeakMaxFiles` instead.) */
   searchWarmMaxFiles?: number;
+  /** Pre-warm size guard (ARCHITECTURE.md §9): the POST-PRUNING PEAK file count above which the
+   *  DEFAULT (navto) `search_symbol` refuses to warm. The peak is what will ACTUALLY build after the
+   *  discovery prune — a single primary program on a loose-root monorepo (which the prune collapses
+   *  the fan-out into), else the summed multi-program fan-out — NOT the total source surface (gating
+   *  that over-refused a loose-root repo whose real peak is one safe program). Over it the op
+   *  redirects to `symbols_overview` / `search_symbol {syntactic:true}`; `force:true` overrides
+   *  per-call. Default 9000 (codemaster ~629 passes; backoffice2's pruned peak ~6107 files / ~1 GB
+   *  passes; its unpruned fan-out ~18k would refuse). Higher than `searchWarmMaxFiles` because it
+   *  gates the accurate peak, not the surface. Raise it for a big machine, lower it to redirect sooner. */
+  searchWarmPeakMaxFiles?: number;
 }
 
 export interface I18nConfig {

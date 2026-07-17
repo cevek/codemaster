@@ -26,6 +26,8 @@
 // t-000052 process-isolation backstop). DISCOVERY ONLY (§3.4): the prune sits on the name→DECL step
 // (this navto); the decl→USAGE fan-out (find_usages) runs via `programsContaining`, never pruned.
 
+import type { Result } from '../../core/result.ts';
+import { fail, ok } from '../../common/result/construct.ts';
 import { isOk } from '../../common/result/narrow.ts';
 import { gitSourceFilesSync } from '../../support/git/ls-source-files.ts';
 import { isScannedSourcePath } from './syntactic-cache.ts';
@@ -37,18 +39,39 @@ interface RelHost {
 
 const JS_EXT = /\.(js|jsx|mjs|cjs)$/;
 
+/** Gate 1 + Gate 2 over the loaded programs (see file header), read from cheap `fileNames()` globs
+ *  — NO program build. `'out-of-root'` when ANY program reaches outside root (gate 2: don't prune,
+ *  the navto path has no out-of-root disclosure); else `{ includeJs }` where `includeJs` is true iff
+ *  some program parses `.js` (gate 1: JS is navto-visible only there). */
+function gate1And2(
+  programs: readonly TsProgram[],
+  rootPrefix: string,
+): { includeJs: boolean } | 'out-of-root' {
+  let includeJs = false;
+  for (const p of programs) {
+    for (const abs of p.fileNames()) {
+      const posix = abs.replace(/\\/g, '/');
+      if (!posix.startsWith(rootPrefix)) return 'out-of-root';
+      if (JS_EXT.test(posix)) includeJs = true;
+    }
+  }
+  return { includeJs };
+}
+
 /** The in-root git source surface (rel posix) a navto fan-out must cover, listed WITHOUT a program
  *  build (one cheap git call, §19). `.ts/.tsx/.mts/.cts` minus `.d.ts` always; JS extensions only
- *  when `includeJs` (some loaded program has `allowJs` — else navto surfaces no `.js`). Empty on a
- *  non-git root / git failure → the coverage test then declines to prune (conservative). */
-function discoverySurface(root: string, includeJs: boolean): ReadonlySet<string> {
+ *  when `includeJs` (some loaded program has `allowJs` — else navto surfaces no `.js`). `fail` on a
+ *  non-git root / git failure / empty surface — the caller decides: the build-based coverage test
+ *  declines to prune (conservative), the cheap pre-warm estimate falls through to warm (§19). */
+function discoverySurface(root: string, includeJs: boolean): Result<ReadonlySet<string>> {
   const listing = gitSourceFilesSync(root);
-  if (!isOk(listing)) return new Set();
+  if (!isOk(listing)) return fail(listing.failure);
   const set = new Set<string>();
   for (const rel of listing.data) {
     if (isScannedSourcePath(rel) || (includeJs && JS_EXT.test(rel))) set.add(rel);
   }
-  return set;
+  if (set.size === 0) return fail({ tool: 'git', message: 'empty in-root git source surface' });
+  return ok(set);
 }
 
 /** True when navto may safely prune to the primary program alone (see file header). Builds the
@@ -67,20 +90,39 @@ export function coversInRootSurface(
   const program = primary?.getProgram();
   if (program === undefined) return false;
   const rootPrefix = `${root.replace(/\\/g, '/')}/`;
-  // Gate 2: any program reaching outside root can surface symbols the in-root surface can't account
-  // for → don't prune (the navto path has no out-of-root disclosure). Gate 1: JS is navto-visible
-  // only where some program parses it — detected by a `.js` in any program's tracked glob.
-  let includeJs = false;
-  for (const p of programs) {
-    for (const abs of p.fileNames()) {
-      if (!abs.replace(/\\/g, '/').startsWith(rootPrefix)) return false;
-      if (JS_EXT.test(abs)) includeJs = true;
-    }
-  }
-  const surface = discoverySurface(root, includeJs);
-  if (surface.size === 0) return false;
+  const gates = gate1And2(programs, rootPrefix);
+  if (gates === 'out-of-root') return false;
+  const surface = discoverySurface(root, gates.includeJs);
+  if (!surface.ok) return false;
   const primaryRels = new Set<string>();
   for (const sf of program.getSourceFiles()) primaryRels.add(host.relOf(sf.fileName));
-  for (const rel of surface) if (!primaryRels.has(rel)) return false;
+  for (const rel of surface.data) if (!primaryRels.has(rel)) return false;
   return true;
+}
+
+/** The PRE-WARM (no-build) sibling of `coversInRootSurface`: will navto prune to the primary alone?
+ *  Reads the primary's `fileNames()` GLOB instead of the built `getSourceFiles()` — and since
+ *  `fileNames() ⊆ getSourceFiles()`, a fileNames-⊇-surface result is a SOUND-SUFFICIENT predictor
+ *  (fileNames covers ⇒ the built program covers ⇒ the real prune engages). Result-typed to
+ *  distinguish the two `false` shapes the guard must treat differently: `ok(false)` = a genuine
+ *  won't-prune (out-of-root, or the primary really doesn't cover → the guard sums the fan-out);
+ *  `fail` = a git hiccup / empty surface, i.e. can't-estimate → the guard falls THROUGH to warm
+ *  (never over-refuses a legitimate search on a git error — the guard is an optimization, not a
+ *  correctness gate, §19). Never builds a program → the guard cannot warm the very LS it protects. */
+export function coversInRootSurfaceCheap(
+  programs: readonly TsProgram[],
+  host: RelHost,
+  root: string,
+): Result<boolean> {
+  const primary = programs[0];
+  if (primary === undefined) return ok(false);
+  const rootPrefix = `${root.replace(/\\/g, '/')}/`;
+  const gates = gate1And2(programs, rootPrefix);
+  if (gates === 'out-of-root') return ok(false);
+  const surface = discoverySurface(root, gates.includeJs);
+  if (!surface.ok) return fail(surface.failure);
+  const primaryRels = new Set<string>();
+  for (const abs of primary.fileNames()) primaryRels.add(host.relOf(abs));
+  for (const rel of surface.data) if (!primaryRels.has(rel)) return ok(false);
+  return ok(true);
 }

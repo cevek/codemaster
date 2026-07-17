@@ -179,6 +179,7 @@ export async function project(
       faultTs(
         createTsPlugin(repoRoot, config.ts?.tsconfig, {
           searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+          searchWarmPeakMaxFiles: config.ts?.searchWarmPeakMaxFiles,
         }),
         options?.faultTsMethod,
       ),

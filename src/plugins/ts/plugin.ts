@@ -30,7 +30,8 @@ import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
 import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
-import { estimateSourceFileCount } from './surface-size.ts';
+import { estimateSearchPeak, estimateSourceFileCount } from './surface-size.ts';
+import { failFromThrown } from '../../common/result/construct.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
@@ -84,16 +85,29 @@ export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 export type { ResolvedTarget, TsTargetInput };
 export type { TsPluginApi };
 
-/** Default file-count above which a bare `search_symbol` (navto) refuses to warm (t-333163). Data-
- *  informed: codemaster is ~629 source files (must pass, ~6× headroom); a monorepo that OOM'd the
- *  daemon was ~6076 — 4000 sits between, and the asymmetry favours a conservative default (a
- *  false-refuse is a soft redirect to `symbols_overview`; a false-allow is an OOM/crash). */
+/** Default TOTAL-surface file-count above which the SEMANTIC fan-out guard (t-679091:
+ *  find_usages / impact / importers_of / bare-name find_definition) refuses to warm. Those ops NEVER
+ *  prune (their decl→usage fan-out spans every program), so the total surface is a conservative
+ *  proxy. Data-informed: codemaster ~629 (passes, ~6× headroom); a monorepo that OOM'd was ~6076 —
+ *  4000 sits between, and the asymmetry favours conservative (a false-refuse is a soft redirect; a
+ *  false-allow is an OOM/crash). `search_symbol` has its OWN, pruning-aware peak threshold below. */
 const DEFAULT_SEARCH_WARM_MAX_FILES = 4000;
+
+/** Default POST-PRUNING PEAK file-count above which the DEFAULT (navto) `search_symbol` refuses to
+ *  warm (t-399909). Higher than the semantic threshold because it gates what will ACTUALLY build —
+ *  `pruned ? primary.fileNames().length : Σ program.fileNames().length` — not the total surface. The
+ *  t-167395 prune collapses a loose-root monorepo's fan-out to a single program, so gating the peak
+ *  (not the surface) un-refuses it. Calibrated against a measured file→RSS curve: a single pruned
+ *  program ~0.16 MB/file (backoffice2: 6107 files → ~1.0 GB — passes with headroom), a multi-program
+ *  fan-out ~0.33 MB/file (per-program checker overhead). 9000 → a pruned peak ~1.4 GB or a fan-out
+ *  peak ~3.0 GB — under a ~4 GB default heap (an OOM kills the daemon → deliberately conservative); a
+ *  `references` fan-out whose summed file-set exceeds it is still refused (backoffice2 Σ ~18k). */
+const DEFAULT_SEARCH_WARM_PEAK_MAX_FILES = 9000;
 
 export function createTsPlugin(
   root: string,
   tsconfigOverride?: string,
-  guard?: { searchWarmMaxFiles?: number | undefined },
+  guard?: { searchWarmMaxFiles?: number | undefined; searchWarmPeakMaxFiles?: number | undefined },
 ): TsPluginApi {
   let host: TsProjectHost | undefined;
   let pendingBeforeWarm: RepoRelPath[] = [];
@@ -173,11 +187,33 @@ export function createTsPlugin(
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 
-    // Pre-warm size guard (t-333163): the resolved threshold + the cheap no-warm estimate. Both take
-    // `root`/`syntacticCache` directly and NEVER call warm() — the guard must not warm the very LS it
-    // exists to protect from warming.
+    // Pre-warm size guard (t-333163, pruning-aware t-399909): the resolved peak-file threshold + the
+    // cheap no-warm PEAK estimate. The estimate reads the host's program `fileNames()` globs + one git
+    // listing — it discovers/globs programs but NEVER calls `getProgram()`, so it does not warm the
+    // type-checker the guard exists to protect from warming (measured: ~300 MB vs the ~1 GB+ warm).
     searchWarmMaxFiles: guard?.searchWarmMaxFiles ?? DEFAULT_SEARCH_WARM_MAX_FILES,
+    searchWarmPeakMaxFiles: guard?.searchWarmPeakMaxFiles ?? DEFAULT_SEARCH_WARM_PEAK_MAX_FILES,
+    // Total in-root source surface (t-679091 semantic fan-out guard, which never prunes). No warm.
     estimateSourceFileCount: () => estimateSourceFileCount(root),
+    estimateSearchPeak: () => {
+      // Discovery-only + THROWAWAY: build a host, read program `fileNames()` globs + one git listing,
+      // then DISPOSE it — never persist into the plugin's `warm()` host. The guard must leave the
+      // plugin COLD on a refusal (§9 no-squat; the existing no-warm invariant): it discovers/globs
+      // programs but never calls `getProgram()`, so no type-checker is built (measured ~300 MB vs the
+      // ~1 GB+ warm). On the ACCEPT path the real search's `warm()` re-discovers — bounded, and far
+      // cheaper than the type-checker warm it precedes.
+      let throwaway: TsProjectHost | undefined;
+      try {
+        throwaway = createTsProjectHost(root, tsconfigOverride);
+        return estimateSearchPeak(throwaway.programs(), throwaway, root);
+      } catch (thrown) {
+        // A broken config / discovery throw → fall through to warm (the guard is an optimization,
+        // not a correctness gate); the real search then fails honestly on the same throw.
+        return failFromThrown('ts-ls', thrown);
+      } finally {
+        throwaway?.dispose();
+      }
+    },
 
     // The syntactic path takes `root` directly and NEVER calls warm() — no LS, no program build
     // (that is the whole point: survive/avoid the navto OOM). So it leaves the plugin cold. The

@@ -71,6 +71,7 @@ export async function multiRepo(
     pluginsFor: (config, repoRoot) => [
       createTsPlugin(repoRoot, config.ts?.tsconfig, {
         searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+        searchWarmPeakMaxFiles: config.ts?.searchWarmPeakMaxFiles,
       }),
       createScssPlugin(repoRoot),
     ],

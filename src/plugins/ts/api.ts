@@ -95,16 +95,27 @@ export interface TsPluginApi extends Plugin {
    *  file under an UNDISCOVERED program (the case that motivates the hint). Host-free + bounded (the
    *  shared `gitSourceFilesSync` primitive); best-effort — empty on a git failure. */
   filesNamed(name: string): { files: RepoRelPath[]; total: number };
-  /** Pre-warm size guard (t-333163): the file-count threshold above which a DEFAULT (navto)
-   *  `search_symbol` refuses to warm the LS — warming a huge multi-program fan-out risks OOM
-   *  (kills the in-process daemon) and squats memory for a throwaway discovery query. Resolved
-   *  from `config.ts.searchWarmMaxFiles` (default applied at construction). */
+  /** Pre-warm size guard (t-333163 / t-679091): the TOTAL-surface file threshold above which the
+   *  SEMANTIC fan-out guard (find_usages / impact / importers_of / bare-name find_definition) refuses
+   *  to warm — those ops never prune, so the total surface is a conservative proxy. Resolved from
+   *  `config.ts.searchWarmMaxFiles`. (The DEFAULT `search_symbol` gates on `searchWarmPeakMaxFiles`.) */
   readonly searchWarmMaxFiles: number;
-  /** The cheap, §19-bounded pre-warm size estimate: the count of git-tracked source files the
-   *  default navto path would fan across (`.ts/.tsx/.mts/.cts`, minus `.d.ts`), WITHOUT warming the
-   *  LS / building any program — one cheap git listing of the §10 git-source surface. File-count, not
-   *  bytes (a per-file stat over the surface is the O(surface) hang-class §19 forbids). A git failure
-   *  surfaces honestly — the guard falls through to warm rather than over-refuse on a git hiccup. */
+  /** Pre-warm size guard (t-399909): the POST-PRUNING PEAK-file threshold above which the DEFAULT
+   *  (navto) `search_symbol` refuses to warm — higher than `searchWarmMaxFiles` because it gates what
+   *  will ACTUALLY build after the t-167395 prune (a single primary on a loose-root monorepo, else the
+   *  summed fan-out), not the total surface. Resolved from `config.ts.searchWarmPeakMaxFiles`. */
+  readonly searchWarmPeakMaxFiles: number;
+  /** The cheap, §19-bounded pre-warm PEAK estimate: how many files the default navto path would
+   *  ACTUALLY build after the t-167395 discovery prune — `pruned ? primary.fileNames().length : Σ
+   *  program.fileNames().length` — WITHOUT warming the type-checker (reads `fileNames()` globs + one
+   *  git listing for the prune predicate). File-count, not bytes (a per-file stat over the surface is
+   *  the O(surface) hang-class §19 forbids). A git failure surfaces honestly — the guard falls through
+   *  to warm rather than over-refuse on a git hiccup. `pruned` lets the refusal explain the peak. */
+  estimateSearchPeak(): Result<{ peakFiles: number; pruned: boolean }>;
+  /** The total in-root git source surface count (`.ts/.tsx/.mts/.cts`, minus `.d.ts`) — one cheap
+   *  git listing, no warm. Used by the SEMANTIC fan-out guard (t-679091), whose decl→usage fan-out
+   *  never prunes (so its cost tracks the surface, not the pruning-aware peak). A git failure
+   *  surfaces honestly — the guard falls through to warm rather than over-refuse. */
   estimateSourceFileCount(): Result<number>;
   findDefinition(
     target: TsTargetInput,

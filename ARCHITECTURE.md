@@ -907,25 +907,38 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   (via its `ProjectHost`, §2); each plugin warms on its own first-touch (the `ts` plugin's
   LS warms lazily on the first _semantic_ op; `scss`/`i18n`/`schema`/adapters initialize
   on first relevant op or eagerly in their `init()`, plugin's choice).
-- **Pre-warm size guard (resource-respect before the warm, t-333163).** The `ts` plugin's LS
-  warm is the dominant memory risk (above), and a bare `search_symbol` fans navto across ALL
-  programs — so on a huge monorepo the FIRST such call warms a gigabyte-scale program that (a)
-  OOM-crashes the in-process daemon (an in-process OOM is uncatchable — §1) and (b) even in
-  `process` mode squats that memory until idle-TTL eviction, for a throwaway discovery query
-  `symbols_overview` answers with no warm. So a DEFAULT (navto) `search_symbol` CHEAPLY estimates
-  the fan-out surface BEFORE warming — the count of git-tracked source files under root
-  (`.ts/.tsx/.mts/.cts`, minus `.d.ts`), a cheap listing of the §10 git-source surface, never a
-  program build, never the LS, never a `parseJsonConfigFileContent` tree-scan (§19-bounded —
-  file-COUNT not bytes, since per-file sizing is the O(surface) hang-class §19 forbids). Over `config.ts.searchWarmMaxFiles`
-  (default 4000 — codemaster ~629 files passes with headroom; a monorepo that OOM'd was ~6076) the
-  op REFUSES with an honest, actionable redirect (browse via `symbols_overview`, then a targeted
+- **Pre-warm size guard (resource-respect before the warm, t-333163; pruning-aware t-399909).**
+  The `ts` plugin's LS warm is the dominant memory risk (above), and a bare `search_symbol` fans
+  navto across ALL programs — so on a huge monorepo the FIRST such call warms a gigabyte-scale
+  program that (a) OOM-crashes the in-process daemon (an in-process OOM is uncatchable — §1) and (b)
+  even in `process` mode squats that memory until idle-TTL eviction, for a throwaway discovery query
+  `symbols_overview` answers with no warm. So a DEFAULT (navto) `search_symbol` CHEAPLY estimates the
+  **post-pruning PEAK** — the files that will ACTUALLY build — BEFORE warming, and gates on THAT, not
+  the total surface. The peak is pruning-aware because the t-167395 discovery prune collapses a
+  loose-root monorepo's whole fan-out into the single primary program (which subsumes the in-root
+  surface): `peakFiles = willPrune ? primary.fileNames().length : Σ program.fileNames().length`
+  (each program owns its own checker, so an un-pruned fan-out's memory ≈ the SUM of its file-sets —
+  the union surface undercounts the overlap and would miss that OOM). `willPrune` is predicted
+  pre-warm by a SOUND-SUFFICIENT no-build check — the primary's `fileNames()` glob ⊇ the §10
+  git-source surface (`fileNames ⊆ getSourceFiles`, so glob-coverage ⇒ the real prune engages) —
+  reading `fileNames()` globs + one git listing, never a `getProgram()`/type-checker warm, never a
+  `parseJsonConfigFileContent` tree-scan (§19-bounded — file-COUNT not bytes, since per-file sizing
+  is the O(surface) hang-class §19 forbids; measured ~300 MB vs the ~1 GB+ warm it guards). Over
+  `config.ts.searchWarmPeakMaxFiles` (default 9000 post-pruning peak files — its OWN threshold, higher
+  than the semantic guard's `searchWarmMaxFiles` because it gates the accurate peak, not the surface;
+  codemaster ~629 passes; backoffice2's pruned peak ~6107 files / ~1 GB passes, its un-pruned fan-out
+  ~18k refuses — calibrated against a measured file→RSS curve, conservative because an OOM kills the
+  daemon) the op REFUSES with
+  an honest, actionable redirect (browse via `symbols_overview`, then a targeted
   `find_definition`/`find_usages`; or `search_symbol {syntactic:true}` for an OOM-safe fuzzy scan)
-  instead of warming — never a crash, never a silent squat. Scope is exactly the risky warm-with-a-
-  cheap-alternative op: `search_symbol {syntactic:true}` is the sanctioned no-warm escape (never
-  gated), `force:true` overrides per-call, and the SEMANTIC ops (`find_usages`/`find_definition`,
-  which NEED the LS and have no cheap substitute) are NOT gated — their fix is process-isolation
-  (§2). An estimate FAILURE (git hiccup) falls through to warm rather than over-refuse a legitimate
-  search — the guard is an optimization, not a correctness gate.
+  instead of warming — never a crash, never a silent squat. Gating the peak un-refuses the now-safe
+  pruned loose-root case (the total-surface gate over-refused it) while still refusing a `references`
+  fan-out that would OOM (no t-333163 regression). Scope is exactly the risky warm-with-a-cheap-
+  alternative op: `search_symbol {syntactic:true}` is the sanctioned no-warm escape (never gated),
+  `force:true` overrides per-call, and the SEMANTIC ops (`find_usages`/`find_definition`, which NEED
+  the LS and have no cheap substitute) are NOT gated — their fix is process-isolation (§2). An estimate
+  FAILURE (git hiccup) falls through to warm rather than over-refuse a legitimate search — the guard is
+  an optimization, not a correctness gate.
 - **Idle-TTL eviction** — after `daemon.idleEvictionMinutes` with no requests, the
   orchestrator **disposes the engine**: in `process` mode that kills the child process and
   the OS reclaims everything (plugin states + LS) at once; in `in-process` mode it drops
@@ -964,7 +977,7 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 codebase has its own conventions — but every **section** is optional; enabling one may
 require its key fields (`i18n` needs `locales`, `schema` needs `entrypoint`). Sections
 are **per-plugin**, plus a few engine-wide ones:
-`ts` (globs/ignore/packages/tsconfig override, `searchWarmMaxFiles` pre-warm guard §9), `i18n` (locales, function names,
+`ts` (globs/ignore/packages/tsconfig override, `searchWarmMaxFiles` + `searchWarmPeakMaxFiles` pre-warm guards §9), `i18n` (locales, function names,
 template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
 generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
 (verbosity, limits), `daemon` (isolation mode, idle eviction, path-existence sweep interval,
