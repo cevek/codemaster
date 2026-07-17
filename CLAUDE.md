@@ -47,6 +47,10 @@ AI agents. It indexes a project, keeps a live TypeScript Language Service warm, 
 structural / semantic / refactor queries densely and **proof-carryingly** — so agents stop
 grepping. Output is for agents, not humans.
 
+**Orienting in this unfamiliar repo?** Start with `symbols_overview` — one call dumps the repo's
+declared symbol names (fuzzy-narrowable, grouped by tsconfig + kind) so you see what's there
+and match your hunches to REAL names instead of guessing.
+
 ## Догфудинг — codemaster жив на этом репозитории
 
 Любой вопрос об идентичности / типе / графе ссылок символа веди через **codemaster MCP**, не grep
