@@ -173,6 +173,15 @@ with an explicit "N more + how to narrow". No silent truncation. For an agent th
 knows what it needs, prefer one **`batch`** of requests over N round-trips — results return
 in order, each touched plugin's freshness captured once at batch entry (§11).
 
+**HARD CAP: every MCP tool response MUST stay strictly under the harness output ceiling
+(~64KB).** Above it the harness persists the response to a file and the agent sees only a ~2KB
+preview + a path — the answer is unreadable in place, which for `status` (the first-contact doc)
+or any large result defeats the tool. This is a UNIVERSAL boundary guarantee, not per-op-optional:
+a total-size cap at the MCP seam truncates the tail of ANY over-ceiling response with an explicit
+`!! OUTPUT CAPPED` marker (verdict-first §12 keeps the load-bearing head; honesty channels never
+cut — §3.4). New/changed ops need a size test across EVERY output mode (terse/normal/full/json/
+brief + sql) asserting the response stays under the cap. (Invariant + test matrix: task t-287999.)
+
 ## Docs
 
 Describe the **present state**, never the path to it — git holds the history. No
