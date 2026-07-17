@@ -1,7 +1,7 @@
 ---
 id: t-523883
 title: status default render exceeds harness output limit (65KB on a 36-op repo) — make it terse-by-default + cap it + wire brief/op through the CLI
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface

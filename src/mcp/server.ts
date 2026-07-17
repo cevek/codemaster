@@ -22,8 +22,9 @@ import type { AnyOpDefinition } from '../ops/registry.ts';
 import { builtinOps } from '../ops/builtins.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
 import type { UsageLogger } from '../support/usage-log/entry.ts';
-import { renderResult, renderResultJson } from '../format/render/render-result.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
+import { renderBatch, renderOne, renderResults } from './render-response.ts';
+import { capResponse } from './cap-seam.ts';
 import {
   SERVER_INSTRUCTIONS,
   TOOL_DESCRIPTORS,
@@ -33,7 +34,7 @@ import {
 } from './schema.ts';
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
-import { dispatchErrorJson, dispatchErrorLine } from './render-dispatch-error.ts';
+import { dispatchErrorJson } from './render-dispatch-error.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -176,7 +177,8 @@ export async function serveMcp(
         const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
         if (!parsed.success) return fail(badArgs('status', parsed.error.message));
         const view = await orchestrator.status(cwd, parsed.data.root);
-        return ok(text(renderStatus(view, { brief: parsed.data.brief, op: parsed.data.op })));
+        const { brief, full, op } = parsed.data;
+        return ok(text(renderStatus(view, { brief, full, op })));
       }
       case 'batch': {
         // §7/§11: normalize each request's flat `{op,…}` envelope to canonical `{name,args}` before
@@ -236,6 +238,11 @@ export async function serveMcp(
     const built = buildPerOpRequest(opName, rawArgs);
     if (!built.ok) return fail(badArgsOp(opName, built.message), ops);
     const { request, root, sql, returnMode } = built;
+    // A `format:'json'` per-op response is a single bare JSON object (renderOne json, or the
+    // dispatch-error-json branch) — the seam cap must REPLACE it over-limit, not tail-truncate. The
+    // sql sugar stays bare json only when it yields exactly ONE result (return:'all' with N>1 → text
+    // `[i] name` sections). Failure branches below are plain-text messages → text-path cap.
+    const bareJson = request.format === 'json';
     // The banner is a PREFIX on EVERY text response — success AND error alike (§3.6 always-on): a
     // stale-daemon `unknown_op` for a freshly-added op is exactly where the "restart" remedy matters
     // most. json mode suppresses it: a prefix would corrupt a single bare-JSON payload (§12); json
@@ -253,6 +260,7 @@ export async function serveMcp(
         text(banner(suppress) + renderResults(outcome.results, request.format, request.verbosity)),
         outcome.results,
         ops,
+        bareJson && outcome.results.length === 1,
       );
     }
     const outcome = await orchestrator.request(cwd, root, [request]);
@@ -263,6 +271,7 @@ export async function serveMcp(
       opResultText(result, request.format, request.verbosity, () => banner(suppress)),
       [result],
       ops,
+      bareJson,
     );
   };
 
@@ -285,6 +294,11 @@ export async function serveMcp(
     } finally {
       idleExit?.leave();
     }
+    // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness ceiling —
+    // a backstop over the per-op §12 caps so no op/status/batch/sql can blow the limit. At the single
+    // chokepoint BEFORE the telemetry write (the log records exactly what the agent got); no-op under
+    // the cap (byte-identical, so goldens/normal responses are untouched). See cap-seam.ts.
+    handled = { ...handled, result: capResponse(handled.result, handled.bareJson) };
     // ONE telemetry write, wrapped so a disk/serialize error never touches the request path.
     try {
       usage.record({
@@ -330,53 +344,6 @@ export function opResultText(
   return text(banner() + renderOne(result, format, verbosity));
 }
 
-function renderOne(
-  result: OpResult,
-  format: 'text' | 'json' | undefined,
-  verbosity: 'terse' | 'normal' | 'full' | undefined,
-): string {
-  if ('error' in result) return dispatchErrorLine(result.error, format);
-  if (format === 'json') return renderResultJson(result.result);
-  return renderResult(result.result, verbosity ?? 'terse');
-}
-
-/** Render one-or-more op results (the op-sql sugar yields 1 with return:'sql', or N+1
- *  with return:'all'). A single result renders bare; several get `[i] name` headers. */
-function renderResults(
-  results: readonly OpResult[],
-  format: 'text' | 'json' | undefined,
-  verbosity: 'terse' | 'normal' | 'full' | undefined,
-): string {
-  if (results.length === 1 && results[0] !== undefined) {
-    return renderOne(results[0], format, verbosity);
-  }
-  return results.map((r, i) => `[${i}] ${r.name}\n${renderOne(r, format, verbosity)}`).join('\n\n');
-}
-
-type ReqFlags = {
-  format?: 'text' | 'json' | undefined;
-  verbosity?: 'terse' | 'normal' | 'full' | undefined;
-};
-type BatchFlags = { sqlPresent: boolean } & ReqFlags;
-
-/** Render a batch's ordered results. The synthetic `sql` result (the join output) renders
- *  with the BATCH-level `format`/`verbosity` — the per-request flags belong to the
- *  producers, not the join (review fix #2). Exported so the flag routing is unit-tested. */
-export function renderBatch(
-  results: readonly OpResult[],
-  requests: readonly ReqFlags[],
-  batch: BatchFlags,
-): string {
-  return results
-    .map((r, i) => {
-      const isSqlResult = batch.sqlPresent && r.name === 'sql';
-      const format = isSqlResult ? batch.format : requests[i]?.format;
-      const verbosity = isSqlResult ? batch.verbosity : requests[i]?.verbosity;
-      return `[${i}] ${r.name}\n${renderOne(r, format, verbosity)}`;
-    })
-    .join('\n\n');
-}
-
 /** The one-line self-staleness banner (§3.6 applied to the tool), prepended to EVERY op/batch text
  *  response while the daemon's own source is behind disk — always-on, never one-shot: a long
  *  multi-edit session must be warned on every answer it acts on, not just the first. Empty when
@@ -387,19 +354,23 @@ export function staleBanner(sourceStale: boolean): string {
 }
 
 /** A handled tool call: the agent-facing response plus its telemetry classification
- *  (success/fail and the op name(s) involved). */
+ *  (success/fail and the op name(s) involved). `bareJson` tells the seam cap that the text payload
+ *  is a single parseable JSON object (a `format:'json'` per-op response) — so an over-cap payload is
+ *  REPLACED with a valid capped envelope rather than tail-truncated (which would corrupt the JSON);
+ *  text responses (status/batch/sql-multi/text) tail-truncate with the `!! OUTPUT CAPPED` marker. */
 interface HandledCall {
   result: CallToolResult;
   ok: boolean;
   ops: string[];
+  bareJson: boolean;
 }
 
 function ok(result: CallToolResult, ops: string[] = []): HandledCall {
-  return { result, ok: true, ops };
+  return { result, ok: true, ops, bareJson: false };
 }
 
-function fail(result: CallToolResult, ops: string[] = []): HandledCall {
-  return { result, ok: false, ops };
+function fail(result: CallToolResult, ops: string[] = [], bareJson = false): HandledCall {
+  return { result, ok: false, ops, bareJson };
 }
 
 /** Classify an op/batch response from its STRUCTURED results, not from `isError`: a
@@ -410,8 +381,9 @@ function classify(
   result: CallToolResult,
   results: readonly OpResult[],
   ops: string[],
+  bareJson = false,
 ): HandledCall {
-  return { result, ok: results.every((r) => !('error' in r) && r.result.ok), ops };
+  return { result, ok: results.every((r) => !('error' in r) && r.result.ok), ops, bareJson };
 }
 
 /** The text payload of a response, for the telemetry `response` field. */

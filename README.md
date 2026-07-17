@@ -29,11 +29,11 @@ grepping is a tool the agent abandons. So:
 One MCP tool **per op**, plus `status` and `batch` — so the capability catalogue lives
 permanently in the agent's tool-list and each op's args are a typed, visible schema:
 
-| Tool                        | Purpose                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<op>({...args, ...flags})` | one tool per op (`find_usages`, `rename_symbol`, …) — flat args + flags, generated `inputSchema` |
-| `status()`                  | first-contact manifest — active plugins, per-op notes + concepts, freshness                      |
-| `batch(requests)`           | many ops in one round-trip (`{name, args}` envelope; carries `sql`)                              |
+| Tool                        | Purpose                                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `<op>({...args, ...flags})` | one tool per op (`find_usages`, `rename_symbol`, …) — flat args + flags, generated `inputSchema`            |
+| `status()`                  | first-contact manifest — active plugins, op catalogue + concepts, freshness (per-op detail via `full`/`op`) |
+| `batch(requests)`           | many ops in one round-trip (`{name, args}` envelope; carries `sql`)                                         |
 
 The tool-list is the static union of every op (per-connection); an op whose plugin isn't
 active for the resolved repo answers with an honest `unavailable`. `status` is the per-repo

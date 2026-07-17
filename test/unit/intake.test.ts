@@ -313,7 +313,8 @@ test('ANTI-LEAK — no op argsHint carries an alias annotation; status hides int
   }
   const p: TestProject = await project(FILES);
   try {
-    const status = await p.status();
+    // The full render carries every op's argsHint — the surface where an alias could leak.
+    const status = await p.status({ full: true });
     assert.doesNotMatch(status, ALIAS_LEAK, 'status leaks an arg alias (paren or bare)');
     assert.doesNotMatch(status, /\bintake\b/, 'status leaks the internal intake metadata');
   } finally {

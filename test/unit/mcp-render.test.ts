@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderBatch } from '../../src/mcp/server.ts';
+import { renderBatch } from '../../src/mcp/render-response.ts';
 import { ok } from '../../src/common/result/construct.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 

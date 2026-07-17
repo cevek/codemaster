@@ -28,7 +28,10 @@ test('status render is stable & complete on a two-plugin fixture (golden)', asyn
     'src/a.module.scss': '.x { color: red; }\n',
   });
   try {
-    const rendered = scrub(await p.status(), p.root);
+    // The golden pins the FULL catalogue (opt-in via `full:true` since t-523883 made status
+    // terse-by-default) — status IS the per-repo documentation, so its heavyweight render must
+    // stay stable and complete.
+    const rendered = scrub(await p.status({ full: true }), p.root);
     // Completeness: both plugins, the concepts block, and per-op notes must be present.
     assert.match(rendered, /plugins: ts@.+ · scss@/);
     assert.match(rendered, /\nconcepts:\n/);

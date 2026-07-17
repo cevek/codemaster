@@ -704,7 +704,7 @@ This list grows; the **dispatch shape never does** — see §11.
 - `<op>({ ...args, ...flags })` — one MCP tool per op (`find_usages`, `rename_symbol`, …),
   tool-name = op-name; args + flags are flat (no `name`/`args` envelope). The `inputSchema`
   is generated from the op's canonical zod `argsSchema`, so the tool-list IS the catalogue.
-- `status()` — first-contact manifest: active plugins, per-op notes + concepts, freshness.
+- `status()` — first-contact manifest: active plugins, one-line op catalogue + concepts, freshness (per-op notes/schemas under `full`/`op`).
 - `batch(requests)` — many ops in one round-trip (the `{name, args}` envelope persists here).
 
 Each op is a first-class tool, its capability permanently in the agent's tool-list. The MCP
@@ -1042,18 +1042,22 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   description carries the op summary + the compact `argsHint`. The flat call is routed
   through the unchanged dispatch path: the facade extracts the reserved flag/route keys and
   hands the remainder to the op's own argsSchema — the **sole** validator (§7).
-- **`status({ brief?, op? })`** — the first-contact manifest. Lists active plugins (with
-  their versions/freshness fingerprints), the op catalogue for _this_ repo (op names +
-  one-line what-it-does + args schema + per-op notes + the shared concepts), and available
+- **`status({ full?, op?, brief? })`** — the first-contact manifest. Lists active plugins (with
+  their versions/freshness fingerprints), the op catalogue for _this_ repo, and available
   debug namespaces (§13). The per-op tools advertise each op's schema standingly; `status`
-  is the per-repo **deep dive** (per-op notes + shared concepts + freshness) and the place
-  to discover which ops the active plugins enable. The codemaster-vs-grep steer is **not**
+  is the per-repo **deep dive** (which ops the active plugins enable, the shared concepts,
+  freshness). The codemaster-vs-grep steer is **not**
   re-emitted here — it ships once per session in the MCP `initialize` response
   (`SERVER_INSTRUCTIONS`), so repeating it every `status` would be a pure token tax.
-  Two opt-in token-saver renders sit on top of the FULL default: **`brief: true`** drops
-  the arg schemas / per-op notes / concepts and prints just names + summaries; **`op:
-"<name>"`** renders one op's full detail on demand (cheaper than re-emitting the whole
-  catalogue to re-read one op). It also carries the **self-staleness** line
+  **The default render is TERSE** (task t-523883): the per-repo frame + a one-line-per-op
+  catalogue (name + summary) + the shared `concepts` block. The per-op arg schemas + notes are
+  DROPPED by default because the MCP tool-list already carries each op's typed `inputSchema` +
+  description every session (redundant to re-dump), and a full 36-op catalogue overruns the
+  harness output ceiling (§12). Two opt-in dials: **`full: true`** renders the heavyweight
+  catalogue — every op's arg schema + per-op notes + columns + example (capped at the MCP seam,
+  §12, so nothing is silently lost); **`op:"<name>"`** renders one op's full detail on demand
+  (cheaper than re-emitting the whole catalogue to re-read one op). **`brief: true`** is a
+  back-compat alias of the terse default. It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the per-op/`batch` responses prepend — on
   EVERY stale response, not just the first — a one-line "run `codemaster daemon restart`"
@@ -1064,7 +1068,7 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   source can't be located (global/`npx` — §19). The
   remedy is **restart**, not a bridge reconnect: a reconnect re-attaches to the same stale-code
   daemon on the same socket (§2 singleton), so the daemon itself must be restarted (`codemaster
-  daemon restart` — the management verbs, §2).
+daemon restart` — the management verbs, §2).
 - **`batch(requests)`** — one tool carrying a list of op invocations (each `{name, args, …}`);
   results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
@@ -1116,6 +1120,23 @@ one-line legend + sectioned summary). Rules:
   survive the cut, never trimmed off the tail (dropping a `freshness: UNVERIFIED` or a partial
   handle rebind is the silent-stale / §6-misidentification lie). Debug (a dev trace, not an
   honesty channel) is the only segment the cap may drop.
+- **Two-tier size cap — the per-op char cap AND a UNIVERSAL MCP-seam total cap (§3.4, task
+  t-287999).** The per-op renderer caps its `data` region at `RENDER_CHAR_CAP` (verdict-first, above)
+  — but that is per-data-region and char-based, so it does NOT bound TOTAL response size (multi-byte
+  chars, the uncapped `format:'json'` render, `status`'s own render, a multi-section `batch`/sql all
+  slip past it). Above the harness output ceiling (~64KiB) the harness persists the response to a file
+  and the agent sees only a ~2KB preview + a path — the answer is unreadable in place. So a final
+  **total-size cap at the MCP facade seam** (`common/truncate/cap-response.ts`, applied in
+  `mcp/cap-seam.ts` at the single response chokepoint) bounds the SERIALIZED frame — exactly what the
+  harness measures (JSON-escaping is non-linear, so raw text length is not a safe proxy) — under
+  `MCP_RESPONSE_MAX_BYTES` (60_000, ~5.5KB headroom for the JSON-RPC wrapper). It is a no-op
+  (byte-identical) under the cap. Over it: a **text** response is tail-truncated at a UTF-8-safe
+  boundary with an explicit `!! OUTPUT CAPPED` marker (verdict-first keeps the load-bearing head; the
+  marker's presence IS the honesty signal); a **bare-`json`** payload — a single parseable object a
+  tail-cut would corrupt — is REPLACED whole with a small valid `{"error":"output_capped",…}`
+  envelope. This is the backstop that makes the ceiling a guarantee for EVERY op regardless of its
+  own capping; the size test matrix (`test/e2e/mcp-response-size.test.ts`) asserts it per-op ×
+  per-mode.
 - `verbosity = terse | normal | full` lets the agent dial token cost; column
   projection is done with `sql` (SELECT over the op table), not a `fields` flag.
 - `format=json` for machine composition (agent feeding one call into another).
@@ -1317,7 +1338,7 @@ codemaster/
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
-      truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore
+      truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore; cap-response (§12 MCP-seam total-size cap)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
       git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync; + ls-source-files.ts: ls-files --recurse-submodules ∪ --others --exclude-standard for the no-program syntactic scan), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
@@ -1348,7 +1369,7 @@ codemaster/
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts)
-    mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch
+    mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap)
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
         shapes/              # per-domain ~shape renderers + Record<ShapeTag> registry (§12)

@@ -1,6 +1,8 @@
-// spec-agent-surface-ergonomics §1: `status` gains two token-saver renders on top of the FULL
-// default — `brief` (names + summaries only) and `op` (one op's full detail on demand). These
-// assert the CONTRACT (what each mode keeps vs drops), complementing the full-render golden.
+// spec-agent-surface-ergonomics §1 + t-523883: `status` is TERSE by default (names + summaries +
+// concepts frame) — the per-op arg schemas already ride the MCP tool-list (§11), and a full dump
+// overruns the harness output ceiling on a large repo. `full:true` is the opt-in heavyweight
+// catalogue; `op` renders one op's detail; `brief` is the back-compat alias of the terse default.
+// These assert the CONTRACT (what each mode keeps vs drops), complementing the full-render golden.
 // Also guards §2: the duplicated `>` GUIDANCE tail is gone from every render (it ships once at
 // MCP `initialize`).
 
@@ -14,29 +16,36 @@ const FIXTURE = {
   'src/a.module.scss': '.x { color: red; }\n',
 };
 
-test('status {brief}: names + summaries only — no arg schemas, notes, concepts, or guidance', async () => {
+test('status default is terse (== brief): names + summaries + concepts, no arg schemas / notes / examples', async () => {
   const p = await project(FIXTURE);
   try {
-    const full = await p.status();
+    const full = await p.status({ full: true });
+    const terse = await p.status();
     const brief = await p.status({ brief: true });
 
-    // Frame kept: daemon header, plugins, the ops list.
-    assert.match(brief, /^codemaster v/, 'daemon header kept');
-    assert.match(brief, /plugins: ts@.+ · scss@/, 'plugins line kept');
-    assert.match(brief, /find_unused_exports — TS exports with no importer/, 'name + summary kept');
+    // Back-compat: `brief` is an ALIAS of the terse default — byte-identical.
+    assert.equal(brief, terse, 'brief == terse default');
 
-    // Dropped: arg schemas (the `{ … }` argsHint), per-op notes (`· `), columns, examples,
-    // the concepts block — i.e. the bulk that makes full heavy.
-    assert.ok(!/find_unused_exports \{ pathInclude/.test(brief), 'arg schema dropped');
-    assert.ok(!brief.includes('\n    · '), 'per-op notes dropped');
-    assert.ok(!brief.includes('\nconcepts:\n'), 'concepts block dropped');
-    assert.ok(!brief.includes('e.g. '), 'examples dropped');
+    // Frame kept: daemon header, plugins, the ops list, and the load-bearing concepts block.
+    assert.match(terse, /^codemaster v/, 'daemon header kept');
+    assert.match(terse, /plugins: ts@.+ · scss@/, 'plugins line kept');
+    assert.match(terse, /find_unused_exports — TS exports with no importer/, 'name + summary kept');
+    assert.match(terse, /\nconcepts:\n/, 'concepts block kept (load-bearing for honesty markers)');
 
-    // Brief is materially smaller than full (the whole point — a token tax cut).
-    assert.ok(brief.length < full.length / 2, 'brief is well under half of full');
+    // Dropped: arg schemas (the `{ … }` argsHint), per-op notes (`· `), columns, examples —
+    // the bulk that makes the full catalogue heavy (and redundant with the tool-list schemas).
+    assert.ok(!/find_unused_exports \{ pathInclude/.test(terse), 'arg schema dropped');
+    assert.ok(!terse.includes('\n    · '), 'per-op notes dropped');
+    // Per-op example lines dropped — assert a concrete per-op example is absent (the concepts
+    // block carries its own kept sql `e.g.`, so a bare `e.g.`/indentation match won't discriminate).
+    assert.ok(!terse.includes('e.g. find_unused_exports'), 'per-op examples dropped');
+    assert.match(full, /e.g. find_unused_exports/, 'full DOES carry the per-op example');
+
+    // Terse is materially smaller than full (the whole point — a token tax cut under the ceiling).
+    assert.ok(terse.length < full.length / 2, 'terse is well under half of full');
     // §2: no GUIDANCE `>` tail in either render.
     assert.ok(!full.includes('\n> '), 'full has no guidance tail');
-    assert.ok(!brief.includes('\n> '), 'brief has no guidance tail');
+    assert.ok(!terse.includes('\n> '), 'terse has no guidance tail');
   } finally {
     await p.dispose();
   }

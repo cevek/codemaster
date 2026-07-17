@@ -263,18 +263,25 @@ async function main(): Promise<number> {
       return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {
-      // `--root` is the only flag `status` accepts (extracted globally above). Anything else
-      // `--`-prefixed is unrecognized — reject, never drop (§3 silent-swallow).
+      // Render dials mirror the MCP `status` tool (spec-agent-surface-ergonomics, t-523883): the
+      // default is TERSE; `--full` dumps every op's schema+notes, `--op <name>` renders one op's
+      // detail, `--brief` is the back-compat alias of the default. Extract them BEFORE the stray
+      // check so they never read as unrecognized.
+      const full = hasFlag(args, '--full');
+      const brief = hasFlag(args, '--brief');
+      const op = flagValue(args, '--op');
+      // `--root` (extracted globally above) + the render dials are the only flags `status` accepts.
+      // Anything else `--`-prefixed is unrecognized — reject, never drop (§3 silent-swallow).
       const stray = unknownFlags(args);
       if (stray.length > 0) {
         process.stderr.write(
-          `unrecognized flag(s): ${stray.join(', ')}\nusage: codemaster status [--root <dir>]\n`,
+          `unrecognized flag(s): ${stray.join(', ')}\nusage: codemaster status [--root <dir>] [--full] [--brief] [--op <name>]\n`,
         );
         return 2;
       }
       const orchestrator = buildOrchestrator();
       const view = await orchestrator.status(process.cwd(), root);
-      out(renderStatus(view));
+      out(renderStatus(view, { full, brief, op }));
       await orchestrator.dispose();
       return 0;
     }

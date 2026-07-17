@@ -35,10 +35,12 @@ export const opToolSchema = opRequestSchema.extend({
 
 export const statusToolSchema = z.object({
   root: z.string().optional(),
-  /** Token-saver renders (spec-agent-surface-ergonomics §1). Default (both absent) is the
-   *  FULL manifest. `brief` drops arg schemas / per-op notes / concepts; `op` renders just
-   *  that one op's full detail (and takes precedence over `brief`). */
+  /** Render dials (spec-agent-surface-ergonomics §1, t-523883). The DEFAULT is TERSE — the per-repo
+   *  frame + one-line-per-op catalogue + concepts (the per-op arg schemas are already in the tool
+   *  list, §11). `full` dumps every op's schema+notes; `op` renders one op's detail (precedence over
+   *  `full`); `brief` is the back-compat alias of the terse default. */
   brief: z.boolean().optional(),
+  full: z.boolean().optional(),
   op: z.string().optional(),
 });
 
@@ -65,17 +67,22 @@ export const TOOL_DESCRIPTORS = [
     name: 'status',
     exampleCall: {},
     description:
-      'First contact: active plugins, per-repo op catalogue with arg schemas, freshness, debug topics. ' +
-      'Pass brief:true for names+summaries only, or op:"<name>" for one op\'s full schema.',
+      'First contact: active plugins, per-repo op catalogue (names+summaries) + concepts, freshness, debug topics. ' +
+      'Terse by default (per-op arg schemas are already in the tool list). Pass op:"<name>" for one op\'s full schema, or full:true for every op\'s schema+notes.',
     inputSchema: {
       type: 'object',
       properties: {
         root: { type: 'string' },
+        op: { type: 'string', description: "Render only this one op's full detail on demand" },
+        full: {
+          type: 'boolean',
+          description:
+            "Dump every op's full arg schema + notes + examples (the heavyweight catalogue)",
+        },
         brief: {
           type: 'boolean',
-          description: 'Names + summaries only (drops arg schemas, per-op notes, concepts)',
+          description: 'Back-compat alias of the terse default (names + summaries + concepts)',
         },
-        op: { type: 'string', description: "Render only this one op's full detail on demand" },
       },
     },
   },

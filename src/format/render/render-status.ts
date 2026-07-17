@@ -68,24 +68,31 @@ export interface StatusView {
   sourceStale: boolean;
 }
 
-/** Render dials for `status` (spec-agent-surface-ergonomics §1). The FULL render is the
- *  default + the golden; `brief`/`op` are opt-in token-savers an agent reaches for once it
- *  knows the catalogue:
- *  - `brief` — header + warm roots + plugins + per-op NAME+summary + freshness only; no arg
- *    schemas, no per-op notes, no concepts dump (the heavy two-thirds of the full render).
- *  - `op` — one op's full block (schema + notes + columns + example) on demand. Beats
- *    re-emitting the whole catalogue to re-read a single op. */
+/** Render dials for `status` (spec-agent-surface-ergonomics §1, task t-523883). The DEFAULT is
+ *  TERSE — the per-repo frame + a one-line-per-op catalogue + the shared `concepts` block — because
+ *  the MCP tool-list ALREADY carries each op's typed inputSchema + description every session (§11),
+ *  so a default that re-dumps all N arg schemas + multi-paragraph notes is largely redundant (and on
+ *  a 36-op repo overruns the harness output ceiling — t-523883). Opt-in dials:
+ *  - `full` — the whole catalogue: every op's arg schema + per-op notes + columns + example. The
+ *    old default; capped at the MCP seam so nothing is silently lost.
+ *  - `op` — one op's full block (schema + notes + columns + example) on demand. Beats re-emitting
+ *    the whole catalogue to re-read a single op.
+ *  - `brief` — back-compat alias of the terse default (accepted so an existing caller never breaks).
+ *  `op` takes precedence over `full`/`brief`. */
 export interface RenderStatusOptions {
   brief?: boolean | undefined;
-  /** Render only this op's full detail. Takes precedence over `brief`. */
+  /** Render the full per-op catalogue (arg schemas + notes + examples + concepts) — the opt-in
+   *  heavyweight dump the terse default replaces. */
+  full?: boolean | undefined;
+  /** Render only this op's full detail. Takes precedence over `full`/`brief`. */
   op?: string | undefined;
 }
 
 export function renderStatus(view: StatusView, options?: RenderStatusOptions): string {
   const header = renderHeader(view);
   if (options?.op !== undefined) return [...header, ...renderSingleOp(view, options.op)].join('\n');
-  if (options?.brief === true) return renderBrief(view, header).join('\n');
-  return renderFull(view, header).join('\n');
+  if (options?.full === true) return renderFull(view, header).join('\n');
+  return renderTerse(view, header).join('\n');
 }
 
 /** The daemon line (+ self-staleness banner + warm roots) — shared verbatim by every render
@@ -141,10 +148,13 @@ function renderFull(view: StatusView, header: string[]): string[] {
   return lines;
 }
 
-/** Brief render (§1): the daemon/workspace/plugins frame + a one-line-per-op catalogue
- *  (name + summary), dropping arg schemas, per-op notes, columns, examples and the concepts
- *  dump. The agent learns WHICH ops exist; `status {op:"<name>"}` fetches one's full detail. */
-function renderBrief(view: StatusView, header: string[]): string[] {
+/** Terse render (the DEFAULT, task t-523883): the daemon/workspace/plugins frame + a one-line-per-op
+ *  catalogue (name + summary) + the shared `concepts` block, dropping the per-op arg schemas, notes,
+ *  columns and examples (redundant with the tool-list's inputSchemas, §11). The agent learns WHICH
+ *  ops exist and how to read the honesty markers; `status {op:"<name>"}` (or `full:true`) fetches
+ *  per-op detail. The `concepts` block stays — it is load-bearing for interpreting truncation /
+ *  confidence / FAIL markers, and is small. */
+function renderTerse(view: StatusView, header: string[]): string[] {
   const lines = [...header, ...renderWorkspaceLines(view)];
   const ws = view.workspace;
   if (ws !== undefined) {
@@ -153,11 +163,13 @@ function renderBrief(view: StatusView, header: string[]): string[] {
       lines.push('ops: none (no plugins active; op catalogue grows with each plugin)');
     } else {
       lines.push(
-        `ops (${ws.ops.length}) — names+summaries; \`status {op:"<name>"}\` for full schema:`,
+        `ops (${ws.ops.length}) — names+summaries; \`status {op:"<name>"}\` for one op's full schema, \`status {full:true}\` for all:`,
       );
       for (const op of ws.ops) {
         lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} — ${op.summary}`);
       }
+      lines.push('concepts:');
+      for (const concept of CONCEPTS_LINES) lines.push(`  ${concept}`);
     }
   }
   return lines;

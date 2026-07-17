@@ -7,6 +7,7 @@ import type { Result, FreshnessNote, Truncation, Verbosity } from '../../core/re
 import type { HandleRebind } from '../../core/ids.ts';
 import type { JsonValue } from '../../core/json.ts';
 import { stripShapeTags } from '../../common/shape-tag/tag.ts';
+import { cutAtByteBoundary } from '../../common/truncate/cap-response.ts';
 import { renderDense } from './render-dense.ts';
 import { condenseSpans } from './condense.ts';
 import { isSqlTableData, renderSqlTable } from './render-table.ts';
@@ -17,6 +18,16 @@ import { isSourceData, renderSource, type SourceEntry, type SourceSpan } from '.
  *  explicit marker telling how much was cut and how to narrow. Never a silent cut, and
  *  never a 95KB "answer". */
 const RENDER_CHAR_CAP = 20_000;
+
+/** Companion BYTE cap on one rendered result (§12 / t-287999). RENDER_CHAR_CAP alone does not bound
+ *  the SERIALIZED size the harness measures — a 20K-char body of multi-byte runes is ~60KB, which
+ *  the MCP-seam total cap would then blind-chop, dropping the honesty `tail` (§3.5 silent-stale).
+ *  So the byte budget is enforced HERE, where the head/bulk/tail segments are still separate and the
+ *  honesty tail is reserved by construction. It sits ABOVE what 20K ASCII chars produce (20KB) so a
+ *  normal ASCII response is byte-identical (goldens hold, no-op) and only a multi-byte-heavy body is
+ *  additionally trimmed; and it leaves headroom under MCP_RESPONSE_MAX_BYTES so a single-op TEXT
+ *  response never reaches the seam (which would not preserve the tail). */
+const RENDER_BYTE_CAP = 50_000;
 
 /** Default verbosity is TERSE: list-shaped answers come back as `file:line:col` lines;
  *  verbatim proof text is opt-in via verbosity=full (re-fetch one symbol when needed). */
@@ -94,28 +105,39 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
   return assembleEnvelope(head, bulk, tail, debug);
 }
 
-/** Join the four segments under the char cap. When everything fits, the output is
- *  byte-identical to the flat `head ∪ bulk ∪ tail ∪ debug` join (no reorder — goldens hold).
- *  Over the cap, only `bulk` is trimmed: `head` (verdict) and `tail` (honesty channels) are
- *  reserved against the budget so they survive by construction, and `debug` (a dev trace, not
- *  an honesty channel) is dropped. */
+/** Join the four segments under BOTH the char cap and the byte cap. When everything fits, the output
+ *  is byte-identical to the flat `head ∪ bulk ∪ tail ∪ debug` join (no reorder — goldens hold).
+ *  Over either cap, only `bulk` is trimmed: `head` (verdict) and `tail` (honesty channels) are
+ *  reserved against BOTH budgets so they survive by construction, and `debug` (a dev trace, not an
+ *  honesty channel) is dropped. Enforcing the byte cap here (not at the flat MCP seam) is what keeps
+ *  the honesty tail from being blind-chopped on a multi-byte-heavy body (§12 / t-287999). */
 function assembleEnvelope(head: string[], bulk: string[], tail: string[], debug: string[]): string {
   const full = [...head, ...bulk, ...tail, ...debug].join('\n');
-  if (full.length <= RENDER_CHAR_CAP) return full;
+  if (full.length <= RENDER_CHAR_CAP && Buffer.byteLength(full, 'utf8') <= RENDER_BYTE_CAP) {
+    return full;
+  }
 
   const headText = head.join('\n');
   const bulkText = bulk.join('\n');
   const tailText = tail.join('\n');
   const dataLen = bulkText.length;
 
-  // Reserve head + tail (always preserved) + the marker. The marker length varies only by two
-  // small integers, so an upper bound keeps the final string ≤ cap without a circular dependency.
+  // Reserve head + tail (always preserved) + the marker against BOTH budgets (the marker length
+  // varies only by two small integers, so an upper bound avoids a circular dependency).
   const fixed = [headText, tailText].filter((s) => s.length > 0);
-  const reserved = fixed.reduce((n, s) => n + s.length + 1, 0) + MARKER_RESERVE;
-  const budget = Math.max(RENDER_CHAR_CAP - reserved, 0);
+  const charReserved = fixed.reduce((n, s) => n + s.length + 1, 0) + MARKER_RESERVE;
+  const byteReserved =
+    fixed.reduce((n, s) => n + Buffer.byteLength(s, 'utf8') + 1, 0) + MARKER_RESERVE;
+  const charBudget = Math.max(RENDER_CHAR_CAP - charReserved, 0);
+  const byteBudget = Math.max(RENDER_BYTE_CAP - byteReserved, 0);
 
-  const cut = bulkText.lastIndexOf('\n', budget);
-  const cappedBulk = bulkText.slice(0, cut > 0 ? cut : budget);
+  // Cut to the CHAR budget at a line boundary, then to the BYTE budget (also line/rune-safe) — the
+  // more restrictive wins, and both boundaries are UTF-8-safe so a rune is never split.
+  const charCut = bulkText.lastIndexOf('\n', charBudget);
+  let cappedBulk = bulkText.slice(0, charCut > 0 ? charCut : charBudget);
+  if (Buffer.byteLength(cappedBulk, 'utf8') > byteBudget) {
+    cappedBulk = cutAtByteBoundary(cappedBulk, byteBudget);
+  }
   const marker = capMarker(dataLen, cappedBulk.length);
 
   // Order in the capped path: head, trimmed bulk, the marker (explaining the bulk cut), then the

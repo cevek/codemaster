@@ -1,7 +1,7 @@
 ---
 id: t-287999
 title: Hard-cap EVERY MCP tool response below the harness output ceiling (~64KB) at the MCP seam + a per-op × per-output-mode size test matrix
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
