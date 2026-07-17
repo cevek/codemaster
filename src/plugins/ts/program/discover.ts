@@ -18,6 +18,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import ts from 'typescript';
+import type { RepoRelPath } from '../../../core/brands.ts';
 import { matchesAnyGlob } from '../../../common/glob/match.ts';
 import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { walkFiles } from '../../../support/fs/walk.ts';
@@ -181,6 +182,29 @@ export function isTsconfigBasename(base: string): boolean {
 export function relLabel(root: string, abs: string): string {
   const rel = path.relative(root, abs);
   return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
+}
+
+/** The primary program's provenance label — `relLabel` plus the no-tsconfig fallback. */
+export function primaryLabel(root: string, configPath: string | undefined): string {
+  return configPath === undefined ? '(no tsconfig)' : relLabel(root, configPath);
+}
+
+/** Resolve the tsconfig that drives the primary program: an explicit override (repo-relative), else
+ *  the nearest `tsconfig.json` up from the root (`undefined` for a non-TS folder). */
+export function resolveConfigPath(root: string, override?: string): string | undefined {
+  if (override !== undefined) return path.join(root, override);
+  return ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json');
+}
+
+/** Does a reindex changed path alter the discovered/undiscovered PROGRAM set (not just a file's
+ *  content)? A `tsconfig*.json` add/remove/edit, OR a `pnpm-workspace.yaml` edit (re-globbing
+ *  existing member configs). `package.json` is deliberately NOT here (it churns on every install);
+ *  the consequence is a bounded, CONSERVATIVE staleness (a larger undiscovered set → more floored,
+ *  never a false `certain`-dead) until the next tsconfig change / respawn. `RepoRelPath` is posix, so
+ *  a trailing-segment basename is all we need. */
+export function isStructuralConfigChange(rel: RepoRelPath): boolean {
+  const base = rel.slice(rel.lastIndexOf('/') + 1);
+  return isTsconfigBasename(base) || base === 'pnpm-workspace.yaml';
 }
 
 /** Every source-ish file in the repo (repo-relative posix) — the SINGLE §19-bounded walk shared by

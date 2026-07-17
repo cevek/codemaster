@@ -34,7 +34,11 @@ agent abandons the tool and falls back to its proven stack forever. So:
   the agent entirely (no result, no fallback, all work stops). Every operation completes or fails
   within a bounded time; on overrun it returns an honest `ToolFailure{tool:'timeout'}` ("couldn't
   in N s — fall back"), never spins. No unbounded loop, no per-call work that scales with repo
-  size. The latency budget above assumes _termination_ — see §19 for what is and isn't cancellable.
+  size. Every op carries a cooperative wall-clock `Deadline` (`OpContext.deadline`) enforced two
+  ways — a `HostCancellationToken` the LS polls inside `findReferences`/navto, and loop-boundary
+  checks in multi-call ops (`impact`, `find_unused_exports`) — degrading to `timeout` /
+  `partial` instead of spinning (§19). The latency budget above assumes _termination_ — see §19 for
+  what is and isn't cancellable.
 
 **Non-goals:** a human IDE, a linter, a language-agnostic universal index,
 runtime/execution analysis, AI inside the tool. Codemaster is deterministic
@@ -1577,16 +1581,32 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
 - **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
   evict with `SIGTERM` → drain → `SIGKILL` on timeout; hard-kill is the OOM emergency
   only. (§9)
-- **Cancellation is partial — and "never hang" (§1) is non-negotiable.** A deadline-based
-  `HostCancellationToken` (host `getCancellationToken`, `isCancellationRequested()` polled by TS)
-  DOES cancel TS _checker/search_ ops — `find_usages`, navto, `getSemanticDiagnostics`, completions
-  poll it throughout; wire it so they are deadline-bounded → `ToolFailure{tool:'timeout', partial}`
-  on overrun. It does NOT cancel TS _program build_ (`getProgram` runs to completion, empirically)
-  nor codemaster's _own_ synchronous code (host callbacks, plugin loops); those must be bounded by
+- **Cancellation is partial — and "never hang" (§1) is non-negotiable.** Every op carries a
+  cooperative wall-clock `Deadline` (Clock-backed, `OpContext.deadline` — built per op by the engine
+  from `daemon.opDeadlineSeconds`, default 120 s: well above the legitimate 5–60 s ceiling so it
+  fires only on a runaway, never a slow-but-valid call). Two enforcement paths:
+  - **The LS via a `HostCancellationToken`** — the ts plugin's programs share ONE cancellation
+    predicate (`plugins/ts/cancellation.ts`), pointed at the active read's deadline by
+    `host.withDeadline(...)`; TS's `getCancellationToken().isCancellationRequested()` is polled
+    throughout `findReferences` / navto, so a large `find_usages` / `search_symbol` throws
+    `OperationCanceledException` on overrun. That is translated to a `DeadlineExceededError` (the op
+    → `ToolFailure{tool:'timeout'}`, NO data — a cancelled monolithic call produced nothing, and an
+    empty result dressed as `partial` reads as "0 usages", a §3.4 lie).
+  - **Loop-boundary polling** — a multi-call op checks `deadline.expired()` between iterations
+    (`impact`'s BFS before each `find_usages`; `find_unused_exports`' candidate loop before each
+    reference search) and returns `partial(accumulated, {tool:'timeout'})` — here the accumulated
+    dependents / examined exports ARE real data, so a partial is honest (distinct from `impact`'s
+    node/depth DESIGN caps, which stay `ok` + a `!!` note).
+
+  The deadline does NOT cancel TS _program build_ (`getProgram` runs to completion, empirically) nor
+  codemaster's _own_ synchronous code (host callbacks, plugin loops); those must be bounded by
   DESIGN — cache/scope inputs, never a per-call tree scan (the `ls-host` config-reparse hang) — and,
   for the hard guarantee on truly-uncancellable sync, by engine isolation + kill-on-deadline (the
-  orchestrator stays responsive in `process` mode and reaps an overrun child). An op never spins
-  unbounded; an abandoned query is otherwise dropped only _between_ serialized requests. (§1, §2, §8)
+  orchestrator stays responsive in `process` mode and reaps an overrun child). **Layering invariant:
+  the cooperative in-op deadline (120 s) is strictly SHORTER than the process-mode kill-on-deadline
+  backstop**, so the graceful timeout / partial always returns before any hard SIGKILL. An op never
+  spins unbounded; an abandoned query is otherwise dropped only _between_ serialized requests.
+  (§1, §2, §8, §9)
 - **In-process never-hang backstop — the worker-thread watchdog (`support/watchdog/`).** The
   `mcp --in-process` path (dev / dogfood, spec §5) has NO external killer, so a FUTURE unknown
   sync-wedge would spin forever exactly as the incident did (a busy event loop cannot service

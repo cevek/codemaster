@@ -39,3 +39,16 @@ export const NO_DEADLINE: Deadline = {
   expired: () => false,
   remainingMs: () => Infinity,
 };
+
+/** Thrown when a MONOLITHIC synchronous operation (a TS `findReferences`/navto) was cancelled by
+ *  the deadline mid-flight — the domain-neutral translation of TS's `OperationCanceledException`,
+ *  raised at the ts-plugin boundary so the op layer never imports `typescript` to recognize a
+ *  timeout. An op catches it and returns a `ToolFailure{tool:'timeout'}` — never a `partial`,
+ *  because a cancelled monolithic call produced NO data and an empty result dressed as partial
+ *  reads as "0 results" (§3.4 completeness lie). */
+export class DeadlineExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DeadlineExceededError';
+  }
+}

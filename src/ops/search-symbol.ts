@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
+import { DeadlineExceededError } from '../common/async/deadline.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
@@ -204,6 +205,7 @@ export const searchSymbolOp = defineOp({
         limit,
         filter,
         includeDecl,
+        ctx.deadline,
       );
       if (matches.length === 0) {
         // §3.4: a path filter that excluded every match is a self-defeating FILTER, not a symbol
@@ -233,6 +235,14 @@ export const searchSymbolOp = defineOp({
           : undefined,
       );
     } catch (thrown) {
+      // §1 never-hang: navto ran past the wall-clock budget. No usable matches were produced, so an
+      // honest `timeout` failure — never an empty match list dressed as a clean "no symbol" (§3.4).
+      if (thrown instanceof DeadlineExceededError) {
+        return fail({
+          tool: 'timeout',
+          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}; try search_symbol {syntactic:true} (no LS) or a longer query`,
+        });
+      }
       return failFromThrown('ts-ls', thrown);
     }
   },

@@ -23,8 +23,8 @@ import { membersNamedInFile } from './member-in-file.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
-import type { UnresolvedTarget } from './query-types.ts';
-import { searchSymbols } from './search.ts';
+import type { UnresolvedTarget, UsagesView } from './query-types.ts';
+import { searchSymbols, type SearchView } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
 import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
@@ -168,8 +168,10 @@ export function createTsPlugin(
       return labels.length > 1 ? `programs: ${labels.join(', ')}` : undefined;
     },
 
-    searchSymbol: (query, limit, filter, includeDecl) =>
-      searchSymbols(warm(), query, limit, root, filter, includeDecl),
+    searchSymbol: (query, limit, filter, includeDecl, deadline) => {
+      const run = (): SearchView => searchSymbols(warm(), query, limit, root, filter, includeDecl);
+      return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
+    },
 
     // Pre-warm size guard (t-333163): the resolved threshold + the cheap no-warm estimate. Both take
     // `root`/`syntacticCache` directly and NEVER call warm() — the guard must not warm the very LS it
@@ -201,23 +203,29 @@ export function createTsPlugin(
       return { views, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
     },
 
-    findUsages(target, options) {
+    findUsages(target, options, deadline) {
       // mergeDeclarations: union usages across ALL same-named declarations (only meaningful for a
       // NAME target — a SymbolId/position already addresses one declaration). Per-site provenance is
       // preserved (`UsageView.decls`), so unrelated same-named symbols are never conflated (§3.3).
-      const byName = target.name !== undefined && target.symbolId === undefined;
-      if (options.mergeDeclarations === true && byName && target.name !== undefined) {
-        const decls = resolveAllByName(warm(), target.name, root);
-        if (typeof decls === 'string') return decls;
-        const view = findUsagesMerged(warm(), decls, options);
-        if (view === undefined) return 'no references for any declaration of this name';
-        return { view };
-      }
-      const resolved = resolve(target);
-      if (!resolved.ok) return missOf(resolved);
-      const view = findUsages(warm(), resolved.abs, resolved.offset, options);
-      if (view === undefined) return 'no symbol at the resolved position';
-      return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+      const run = (): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string => {
+        const byName = target.name !== undefined && target.symbolId === undefined;
+        if (options.mergeDeclarations === true && byName && target.name !== undefined) {
+          const decls = resolveAllByName(warm(), target.name, root);
+          if (typeof decls === 'string') return decls;
+          const merged = findUsagesMerged(warm(), decls, options);
+          if (merged === undefined) return 'no references for any declaration of this name';
+          return { view: merged };
+        }
+        const resolved = resolve(target);
+        if (!resolved.ok) return missOf(resolved);
+        const view = findUsages(warm(), resolved.abs, resolved.offset, options);
+        if (view === undefined) return 'no symbol at the resolved position';
+        return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+      };
+      // Bound the LS fan-out by the op's budget (§1). On overrun `withDeadline` raises a
+      // `DeadlineExceededError` (the op → an honest `timeout` failure), never a spin. Omitted
+      // deadline runs unwrapped — byte-identical (impact's per-node calls take this path).
+      return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 
     sameNamedDeclarations(name) {

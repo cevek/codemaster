@@ -21,7 +21,9 @@ import type { TsProgram } from './program/queryable-program.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
   discoverSiblingConfigs,
-  isTsconfigBasename,
+  primaryLabel,
+  resolveConfigPath,
+  isStructuralConfigChange,
   relLabel,
   repoTsconfigsFrom,
   walkRepoFiles,
@@ -37,6 +39,8 @@ import {
 } from './program/explicit-load.ts';
 import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
 import type { TsDiagnostic } from './diagnostics.ts';
+import type { Deadline } from '../../common/async/deadline.ts';
+import { createCancellation } from './cancellation.ts';
 
 export interface TsProjectHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
@@ -75,6 +79,13 @@ export interface TsProjectHost {
     removed: readonly RepoRelPath[],
     fn: () => T,
   ): T;
+  /** Run `fn` (a synchronous LS read — findReferences / navto) under `deadline` (§1 never-hang):
+   *  every program's LS polls the deadline via its cancellation token and throws
+   *  `OperationCanceledException` on overrun, which this translates to a `DeadlineExceededError` the
+   *  op turns into a `ToolFailure{tool:'timeout'}`. Not re-entrant (the engine serializes requests,
+   *  §8); resets the shared predicate in a `finally` so a bounded read never leaks its budget into
+   *  the next. `NO_DEADLINE` → the predicate never trips (byte-identical to no wrap). */
+  withDeadline<T>(deadline: Deadline, fn: () => T): T;
   /** ALL loaded programs (primary first); siblings are discovered + built lazily on first call —
    *  this is the cross-program warm point (§9 lazy). Includes any file-driven nested-config
    *  programs already loaded by `ensureProgramFor` (read path). */
@@ -171,12 +182,21 @@ export function createTsProjectHost(
   const ignoredSet = createIgnoredSet(root, deps?.computeIgnored);
   const ignored = ignoredSet.get;
 
+  // The ONE deadline-driven cancellation shared by every program's LS (§1 never-hang): a bounded
+  // find_usages/navto runs under `cancellation.withDeadline`, and every program's
+  // `getCancellationToken` reads `cancellation.cancel`, so a single big LS search throws on overrun
+  // instead of spinning. Engine in ./cancellation (keeps ts's OperationCanceledException there).
+  const cancellation = createCancellation();
+  const cancel = cancellation.cancel;
+
   const primary = createSingleProgram(
     root,
     configPath,
     primaryLabel(root, configPath),
     registry,
     ignored,
+    [],
+    cancel,
   );
 
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
@@ -290,7 +310,7 @@ export function createTsProjectHost(
     if (explicit.configs().has(config)) return; // already loaded as a `programs:` explicit program
     fileDriven.set(
       config,
-      createSingleProgram(root, config, relLabel(root, config), registry, ignored),
+      createSingleProgram(root, config, relLabel(root, config), registry, ignored, [], cancel),
     );
     undiscoveredMemo = undefined; // the loaded config drops out of the undiscovered set
   };
@@ -314,7 +334,7 @@ export function createTsProjectHost(
       undiscoveredMemo = undefined;
     },
     buildProgram: (config, strays) =>
-      createSingleProgram(root, config, relLabel(root, config), registry, ignored, strays),
+      createSingleProgram(root, config, relLabel(root, config), registry, ignored, strays, cancel),
   });
   const explicitPrograms = (): readonly SingleProgram[] => explicit.programs();
 
@@ -332,6 +352,7 @@ export function createTsProjectHost(
           registry,
           ignored,
           strays.get(toPosix(c.path)) ?? [],
+          cancel,
         ),
       );
     }
@@ -475,6 +496,7 @@ export function createTsProjectHost(
         }
       });
     },
+    withDeadline: cancellation.withDeadline,
     programs: () => [...built(), ...fileDriven.values(), ...explicitPrograms()],
     ensureProgramFor,
     loadPrograms: (paths) => explicit.load(paths),
@@ -510,31 +532,4 @@ export function createTsProjectHost(
       explicit.clear();
     },
   };
-}
-
-/** Does a reindex changed path point at a tsconfig (add/remove/edit)? `RepoRelPath` is posix, so a
- *  trailing-segment basename is all we need — the shared predicate keeps this in lockstep with
- *  sibling discovery and the undiscovered scan. */
-/** A change that may alter the discovered/undiscovered PROGRAM set (not just a file's content): a
- *  `tsconfig*.json` add/remove/edit, OR a `pnpm-workspace.yaml` edit (re-globbing existing member
- *  configs — an add-a-package normally also adds its `tsconfig.json`, which the tsconfig arm already
- *  catches). `package.json` is deliberately NOT here: it churns on every install. The consequence:
- *  editing a `package.json` `workspaces` glob while the member's `tsconfig.json` ALREADY exists on
- *  disk (no tsconfig add to trip the tsconfig arm) is not re-discovered until the next tsconfig
- *  change / respawn — a bounded, provably CONSERVATIVE staleness (the stale set is the old, SMALLER
- *  discovered set → a LARGER undiscovered set → more floored, never a false `certain`-dead). */
-function isStructuralConfigChange(rel: RepoRelPath): boolean {
-  const base = rel.slice(rel.lastIndexOf('/') + 1);
-  return isTsconfigBasename(base) || base === 'pnpm-workspace.yaml';
-}
-
-function resolveConfigPath(root: string, override?: string): string | undefined {
-  if (override !== undefined) return path.join(root, override);
-  return ts.findConfigFile(root, ts.sys.fileExists, 'tsconfig.json');
-}
-
-function primaryLabel(root: string, configPath: string | undefined): string {
-  if (configPath === undefined) return '(no tsconfig)';
-  const rel = path.relative(root, configPath);
-  return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(configPath) : toPosix(rel);
 }

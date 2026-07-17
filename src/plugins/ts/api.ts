@@ -67,6 +67,10 @@ export interface TsPluginApi extends Plugin {
     limit: number,
     filter?: SearchFilter,
     includeDecl?: boolean,
+    /** `deadline` (§1 never-hang): bounds the navto fan-out (`getNavigateToItems`, which polls the
+     *  cancellation token). On overrun → `DeadlineExceededError` (the op → a `timeout` failure). The
+     *  pre-warm size guard already refuses the huge-repo warm; this bounds a slow navto under it. */
+    deadline?: Deadline,
   ): SearchView;
   /** `search_symbol { syntactic: true }` — a raw AST scan (no program build; NEVER warms the LS, so
    *  it survives / avoids the multi-program navto OOM on huge monorepos). COMPLETE for declarations
@@ -105,9 +109,14 @@ export interface TsPluginApi extends Plugin {
   findDefinition(
     target: TsTargetInput,
   ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;
+  /** `deadline` (§1 never-hang), when set, bounds the underlying `findReferences` fan-out: on
+   *  overrun the LS throws and this raises a `DeadlineExceededError` (the op → `timeout` failure)
+   *  rather than spinning on a 10k-importer symbol. Omitted → unbounded (impact's own per-node
+   *  calls pass none; it is bounded by its BFS budget instead). */
   findUsages(
     target: TsTargetInput,
     options: UsageOptions,
+    deadline?: Deadline,
   ): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** The distinct same-named declarations a bare `name` resolves to — the merge candidates
    *  `mergeDeclarations` would union. `find_usages` reads the count to append the merge hint to the

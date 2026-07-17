@@ -85,6 +85,13 @@ export function createSingleProgram(
    *  does (the honest un-owned-source fix, t-232769). Host-computed once per structural reindex and
    *  captured here; a member rebuilds with a fresh set when the coverage memo invalidates. */
   injectedFiles: readonly string[] = [],
+  /** Cancellation predicate the LS polls throughout a long checker/search op (§1 never-hang):
+   *  `findReferences` / navto call `getCancellationToken().isCancellationRequested()` hundreds of
+   *  times and throw `OperationCanceledException` when it returns true. The host shares ONE mutable
+   *  predicate across all its programs (set for the duration of a deadline-bounded read, `() =>
+   *  false` otherwise), so a single big find_usages degrades to an honest timeout instead of
+   *  spinning. Default `() => false` — an unbounded program never cancels. */
+  cancel: () => boolean = () => false,
 ): SingleProgram {
   let files = new Map<string, { version: number }>(); // abs posix → version
   let version = 1;
@@ -151,6 +158,9 @@ export function createSingleProgram(
       }
     },
     getCurrentDirectory: () => root,
+    // Deadline-driven cancellation (§1): TS polls this throughout findReferences/navto and throws
+    // OperationCanceledException when the shared predicate says the budget is spent.
+    getCancellationToken: () => ({ isCancellationRequested: () => cancel() }),
     getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path
     getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
     fileExists: (fileName) => {

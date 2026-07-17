@@ -180,3 +180,65 @@ test('find_unused_exports: an exhausted budget returns a timeout partial, not a 
     await p.dispose();
   }
 });
+
+// ── Phase B: the monolithic LS calls (find_usages / search_symbol) via the cancellation token ──
+
+const FU_FIXTURE = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/def.ts': 'export const widget = 1;\n',
+  'src/a.ts': "import { widget } from './def';\nexport const a = widget + 1;\n",
+  'src/b.ts': "import { widget } from './def';\nexport const b = widget + 2;\n",
+};
+
+test('find_usages: generous budget answers `ok` with the real reference set', async () => {
+  const p = await project(FU_FIXTURE);
+  try {
+    const r = await p.op('find_usages', { name: 'widget' });
+    assert.ok('result' in r && r.result.ok, 'ok on a normal call');
+    const data = r.result.data as { total: number };
+    assert.ok(data.total >= 2, 'the widget references are found');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_usages: an exhausted budget returns a TIMEOUT FAILURE, never an empty (0-usages) result', async () => {
+  // The LS polls the cancellation token throughout findReferences; a 0 budget is already expired,
+  // so the first poll cancels → OperationCanceledException → the op's timeout failure. Crucially
+  // NOT a `partial` over an empty set — an empty findReferences dressed as data reads as "0 usages",
+  // the exact completeness lie (§3.4). A monolithic call has no accumulated data to keep.
+  const p = await project(FU_FIXTURE, { opDeadlineMs: 0 });
+  try {
+    const r = await p.op('find_usages', { name: 'widget' });
+    assert.ok('result' in r, 'a result envelope, not a dispatch error');
+    const res = r.result;
+    assert.equal(res.ok, false, 'a failure envelope');
+    assert.ok(!res.ok && res.failure.tool === 'timeout', 'tool=timeout');
+    assert.ok(!res.ok && res.failure.partial !== true, 'NOT partial — no false empty-usages data');
+    assert.ok(!res.ok && res.data === undefined, 'no data (empty ≠ 0 usages)');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('search_symbol: generous budget finds the symbol; exhausted budget is a timeout failure', async () => {
+  const ok = await project(FU_FIXTURE);
+  try {
+    const r = await ok.op('search_symbol', { query: 'widget' });
+    assert.ok('result' in r && r.result.ok, 'ok on a normal navto');
+    const data = r.result.data as { matches: unknown[] };
+    assert.ok(data.matches.length >= 1, 'widget is found');
+  } finally {
+    await ok.dispose();
+  }
+  const timed = await project(FU_FIXTURE, { opDeadlineMs: 0 });
+  try {
+    const r = await timed.op('search_symbol', { query: 'widget' });
+    assert.ok('result' in r, 'a result envelope');
+    const res = r.result;
+    assert.equal(res.ok, false, 'a failure envelope — never an empty match list dressed as clean');
+    assert.ok(!res.ok && res.failure.tool === 'timeout', 'tool=timeout');
+  } finally {
+    await timed.dispose();
+  }
+});

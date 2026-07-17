@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
+import { DeadlineExceededError } from '../common/async/deadline.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { UsageOptions } from '../plugins/ts/query-types.ts';
@@ -171,7 +172,7 @@ export const findUsagesOp = defineOp({
           // not only a bare name — so a held handle in the array chains exactly like a single target.
           const element = targetOfElement(sym);
           const fallbackName = element.name;
-          const outcome = ts.findUsages(element, options);
+          const outcome = ts.findUsages(element, options, ctx.deadline);
           if (typeof outcome === 'string') {
             const reason = withUndiscoveredHint(outcome, undiscovered);
             unresolved.push(tag('unresolved-name', { name: sym, reason }));
@@ -257,7 +258,7 @@ export const findUsagesOp = defineOp({
         return ok(data, truncated);
       }
 
-      let outcome = ts.findUsages(args, options);
+      let outcome = ts.findUsages(args, options, ctx.deadline);
       // Member / re-export fallback (t-755152): a bare `name`+`file` that resolves NO top-level
       // declaration is not a dead-end — the name may be a class/type MEMBER or a re-exported binding
       // IN that file. On a unique match, re-issue by position and disclose the resolution (leads the
@@ -368,6 +369,16 @@ export const findUsagesOp = defineOp({
       }
       return ok(data, extras);
     } catch (thrown) {
+      // §1 never-hang: the LS fan-out ran past the wall-clock budget. A cancelled monolithic
+      // findReferences produced NO usable data, so return an honest `timeout` failure — never a
+      // `partial` over an empty set, which would read as "0 usages" (§3.4). The agent narrows
+      // (pathInclude / a smaller symbols set) or falls back to its own tools.
+      if (thrown instanceof DeadlineExceededError) {
+        return fail({
+          tool: 'timeout',
+          message: `find_usages exceeded its wall-clock budget on a large reference set — ${thrown.message}; narrow with a path filter or fall back`,
+        });
+      }
       return failFromThrown('ts-ls', thrown);
     }
   },
