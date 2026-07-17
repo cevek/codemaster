@@ -74,12 +74,15 @@ if (mode === 'wedge') {
     process.stderr.write('engine-child harness: CODEMASTER_ENGINE_ROOT not set\n');
     process.exit(2);
   }
-  // Lazy — importing the plugin tree at top level would slow the OTHER (orphan-child) mode's
-  // watchdog install past its parent's 200ms exit, disabling its orphan poll (ppid already 1).
+  // Lazy — importing at top level would slow the OTHER (orphan-child) mode's watchdog install past
+  // its parent's 200ms exit, disabling its orphan poll (ppid already 1).
   const { z } = await import('zod');
   const { serveEngineChild } = await import('../../src/daemon/engine-child.ts');
-  const { builtinPlugins } = await import('../../src/daemon/builtin-plugins.ts');
   const { defineOp } = await import('../../src/ops/registry.ts');
+  // NO plugins: the engine wraps EVERY op in `beacon.measure` regardless of the plugin set, and the
+  // wedge op needs none (`requires: []`). Skipping the ts plugin's TS-program build keeps this real
+  // fork CHEAP — a heavy build would CPU-starve the neighbouring real-spawn e2e (orphan poll,
+  // daemon-cli) under node:test's parallel file execution and flake THEM, not us.
   const wedgeOp = defineOp({
     name: 'wedge',
     summary: 'test-only: sync-wedge the main loop (never resolves)',
@@ -97,7 +100,7 @@ if (mode === 'wedge') {
     root,
     version: 'test',
     stateDir: process.env['CODEMASTER_ENGINE_STATE_DIR'] ?? root,
-    pluginsFor: builtinPlugins,
+    pluginsFor: () => [],
     opsFor: () => [wedgeOp],
   });
 } else {
