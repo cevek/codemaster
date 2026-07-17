@@ -1,7 +1,7 @@
 ---
 id: t-063850
 title: '§9 daemon kill-on-deadline: orchestrator SIGKILLs a wedged engine child by PID (never-hang hard guarantee)'
-status: backlog
+status: in-progress
 priority: high
 parent: t-895142
 depends_on:

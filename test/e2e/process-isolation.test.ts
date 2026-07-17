@@ -205,6 +205,88 @@ test('crash + respawn: a SIGKILLed child fails honestly, then the next request r
   cleanup();
 });
 
+test('kill-on-deadline: a real busy child that overruns the deadline is SIGKILLed by the OS, settles honest timeout, then respawns (§9)', async () => {
+  const { root, stateDir, cleanup } = makeRepo();
+  const pids: number[] = [];
+  // The first host gets a deadline SMALLER than any possible IPC round-trip, so a genuinely-busy
+  // real child (cold LS warm — seconds of un-cancellable sync work) can NEVER reply in time and is
+  // reaped by the OS SIGKILL. The respawn gets a generous deadline so it can actually answer —
+  // proving the slot recovers. This DISCRIMINATES: without the deadline→kill, the first request
+  // would eventually return `ok` (the warm completes) and the child would stay ALIVE — both asserts
+  // below would fail.
+  let deadlineMs = 1;
+  const orch = new Orchestrator({
+    clock: systemClock,
+    debug: createDebugSystem(systemClock),
+    watcher: nullWatcher,
+    version: 'test',
+    stateDir,
+    pluginsFor: builtinPlugins,
+    opsFor: () => builtinOps(),
+    spawnProcessHost: ({ repoId, root: r, stateDir: sd, onExit }) =>
+      createProcessHost({
+        repoId,
+        clock: systemClock,
+        spawn: () => {
+          const h = forkEngineChild({
+            binPath: BIN,
+            root: r,
+            stateDir: sd,
+            version: 'test',
+            maxOldSpaceMB: 2048,
+            sockDir: undefined,
+          });
+          if (h.pid !== undefined) pids.push(h.pid);
+          return h;
+        },
+        startupDeadlineMs: GENEROUS_MS,
+        requestDeadlineMs: deadlineMs,
+        disposeDeadlineMs: 5_000,
+        onExit,
+      }),
+  });
+
+  // A cold SEMANTIC op keeps the real child busy in un-cancellable sync LS work while the 1ms
+  // deadline trips — the exact §9 "wedged sync loop can't self-cancel" shape.
+  const first = await orch.request(root, root, [
+    { name: 'find_usages', args: { name: 'thing' } as never },
+  ]);
+  const firstR = first.ok ? first.results[0] : undefined;
+  assert.ok(
+    firstR !== undefined &&
+      'result' in firstR &&
+      firstR.result.ok === false &&
+      firstR.result.failure.tool === 'timeout',
+    'the overrunning request settles as an honest timeout, never a hang or a guessed result',
+  );
+  assert.equal(pids.length, 1, 'one child was spawned');
+  const killed = pids[0];
+  assert.ok(killed !== undefined);
+
+  // Event-driven: the deadline SIGKILL really terminates the OS process, and markDead→onExit evicts
+  // the slot. (kill(pid,0) throws once the process is gone.)
+  assert.ok(
+    await waitUntil(() => !alive(killed) && orch.daemonInfo().engines === 0),
+    'the wedged child is really dead and its slot is evicted',
+  );
+
+  // Let the respawn actually answer, proving the slot recovers after a deadline-kill.
+  deadlineMs = GENEROUS_MS;
+  const second = await orch.request(root, root, [
+    { name: 'find_usages', args: { name: 'thing' } as never },
+  ]);
+  const secondR = second.ok ? second.results[0] : undefined;
+  assert.ok(
+    secondR !== undefined && 'result' in secondR && secondR.result.ok,
+    'the next request respawns a fresh engine and answers',
+  );
+  assert.equal(pids.length, 2, 'a FRESH child was spawned after the kill');
+  assert.notEqual(pids[0], pids[1], 'the respawn is a distinct process');
+
+  await orch.dispose();
+  cleanup();
+});
+
 test('anti-orphan: a SIGKILLed parent takes its engine child down (no squatting LS)', async () => {
   const { root, stateDir, cleanup } = makeRepo();
   // A minimal REAL parent: fork one engine child, print its pid once it is ready, then idle keeping
