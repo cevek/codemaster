@@ -28,6 +28,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { GroupRow } from '../plugins/ts/query-types.ts';
 import type { ImportersView } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 
 const DEFAULT_DEPTH = 25;
@@ -73,6 +74,8 @@ const argsSchema = z.strictObject({
   nodes: z.number().int().min(1).max(MAX_NODES).optional(),
   /** Override the test-file path globs (the stated heuristic). */
   testGlobs: z.array(z.string().min(1)).optional(),
+  /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+  force: z.boolean().optional(),
 });
 
 type AffectedArgs = z.infer<typeof argsSchema>;
@@ -213,6 +216,7 @@ export const affectedOp = defineOp({
   argsHint: `{ since?: string (ref; default = working tree vs HEAD), files?: string[], depth?: 1-${MAX_DEPTH} (default ${DEFAULT_DEPTH}), nodes?: 1-${MAX_NODES} (default ${DEFAULT_NODES}), testGlobs?: string[] }`,
   example: { args: { since: 'main' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its importer-graph fan-out builds every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'changed set: `files` (explicit) > `since` ref (two-dot ref→working-tree, incl. uncommitted+untracked) > default (working tree vs HEAD). Affected = test files among the transitive importers of changed files, ∪ changed files that are themselves tests.',
     'UNDER-report is fatal (a skipped test ships a bug): `complete:true` only when nothing blocked the trace — no node/depth cap, no fan-out truncation, no deleted/untraced/unqueryable changed file, no undiscovered nested-package tsconfig. Anything else → `complete:false` + a `!!` LOWER-BOUND note (run the full suite).',
     '`complete` = TRACE-completeness, NOT glob-completeness: it attests the STATIC import graph over the LOADED programs within testGlobs. A test outside testGlobs is excluded even at `complete:true`; an undiscovered nested-package config forces `complete:false` and is named.',
@@ -221,6 +225,12 @@ export const affectedOp = defineOp({
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303): the transitive importer BFS builds/warms every program and fans the
+    // import graph across them (the same fan `importers_of` guards) — on an oversized in-process repo
+    // that OOMs and kills the daemon (§1). Refuse with a process-mode redirect BEFORE any warm.
+    // `force` bypasses; process-mode + an estimate failure fall through (see the guard).
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     const root = ctx.daemon?.root;
     if (root === undefined) {
       return fail({

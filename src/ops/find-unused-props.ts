@@ -7,11 +7,13 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi, UnusedProp } from '../plugins/react/plugin.ts';
+import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 
 const findUnusedPropsTable: TableSpec<JsonValue> = {
   columns: [
@@ -51,11 +53,14 @@ export const findUnusedPropsOp = defineOp({
   argsSchema: z.strictObject({
     component: z.string(),
     file: z.string().optional(),
+    /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+    force: z.boolean().optional(),
   }),
-  argsHint: '{ component: string, file?: string }',
+  argsHint: '{ component: string, file?: string, force?: boolean }',
   example: { args: { component: 'Button' } },
   intake: { aliases: { name: 'component', symbol: 'component' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (reading passed props fans `<C/>` references across every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'declared props come from the checker on the component’s first parameter type — `extends`/intersection (`A & B`) props are FLATTENED in (the checker’s own merge), so an inherited base prop is counted, not missed.',
     'passed props are read semantically from each `<C .../>` site via findReferences — an aliased `import { C as D }` … `<D foo/>` is SEEN (grep would miss it), so a prop passed only through an alias is never falsely reported dead.',
     'HONESTY: a prop is reported `certain`-unused only when every reference is a cleanly-readable `<C/>` site. A `{...spread}`, a factory call (`React.createElement(C, props)`), or a value reference (`memo(C)`, `const D = C`) makes the passed set unreadable → EVERY candidate demotes to `partial` (could-not-prove-dead), with the reason in notes. Over-demotion is honest; a false `certain` is not.',
@@ -66,6 +71,13 @@ export const findUnusedPropsOp = defineOp({
   table: findUnusedPropsTable,
   async run(ctx, args) {
     const react = ctx.plugins.get<ReactPluginApi>('react');
+    // Pre-warm guard (t-411303): reading passed props fans `<C/>` references across every program
+    // (the react plugin rides find_usages) — on an oversized in-process repo that OOMs and kills the
+    // daemon (§1). Refuse with a process-mode redirect BEFORE any resolve/warm (the `ts` plugin is a
+    // dep of `react`, so its estimate seam is available). `force` bypasses.
+    const ts = ctx.plugins.get<TsPluginApi>('ts');
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       const result = react.unusedProps(args.component, args.file);
       if (!result.ok) {

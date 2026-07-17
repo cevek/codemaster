@@ -9,6 +9,7 @@ import { defineOp } from './registry.ts';
 import { withUndiscoveredHint, definitionFloor } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+import { isFanCapableTarget } from './guard/fan-capable.ts';
 
 // The shared ts-target schema PLUS `force` (t-679091): a bare-`name` find_definition resolves via
 // `resolveByName`→`searchSymbols`, which fans navto across every program (the OOM surface), so it is
@@ -42,9 +43,7 @@ export const findDefinitionOp = defineOp({
     // honestly to process-mode — §1: refuse > crash; consistent with the unconditional fanout ops).
     // A file+line+col / name+file / file+line target is single-program-exact (no `searchSymbols`)
     // and is NEVER guarded. `force` bypasses; process-mode + estimate-failure fall through.
-    const fanCapable =
-      args.symbolId !== undefined || (args.name !== undefined && args.file === undefined);
-    if (fanCapable) {
+    if (isFanCapableTarget(args)) {
       const refusal = semanticFanoutRefusal(ctx, ts, args.force);
       if (refusal !== undefined) return fail(refusal);
     }

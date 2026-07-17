@@ -14,6 +14,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { MemberUsagesView, MemberUsageSite } from '../plugins/ts/member-usages.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 
 const argsSchema = z
@@ -21,6 +22,8 @@ const argsSchema = z
     ...tsTargetShape,
     /** The member (property / method / field) name whose access sites to trace. */
     member: z.string().min(1),
+    /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+    force: z.boolean().optional(),
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
     /** Display cap on the emitted site list (dispositions/total still count every matched site). */
@@ -89,6 +92,7 @@ export const memberUsagesOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'Config', member: 'timeout' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm the type-checker (the member reference scan fans across every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'the member-scoped complement to find_usages: find_usages on a TYPE finds references to the type NAME, not accesses of a named member, and its role:read/write is SYNTACTIC (a member access is a `read`/`write` of the OBJECT, not resolved to the field). This op resolves the member through the live checker and finds its access sites.',
     'IDENTITY BY CONSTRUCTION (never name-match): the member is resolved via `getApparentType(T).getProperty(member)` (so an INHERITED / intersection member flattens in) and references run on THAT member symbol — a same-named `.member` on an UNRELATED type is never matched. No separate identity gate is needed; the symbol IS the gate.',
     "access forms traced (via the LS): property access `x.member`, destructuring `const {member}=x` (flagged `destructure`), string-literal element access `x['member']`, shorthand, and writes `x.member = …` (flagged `write`). All emitted sites are certain-identity.",
@@ -98,6 +102,12 @@ export const memberUsagesOp = defineOp({
   table: memberUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303): the member reference scan rides `findReferencesAcross`, fanning
+    // across every program — on an oversized in-process repo that OOMs and kills the daemon (§1).
+    // Refuse with a process-mode redirect BEFORE any resolve/warm. `force` bypasses; process-mode +
+    // an estimate failure fall through (see the guard).
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       const outcome = ts.memberUsages(args, args.member, {
         ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),

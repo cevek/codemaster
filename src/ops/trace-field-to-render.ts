@@ -12,13 +12,14 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { makeNode } from '../common/trace/hop.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { classifyTargetString, targetFields } from './intake/smart-string.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
 import type { TsPluginApi, TsTargetInput } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { traceHopTable } from './trace-hop-table.ts';
 import { buildFieldRenderTrace } from './trace-field-to-render-walk.ts';
 
@@ -27,7 +28,11 @@ import { buildFieldRenderTrace } from './trace-field-to-render-walk.ts';
 const FLOOR_NOTE =
   'renderedBy is a LOWER BOUND: destructured reads (`const {email}=u`) and dynamic reads (`u[k]`, spread `{...u}`) are not traced to a render — for destructure-forwarded renders use trace_prop_through_tree or address the local. Never a render claimed where the access is dynamic.';
 
-const argsSchema = z.strictObject({ field: z.string() });
+const argsSchema = z.strictObject({
+  field: z.string(),
+  /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+  force: z.boolean().optional(),
+});
 
 export const traceFieldToRenderOp = defineOp({
   name: 'trace_field_to_render',
@@ -35,9 +40,10 @@ export const traceFieldToRenderOp = defineOp({
   mutating: false,
   requires: ['react'],
   argsSchema,
-  argsHint: '{ field: string }',
+  argsHint: '{ field: string, force?: boolean }',
   example: { args: { field: 'src/types.ts:1:25' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the member reference scan fans across every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous; a name shared by several types is an honest miss → address by loc/SymbolId). 0 matches → found:0, never a faked trace.',
     'renderedBy counts the components that render the field in a HOST element (`<span>{u.email}</span>`). A read inside a VALUE element (`<Avatar email={u.email}/>`) is passed-to (partial) — the child decides the render, so it is NOT counted; follow it with trace_prop_through_tree.',
     'every hop carries per-hop confidence + provenance (rendered-in = type/LS member ref; passed-to/destructured = syntactic). A destructure binding, a host-attribute bind, or a wrapped/indirect component is flagged on its hop, never silently treated as a clean render.',
@@ -47,6 +53,11 @@ export const traceFieldToRenderOp = defineOp({
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     const react = ctx.plugins.get<ReactPluginApi>('react');
+    // Pre-warm guard (t-411303): `fieldRenderSites` rides `findReferencesAcross`, fanning member
+    // references across every program — on an oversized in-process repo that OOMs and kills the
+    // daemon (§1). Refuse with a process-mode redirect BEFORE any resolve/warm. `force` bypasses.
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       const target = targetFields(classifyTargetString(args.field)) as TsTargetInput;
 

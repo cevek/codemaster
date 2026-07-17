@@ -1,7 +1,7 @@
 ---
 id: t-411303
 title: Audit remaining LS fan-out ops (member_usages / affected / trace_*) for the semantic-fanout size guard
-status: backlog
+status: done
 priority: medium
 parent: t-031282
 tags:

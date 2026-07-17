@@ -40,6 +40,7 @@ import { applyEdits } from '../support/text-edits/apply.ts';
 import type { TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { UsageOptions } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 import { outcomeFromView } from './impact-expand.ts';
@@ -74,6 +75,8 @@ const argsSchema = z
     nodes: z.number().int().min(1).max(MAX_NODES).optional(),
     /** Counts + verdict only — omit the per-file broken/clean listing. */
     summary: z.boolean().optional(),
+    /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+    force: z.boolean().optional(),
   })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
@@ -177,6 +180,7 @@ export const impactTypeErrorOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'createEngine', edit: { remove: true } } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its closure×find_usages fan-out + cross-program typecheck would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'simulates the edit by overlaying it on the declaration span (NO write to disk), then runs the cross-program typecheck over the dependent files and reports the diagnostics the edit INTRODUCED (diffed against a pre-edit baseline, so pre-existing repo errors are never blamed on the edit).',
     "edit is applied VERBATIM: { replace } substitutes new declaration source, { remove } deletes the declaration. Express make-required / drop-param / retype by writing the new source — no mutation DSL (that's `change_signature`'s job).",
     'the dependent SET is the same bounded closure as `impact` (depth + node caps); a truncated closure means the typecheck scope is incomplete and is flagged `!!` — a dependent outside the scope, or in a program the gate could not check, is NEVER reported clean.',
@@ -185,6 +189,11 @@ export const impactTypeErrorOp = defineOp({
   ],
   async run(ctx, args: TypeErrorArgs): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303): the dependent closure fans find_usages across every program and the
+    // trial typecheck runs cross-program — on an oversized in-process repo that OOMs and kills the
+    // daemon (§1). Refuse with a process-mode redirect BEFORE any resolve/warm. `force` bypasses.
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     const maxDepth = args.depth ?? DEFAULT_DEPTH;
     const maxNodes = args.nodes ?? DEFAULT_NODES;
     try {

@@ -12,12 +12,14 @@
 // `truncated`).
 
 import { z } from 'zod';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { requireTarget, targetOf, tsTargetIntake, tsTargetShape } from './ts-target.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+import { isFanCapableTarget } from './guard/fan-capable.ts';
 import { traceHopTable } from './trace-hop-table.ts';
 import { walkPropTrace } from './trace-prop-through-tree-walk.ts';
 
@@ -32,12 +34,16 @@ export const tracePropThroughTreeOp = defineOp({
       ...tsTargetShape,
       prop: z.string().min(1),
       depth: z.number().int().positive().max(50).optional(),
+      /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+      force: z.boolean().optional(),
     })
     .refine(requireTarget.predicate, { message: requireTarget.message }),
-  argsHint: '{ name|symbolId|file+line (the component), prop: string, depth?: number }',
+  argsHint:
+    '{ name|symbolId|file+line (the component), prop: string, depth?: number, force?: boolean }',
   intake: tsTargetIntake,
   example: { args: { name: 'App', prop: 'userId' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), redirecting to `daemon.isolation:'process'` (or `force:true`). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.",
     'addresses the component that RECEIVES the prop (by name / SymbolId / file+line, like every symbol-addressed op); prop is the prop name as that component receives it. A target that is not a component (a hook / other) → found:0 + an honest note, never a faked trace.',
     'every hop is SYNTACTIC and flagged: an as-is `name={prop}` forward is `partial` (a same-named local could shadow — not type-resolved); a RENAME, a `{...spread}` (child prop name unknown), and a DERIVED expression (`{prop.x}`/`{f(prop)}`) are each `dynamic` with the reason in `note`. dynamicHops counts them.',
     'reaches counts the distinct downstream COMPONENT nodes the prop flows into; a `<host/>` element (a DOM tag) or a non-component tag is a flow SINK leaf (the prop is rendered there), never recursed.',
@@ -49,6 +55,15 @@ export const tracePropThroughTreeOp = defineOp({
   async run(ctx, args) {
     const react = ctx.plugins.get<ReactPluginApi>('react');
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303), only for FAN-CAPABLE addressing: a bare-`name` / `symbolId` target
+    // resolves via `classify`→`findDefinition`→`searchSymbols` (the all-program navto fan) — on an
+    // oversized in-process repo that OOMs and kills the daemon (§1). The down-tree walk itself is
+    // body-local (jsxChildSites) + per-child findDefinition, so it does not fan; a file+line[:col] /
+    // name+file target is single-program-exact and is NEVER guarded. `force` bypasses.
+    if (isFanCapableTarget(args)) {
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      if (refusal !== undefined) return fail(refusal);
+    }
     try {
       const root = react.classify(targetOf(args));
       if (typeof root === 'string') {

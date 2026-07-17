@@ -11,12 +11,13 @@
 // counts the subscriber hosts/consumers, NEVER the mount locations (stated in the notes below).
 
 import { z } from 'zod';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
 import type { ReactQueryPluginApi } from '../plugins/react-query/plugin.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { traceHopTable } from './trace-hop-table.ts';
 import { walkInvalidationTrace } from './trace-invalidation-walk.ts';
 
@@ -26,10 +27,15 @@ export const traceInvalidationOp = defineOp({
     'Trace a mutation → invalidated queryKeys → affected useQuery → host components → their mount sites',
   mutating: false,
   requires: ['react-query', 'react'],
-  argsSchema: z.strictObject({ mutation: z.string() }),
-  argsHint: '{ mutation: string }',
+  argsSchema: z.strictObject({
+    mutation: z.string(),
+    /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+    force: z.boolean().optional(),
+  }),
+  argsHint: '{ mutation: string, force?: boolean }',
   example: { args: { mutation: 'useCreateTodo' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its walk fans find_usages / JSX references across every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'mutation is resolved by its ENCLOSING declaration name (the hook holding useMutation), or a callId/SymbolId — like invalidations_for, which this builds on. 0 matches → found:0, never a faked empty trace.',
     'reRenderComponents counts the SUBSCRIBER hosts (the component holding useQuery, or the component consuming the custom hook that holds it) — NOT the mount sites. A `<Host/>` mount is the PARENT placement; the parent does not re-render from the invalidation, so a mounted-at hop is a LOCATION leaf, never counted.',
     'every hop carries per-hop confidence + provenance: invalidates/affects = heuristic:react-query, used-by = type (LS references), mounted-at = syntactic (JSX scan). A broad invalidateQueries(), a dynamic key segment, an opaque mount ref (alias/factory/spread), or a hook-chain past the depth cap is FLAGGED on its hop (note + non-certain confidence), never silently bridged or dropped.',
@@ -40,6 +46,11 @@ export const traceInvalidationOp = defineOp({
     const rq = ctx.plugins.get<ReactQueryPluginApi>('react-query');
     const react = ctx.plugins.get<ReactPluginApi>('react');
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303): the trace walk fans find_usages / JSX references across every
+    // program — on an oversized in-process repo that OOMs and kills the daemon (§1). Refuse with a
+    // process-mode redirect BEFORE any resolve/warm. `force` bypasses (see the guard).
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       const view = rq.invalidationsFor(args.mutation);
       const notes: string[] = [];

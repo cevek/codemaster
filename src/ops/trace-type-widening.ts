@@ -21,11 +21,17 @@ import {
 } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+import { isFanCapableTarget } from './guard/fan-capable.ts';
 import { traceHopTable } from './trace-hop-table.ts';
 import { walkTypeWidening } from './trace-type-widening-walk.ts';
 
 const argsSchema = z
-  .strictObject({ ...tsTargetShape })
+  .strictObject({
+    ...tsTargetShape,
+    /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
+    force: z.boolean().optional(),
+  })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
 export const traceTypeWideningOp = defineOp({
@@ -39,6 +45,7 @@ export const traceTypeWideningOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'color', file: 'src/paint.ts' } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), redirecting to `daemon.isolation:'process'` (or `force:true`). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.",
     'target is the VALUE whose precision you follow (a variable / parameter — by name, file:line:col, or SymbolId). The source type is read at its OWN declaration, so a literal arg is not mis-read as the already-widened parameter type (the contextual-typing trap).',
     'one hop per forward flow-step (var-init / arg→param / return / reassignment). A WIDENED hop notes the kind (literal-widening / union-widened / to-any / to-unknown / narrowing-lost); a preserved hop is shown too so the whole path is visible. `widenings` counts the lost-precision hops.',
     'arg→param crosses INTO the callee (continues from the parameter); return / reassignment are leaves. An any/unknown/untyped boundary is flagged dynamic and STOPPED — precision is erased there, never bridged (§3.3).',
@@ -48,6 +55,15 @@ export const traceTypeWideningOp = defineOp({
   table: traceHopTable,
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // Pre-warm guard (t-411303), only for FAN-CAPABLE addressing: a bare-`name` / `symbolId` target
+    // resolves via `searchSymbols` (the all-program navto fan) — on an oversized in-process repo that
+    // OOMs and kills the daemon (§1). The forward walk is single-program (the value's own-config
+    // program), so a file+line[:col] / name+file target is single-program-exact and NEVER guarded.
+    // `force` bypasses.
+    if (isFanCapableTarget(args)) {
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      if (refusal !== undefined) return fail(refusal);
+    }
     try {
       const walked = walkTypeWidening(ts, targetOf(args));
       if ('error' in walked) return fail({ tool: 'ts-ls', message: walked.error });
