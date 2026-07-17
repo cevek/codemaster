@@ -1,7 +1,7 @@
 ---
 id: t-605174
 title: 'Automated E2E for the live process-mode path: mcp bridge → daemon socket → serve-engine child → op result (the keystone''s "не покрыто в изоляции")'
-status: backlog
+status: done
 priority: medium
 parent: t-031282
 tags:
