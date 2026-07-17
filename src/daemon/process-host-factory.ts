@@ -11,9 +11,9 @@ import type { OrchestratorDeps } from './orchestrator.ts';
 const STARTUP_DEADLINE_MS = 60_000;
 /** SIGTERM→SIGKILL grace on dispose. */
 const DISPOSE_DEADLINE_MS = 5_000;
-/** Default child heap ceiling (`--max-old-space-size`, MB) when config sets none — well above
- *  Node's own ~4 GB so a legitimately large repo isn't killed needlessly; a repo that blows it OOMs
- *  the child honestly (the daemon survives), which is exactly the isolation guarantee (t-167395). */
+/** Default child heap ceiling (`--max-old-space-size`, MB) when config sets none — ≥ Node's own
+ *  ~4 GB so a legitimately large repo isn't killed needlessly; a repo that blows it OOMs the child
+ *  honestly (the daemon survives), which is exactly the isolation guarantee (t-167395). */
 const DEFAULT_MAX_OLD_SPACE_MB = 4096;
 
 export interface ProcessHostFactoryOpts {

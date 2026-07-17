@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProcessHost } from '../../src/daemon/process-host.ts';
+import { createProcessHost, KILL_BELT_MS } from '../../src/daemon/process-host.ts';
 import type { EngineChildHandle } from '../../src/daemon/fork-engine.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { RepoId } from '../../src/core/brands.ts';
@@ -146,6 +146,34 @@ test('deadline: an unanswered request SIGKILLs the child and settles as an hones
   assert.ok(r0 !== undefined && 'result' in r0 && !r0.result.ok);
   assert.equal(r0.result.ok === false && r0.result.failure.tool, 'timeout');
   assert.equal(exited, 1, 'onExit fires once so the orchestrator evicts + respawns');
+});
+
+test('deadline BELT: a SIGKILLed child that NEVER emits exit is still force-settled (never-hang)', async () => {
+  const fc = fakeChild();
+  const clock = manualClock();
+  let exited = 0;
+  const host = await armedHost(fc, clock, () => (exited += 1), { requestDeadlineMs: 5_000 });
+  const reqP = host.request([{ name: 'find_usages', args: {} as never }]);
+  clock.advance(5_000); // deadline → SIGKILL
+  assert.deepEqual(fc.kills, ['SIGKILL']);
+  // The child is un-reapable: no `exit` EVER fires. Without the belt this would hang forever.
+  clock.advance(KILL_BELT_MS);
+  const res = await reqP; // must resolve on the belt alone (no fc.exit call)
+  const r0 = res[0];
+  assert.ok(r0 !== undefined && 'result' in r0 && !r0.result.ok);
+  assert.equal(r0.result.ok === false && r0.result.failure.tool, 'timeout');
+  assert.equal(exited, 1);
+});
+
+test('dispose BELT: dispose resolves even if the child never exits (no shutdown hang)', async () => {
+  const fc = fakeChild();
+  const clock = manualClock();
+  const host = await armedHost(fc, clock, () => undefined); // disposeDeadlineMs = 100 in armedHost
+  const dp = host.dispose();
+  clock.advance(100); // dispose grace elapses → SIGKILL
+  assert.deepEqual(fc.kills, ['SIGKILL'], 'a child that ignores dispose is SIGKILLed');
+  clock.advance(KILL_BELT_MS); // child still never exits — the belt must resolve dispose
+  await dp; // resolves, or this test hangs (the bug)
 });
 
 test('crash: child exit while pending → honest engine-process failure + onExit', async () => {

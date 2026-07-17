@@ -3,9 +3,10 @@
 // wedged child: every request is deadline-bounded, and on overrun the child is SIGKILLed (a wedged
 // sync TS program build can't be cancelled otherwise, §19) and every pending request settles
 // honestly. A crash / OOM likewise settles all pending with an honest `ToolFailure` and evicts the
-// slot so the next request respawns — the daemon stays up (t-167395). Pending discipline mirrors
-// remote-orchestrator.ts (cancel-on-settle, delete-before-resolve, no double-settle): a per-request
-// timer only TRIPS the kill; `markDead` (the child's single `exit`) settles every pending id once.
+// slot so the next request respawns — the daemon stays up (t-167395). Pending discipline: a
+// per-request timer TRIPS a SIGKILL, and `markDead` (the child's `exit`, or the SIGKILL belt if the
+// child never reaps — KILL_BELT_MS) settles every pending id exactly once (`dead`-guarded, so `exit`
+// and belt can't double-settle). Never-hang holds WITHOUT depending on a prompt `'exit'` (§1).
 
 import type { Clock, CancelTimer } from '../common/async/clock.ts';
 import type { JsonValue } from '../core/json.ts';
@@ -35,6 +36,13 @@ export interface ProcessHostDeps {
 
 type DeadReason = 'crash' | 'oom' | 'timeout';
 type Settled = { ok: true; reply: EngineReply } | { ok: false; reason: DeadReason; detail: string };
+
+/** Belt after a SIGKILL (§1 never-hang): SIGKILL normally yields a prompt `'exit'` → `markDead`
+ *  settles all pending. But a child stuck in an uninterruptible syscall (D-state on hung fs/NFS
+ *  I/O) has its SIGKILL DEFERRED by the kernel, so `'exit'` may never come — never-hang cannot
+ *  depend on it. After this grace we force-settle regardless; `markDead` is idempotent, so a real
+ *  `'exit'` (whenever it lands) no-ops. */
+export const KILL_BELT_MS = 5_000;
 
 /** OOM is best-effort: V8's heap-OOM aborts as SIGABRT / code 134 on most platforms, but the
  *  signature is not portable, so we only HINT `oom` when it matches — never assert it on an
@@ -121,6 +129,9 @@ export async function createProcessHost(
         // child's exit) settles THIS and every other pending id as `timeout`.
         deadlineTripped = true;
         child.kill('SIGKILL');
+        // Belt: if the SIGKILL doesn't yield an `'exit'` (un-reapable child), force-settle so a
+        // request can NEVER hang (§1). Idempotent with the real `'exit'`.
+        deps.clock.schedule(KILL_BELT_MS, () => markDead(null, 'SIGKILL'));
       });
       pending.set(id, { settle: resolve, cancel });
       child.send(envelope as unknown as JsonValue);
@@ -187,7 +198,11 @@ export async function createProcessHost(
         // Ask the child to dispose+exit; escalate to SIGKILL if it doesn't leave in time.
         child.send({ id: nextId++, kind: 'dispose' } as unknown as JsonValue);
         deps.clock.schedule(deps.disposeDeadlineMs, () => {
-          if (!dead) child.kill('SIGKILL');
+          if (dead) return;
+          child.kill('SIGKILL');
+          // Belt (§1): resolve dispose even if the SIGKILL never yields an `'exit'`, so a wedged
+          // child can't hang orchestrator shutdown. `markDead` drains `disposeWaiters`, idempotent.
+          deps.clock.schedule(KILL_BELT_MS, () => markDead(null, 'SIGKILL'));
         });
       });
     },

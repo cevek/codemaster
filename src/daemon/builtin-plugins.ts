@@ -1,8 +1,10 @@
 // The built-in plugin set (§5-L2), factored out of the composition root so BOTH the in-process
 // orchestrator (bin.ts) and the `process`-mode engine child (`serveEngineChild`) construct the
-// SAME plugins from config — the two isolation modes must be behavior-identical (the parity
-// contract). Importable without side effects (bin.ts runs `main()` on import, so it can't be the
-// home for a shared builder).
+// SAME plugins from config — so the two isolation modes are behavior-identical IN PRODUCTION (the
+// parity contract). (Test-only injectable seams — sqlBounds/createSqlRunner/createTextScanner/
+// gitRunner — don't cross the fork, so process mode is covered by the fake-child protocol test +
+// the real-fork e2e, not by injecting fakes into the child.) Importable without side effects
+// (bin.ts runs `main()` on import, so it can't be the home for a shared builder).
 
 import type { CodemasterConfig } from '../config/config.ts';
 import type { Plugin } from '../core/plugin.ts';

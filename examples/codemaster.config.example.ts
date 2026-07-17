@@ -49,7 +49,12 @@ export default defineConfig({
   },
 
   daemon: {
+    // 'in-process' (default) runs each engine in the daemon; 'process' forks one killable child
+    // per workspace (own heap + `maxOldSpaceMB`, crash-isolated) — for genuinely large repos (§2/§9).
+    isolation: 'in-process',
     idleEvictionMinutes: 30,
     pathExistenceSweepSeconds: 60,
+    // Child heap ceiling in MB for 'process' mode (ignored in-process); default ≥ Node's ~4 GB.
+    maxOldSpaceMB: 4096,
   },
 });

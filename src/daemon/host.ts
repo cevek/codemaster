@@ -29,7 +29,9 @@ export interface ProjectHost {
   request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   /** The per-repo status manifest (§11). In-process a direct engine read; process-isolated
    *  one IPC round-trip. Reached through the seam so the orchestrator never casts to the
-   *  engine (which a process host doesn't hold). */
+   *  engine (which a process host doesn't hold). MAY REJECT — a process host with a dead child
+   *  has no honest manifest to synthesize, so it rejects rather than fabricate one; callers must
+   *  catch and surface it (never a fabricated 0-plugin view, §3.6). */
   status(): Promise<WorkspaceStatusView>;
   /** Cross-root sql (§2): produce these requests as sql-producers (uncapped, one freshness
    *  capture) with no SELECT — the orchestrator joins across engines. A process host that
