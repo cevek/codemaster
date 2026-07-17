@@ -40,6 +40,8 @@ tree — **commit those `.md`s with your work.**
 Fields: core (`status priority parent depends_on tags`) + project custom fields — run `help` /
 `explain_config` for the live schema. Not set up? `init` then update generated `tasks/config.yml` for this project needs.
 
+Don't forget `git commit` after create/update tasks.
+
 ## codemaster
 
 **codemaster** — a stateful, always-on **codebase inspector** for TS/React repos, built for
