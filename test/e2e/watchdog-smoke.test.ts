@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +96,70 @@ test('backstop 2: an ORPHANED in-process child is reaped (not lingering) when it
     assert.equal(alive(childPid), false, 'the orphaned child was reaped, not left spinning');
     // SECONDARY: on the expected path the graceful main-loop poll wins and writes the marker.
     assert.ok(existsSync(marker), 'the child shut down via the graceful orphan path');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('backstop 1 (process-mode child): a wedge in the forked engine-child is reaped through the ENGINE op wrap', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-wd-child-'));
+  // A minimal real project so `serveEngineChild` → `createEngine` boots (loadConfig + ts plugin).
+  writeFileSync(path.join(dir, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}');
+  writeFileSync(path.join(dir, 'x.ts'), 'export const x = 1;\n');
+  const stallDir = path.join(dir, 'stalls');
+  try {
+    const child = spawn(process.execPath, [HARNESS, 'engine-child'], {
+      // 'ipc' gives the child a fork-style message channel so the harness's serveEngineChild talks
+      // to the test exactly as it would to the real parent host.
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      env: {
+        ...process.env,
+        CODEMASTER_ENGINE_ROOT: dir,
+        CODEMASTER_ENGINE_STATE_DIR: dir,
+        CODEMASTER_WATCHDOG_MS: '200', // wedge threshold — tiny for the test
+        CODEMASTER_WATCHDOG_POLL_MS: '50',
+        CODEMASTER_STALL_DIR: stallDir,
+      },
+    });
+    let stderr = '';
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (c: string) => (stderr += c));
+
+    // On the child's `ready` handshake, fire the wedging op over the IPC channel.
+    child.on('message', (frame: { kind?: string }) => {
+      if (frame.kind === 'ready') {
+        child.send({ id: 1, kind: 'request', reqs: [{ name: 'wedge', args: {} }] });
+      }
+    });
+
+    const signal = await new Promise<string | null>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`wedged engine-child was NOT reaped in time. stderr:\n${stderr}`));
+      }, 20_000);
+      timer.unref();
+      child.on('exit', (_code, sig) => {
+        clearTimeout(timer);
+        resolve(sig);
+      });
+      child.on('error', reject);
+    });
+
+    assert.equal(
+      signal,
+      'SIGKILL',
+      `expected SIGKILL from the child's own watchdog, got ${signal}`,
+    );
+    const stalls = readdirSync(stallDir).filter((f) => f.endsWith('.json'));
+    assert.ok(stalls.length >= 1, 'the child wrote a stall breadcrumb before killing itself');
+    const record = JSON.parse(readFileSync(path.join(stallDir, stalls[0] ?? ''), 'utf8')) as {
+      reason: string;
+      op: string;
+    };
+    assert.equal(record.reason, 'wedge');
+    // The engine's OWN `beacon.measure('op:<name>')` wrap fired — proof the child armed the watchdog
+    // over the real request path, not a hand-stamped breadcrumb.
+    assert.match(record.op, /op:wedge/, 'the breadcrumb names the engine op that wedged');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

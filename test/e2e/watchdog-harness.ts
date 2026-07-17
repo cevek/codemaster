@@ -63,6 +63,43 @@ if (mode === 'wedge') {
   installWatchdog({ clock: systemClock, orphanAware: true });
   // Keep the main loop alive (but idle) so the orphan poll can fire once the parent dies.
   setInterval(() => undefined, 1000);
+} else if (mode === 'engine-child') {
+  // The process-mode engine CHILD (t-350294): boot the real `serveEngineChild` over a fork IPC
+  // channel. It arms the watchdog itself; the parent (the test) sends a `wedge` op request that
+  // sync-spins the main loop through the engine's OWN `beacon.measure('op:wedge')` wrap — so the
+  // worker thread reaps THIS child and names the running op in the stall breadcrumb. Config
+  // (root/stateDir) arrives via env exactly as `forkEngineChild` supplies it.
+  const root = process.env['CODEMASTER_ENGINE_ROOT'];
+  if (root === undefined) {
+    process.stderr.write('engine-child harness: CODEMASTER_ENGINE_ROOT not set\n');
+    process.exit(2);
+  }
+  // Lazy — importing the plugin tree at top level would slow the OTHER (orphan-child) mode's
+  // watchdog install past its parent's 200ms exit, disabling its orphan poll (ppid already 1).
+  const { z } = await import('zod');
+  const { serveEngineChild } = await import('../../src/daemon/engine-child.ts');
+  const { builtinPlugins } = await import('../../src/daemon/builtin-plugins.ts');
+  const { defineOp } = await import('../../src/ops/registry.ts');
+  const wedgeOp = defineOp({
+    name: 'wedge',
+    summary: 'test-only: sync-wedge the main loop (never resolves)',
+    mutating: false,
+    requires: [],
+    argsSchema: z.object({}).passthrough(),
+    argsHint: '{}',
+    run: async () => {
+      for (;;) {
+        /* busy-loop — never yields; the engine's beacon wrap already stamped op:wedge */
+      }
+    },
+  });
+  void serveEngineChild({
+    root,
+    version: 'test',
+    stateDir: process.env['CODEMASTER_ENGINE_STATE_DIR'] ?? root,
+    pluginsFor: builtinPlugins,
+    opsFor: () => [wedgeOp],
+  });
 } else {
   process.stderr.write(`unknown harness mode: ${String(mode)}\n`);
   process.exit(2);

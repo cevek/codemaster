@@ -1,7 +1,7 @@
 ---
 id: t-350294
 title: Install the breadcrumb-watchdog inside the process-mode engine-child (heavy sync now lives in the fork)
-status: backlog
+status: done
 priority: medium
 parent: t-031282
 tags:
