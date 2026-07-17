@@ -3,7 +3,7 @@ id: t-399909
 title: 'search_symbol size guard: make it pruning-aware (post-Fix-A over-refuses loose-root; naive raise re-OOMs references)'
 status: backlog
 priority: high
-parent: t-167395
+parent: t-031282
 tags:
   - dogfood
   - multi-program
