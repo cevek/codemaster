@@ -1294,6 +1294,7 @@ codemaster/
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
       usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl (§13)
+      watchdog/              # never-hang backstops (§1): beacon (SAB breadcrumb) + worker (wedge reaper, SIGKILL) + orphan-poll + stall-dir + install
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
@@ -1572,6 +1573,22 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   for the hard guarantee on truly-uncancellable sync, by engine isolation + kill-on-deadline (the
   orchestrator stays responsive in `process` mode and reaps an overrun child). An op never spins
   unbounded; an abandoned query is otherwise dropped only _between_ serialized requests. (§1, §2, §8)
+- **In-process never-hang backstop — the worker-thread watchdog (`support/watchdog/`).** The
+  `mcp --in-process` path (dev / dogfood, spec §5) has NO external killer, so a FUTURE unknown
+  sync-wedge would spin forever exactly as the incident did (a busy event loop cannot service
+  signals / JS handlers / `process.report` — only a separate thread or process can act). Defense in
+  depth, best-effort, off unless installed: the engine stamps a cheap **SharedArrayBuffer
+  breadcrumb** (op + bounded args + start-time) before each heavy op (`runOne` / freshness walk /
+  plugin init) via a process-global `beacon`; a **worker thread** on its own un-wedged timer reads
+  it and, past a generous threshold (~5 min — §1: no legitimate op approaches it), writes the
+  breadcrumb to `~/.codemaster/stalls/<ts>.json` (the honest diagnostic — a JS stack from a wedged
+  thread is uncapturable; the breadcrumb says WHAT was running) then `process.kill(pid,'SIGKILL')`
+  (kernel-delivered, uncatchable — bypasses the wedged loop; `process.abort()` is unsupported in a
+  worker, `process.exit` exits only the worker). A **getppid/orphan poll** (existence-probe on the
+  spawning parent, `kill(pid,0)`) self-exits an orphaned in-process server (backstop for a missed
+  stdin-EOF) — DISABLED for `daemon serve`, which is detached by design. Installed on both in-process
+  paths; the daemon's PRODUCTION hard guarantee remains §9 process-mode kill-on-deadline (per-child
+  SIGKILL — more precise), which the watchdog complements as a same-process last resort. (§1, §9)
 - **Per-plugin tear-free reads.** Plugins choose their internal storage, but the contract
   is the same: a reader pins the plugin's current state reference at request entry and
   never re-reads it across an `await`; a writer (reindex, mutating op) does a synchronous

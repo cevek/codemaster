@@ -31,6 +31,7 @@ import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher, WatcherHandle } from '../support/watch/seam.ts';
 import { brandGitPath } from '../support/fs/canonicalize.ts';
 import { createFreshnessGuard, type FreshnessMode } from './freshness.ts';
+import { beacon } from '../support/watchdog/beacon.ts';
 import type { GitRunner } from '../support/git/run.ts';
 import type { WorkspaceStatusView } from '../format/render/render-status.ts';
 
@@ -85,7 +86,11 @@ export async function createEngine(
   const trace = deps.debug.ns('repo');
   for (const plugin of order) {
     try {
-      await plugin.init(scopeRegistry(registry, plugin.id, plugin.deps));
+      // Breadcrumb plugin init (discovery / LS warm can wedge on a pathological tree — the incident
+      // also reached via `walkRepoFiles` at spawn). No-op passthrough unless a watchdog is installed.
+      await beacon.measure(`init:${plugin.id}`, undefined, () =>
+        plugin.init(scopeRegistry(registry, plugin.id, plugin.deps)),
+      );
     } catch (thrown) {
       return {
         ok: false,
@@ -187,7 +192,9 @@ class Engine implements WorkspaceEngine {
 
   /** §3.5: verify freshness on read; on drift the affected plugins reindex. */
   private async refresh(): Promise<FreshnessNote | undefined> {
-    const drift = await this.guard.check();
+    // Breadcrumb the freshness walk — the incident's actual wedge site (a symlink-cycle walk on a
+    // non-git root). The watchdog worker reaps a wedge here even though this is off the op path.
+    const drift = await beacon.measure('freshness', undefined, () => this.guard.check());
     this.freshnessMode = drift.mode;
     this.cleanAtCommit = drift.cleanAtCommit;
     // Files the read-time backstop caught drifted and resolved before answering (§1.3).
@@ -300,24 +307,28 @@ class Engine implements WorkspaceEngine {
     const opTrace = this.deps.debug.ns(`op:${req.name}`);
     const started = this.deps.clock.now();
     try {
-      const result = await this.deps.debug.runWithRequest(
-        { capture: req.debug === true, route: this.repoId },
-        async () => {
-          opTrace('start', () => ({ args: req.args }));
-          const r = await op.run(
-            {
-              plugins: this.registry,
-              flags: extractFlags({ ...req, ...resolved.flags }),
-              daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
-              textScanner: this.textScanner,
-              ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
-            },
-            resolved.args,
-          );
-          opTrace('done', () => ({ ok: r.ok, ms: this.deps.clock.now() - started }));
-          const captured = this.deps.debug.takeCapture();
-          return captured.length > 0 ? { ...r, debug: captured } : r;
-        },
+      // Breadcrumb the op so the watchdog worker (§1) can name what wedged the main loop — the
+      // op + a bounded args preview. A no-op passthrough unless a watchdog is installed.
+      const result = await beacon.measure(`op:${req.name}`, req.args, () =>
+        this.deps.debug.runWithRequest(
+          { capture: req.debug === true, route: this.repoId },
+          async () => {
+            opTrace('start', () => ({ args: req.args }));
+            const r = await op.run(
+              {
+                plugins: this.registry,
+                flags: extractFlags({ ...req, ...resolved.flags }),
+                daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
+                textScanner: this.textScanner,
+                ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
+              },
+              resolved.args,
+            );
+            opTrace('done', () => ({ ok: r.ok, ms: this.deps.clock.now() - started }));
+            const captured = this.deps.debug.takeCapture();
+            return captured.length > 0 ? { ...r, debug: captured } : r;
+          },
+        ),
       );
       const merged = withBatchFreshness(result, batchFreshness);
       return {

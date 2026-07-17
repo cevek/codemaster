@@ -35,6 +35,7 @@ import { runDaemonCommand } from './daemon/manage.ts';
 import { createRemoteOrchestrator } from './daemon/remote-orchestrator.ts';
 import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
+import { installWatchdog } from './support/watchdog/install.ts';
 
 /** Per-request reply deadline for the bridge (§1 never-hang). Generous — a cold find_usages on a
  *  huge repo can run tens of seconds (§1 latency budget) — but bounded so a wedged daemon yields an
@@ -165,6 +166,9 @@ async function main(): Promise<number> {
       const verb = args.shift();
       if (verb === 'serve') {
         // Hosts one in-process orchestrator behind the unix socket, shared across every bridge.
+        // Wedge watchdog only (t-095661): the daemon is DETACHED by design (parent → init), so
+        // orphan-exit is off here; its production hard-guarantee is §9 kill-on-deadline.
+        installWatchdog({ clock: systemClock, orphanAware: false });
         const orchestrator = buildOrchestrator();
         const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
         const transport = createUnixSocketTransport(socket);
@@ -210,6 +214,10 @@ async function main(): Promise<number> {
       // `--in-process` escape hatch (spec §5): serve a local orchestrator directly, no daemon —
       // for debugging and the self-dev loop. Carries the Stage-1 idle self-exit.
       if (hasFlag(args, '--in-process')) {
+        // Never-hang backstops (t-095661): the in-process path has NO external killer, so a wedge
+        // watchdog (worker thread) + orphan poll self-reap. Best-effort — a failed install is a
+        // no-op, never a broken serve path.
+        installWatchdog({ clock: systemClock, orphanAware: true });
         await serveMcp(buildOrchestrator(), VERSION, {
           idle: { clock: systemClock, idleMs },
           usage,
