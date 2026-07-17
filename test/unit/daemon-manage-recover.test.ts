@@ -40,7 +40,7 @@ test('stop: wedged + pidfile → force-kill confirmed (killed) → code 0, socke
   clock.advance(2000); // past stopTimeoutMs → escalate to force-recover
   const r = await p;
   assert.equal(r.code, 0);
-  assert.match(r.lines.join('\n'), /force-killed pid 42 \(socket released\)/);
+  assert.match(r.lines.join('\n'), /force-killed pid 42/);
 });
 
 test('stop: wedged + pidfile but SIGKILL never confirmed (still-alive) → code 1, kill -9 hint', async () => {

@@ -64,12 +64,15 @@ async function settle<T>(p: Promise<T>, clock: ReturnType<typeof manualClock>): 
 }
 
 /** A fake process + injected seams. `dieOn` names the signal that actually kills it (undefined = it
- *  survives every signal → the still-alive path). */
+ *  survives every signal → the still-alive path). `readSeq` gives the pidfile read result per read
+ *  index (fallback = last element), exercising the re-read guards; default = `record` for every read.
+ *  `errorOn` makes `signal` return `'error'` (EPERM) for that signal. */
 function scenario(opts: {
   record?: PidfileRecord | undefined;
+  readSeq?: (PidfileRecord | undefined)[];
   aliveAtStart?: boolean;
   dieOn?: NodeJS.Signals;
-  reread?: PidfileRecord | undefined;
+  errorOn?: NodeJS.Signals;
 }): {
   deps: ForceRecoverDeps;
   clock: ReturnType<typeof manualClock>;
@@ -89,20 +92,16 @@ function scenario(opts: {
     killConfirmMs: 2000,
     pollIntervalMs: 25,
     readPidfile: () => {
-      // First read = the target; a second read returns `reread` when the test exercises the
-      // re-read guard, else the same record.
+      const seq = opts.readSeq;
       const r =
-        reads === 0
-          ? opts.record
-          : opts.reread !== undefined || 'reread' in opts
-            ? opts.reread
-            : opts.record;
+        seq !== undefined ? (reads < seq.length ? seq[reads] : seq[seq.length - 1]) : opts.record;
       reads++;
       return r;
     },
     isAlive: () => state.alive,
     signal: (_pid, sig): SignalOutcome => {
       signals.push(sig);
+      if (opts.errorOn === sig) return 'error';
       if (opts.dieOn === sig) state.alive = false;
       return state.alive ? 'sent' : 'noProcess';
     },
@@ -142,11 +141,37 @@ test('target pid already gone → already-gone, stale pidfile cleared, no signal
   assert.equal(s.removed, 1, 'stale pidfile removed');
 });
 
-test('re-read shows a different pid → target-changed, aborts the kill (anti-recycle guard)', async () => {
-  const s = scenario({ record: rec(), reread: rec({ pid: 9999 }) });
+test('pre-SIGTERM re-read shows a different pid → target-changed, aborts the kill (anti-recycle guard)', async () => {
+  const s = scenario({ readSeq: [rec(), rec({ pid: 9999 })] });
   const r = await settle(forceRecoverDaemon(s.deps), s.clock);
   assert.deepEqual(r, { kind: 'target-changed' });
   assert.deepEqual(s.signals, [], 'a changed target is never signalled');
+});
+
+test('pidfile CLEARS during the SIGTERM grace → killed, never SIGKILLs a recycled pid', async () => {
+  // SIGTERM is honored (the daemon removes its own pidfile on graceful exit → 3rd read undefined),
+  // but isAlive stays true (its pid was recycled to an innocent process). The pre-SIGKILL guard must
+  // catch the cleared hint and NOT SIGKILL.
+  const s = scenario({ readSeq: [rec(), rec(), undefined] }); // dieOn omitted → isAlive stays true
+  const r = await settle(forceRecoverDaemon(s.deps), s.clock);
+  assert.deepEqual(r, { kind: 'killed', pid: PID });
+  assert.deepEqual(s.signals, ['SIGTERM'], 'SIGKILL is NOT sent to a recycled pid');
+  assert.equal(s.removed, 0, 'never removes a pidfile that is already gone / a new daemon owns');
+});
+
+test('pidfile pid CHANGES during the SIGTERM grace → target-changed, never SIGKILLs the new daemon', async () => {
+  const s = scenario({ readSeq: [rec(), rec(), rec({ pid: 9999 })] });
+  const r = await settle(forceRecoverDaemon(s.deps), s.clock);
+  assert.deepEqual(r, { kind: 'target-changed' });
+  assert.deepEqual(s.signals, ['SIGTERM'], 'never SIGKILLs a rebound daemon');
+});
+
+test('SIGKILL is undeliverable (EPERM — foreign-owned recycle) → target-changed, no kill -9 advice', async () => {
+  const s = scenario({ record: rec(), errorOn: 'SIGKILL' }); // survives SIGTERM, SIGKILL → error
+  const r = await settle(forceRecoverDaemon(s.deps), s.clock);
+  assert.deepEqual(r, { kind: 'target-changed' });
+  assert.deepEqual(s.signals, ['SIGTERM', 'SIGKILL'], 'attempted SIGKILL, then aborted on EPERM');
+  assert.equal(s.removed, 0);
 });
 
 test('honors SIGTERM → killed without escalating to SIGKILL', async () => {

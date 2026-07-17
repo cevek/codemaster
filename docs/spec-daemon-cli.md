@@ -32,16 +32,19 @@ The `daemon` command is a sub-router. `serve` is the INTERNAL long-lived verb th
   no pidfile race. Closed → "daemon stopped (socket released, pid X)". Did not close within the
   deadline (WEDGED) → **escalate to a pidfile-targeted force-kill** (`force-recover.ts`, t-000051):
   read the kill-target-hint pidfile the daemon dropped at bind, guard it (its `socket` == the managed
-  socket, the pid is alive, re-read the pid unchanged — the anti-recycle guard), then SIGTERM→(grace)→
-  SIGKILL and confirm gone → "daemon was wedged — force-killed pid X (socket released)". A SIGKILL
-  that does not confirm within the budget, or no trustworthy pidfile hint → honest "kill it: kill -9
-  X" / "kill X" fallback. No daemon → "none running".
-- **`restart`** — `stop` then `start`. When `stop` **force-killed** a wedged daemon (or it stopped
-  gracefully) it proceeds to `start`, which respawns through `connectOrSpawnDaemon` (the same
-  race-safe bind-or-connect convergence — never a bespoke unlink-then-spawn). Only if `stop` could
-  NOT reap the daemon (force-kill unconfirmed / no hint) does it refuse to start (a new daemon can't
-  bind while the old holds the socket → `EADDRINUSE`) and tell the user to kill the pid first. The
-  "pick up new code" command.
+  socket, the pid is alive, re-read the pid unchanged before BOTH signals — the anti-recycle guard),
+  then SIGTERM→(grace)→SIGKILL and confirm gone → "daemon was wedged — force-killed pid X" (NOT
+  "socket released": a SIGKILLed daemon can't unlink its own socket, so the stale file lingers until
+  the next `connectOrSpawnDaemon` re-probe clears it). A SIGKILL that does not confirm within the
+  budget, or no trustworthy pidfile hint → honest "kill it: kill -9 X" / "kill X" fallback. No daemon
+  → "none running".
+- **`restart`** — `stop` then `start`. Any **successful** `stop` (graceful, or force-killed, or the
+  daemon was already gone / already recovered by another actor — every code-0 outcome) proceeds to
+  `start`, which respawns through `connectOrSpawnDaemon` (the same race-safe bind-or-connect
+  convergence — never a bespoke unlink-then-spawn; its re-probe also clears the killed daemon's stale
+  socket). Only if `stop` could NOT reap the daemon (force-kill unconfirmed / no hint) does it refuse
+  to start (a new daemon can't bind while the old holds the socket → `EADDRINUSE`) and tell the user
+  to kill the pid first. The "pick up new code" command.
 
 The pidfile (`<socket>.pid`, `support/pidfile/`) is a **kill-target HINT only** — the socket is the
 sole liveness oracle (§3.5). It is written AFTER a successful bind (a bind-race loser leaves none)

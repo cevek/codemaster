@@ -30,15 +30,18 @@ When a management verb's graceful `shutdown` message goes unanswered past the de
 1. Read the pidfile → no usable hint (absent / invalid / **socket ≠ the managed socket**) → `no-target`,
    caller degrades to the honest manual-kill hint.
 2. `isProcessAlive(pid)` false → `already-gone` (the wedge resolved; clear the stale pidfile).
-3. **Anti-recycle guard:** re-read the pidfile immediately before signalling; a changed pid →
-   `target-changed`, abort (never signal a possibly-innocent recycled pid). A narrow TOCTOU window
-   remains (recycle between the last read and the signal) — disclosed, mirroring the convergence
-   "narrow residual race" (§19).
-4. `SIGTERM` → bounded grace → still alive → `SIGKILL` → bounded confirm-poll. `killed` on confirm,
-   else `still-alive` (honest "kill -9 X"). SIGKILL is the real backstop — a sync-spin can't service
-   SIGTERM. A REF'd `setInterval` keep-alive holds the event loop open across the poll (the real
-   `Clock`'s timers are `unref`ed and the wedged connection is already closed, so without it Node
-   exits 0 mid-wait and abandons the SIGKILL).
+3. **Anti-recycle guard:** re-read the pidfile immediately before BOTH signals; a gone/changed pid →
+   `killed` (SIGTERM already worked) / `target-changed`, abort (never signal a possibly-innocent
+   recycled pid). The second re-read matters because the SIGTERM grace can span a recycle: a daemon
+   that HONORS SIGTERM exits and removes its own pidfile, freeing the pid for reuse. A narrow TOCTOU
+   window remains (recycle between the last read and the signal itself) — disclosed, mirroring the
+   convergence "narrow residual race" (§19).
+4. `SIGTERM` → bounded grace → still alive → (re-read guard) → `SIGKILL` → bounded confirm-poll.
+   `killed` on confirm, else `still-alive` (honest "kill -9 X"); a `SIGKILL` that returns EPERM (a
+   foreign-owned recycle) → `target-changed`, never an advise-to-`kill -9` on it. SIGKILL is the real
+   backstop — a sync-spin can't service SIGTERM. A REF'd `setInterval` keep-alive holds the event loop
+   open across the poll (the real `Clock`'s timers are `unref`ed and the wedged connection is already
+   closed, so without it Node exits 0 mid-wait and abandons the SIGKILL).
 
 **Convergence invariant:** force-recover never unlinks the socket or respawns. `restart` respawns
 through `connectOrSpawnDaemon`, whose re-probe is what keeps a sibling's freshly-bound daemon from

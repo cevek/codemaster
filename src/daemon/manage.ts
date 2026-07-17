@@ -190,9 +190,11 @@ async function daemonStop(deps: DaemonManageDeps): Promise<ManageResult> {
 function mapForceRecover(r: ForceRecoverResult, budgetMs: number): ManageResult | undefined {
   switch (r.kind) {
     case 'killed':
+      // NOT "socket released": a SIGKILLed daemon can't unlink its own socket, so the stale file
+      // lingers until the next `connectOrSpawnDaemon` re-probe clears it (restart does this next).
       return {
         code: 0,
-        lines: [`daemon was wedged — force-killed pid ${r.pid} (socket released)`, RECONNECT_NOTE],
+        lines: [`daemon was wedged — force-killed pid ${r.pid}`, RECONNECT_NOTE],
       };
     case 'already-gone':
       return {

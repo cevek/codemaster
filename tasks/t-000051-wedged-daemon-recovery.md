@@ -1,7 +1,7 @@
 ---
 id: t-000051
 title: Wedged-daemon recovery
-status: in-progress
+status: done
 priority: medium
 parent: t-031282
 type: bug

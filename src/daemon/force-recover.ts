@@ -12,11 +12,14 @@
 // The pidfile is a KILL-TARGET HINT, never a liveness authority (§3.5): the socket already proved
 // unresponsive; the pidfile only says WHICH pid to signal. Anti-recycle guard: the pidfile must name
 // THIS endpoint (socket-identity), the pid must be alive, and the file is RE-READ immediately before
-// signalling so a pid rewritten by another actor is not killed. A narrow TOCTOU window remains — the
-// pid could be recycled between the last read and the signal — mirroring the convergence "narrow
-// residual race" (§19); it is disclosed, not hidden. Socket-unlink + respawn are deliberately NOT
-// done here: the caller routes respawn through `connectOrSpawnDaemon`, whose re-probe is what keeps
-// a sibling's freshly-bound daemon from being unlinked (the convergence invariant).
+// BOTH signals — SIGTERM AND SIGKILL — because the grace between them can span a recycle (a daemon
+// that honors SIGTERM exits and removes its own pidfile, freeing the pid for reuse). Each read that
+// finds the hint gone/changed aborts rather than signalling a possibly-innocent pid. A narrow TOCTOU
+// window still remains — a recycle between the last read and the signal itself — mirroring the
+// convergence "narrow residual race" (§19); it is disclosed, not hidden. Socket-unlink + respawn are
+// deliberately NOT done here: the caller routes respawn through `connectOrSpawnDaemon`, whose
+// re-probe is what keeps a sibling's freshly-bound daemon from being unlinked (the convergence
+// invariant).
 
 import type { Clock } from '../common/async/clock.ts';
 import { readPidfile as defaultReadPidfile } from '../support/pidfile/read.ts';
@@ -111,7 +114,20 @@ async function recover(deps: ForceRecoverDeps): Promise<ForceRecoverResult> {
     return { kind: 'killed', pid };
   }
 
-  signal(pid, 'SIGKILL');
+  // SECOND re-read guard, before the harder SIGKILL. The grace above can span a fresh recycle: a
+  // daemon that HONORED SIGTERM removes its OWN pidfile on graceful exit (the alternative to the
+  // sync-spin the comment above flags), so a gone/changed hint here means SIGTERM already worked and
+  // the still-"alive" pid is a recycled INNOCENT process — never SIGKILL it. `undefined` (graceful
+  // exit, no new daemon yet) → the wedge is gone; a changed pid → a new daemon rebound. In neither
+  // case do we remove the pidfile (it's already gone, or belongs to the new daemon).
+  const beforeKill = readPidfile(deps.pidfilePath);
+  if (beforeKill === undefined) return { kind: 'killed', pid };
+  if (beforeKill.pid !== pid) return { kind: 'target-changed' };
+
+  // A SIGKILL that can't be delivered (EPERM) means the pid is now owned by another user — a recycle
+  // to a foreign process; abort rather than advise `kill -9` on it. (ESRCH → already gone → the poll
+  // below settles it as killed.)
+  if (signal(pid, 'SIGKILL') === 'error') return { kind: 'target-changed' };
   if (
     await waitUntilGone(
       pid,
