@@ -5,7 +5,9 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { fail, failFromThrown, ok } from '../common/result/construct.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { SECTIONED_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { ScssPluginApi, UnusedClassView } from '../plugins/scss/plugin.ts';
@@ -62,10 +64,13 @@ export const findUnusedScssClassesOp = defineOp({
   argsSchema: z.strictObject({
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
+    /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+    force: z.boolean().optional(),
   }),
   argsHint: '{ pathInclude?: string[], pathExclude?: string[] }',
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
+    "the reachability join reads TS-side imports + member accesses through the ts plugin, so it warms the checker over the whole program: on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (it would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'a class reached only via dynamic access (styles[expr]) demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
     'only css-MODULE sheets (`.module.scss`/`.module.css`/`.module.sass`, accessed as `s.foo`) can read `certain` unused. A flat/global `.scss`/`.css`/`.sass` is applied via string `className="foo"` (resolved: JSX className + clsx/classnames literals); a class matched there is dropped, but one NOT matched stays partial ("may be applied via HTML/DOM/dynamic string, cannot prove dead") — never certain.',
     'pathInclude/pathExclude (globs over the .scss path) scope which stylesheets are REPORTED on (the whole-repo answer caps fast — narrow it); scanned.modules/classes reflect the scope. Cross-sheet composes: reachability is still resolved over every sheet, so scoping never invents a dead class an excluded sheet keeps alive.',
@@ -73,6 +78,16 @@ export const findUnusedScssClassesOp = defineOp({
   table: findUnusedScssClassesTable,
   async run(ctx, args) {
     const scss = ctx.plugins.get<ScssPluginApi>('scss');
+    // STOPGAP (t-820448) — the t-679091 pre-warm guard on an op that was left ungated. The op is
+    // scss-FACING but ts-BACKED: the class-reachability join asks the ts plugin for imports + member
+    // accesses repo-wide, which warms the checker over the whole program (measured: OOMs a 1 GB
+    // engine on a ~6.1k-file repo) and in-process that kills the daemon uncatchably. `requires`
+    // already names ts, so the plugin is always active here — no ownership predicate needed (unlike
+    // `list`). Stated lifetime: this call goes away (or is re-derived) once the auto-escalate-
+    // oversized-repo-to-process-mode path lands and the guard's "refuse in-process" semantics become
+    // "route to a killable child".
+    const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       const view = scss.unusedClasses({
         ...(args.pathInclude !== undefined ? { pathInclude: args.pathInclude } : {}),

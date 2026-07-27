@@ -62,8 +62,9 @@ A per-op sprinkle of `semanticFanoutRefusal` calls has now failed once and will 
 
 ## HOLD on the structural seam — do not pick this up as written
 
-The urgent half (`list` crashes now) is being handled as a 2-line STOPGAP: `semanticFanoutRefusal` added
-to `list.ts` and `find_unused_exports.ts`, nothing more. Priority dropped to medium accordingly, so the
+The urgent half (`list` crashes now) is handled as a STOPGAP: `semanticFanoutRefusal` added to
+`list.ts`, `find_unused_exports.ts` and `find_unused_scss_classes.ts` (every op MEASURED heavy — see
+below), nothing more. Priority dropped to medium accordingly, so the
 urgent tag stops dragging a worker into the big refactor.
 
 The structural half — the deny-by-default seam / `OpDefinition.warmsLs` registry — is HELD until
@@ -95,7 +96,7 @@ OOMs the 1 GB engine (heavy — needs the guard):
   primary-first short-circuit bounds the number of reference searches, not the program build that
   precedes them, so the OOM lands before the short-circuit can matter.
 - `find_unused_scss_classes {}` — ~10 s to OOM. Same class (it asks the ts plugin for imports +
-  member accesses repo-wide). NOT guarded; next-most-likely mine for the following worker.
+  member accesses repo-wide) — the scss-FACING but ts-BACKED case.
 
 Answers normally at 1 GB (single-program-exact; do NOT guard on this evidence):
 
@@ -111,12 +112,14 @@ tail — the tail's file-pinned paths measured cheap.
 
 ## Stopgap landed (does not close this task)
 
-`list` + `find_unused_exports` now call `semanticFanoutRefusal` (the per-op sprinkle this task calls
+`list`, `find_unused_exports` and `find_unused_scss_classes` — the three ops measured heavy — now call
+`semanticFanoutRefusal` (the per-op sprinkle this task calls
 out as the failing pattern), with the stated lifetime written at each call site. `list`'s call is
 gated on the RESOLVED registry owner being ts or ts-dependent, so a cheap non-ts registry (scss)
-is not falsely refused. Still open here: `find_unused_scss_classes`, the bare-name paths of the
-tail ops, `find_missing_i18n_keys`, and above all the STRUCTURAL seam — which is deliberately on hold
-until the auto-escalate-to-process-mode work settles what the guard should mean.
+is not falsely refused; the other two are unconditional (their `requires` already names ts). Still
+open here: the bare-name paths of the tail ops, `find_missing_i18n_keys`, and above all the STRUCTURAL
+seam — which is deliberately on hold until the auto-escalate-to-process-mode work settles what the
+guard should mean.
 
 ## The guard's premise is now empirically verified (was an unverified §9/§19 claim)
 
@@ -129,3 +132,15 @@ op reproduces the same honest failure. No `Connection closed`. So the redirect t
 true advice, not a hope. Residual honesty note: the `oom` CATEGORY is a SIGABRT/code-134 heuristic
 (`process-host.ts` `isOom`) — on a platform with another V8 abort signature it degrades to
 `engine-process`/`crash` (still a structural ToolFailure, still a live daemon, just no oom hint).
+
+## Stopgap widened
+
+`find_unused_scss_classes` is now guarded too (the third measured-heavy op). It is the scss-FACING but
+ts-BACKED case: `requires: ['ts','scss']` and the class-reachability join reads TS-side imports +
+member accesses through the ts plugin, so it warms the checker over the whole program. The ts plugin is
+always active here, so the call needs no ownership predicate (unlike `list`).
+
+Still open in this task: the bare-name paths of `expand_type` / `source` / `construction_sites` /
+`discrimination_sites` (unmeasured, not proven cheap), `find_missing_i18n_keys` (unmeasurable on the
+dogfood repo — i18n inactive; risk unknown), and the STRUCTURAL warm-LS seam, which stays on hold until
+the auto-escalate-to-process-mode work settles what the guard should mean.

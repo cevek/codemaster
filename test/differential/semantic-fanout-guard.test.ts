@@ -235,10 +235,11 @@ test('trace_prop_through_tree addressing predicate: {file+line+col} does NOT ref
   }
 });
 
-// ── t-820448 STOPGAP — the guard on `list` (ts-owned registry) + `find_unused_exports` ────────────
-// Both were left ungated while warming the checker repo-wide (empirically OOM-fatal on a ~6.1k-file
-// repo). LS-stays-cold is the independent oracle that the refusal happened BEFORE any warm; the
-// non-ts-registry pair is the discriminating negative (a blanket refusal on `list` would break it).
+// ── t-820448 STOPGAP — the guard on `list` / `find_unused_exports` / `find_unused_scss_classes` ────
+// All three were left ungated while warming the checker repo-wide (empirically OOM-fatal on a
+// ~6.1k-file repo: each dies in a 1 GB process-mode child in ~10 s). LS-stays-cold is the independent
+// oracle that the refusal happened BEFORE any warm. `find_unused_scss_classes` is the scss-FACING but
+// ts-BACKED case — its reachability join reads the checker, so the guard belongs there too.
 
 test('over threshold, in-process: find_unused_exports REFUSES + redirects, LS stays COLD', async () => {
   const p = await project(FILES(1));
@@ -320,6 +321,51 @@ test('below threshold: list components runs normally (no false refusal)', async 
     assert.ok(ok(res), `under threshold must not refuse: ${JSON.stringify(res)}`);
   } finally {
     await p.dispose();
+  }
+});
+
+// The scss plugin activates on a stylesheet being present; the op `requires: ['ts','scss']`, so the
+// fixture needs both a module sheet and a TS importer of it (else the op is `unavailable`, not refused).
+const SCSS_FILES = (max: number): Record<string, string> => ({
+  'codemaster.config.ts': config(max),
+  'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+  'src/a.module.scss': '.used { color: red; }\n.dead { color: blue; }\n',
+  'src/a.ts': "import s from './a.module.scss';\nexport const cls = s.used;\n",
+});
+
+test('over threshold, in-process: find_unused_scss_classes REFUSES + redirects, LS stays COLD', async () => {
+  const p = await project(SCSS_FILES(1));
+  try {
+    const res = await p.op('find_unused_scss_classes', {});
+    assert.ok(
+      refused(res),
+      `find_unused_scss_classes must refuse over threshold: ${JSON.stringify(res)}`,
+    );
+    if ('result' in res && !res.result.ok) {
+      const msg = res.result.failure.message;
+      assert.match(msg, /isolation/, 'redirect names isolation:process');
+      assert.match(msg, /force:true/, 'redirect names the force override');
+    }
+    assert.equal(await tsFingerprint(p), 'cold', 'a refused scss reachability join must not warm');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_unused_scss_classes force:true bypasses the guard; below threshold it answers', async () => {
+  const forced = await project(SCSS_FILES(1));
+  try {
+    const res = await forced.op('find_unused_scss_classes', { force: true });
+    assert.ok(ok(res), `force:true must warm and answer, not refuse: ${JSON.stringify(res)}`);
+  } finally {
+    await forced.dispose();
+  }
+  const under = await project(SCSS_FILES(100));
+  try {
+    const res = await under.op('find_unused_scss_classes', {});
+    assert.ok(ok(res), `under threshold must not refuse: ${JSON.stringify(res)}`);
+  } finally {
+    await under.dispose();
   }
 });
 
