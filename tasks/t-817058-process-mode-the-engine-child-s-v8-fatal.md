@@ -2,7 +2,7 @@
 id: t-817058
 title: "process-mode: the engine child's V8 fatal-OOM dump (~110 lines) floods the parent's stderr before the honest FAIL — fork stdio is 'inherit'"
 status: backlog
-priority: low
+priority: high
 parent: t-031282
 tags:
   - dogfood
@@ -23,3 +23,16 @@ Harmless over MCP (stdout — the agent-facing payload — is untouched, §13), 
 sees ~110 lines of noise ahead of the one line that matters. Route the child's stderr through the debug
 sink (§13) instead of inheriting it, so the dump is greppable in the per-repo log rather than sprayed at
 the terminal. Keep it capped — a fatal dump is bounded, but the sink is the right owner.
+
+## Priority raised: the noise does not just bury the verdict, it INVERTS it
+
+Second dogfood report (worker fd3acb2a) sharpens the impact. An agent reading the CLI output through
+`head` — the normal way an agent samples a long result — sees ONLY the V8 crash dump and never reaches
+the `FAIL tool=oom` line beneath it. It therefore concludes "codemaster crashed", which is the exact
+OPPOSITE of what happened: the isolated child died on purpose, the daemon survived, and the tool
+answered honestly.
+
+That makes this more than an ergonomics wart. The whole point of the auto-escalation work (t-754922) is
+that a fatal now arrives as a structured, honest failure with the daemon alive — and this dump hides
+precisely that evidence, teaching the agent to distrust a tool that behaved correctly. Verdict-first
+(§12) is defeated at the terminal by an external writer nobody caps.
