@@ -25,3 +25,9 @@ Options, none free:
 - refuse the heavy fan-out when size is unknown — the strongest, but over-refuses every small non-git workspace, which §3 rates expensive.
 
 Whatever is chosen, the two halves must agree on it — a split decision reproduces this hole.
+
+## Direction (decided)
+
+Prefer ESCALATION on an unmeasurable size, not refusal: process-mode is safe by default and the cost is one extra fork on a small non-git workspace, whereas refusing hits EVERY non-git workspace — including the test fixtures.
+
+This inverts the current default, so it needs measuring before it ships: how many test fixtures move into a forked child, and what that does to suite wall-clock. Hence a track of its own, not a tail on t-754922.
