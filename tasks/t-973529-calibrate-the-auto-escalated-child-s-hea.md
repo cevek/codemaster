@@ -2,7 +2,7 @@
 id: t-973529
 title: Calibrate the auto-escalated child's heap ceiling — an oversized fan-out grinds ~6.6 min before OOM instead of failing fast
 status: backlog
-priority: high
+priority: urgent
 parent: t-754922
 tags:
   - platform
@@ -20,3 +20,12 @@ Measures to weigh (a calibration decision, deliberately left out of t-754922):
 - and/or keep a pre-warm advisory inside the escalated child — no longer a crash guard there, but a fast "this fan-out will not fit" answer.
 
 Neither may re-introduce false refusal: a repo whose fan-out DOES fit must still answer.
+
+## Measured anchor for the calibration
+
+Two live data points on backoffice2 (~6.1k files), same repo, same file-pinned `find_usages {role:'jsx', groupBy:'enclosing'}`:
+
+- child heap ~4 GB (the inherit an auto-escalated repo gets, no config): OOM at **~6 min 40 s**, `FAIL tool=oom … signal=SIGABRT`.
+- child heap 1024 MB (explicitly configured, measured on the sibling gate experiment): OOM at **~9–10 s**, same structural failure.
+
+So the cost curve between them is steep, and 1024 MB is a measured lower anchor that still produces the honest `oom` category rather than a deadline kill. What is NOT measured is the false-refusal side: a heap that low may also kill fan-outs that WOULD have fitted at 4 GB. The calibration therefore needs a repo whose fan-out succeeds, to find a ceiling that keeps success while cutting the grind — a middle value (e.g. 2048 MB) measured both ways, not 1024 adopted blind.
