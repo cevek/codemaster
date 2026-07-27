@@ -291,6 +291,22 @@ test('a capped promotion pass takes the OLDEST breadcrumbs and discloses what it
   assert.equal(breadcrumbs(dir).length, 5, 'the rest wait for a later start, never dropped');
 });
 
+test('a capped start DISCLOSES the deferral in the log — the crash count reads as a lower bound', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-disclose-'));
+  mkdirSync(inflightDir(dir), { recursive: true });
+  const base = Date.now() - 86_400_000;
+  for (let i = 0; i < 205; i++) {
+    const rec = { ts: base + i, tool: 'source', ops: ['source'], cwd: '/r', args: null, pid: 999999 };
+    writeFileSync(path.join(inflightDir(dir), `999999-${base + i}-0.json`), JSON.stringify(rec));
+  }
+  defaultUsageLogger({ CODEMASTER_USAGE_DIR: dir } as NodeJS.ProcessEnv).dispose();
+  const fails = readEntries(path.join(dir, 'fail.jsonl'));
+  const disclosure = fails.filter((e) => e.tool === 'usage-log-promotion');
+  assert.equal(disclosure.length, 1, 'a capped pass must say so, never read as complete');
+  assert.match(String(disclosure[0]?.response), /5 in-flight breadcrumb\(s\) not examined/);
+  assert.equal(fails.length - disclosure.length, 200);
+});
+
 test('un-promotable entries do not eat the cap — a real orphan behind them is never starved', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-starve-'));
   mkdirSync(inflightDir(dir), { recursive: true });

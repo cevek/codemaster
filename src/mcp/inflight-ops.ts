@@ -1,8 +1,15 @@
 // Best-effort op names for a crash breadcrumb (t-807677), read from the RAW tool arguments BEFORE
 // dispatch parses them. For a per-op tool the tool-name IS the op-name; for `batch` the ops live in
-// `requests[].name` (or the flat `{op}` spelling the batch normalizer accepts), and naming them is
-// the whole point of the breadcrumb — "which op killed the process" is the first triage question.
+// the request envelopes, and naming them is the whole point of the breadcrumb — "which op killed
+// the process" is the first triage question.
+//
+// The envelope's shape is NOT re-parsed here: `normalizeBatchEnvelope` (op-tools.ts) is its single
+// owner — it already knows that the flat `{op:'find_usages', name:'Button'}` spelling puts the op
+// under `op` and an ARGUMENT under `name`. Reading `name` ourselves would be a second oracle that
+// silently drifts the day a new spelling is accepted, attributing a fatal to a symbol name.
 // Purely defensive: unparseable arguments yield an empty list, never a throw and never a guess.
+
+import { normalizeBatchEnvelope } from './op-tools.ts';
 
 const MAX_OPS = 32;
 
@@ -13,12 +20,10 @@ export function inflightOps(tool: string, rawArgs: unknown): string[] {
   if (!Array.isArray(requests)) return [];
   const names: string[] = [];
   for (const request of requests.slice(0, MAX_OPS)) {
-    if (typeof request !== 'object' || request === null) continue;
-    const r = request as { name?: unknown; op?: unknown };
-    // `op` wins over `name`: in the flat spelling (`{op:'find_usages', name:'Button'}`) `name`
-    // holds the op's ARGUMENT, so reading it first would attribute the crash to a symbol name.
-    const name = typeof r.op === 'string' ? r.op : typeof r.name === 'string' ? r.name : undefined;
-    if (name !== undefined) names.push(name);
+    const canonical = normalizeBatchEnvelope(request);
+    if (typeof canonical !== 'object' || canonical === null) continue;
+    const name = (canonical as { name?: unknown }).name;
+    if (typeof name === 'string') names.push(name);
   }
   return names;
 }

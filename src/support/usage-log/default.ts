@@ -22,6 +22,22 @@ export function defaultUsageLogger(
   // Reconcile crash breadcrumbs left by a process that died mid-call (inflight.ts). Done HERE, at
   // the composition root for the serving paths, rather than inside `createFileUsageLogger` — a
   // constructor must stay free of I/O side effects (every unit test builds one).
-  promoteOrphanInflight(dir, (entry) => logger.record(entry), now());
+  const at = now();
+  const { deferred } = promoteOrphanInflight(dir, (entry) => logger.record(entry), at);
+  // §3.4: a capped pass must not read as a complete one. The deferral is disclosed in the same log
+  // the fatals land in, so a reader counting crashes sees that more are still pending.
+  if (deferred > 0) {
+    logger.record({
+      ts: at,
+      durationMs: null,
+      tool: 'usage-log-promotion',
+      ops: [],
+      ok: false,
+      cwd: dir,
+      args: null,
+      response: `!! ${deferred} in-flight breadcrumb(s) not examined this start (per-start cap) — they stay on disk and are promoted by a later start; the crash records above are a LOWER BOUND`,
+      isError: false,
+    });
+  }
   return logger;
 }

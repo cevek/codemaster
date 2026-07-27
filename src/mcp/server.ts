@@ -15,13 +15,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { systemClock, type Clock } from '../common/async/clock.ts';
 import { createIdleExit, type IdleExit } from '../common/async/idle-exit.ts';
-import type { JsonValue } from '../core/json.ts';
 import type { OrchestratorApi } from '../daemon/orchestrator-api.ts';
 import type { OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import { builtinOps } from '../ops/builtins.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
-import type { InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
+import type { UsageLogger } from '../support/usage-log/entry.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
 import { renderBatch, renderOne, renderResults } from './render-response.ts';
 import { capResponse } from './cap-seam.ts';
@@ -35,7 +34,7 @@ import {
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
-import { inflightOps } from './inflight-ops.ts';
+import { withCallTelemetry } from './call-telemetry.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -112,7 +111,6 @@ export async function serveMcp(
   // Usage telemetry (spec usage-telemetry): default no-op; the composition root injects the real
   // file logger. `clock` stamps each entry's start time + duration (§16 determinism).
   const usage = options?.usage ?? noopUsageLogger;
-  const NOOP_INFLIGHT: InflightHandle = { clear: () => undefined };
   const clock = options?.clock ?? systemClock;
 
   // The idle deadline is created (and the timer armed) only when `idle` is supplied — i.e.
@@ -278,79 +276,46 @@ export async function serveMcp(
   };
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-    // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
-    // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
-    // stay >0 and the server could never idle-exit — the orphan would persist).
-    idleExit?.enter();
-    const startMs = clock.now();
     const cwd = process.cwd();
-    // Pre-dispatch crash breadcrumb (t-807677): the telemetry write below happens only AFTER the
-    // call returns, so a FATAL call (an in-process OOM kills this very process) would leave no
-    // trace at all and make fail.jsonl under-report fatals to zero. The breadcrumb is stamped
-    // first and cleared alongside the record; an orphan is promoted to a crash entry at the next
-    // start. `begin` is wrapped by contract (a telemetry error never reaches the request path).
-    // Wrapped even though the file impl wraps internally: `usage` is an INJECTED seam, so the
-    // request path must not depend on an implementation's discipline (§3.6).
-    let inflight: InflightHandle = NOOP_INFLIGHT;
-    try {
-      inflight = usage.begin({
-        ts: startMs,
-        tool: request.params.name,
-        ops: inflightOps(request.params.name, request.params.arguments),
-        cwd,
-        args: (request.params.arguments ?? null) as JsonValue,
-      });
-    } catch {
-      /* telemetry must never crash the daemon */
-    }
-    let handled: HandledCall;
-    // One span from `begin` to the return: the breadcrumb must be cleared no matter WHICH step
-    // between them throws (the seam cap below is outside the telemetry try, and an escaping throw
-    // there would strand a breadcrumb for a call that was answered → a fabricated crash).
-    try {
-      try {
-        handled = await handleCall(request, cwd);
-      } catch (thrown) {
-        // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
-        const message = thrown instanceof Error ? thrown.message : String(thrown);
-        handled = fail(
-          errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
-        );
-      } finally {
-        idleExit?.leave();
-      }
-      // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness ceiling —
-      // a backstop over the per-op §12 caps so no op/status/batch/sql can blow the limit. At the single
-      // chokepoint BEFORE the telemetry write (the log records exactly what the agent got); no-op under
-      // the cap (byte-identical, so goldens/normal responses are untouched). See cap-seam.ts.
-      handled = { ...handled, result: capResponse(handled.result, handled.bareJson) };
-      // ONE telemetry write, wrapped so a disk/serialize error never touches the request path.
-      try {
-        usage.record({
-          ts: startMs,
-          durationMs: clock.now() - startMs,
-          tool: request.params.name,
-          ops: handled.ops,
+    // The whole call runs inside the telemetry span (call-telemetry.ts): breadcrumb → dispatch →
+    // record → clear, with the ordering guarantees that make a fatal visible stated there.
+    return withCallTelemetry({
+      usage,
+      clock,
+      tool: request.params.name,
+      args: request.params.arguments,
+      cwd,
+      run: async () => {
+        // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
+        // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
+        // stay >0 and the server could never idle-exit — the orphan would persist).
+        idleExit?.enter();
+        let handled: HandledCall;
+        try {
+          handled = await handleCall(request, cwd);
+        } catch (thrown) {
+          // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
+          const message = thrown instanceof Error ? thrown.message : String(thrown);
+          handled = fail(
+            errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
+          );
+        } finally {
+          idleExit?.leave();
+        }
+        // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness
+        // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
+        // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
+        // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
+        const result = capResponse(handled.result, handled.bareJson);
+        return {
           ok: handled.ok,
-          cwd,
-          args: (request.params.arguments ?? null) as JsonValue,
-          response: responseText(handled.result),
-          isError: handled.result.isError ?? false,
-        });
-      } catch {
-        /* telemetry must never crash the daemon */
-      }
-      return handled.result;
-    } finally {
-      // Cleared AFTER the record attempt (a death between the two still reports the call once), but
-      // UNCONDITIONALLY: a breadcrumb left behind for a call that WAS answered becomes an invented
-      // crash at the next start.
-      try {
-        inflight.clear();
-      } catch {
-        /* nothing more we can do; a stale breadcrumb is reconciled later */
-      }
-    }
+          ops: handled.ops,
+          response: responseText(result),
+          isError: result.isError ?? false,
+          value: result,
+        };
+      },
+    });
   });
 
   const transport = options?.transport ?? new StdioServerTransport();
