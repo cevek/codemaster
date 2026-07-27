@@ -1,7 +1,7 @@
 ---
 id: t-754922
 title: Auto-escalate an oversized repo to process-mode isolation transparently (no manual config) — the root fix for the OOM-crash class
-status: backlog
+status: done
 priority: urgent
 parent: t-031282
 tags:
