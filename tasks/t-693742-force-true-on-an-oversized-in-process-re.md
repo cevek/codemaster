@@ -1,7 +1,7 @@
 ---
 id: t-693742
 title: 'force:true on an oversized in-process repo is a loaded gun: find_usages OOM-kills the singleton daemon (agent sees only "MCP error -32000: Connection closed") — route the forced op through a killable child instead'
-status: backlog
+status: done
 priority: urgent
 parent: t-031282
 tags:
