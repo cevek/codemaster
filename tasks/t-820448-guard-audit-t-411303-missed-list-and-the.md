@@ -2,7 +2,7 @@
 id: t-820448
 title: "Guard audit t-411303 missed `list` (and the repo-wide dead-code ops): list{registry:'components'} OOM-kills the in-process daemon with NO size-guard message at all"
 status: backlog
-priority: urgent
+priority: medium
 parent: t-031282
 tags:
   - dogfood
@@ -59,3 +59,22 @@ A per-op sprinkle of `semanticFanoutRefusal` calls has now failed once and will 
 - `list` (and every op above confirmed to warm) either guarded or proven cheap by measurement.
 - A test that fails when an op reaches the warm-LS seam without passing the guard.
 - Note in ARCHITECTURE §9 listing the guarded set (present state) — pairs with t-140062.
+
+## HOLD on the structural seam — do not pick this up as written
+
+The urgent half (`list` crashes now) is being handled as a 2-line STOPGAP: `semanticFanoutRefusal` added
+to `list.ts` and `find_unused_exports.ts`, nothing more. Priority dropped to medium accordingly, so the
+urgent tag stops dragging a worker into the big refactor.
+
+The structural half — the deny-by-default seam / `OpDefinition.warmsLs` registry — is HELD until
+t-754922 (auto-escalation) lands. Reason: once an oversized repo runs in a killable child, the guard's
+job changes from "prevent a daemon-killing crash" to "prevent memory bloat" (its original t-333163
+framing). Designing the seam now means fixing semantics that are about to be inverted, and hands two
+tracks the same shared contract. Land escalation, THEN decide whether the seam guard is still worth it
+and at what altitude.
+
+Open sub-question worth answering meanwhile, cheaply: the unguarded-op list in this task was derived
+from `grep -c semanticFanoutRefusal`, which shows who LACKS the guard, not who actually WARMS the
+checker. The claim that `expand_type` / `source` warm-but-are-lower-risk is unverified. The real set
+must be derived from which `TsPluginApi` entry points force a program build — otherwise the audit
+repeats exactly the omission that produced this bug.
