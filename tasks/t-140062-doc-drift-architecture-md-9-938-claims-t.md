@@ -1,7 +1,7 @@
 ---
 id: t-140062
 title: Doc drift ARCHITECTURE.md §9:938 — claims the SEMANTIC ops are NOT size-gated, but semantic-fanout-guard.ts gates them in-process
-status: backlog
+status: done
 priority: medium
 tags:
   - docs

@@ -99,13 +99,24 @@ restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-targ
   boundary to it — plugin internals never do.
 - **Host — the transport seam, and the process toggle** ([`src/daemon/host.ts`](src/daemon/host.ts)).
   The orchestrator reaches an engine through a `ProjectHost` with two interchangeable
-  implementations, set by `config.daemon.isolation`:
-  - **`in-process`** _(default at this stage)_ — the engine runs inside the orchestrator; a
+  implementations:
+  - **`in-process`** — the engine runs inside the orchestrator; a
     host call is a direct in-memory call. One process, one heap — trivial to debug, no IPC.
-    Tradeoff: a heavy synchronous call blocks the shared loop (fine for dev: one agent, one repo).
+    Tradeoff: a heavy synchronous call blocks the shared loop (fine for dev: one agent, one repo),
+    and an OOM there is uncatchable — it kills the daemon and every workspace with it.
   - **`process`** — one **child process per workspace** + an IPC round-trip. Own heap + GC,
     own `--max-old-space-size`, OS reclaims all memory on kill, crash-isolation, real
     cross-workspace parallelism, non-blocking orchestrator. For scale.
+
+  **The mode is resolved per workspace at spawn** ([`daemon/escalate.ts`](src/daemon/escalate.ts),
+  applied in `host-build.ts`), not read straight off config: an explicit
+  `config.daemon.isolation` always wins and disables auto-escalation; with none set, a repo within
+  the size budget stays `in-process` (the default) and an oversized one auto-escalates into a
+  killable child — the policy, its threshold and its guarantee live in §9. A fork that fails
+  degrades an AUTO escalation to `in-process` with the cause recorded (`escalation-failed`), so the
+  cheap no-warm ops keep working and the fan-out guard can still refuse the heavy ones honestly; an
+  EXPLICIT `process` that cannot be honored fails outright — a user told which mode they want is
+  told when they cannot have it.
 
   The engine is written **once, transport-agnostic**; flipping the mode never touches engine code.
 
@@ -280,6 +291,8 @@ Bottom → top. Imports flow downward only.
 - **`plugin`** — the `Plugin` interface + `PluginRegistry` — the single contract every
   domain module obeys.
 - **`json`** — `JsonValue`.
+- **`isolation`** — `Isolation` + the closed `IsolationReason` union: how a workspace engine is
+  hosted and why (§2/§9) — decided by the daemon, read by an op to explain a refusal.
 - **`debug`** — namespaced tracing + `AsyncLocalStorage` `req#N` (§13).
 
 ### L0.5 — Common (pure logic, no I/O)
@@ -934,11 +947,42 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   instead of warming — never a crash, never a silent squat. Gating the peak un-refuses the now-safe
   pruned loose-root case (the total-surface gate over-refused it) while still refusing a `references`
   fan-out that would OOM (no t-333163 regression). Scope is exactly the risky warm-with-a-cheap-
-  alternative op: `search_symbol {syntactic:true}` is the sanctioned no-warm escape (never gated),
-  `force:true` overrides per-call, and the SEMANTIC ops (`find_usages`/`find_definition`, which NEED
-  the LS and have no cheap substitute) are NOT gated — their fix is process-isolation (§2). An estimate
+  alternative op: `search_symbol {syntactic:true}` is the sanctioned no-warm escape (never gated) and
+  `force:true` overrides this particular refusal per-call. An estimate
   FAILURE (git hiccup) falls through to warm rather than over-refuse a legitimate search — the guard is
   an optimization, not a correctness gate.
+- **Semantic fan-out guard (`ops/guard/semantic-fanout-guard.ts`).** The heavy SEMANTIC ops — those
+  that warm the type-checker and fan references/imports across EVERY loaded program (`find_usages` /
+  `find_definition` by bare name / `importers_of` / `member_usages` / `impact` / `impact_type_error` /
+  `affected` / the `find_unused_*` dead-code ops / the `trace_*` family / `list` for a ts-owned
+  registry) — refuse to warm when the repo is oversized **and the engine is still `in-process`**,
+  where an OOM is uncatchable and kills the daemon. Under `process` isolation the guard never fires:
+  the child absorbs the fatal (§2). The count and threshold are the auto-escalation decision's, BY
+  CONSTRUCTION — one `estimateSourceFileCount` + one `ts.searchWarmMaxFiles` expression, not a second
+  implementation — so the two can disagree only inside the spawn memo window, and only in the safe
+  direction. The refusal names the ONE cause that left this workspace in-process (mode pinned by
+  `daemon.autoEscalate:false` or an explicit `isolation`, no process-host factory in this build, a
+  failed escalation fork, a size measured within budget at spawn, an unmeasurable size) with its
+  remedy (§3.6). **`force:true` does NOT override it** — forcing the warm here kills the process the
+  agent is talking to, and §1 ranks a crash below a wrong answer; where forcing IS safe (a
+  process-mode child) the guard never runs. The guard is wired call-site by call-site at each op's
+  entry, ahead of any resolve/warm; the structural seam that would make coverage automatic rather
+  than per-op is open work (t-820448), as is coverage of the MUTATING ops (rename / change_signature
+  / move / extract warm and fan the same way and are unguarded — t-972931).
+- **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
+  With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
+  `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
+  `git ls-files` + extension filter — no LS, no program), taken once per engine SPAWN, memoized per
+  root (bounded to 32); a FAILED estimate is deliberately not memoized (a transient git hiccup would
+  otherwise disarm the defence for the daemon's life) and never escalates — unknown size is not
+  oversized. The outcome and its cause are a closed `IsolationReason` union
+  ([`core/isolation.ts`](src/core/isolation.ts)) the engine carries, so a refusal can explain itself
+  instead of guessing. Escape hatch: `daemon.autoEscalate: false` pins the mode.
+  **The guarantee is crash-SAFETY, not capability.** A fan-out too big for the child's heap comes
+  back as an honest `ToolFailure{oom}` with the daemon alive and every other workspace untouched —
+  it does not make that op succeed. The memo's known gap: a repo that outgrows its cached count
+  stays in-process until the daemon restarts, where the fan-out guard's own fresh count covers the
+  read ops (and not the mutating ones, above).
 - **Idle-TTL eviction** — after `daemon.idleEvictionMinutes` with no requests, the
   orchestrator **disposes the engine**: in `process` mode that kills the child process and
   the OS reclaims everything (plugin states + LS) at once; in `in-process` mode it drops
@@ -977,10 +1021,11 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 codebase has its own conventions — but every **section** is optional; enabling one may
 require its key fields (`i18n` needs `locales`, `schema` needs `entrypoint`). Sections
 are **per-plugin**, plus a few engine-wide ones:
-`ts` (globs/ignore/packages/tsconfig override, `searchWarmMaxFiles` + `searchWarmPeakMaxFiles` pre-warm guards §9), `i18n` (locales, function names,
+`ts` (globs/ignore/packages/tsconfig override, `searchWarmMaxFiles` — the fan-out guard's threshold
+AND the auto-escalation one — + `searchWarmPeakMaxFiles`, the `search_symbol` pre-warm guard, §9), `i18n` (locales, function names,
 template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
 generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
-(verbosity, limits), `daemon` (isolation mode, idle eviction, path-existence sweep interval,
+(verbosity, limits), `daemon` (isolation mode, `autoEscalate` §9, idle eviction, path-existence sweep interval,
 `maxOldSpaceMB` process-mode child heap ceiling §9, `opDeadlineSeconds` per-op wall-clock budget §1/§19), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
@@ -1248,9 +1293,24 @@ rotating + size-capped like the debug sink). It is for **later analysis of how t
 is actually used**, not for live debugging. Classification is from the **structured**
 result, never `isError`: a `Result` with `ok:false` (a `ToolFailure`) renders through a
 plain text response with no `isError`, so an isError-only check would mis-file it as
-success; a batch is a success only when every constituent op succeeded. The write is a
-single point around the dispatch, wrapped so a disk/serialize error never touches the
-request path. On by default on the `mcp` path (the composition root injects the logger;
+success; a batch is a success only when every constituent op succeeded. Every write is wrapped so a
+disk/serialize error never touches the request path.
+
+**A fatal call is recorded, not lost.** A record written only after dispatch returns would leave a
+call that never returns — the in-process OOM that kills the serving process — with zero trace, so
+`fail.jsonl` would read as if the tool's worst outcome were a polite `bad_args` (§3.4 by omission).
+So one telemetry span wraps each call (`mcp/call-telemetry.ts`): a small **breadcrumb** file is
+stamped under `<usage-dir>/inflight/` BEFORE dispatch (the `UsageLogger.begin` seam) and cleared
+only AFTER the record is written, so a death between the two reports the call once, never zero
+times. A leftover breadcrumb means the owner died with that call in flight; the next file-backed
+logger start **promotes** it into `fail.jsonl` carrying the real `tool` / op names / cwd / args —
+the discriminator is an additive `outcome`, so existing consumers keep working. `outcome:'crash'`
+when the owner pid is gone; `outcome:'abandoned'` when it still answers but the call has been in
+flight over 6h — death unproven, and claiming it would be the same lie inverted. `durationMs` is
+`null`, never a fabricated `0`: the moment the call stopped is unknown. Writes are atomic
+(temp + rename), a promotion claims its file by rename so two racing starts can never count one
+fatal twice, and the pass is bounded — the remainder stays on disk and is disclosed as a lower
+bound (§3.4), not dropped. On by default on the `mcp` path (the composition root injects the logger;
 `serveMcp`'s library default is a no-op — no side effects in tests); opt out with
 `CODEMASTER_USAGE_LOG=0`, relocate with `CODEMASTER_USAGE_DIR`.
 
@@ -1320,6 +1380,7 @@ codemaster/
       ids.ts                 # SymbolId (plugin-routed) + proof-carrying rebind
       op-example.ts          # canonical op example shape (status anti-drift)
       plugin.ts              # Plugin interface + PluginRegistry (the DAG manifest)
+      isolation.ts           # Isolation + IsolationReason — engine hosting vocabulary (§2/§9)
       debug.ts               # tracing contract (§13) — impl lives in support/debug/
     config/
       config.ts              # CodemasterConfig + defineConfig
@@ -1347,7 +1408,7 @@ codemaster/
       watch/                 # watcher seam (tests inject a fake) + chokidar adapter
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
-      usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl (§13)
+      usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl + inflight/ crash breadcrumbs (§13)
       watchdog/              # never-hang backstops (§1): beacon (SAB breadcrumb) + worker (wedge reaper, SIGKILL) + orphan-poll + stall-dir + install
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
@@ -1368,8 +1429,8 @@ codemaster/
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
-    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts)
-    mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap)
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts)
+    mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap) + call-telemetry.ts / inflight-ops.ts (§13 crash breadcrumbs)
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
         shapes/              # per-domain ~shape renderers + Record<ShapeTag> registry (§12)
@@ -1613,7 +1674,9 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   `sun_path`'s ~104/108-byte limit → honest throw) and created user-only (0600). A `Transport` seam
   (mirroring `ProjectHost`, built in `support/transport/`) carries the unix-socket impl now; a
   Windows named-pipe impl drops in behind it later. (§2, §18)
-- **`process`-mode child bootstrap (built).** The child is this same bin re-invoked as
+- **`process`-mode child bootstrap (built).** Entered either by an explicit
+  `daemon.isolation: 'process'` or by the spawn-time auto-escalation of an oversized repo (§2/§9).
+  The child is this same bin re-invoked as
   `codemaster daemon serve-engine` (`fork-engine.ts`), forked by `process-host.ts` and served by
   `engine-child.ts` — it hosts ONE workspace engine over the fork's JSON IPC, reusing `createEngine`
   unchanged. Config (root/stateDir/version) arrives via env; the child rebuilds its plugins/ops from
