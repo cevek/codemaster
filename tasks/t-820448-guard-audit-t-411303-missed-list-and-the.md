@@ -73,8 +73,59 @@ framing). Designing the seam now means fixing semantics that are about to be inv
 tracks the same shared contract. Land escalation, THEN decide whether the seam guard is still worth it
 and at what altitude.
 
-Open sub-question worth answering meanwhile, cheaply: the unguarded-op list in this task was derived
-from `grep -c semanticFanoutRefusal`, which shows who LACKS the guard, not who actually WARMS the
-checker. The claim that `expand_type` / `source` warm-but-are-lower-risk is unverified. The real set
-must be derived from which `TsPluginApi` entry points force a program build — otherwise the audit
-repeats exactly the omission that produced this bug.
+The "which ops actually warm" sub-question — the unguarded-op list above was derived from
+`grep -c semanticFanoutRefusal`, which shows who LACKS the guard, not who WARMS the checker — is
+answered empirically in the next section. Its measurements supersede the risk ordering above wherever
+the two disagree.
+
+## Measured, not assumed: which of the unguarded ops ACTUALLY force a heavy program build
+
+Method (empirical, backoffice2 ~6.1k source files): `daemon.isolation:'process'` +
+`daemon.maxOldSpaceMB: 1024` in a throwaway config, then each op via the CLI one-shot. An OOM of the
+1 GB child is the discriminator "this op builds/warms the heavy program"; a normal answer means it did
+not. (1024 MB clears child startup — `status` succeeds at that ceiling — so a death is the op's, not
+the handshake's.)
+
+OOMs the 1 GB engine (heavy — needs the guard):
+
+- `list {registry:'components', pathInclude:[…]}` — ~10 s to OOM. Confirms the repro's class: the
+  react plugin enumerates components off the live checker; `pathInclude` filters AFTER, so a
+  narrow-looking arg is not a cheap one.
+- `find_unused_exports {}` — ~10 s to OOM. The "repo-wide fan-out" hypothesis HOLDS. The §5-L2
+  primary-first short-circuit bounds the number of reference searches, not the program build that
+  precedes them, so the OOM lands before the short-circuit can matter.
+- `find_unused_scss_classes {}` — ~10 s to OOM. Same class (it asks the ts plugin for imports +
+  member accesses repo-wide). NOT guarded; next-most-likely mine for the following worker.
+
+Answers normally at 1 GB (single-program-exact; do NOT guard on this evidence):
+
+- `expand_type {name+file}` · `construction_sites {name+file}` · `discrimination_sites {name+file}` ·
+  `source {names}`. Caveat: only the FILE-PINNED addressing was measured. A BARE-NAME target on these
+  resolves through navto (the same fan `find_definition`'s addressing predicate guards), so the
+  bare-name path is unmeasured, not proven cheap.
+- `find_missing_i18n_keys` — unmeasurable here: the i18n plugin is not active on backoffice2
+  (`DISPATCH unavailable`). Its risk is unknown, not low.
+
+So the risk ordering in the section above is confirmed for the top three and NOT confirmed for the
+tail — the tail's file-pinned paths measured cheap.
+
+## Stopgap landed (does not close this task)
+
+`list` + `find_unused_exports` now call `semanticFanoutRefusal` (the per-op sprinkle this task calls
+out as the failing pattern), with the stated lifetime written at each call site. `list`'s call is
+gated on the RESOLVED registry owner being ts or ts-dependent, so a cheap non-ts registry (scss)
+is not falsely refused. Still open here: `find_unused_scss_classes`, the bare-name paths of the
+tail ops, `find_missing_i18n_keys`, and above all the STRUCTURAL seam — which is deliberately on hold
+until the auto-escalate-to-process-mode work settles what the guard should mean.
+
+## The guard's premise is now empirically verified (was an unverified §9/§19 claim)
+
+The refusal message promises "process-mode survives the OOM as an honest failure, daemon stays up".
+Checked live over a real MCP bridge on backoffice2 (own `CODEMASTER_SOCK_DIR`, `isolation:'process'`,
+`maxOldSpaceMB: 1024`): the heavy op returns
+`FAIL tool=oom — isolated engine process ran out of memory (code=null signal=SIGABRT) — fall back`,
+the daemon survives (same pid answers the next call), the engine respawns, and a repeat of the heavy
+op reproduces the same honest failure. No `Connection closed`. So the redirect the guard prints is
+true advice, not a hope. Residual honesty note: the `oom` CATEGORY is a SIGABRT/code-134 heuristic
+(`process-host.ts` `isOom`) — on a platform with another V8 abort signature it degrades to
+`engine-process`/`crash` (still a structural ToolFailure, still a live daemon, just no oom hint).

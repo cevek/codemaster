@@ -6,7 +6,8 @@
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
-import { failFromThrown, ok, partial } from '../common/result/construct.ts';
+import { fail, failFromThrown, ok, partial } from '../common/result/construct.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { Truncation } from '../core/result.ts';
@@ -85,12 +86,15 @@ export const findUnusedExportsOp = defineOp({
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
     limit: z.number().int().positive().optional(),
+    /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+    force: z.boolean().optional(),
     ...programsArgShape,
   }),
   argsHint:
     '{ pathInclude?: string[], pathExclude?: string[], limit?: number, programs?: string[] (extra tsconfig paths to load, to recover certain verdicts over an undiscovered nested config) }',
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
+    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the dead-export scan warms the whole program and fans a reference search per candidate, which would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
     'semantic, not textual: an aliased `import { X as Y }` (which text-grep would miss) still counts X as used, so X is never falsely reported.',
     'an export reached only via a barrel re-export (`export { X } from`), an `export *`, or a dynamic `import()` demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
     'an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.',
@@ -102,6 +106,14 @@ export const findUnusedExportsOp = defineOp({
   table: findUnusedExportsTable,
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
+    // STOPGAP (t-820448) — the t-679091 pre-warm guard on an op that was left ungated: the
+    // dead-export scan warms the checker over the whole program and fans a reference search per
+    // candidate across every program (measured: OOMs a 1 GB engine on a ~6.1k-file repo), which
+    // in-process kills the daemon uncatchably. Stated lifetime: this call goes away (or is
+    // re-derived) once the auto-escalate-oversized-repo-to-process-mode path lands and the guard's
+    // "refuse in-process" semantics are replaced by "route to a killable child".
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    if (refusal !== undefined) return fail(refusal);
     try {
       // Widen the search first (t-228533): a `programs:`-loaded config is searched + subtracted from
       // the undiscovered floor BEFORE `unusedExports` reads that floor, so a genuinely-dead export

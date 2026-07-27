@@ -235,6 +235,94 @@ test('trace_prop_through_tree addressing predicate: {file+line+col} does NOT ref
   }
 });
 
+// ── t-820448 STOPGAP — the guard on `list` (ts-owned registry) + `find_unused_exports` ────────────
+// Both were left ungated while warming the checker repo-wide (empirically OOM-fatal on a ~6.1k-file
+// repo). LS-stays-cold is the independent oracle that the refusal happened BEFORE any warm; the
+// non-ts-registry pair is the discriminating negative (a blanket refusal on `list` would break it).
+
+test('over threshold, in-process: find_unused_exports REFUSES + redirects, LS stays COLD', async () => {
+  const p = await project(FILES(1));
+  try {
+    const res = await p.op('find_unused_exports', {});
+    assert.ok(
+      refused(res),
+      `find_unused_exports must refuse over threshold: ${JSON.stringify(res)}`,
+    );
+    if ('result' in res && !res.result.ok) {
+      const msg = res.result.failure.message;
+      assert.match(msg, /isolation/, 'redirect names isolation:process');
+      assert.match(msg, /force:true/, 'redirect names the force override');
+    }
+    assert.equal(await tsFingerprint(p), 'cold', 'a refused dead-export scan must not warm the LS');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('find_unused_exports force:true bypasses the guard over threshold', async () => {
+  const p = await project(FILES(1));
+  try {
+    const res = await p.op('find_unused_exports', { force: true });
+    assert.ok(ok(res), `force:true must warm and answer, not refuse: ${JSON.stringify(res)}`);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('below threshold: find_unused_exports runs normally (no false refusal)', async () => {
+  const p = await project(FILES(100));
+  try {
+    const res = await p.op('find_unused_exports', {});
+    assert.ok(ok(res), `under threshold must not refuse: ${JSON.stringify(res)}`);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test("over threshold, in-process: list of a ts-DEPENDENT registry ('components') REFUSES, LS stays COLD", async () => {
+  const p = await project(REACT_FILES(1));
+  try {
+    const res = await p.op('list', { registry: 'components' });
+    assert.ok(refused(res), `list components must refuse over threshold: ${JSON.stringify(res)}`);
+    if ('result' in res && !res.result.ok) {
+      assert.match(res.result.failure.message, /isolation/, 'redirect names isolation:process');
+    }
+    assert.equal(await tsFingerprint(p), 'cold', 'a refused registry listing must not warm the LS');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('list force:true bypasses the guard; an UNRESOLVED registry answers before the guard can fire', async () => {
+  const p = await project(REACT_FILES(1));
+  try {
+    const forced = await p.op('list', { registry: 'components', force: true });
+    assert.ok(ok(forced), `force:true must answer, not refuse: ${JSON.stringify(forced)}`);
+    // Ordering discriminant: the guard sits AFTER owner resolution, so an unowned registry returns
+    // the honest available-list even over threshold — a blanket refusal at the top of run() would
+    // replace that did-you-mean with a size-guard failure. (Note: every registry SHIPPING today is
+    // owned by a ts-DEPENDENT plugin — react / react-query — so the ts-dependence predicate's
+    // negative branch has no live registry to exercise; this covers the reachable half.)
+    const unowned = await p.op('list', { registry: 'no_such_registry' });
+    assert.ok(
+      ok(unowned),
+      `an unowned registry must answer, not refuse: ${JSON.stringify(unowned)}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('below threshold: list components runs normally (no false refusal)', async () => {
+  const p = await project(REACT_FILES(100));
+  try {
+    const res = await p.op('list', { registry: 'components' });
+    assert.ok(ok(res), `under threshold must not refuse: ${JSON.stringify(res)}`);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('below threshold: the remaining ops run normally (no false refusal)', async () => {
   const p = await project(REACT_FILES(100));
   try {

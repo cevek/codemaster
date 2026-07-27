@@ -11,7 +11,9 @@ import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { ListEntry, ListView } from '../core/list.ts';
 import type { Truncation } from '../core/result.ts';
-import { failFromThrown, ok } from '../common/result/construct.ts';
+import { fail, failFromThrown, ok } from '../common/result/construct.ts';
+import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
+import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { matchesPathFilter } from '../common/glob/path-filter.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { defineOp } from './registry.ts';
@@ -212,6 +214,8 @@ const argsSchema = z.strictObject({
   pathExclude: z.array(z.string()).min(1).optional(),
   /** Cap the entry set; the cap is reported as truncation, never silent (§3.4). */
   limit: z.number().int().positive().optional(),
+  /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
+  force: z.boolean().optional(),
 });
 
 /** Discover every registry the active plugins own → a `registry → owner` map (first-wins;
@@ -253,6 +257,7 @@ export const listOp = defineOp({
   intake: { aliases: { query: 'registry' } },
   example: { args: { registry: 'components', pathInclude: ['src/features/**'] } },
   notes: [
+    "every registry shipping today is owned by a plugin that reads the ts plugin (react / react-query), so listing one enumerates off the live checker: on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (it would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. The refusal is gated on the resolved owner's ts-dependence (a future non-ts registry stays cheap), an unowned registry still gets its honest available-list, and process-mode never refuses.",
     'GENERIC dispatcher: the available registries depend on which plugins are active (a framework plugin contributes its own); `status` is not pre-loaded with them.',
     'an unknown or inactive registry returns the honest available-list, never a guessed result.',
     'entries are proof-carrying (file:line + span); a framework-convention inference carries provenance `heuristic:<plugin>` and a confidence that reflects the underlying fact (a computed value reads `dynamic`, never asserted certain).',
@@ -282,6 +287,19 @@ export const listOp = defineOp({
           ...(note !== undefined ? { note } : {}),
           ...(conflicts.length > 0 ? { conflicts } : {}),
         });
+      }
+      // STOPGAP (t-820448) — the t-679091 pre-warm guard on an op that was left ungated. A registry
+      // owned by the ts plugin (or by a framework plugin that reads it, e.g. react's `components`)
+      // is enumerated off the live checker: `list {registry:'components'}` warms the whole program
+      // (measured: OOMs a 1 GB engine on a ~6.1k-file repo) and in-process that kills the daemon
+      // uncatchably. Gated on the RESOLVED owner's ts-dependence, so a cheap non-ts registry (scss,
+      // i18n) is never falsely refused — and placed AFTER owner resolution (which only reads the
+      // cheap `listRegistries`) but BEFORE `owner.list`, the call that warms. Stated lifetime: this
+      // call goes away (or is re-derived) once the auto-escalate-oversized-repo-to-process-mode path
+      // lands and the guard's "refuse in-process" semantics become "route to a killable child".
+      if (owner.id === 'ts' || owner.deps.includes('ts')) {
+        const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force);
+        if (refusal !== undefined) return fail(refusal);
       }
       const view: ListView = owner.list(args.registry);
       // Op-level scoping (§5-L3: the entries are materialized in memory, so the path glob + cap run
