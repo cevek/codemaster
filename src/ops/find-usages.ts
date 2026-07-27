@@ -130,8 +130,8 @@ export const findUsagesOp = defineOp({
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     // Pre-warm guard (t-679091): a heavy reference fan-out warms the LS across every program — on an
-    // oversized in-process repo that OOMs and kills the daemon (§1). Refuse with a process-mode
-    // redirect BEFORE any resolve/warm (a name-addressed call warms inside resolveByName). `force`
+    // oversized in-process repo that OOMs and kills the daemon (§1). Refuse BEFORE any resolve/warm, naming why the repo
+    // was not auto-escalated (a name-addressed call warms inside resolveByName). `force`
     // bypasses; process-mode + an estimate failure fall through (see the guard).
     const refusal = semanticFanoutRefusal(ctx, ts, args.force);
     if (refusal !== undefined) return fail(refusal);

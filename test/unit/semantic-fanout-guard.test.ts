@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { ok, fail } from '../../src/common/result/construct.ts';
 import type { Result } from '../../src/core/result.ts';
 import { semanticFanoutRefusal } from '../../src/ops/guard/semantic-fanout-guard.ts';
-import type { IsolationReason } from '../../src/ops/registry.ts';
+import type { IsolationReason } from '../../src/core/isolation.ts';
 
 const ts = (count: Result<number>, threshold = 4000) => ({
   estimateSourceFileCount: () => count,
@@ -40,6 +40,7 @@ test('refusal names the actual cause — one remedy per cause, all distinct', ()
   assert.match(msgFor('no-process-host'), /process-host factory/);
   assert.match(msgFor('within-budget'), /daemon restart/);
   assert.match(msgFor('estimate-failed'), /git listing failed/);
+  assert.match(msgFor('escalation-failed'), /forking the isolated child engine failed/);
 
   const causes = [
     'auto-escalate-disabled',
@@ -47,6 +48,7 @@ test('refusal names the actual cause — one remedy per cause, all distinct', ()
     'no-process-host',
     'within-budget',
     'estimate-failed',
+    'escalation-failed',
   ] as const;
   const messages = causes.map(msgFor);
   assert.equal(new Set(messages).size, causes.length, 'every cause yields its own remedy');

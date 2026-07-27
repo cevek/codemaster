@@ -19,7 +19,8 @@
 
 import type { ToolFailure } from '../../core/result.ts';
 import type { TsPluginApi } from '../../plugins/ts/plugin.ts';
-import type { DaemonInfo, IsolationReason } from '../registry.ts';
+import type { DaemonInfo } from '../registry.ts';
+import type { IsolationReason } from '../../core/isolation.ts';
 
 /** Refuse a heavy semantic fan-out when the in-process daemon would OOM on it — else `undefined`
  *  (warm as normal). Called at the TOP of a guarded op's `run()`, BEFORE any resolve/warm (a
@@ -83,8 +84,9 @@ function remedyFor(reason: IsolationReason | undefined): string {
     case 'auto-escalate-disabled':
       return (
         'Auto-escalation is switched OFF for this workspace (`daemon.autoEscalate: false`), so the ' +
-        'oversized repo was NOT raised into a killable child — remove that setting (the default) to ' +
-        'run this op in an isolated child instead.'
+        'oversized repo was NOT raised into a killable child — remove that setting (the default) so ' +
+        'this op runs in an isolated child, where a fan-out too big for the heap comes back as an ' +
+        'honest failure instead of killing the daemon (the op may still exceed that heap).'
       );
     case 'configured':
       return (
@@ -95,7 +97,8 @@ function remedyFor(reason: IsolationReason | undefined): string {
       return (
         'This repo WAS auto-escalated, but forking the isolated child engine failed, so it fell back ' +
         'to in-process (the cheap no-warm ops still work) — check the daemon debug log for the fork ' +
-        'error, then retry: the next spawn attempts the escalation again.'
+        'error, then retry: the next spawn attempts the escalation again. That buys crash-SAFETY, ' +
+        'not capability — the fan-out may still exceed the child heap, honestly.'
       );
     case 'no-process-host':
       return (

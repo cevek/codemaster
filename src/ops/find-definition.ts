@@ -13,7 +13,7 @@ import { isFanCapableTarget } from './guard/fan-capable.ts';
 
 // The shared ts-target schema PLUS `force` (t-679091): a bare-`name` find_definition resolves via
 // `resolveByName`→`searchSymbols`, which fans navto across every program (the OOM surface), so it is
-// size-guarded like the reference-fanout ops — `force:true` bypasses. The symbolId/position/name+file
+// size-guarded like the reference-fanout ops — `force:true` does NOT override it (t-693742). The symbolId/position/name+file
 // paths are single-program-exact and never guarded, so the extra field is inert for them.
 const argsSchema = z
   .strictObject({ ...tsTargetShape, force: z.boolean().optional() })
@@ -42,7 +42,7 @@ export const findDefinitionOp = defineOp({
     // pre-resolve, so it guards all symbolId lookups in-process-oversized (a false refusal redirects
     // honestly to process-mode — §1: refuse > crash; consistent with the unconditional fanout ops).
     // A file+line+col / name+file / file+line target is single-program-exact (no `searchSymbols`)
-    // and is NEVER guarded. `force` bypasses; process-mode + estimate-failure fall through.
+    // and is NEVER guarded. `force` does NOT override it (t-693742); process-mode + an estimate failure fall through.
     if (isFanCapableTarget(args)) {
       const refusal = semanticFanoutRefusal(ctx, ts, args.force);
       if (refusal !== undefined) return fail(refusal);

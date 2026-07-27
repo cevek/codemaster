@@ -59,7 +59,7 @@ export const tracePropThroughTreeOp = defineOp({
     // resolves via `classify`→`findDefinition`→`searchSymbols` (the all-program navto fan) — on an
     // oversized in-process repo that OOMs and kills the daemon (§1). The down-tree walk itself is
     // body-local (jsxChildSites) + per-child findDefinition, so it does not fan; a file+line[:col] /
-    // name+file target is single-program-exact and is NEVER guarded. `force` bypasses.
+    // name+file target is single-program-exact and is NEVER guarded. `force` does NOT override it (t-693742).
     if (isFanCapableTarget(args)) {
       const refusal = semanticFanoutRefusal(ctx, ts, args.force);
       if (refusal !== undefined) return fail(refusal);

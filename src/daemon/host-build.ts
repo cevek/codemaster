@@ -10,6 +10,7 @@ import type { RepoId } from '../core/brands.ts';
 import { attachRepoLogSink } from './repo-log-sink.ts';
 import { createEngine } from './engine.ts';
 import { resolveIsolation } from './escalate.ts';
+import type { IsolationReason } from '../core/isolation.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { OrchestratorDeps } from './orchestrator.ts';
@@ -59,6 +60,10 @@ export async function buildWorkspaceHost(
     ...(decision.threshold !== undefined ? { threshold: decision.threshold } : {}),
   }));
 
+  // Set when an AUTO escalation was decided but its fork failed: the engine below is built
+  // in-process instead, and THIS is the reason it reports (the decision object stays immutable).
+  let fallbackReason: IsolationReason | undefined;
+
   if (decision.isolation === 'process') {
     const factory = deps.spawnProcessHost;
     if (factory === undefined) {
@@ -97,8 +102,7 @@ export async function buildWorkspaceHost(
       repo: repoId,
       error: spawned.message,
     }));
-    decision.isolation = 'in-process';
-    decision.reason = 'escalation-failed';
+    fallbackReason = 'escalation-failed';
   }
 
   // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.
@@ -113,7 +117,7 @@ export async function buildWorkspaceHost(
     version: deps.version,
     stateDir,
     isolation: 'in-process',
-    isolationReason: decision.reason,
+    isolationReason: fallbackReason ?? decision.reason,
     plugins: deps.pluginsFor?.(config, root) ?? [],
     ops: deps.opsFor?.(config) ?? [],
     clock: deps.clock,

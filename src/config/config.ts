@@ -17,11 +17,13 @@ export interface TsConfig {
   packages?: string[];
   /** tsconfig to drive the LanguageService (autodetected when omitted). */
   tsconfig?: string;
-  /** Pre-warm size guard (ARCHITECTURE.md §9): the TOTAL in-root source-file count above which the
+  /** Pre-warm size guard (ARCHITECTURE.md §9): the TOTAL in-root source-file count above which a
+   *  workspace AUTO-ESCALATES into `process` isolation at spawn — and, where the mode is PINNED
+   *  in-process (`daemon.autoEscalate: false` or an explicit `daemon.isolation`), above which the
    *  SEMANTIC fan-out ops (`find_usages` / `impact` / `importers_of` / bare-name `find_definition`)
-   *  refuse to warm the LanguageService — those ops never prune (their decl→usage fan-out spans every
-   *  program), so the total surface is a conservative proxy. Over it the op redirects to
-   *  `daemon.isolation:'process'`; `force:true` overrides per-call. Default 4000 (codemaster ~629
+   *  refuse to warm the LanguageService, naming why the repo was not escalated. `force:true` does
+   *  NOT override that refusal. Those ops never prune (their decl→usage fan-out spans every
+   *  program), so the total surface is a conservative proxy. Default 4000 (codemaster ~629
    *  files passes; a monorepo that OOM'd was ~6076). Raise it for a big machine, lower it to redirect
    *  sooner. (The DEFAULT `search_symbol` gates on the pruning-aware `searchWarmPeakMaxFiles` instead.) */
   searchWarmMaxFiles?: number;

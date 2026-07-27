@@ -49,13 +49,13 @@ export default defineConfig({
   },
 
   daemon: {
-    // 'in-process' (default) runs each engine in the daemon; 'process' forks one killable child
-    // per workspace (own heap + `maxOldSpaceMB`, crash-isolated) — for genuinely large repos (§2/§9).
-    // NOTE: setting this PINS the mode. Left unset, an oversized repo auto-escalates into a child
-    // on its own (§9), which is what you want unless you are deliberately forcing one mode.
-    isolation: 'in-process',
-    // Auto-escalation is on by default; `false` pins in-process even for an oversized repo (the
-    // heavy fan-out ops then refuse to warm rather than risk an uncatchable OOM in the daemon).
+    // LEAVE `isolation` UNSET unless you mean to force one mode. Unset = engines run in the daemon
+    // ('in-process') while an OVERSIZED repo auto-escalates into a killable child on its own (§9).
+    // Setting it explicitly PINS the mode and disables that escalation — a pinned-in-process
+    // oversized repo then refuses the heavy fan-out ops instead of risking an uncatchable OOM.
+    //   isolation: 'process',   // fork one child per workspace (own heap + `maxOldSpaceMB`)
+    //
+    // Auto-escalation is on by default; `false` pins in-process the same way (same refusal).
     autoEscalate: true,
     idleEvictionMinutes: 30,
     pathExistenceSweepSeconds: 60,

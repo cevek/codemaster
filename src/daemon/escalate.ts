@@ -21,20 +21,20 @@
 // below only damps repeated spawn churn (config-drift eviction respawns on the next request).
 
 import type { CodemasterConfig } from '../config/config.ts';
-import type { IsolationReason } from '../ops/registry.ts';
+import type { Isolation, IsolationReason } from '../core/isolation.ts';
 import { isOk } from '../common/result/narrow.ts';
-import {
-  DEFAULT_SEARCH_WARM_MAX_FILES,
-  estimateSourceFileCount,
-} from '../plugins/ts/surface-size.ts';
+import { DEFAULT_SEARCH_WARM_MAX_FILES, estimateSourceFileCount } from '../plugins/ts/plugin.ts';
 
 export interface IsolationDecision {
-  isolation: 'in-process' | 'process';
-  reason: IsolationReason;
+  /** `readonly` on purpose: a caller that needs a DIFFERENT outcome (a fork that failed) must say so
+   *  explicitly rather than mutate the decision — a mutated field that nothing downstream reads is
+   *  exactly how a stale-looking-authoritative object drifts from the effective behaviour. */
+  readonly isolation: Isolation;
+  readonly reason: IsolationReason;
   /** The counted in-root source files and the threshold they were compared against — present only
    *  when the estimate succeeded, so a message can quote real numbers instead of inventing them. */
-  files?: number;
-  threshold?: number;
+  readonly files?: number;
+  readonly threshold?: number;
 }
 
 /** Resolve the effective isolation for `root`. Pure decision — spawns nothing.
@@ -73,8 +73,11 @@ export function resolveIsolation(
 
 /** Per-root memo of the git source count. NOT a consistency device (the decision is pinned for the
  *  engine's whole lifetime anyway) — purely a damper on repeated spawn churn. Bounded to a handful
- *  of roots so it can never grow with usage. Drift can only land in the safe direction: a repo that
- *  outgrew a cached count stays in-process, where the guard's own FRESH count refuses honestly. */
+ *  of roots so it can never grow with usage. A repo that outgrew a cached count stays in-process
+ *  until the daemon restarts; the fan-out guard's own FRESH count then refuses the READ ops it
+ *  covers — but NOT the mutating ops (rename / change_signature / move / extract), which warm and
+ *  fan the same way and are unguarded (t-972931). So this is a damper with a known gap, not a
+ *  safety net. */
 const MEMO_MAX_ROOTS = 32;
 /** `undefined` value = the estimate FAILED for this root; memoized too, so a permanently non-git
  *  workspace does not re-pay two synchronous git spawns on every engine spawn (§1 bounded work). */

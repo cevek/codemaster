@@ -87,6 +87,12 @@ export type { WideningSink, WideningEndpoint } from './type-widening.ts';
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 
 export type { ResolvedTarget, TsTargetInput };
+// The host-free pre-warm size estimate + its threshold default, re-exported through the plugin's
+// PUBLIC surface: the orchestrator takes the SAME count with the SAME threshold when it decides
+// whether to auto-escalate a workspace (t-754922, daemon/escalate.ts), so the decision and this
+// plugin's own fan-out guard can never drift apart — and it reaches them through the public API
+// rather than a plugin-internal file (§5-L2: plugin internals are private).
+export { DEFAULT_SEARCH_WARM_MAX_FILES, estimateSourceFileCount } from './surface-size.ts';
 export type { TsPluginApi };
 
 /** Default POST-PRUNING PEAK file-count above which the DEFAULT (navto) `search_symbol` refuses to

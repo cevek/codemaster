@@ -227,8 +227,8 @@ export const affectedOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     // Pre-warm guard (t-411303): the transitive importer BFS builds/warms every program and fans the
     // import graph across them (the same fan `importers_of` guards) — on an oversized in-process repo
-    // that OOMs and kills the daemon (§1). Refuse with a process-mode redirect BEFORE any warm.
-    // `force` bypasses; process-mode + an estimate failure fall through (see the guard).
+    // that OOMs and kills the daemon (§1). Refuse BEFORE any warm, naming why the repo was not auto-escalated.
+    // `force` does NOT override it (t-693742); process-mode + an estimate failure fall through (see the guard).
     const refusal = semanticFanoutRefusal(ctx, ts, args.force);
     if (refusal !== undefined) return fail(refusal);
     const root = ctx.daemon?.root;

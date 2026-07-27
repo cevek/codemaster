@@ -104,7 +104,7 @@ export const memberUsagesOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     // Pre-warm guard (t-411303): the member reference scan rides `findReferencesAcross`, fanning
     // across every program — on an oversized in-process repo that OOMs and kills the daemon (§1).
-    // Refuse with a process-mode redirect BEFORE any resolve/warm. `force` bypasses; process-mode +
+    // Refuse BEFORE any resolve/warm, naming why the repo was not auto-escalated. `force` does NOT override it; process-mode +
     // an estimate failure fall through (see the guard).
     const refusal = semanticFanoutRefusal(ctx, ts, args.force);
     if (refusal !== undefined) return fail(refusal);

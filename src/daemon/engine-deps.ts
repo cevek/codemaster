@@ -5,7 +5,8 @@
 import type { RepoId } from '../core/brands.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { Clock } from '../common/async/clock.ts';
-import type { AnyOpDefinition, IsolationReason } from '../ops/registry.ts';
+import type { AnyOpDefinition } from '../ops/registry.ts';
+import type { Isolation, IsolationReason } from '../core/isolation.ts';
 import type { DebugSystemHandle } from '../support/debug/system.ts';
 import type { Watcher } from '../support/watch/seam.ts';
 import type { GitRunner } from '../support/git/run.ts';
@@ -28,7 +29,7 @@ export interface EngineDeps {
    *  construction path (host-build in-process vs engine-child fork); surfaced via
    *  `ctx.daemon.isolation` so the semantic-fanout guard (t-679091) refuses only in-process.
    *  Optional, default `in-process` (a stray direct-createEngine test call). */
-  isolation?: 'in-process' | 'process';
+  isolation?: Isolation;
   /** WHY that isolation (t-754922, decided at spawn in `escalate.ts`) — surfaced so the fan-out
    *  refusal names the one cause that applies; omitted where no decision was made (a consumer then
    *  says so, never guesses). */

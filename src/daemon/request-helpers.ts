@@ -7,7 +7,8 @@ import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { Clock } from '../common/async/clock.ts';
 import type { OpFlags, OpRequest } from '../ops/contracts.ts';
-import type { DaemonInfo, IsolationReason } from '../ops/registry.ts';
+import type { DaemonInfo } from '../ops/registry.ts';
+import type { Isolation, IsolationReason } from '../core/isolation.ts';
 import { mergeFreshness } from '../common/result/merge-freshness.ts';
 
 /** The agent-facing flags carried alongside `name`/`args`/`as`/`root` on a request.
@@ -64,7 +65,7 @@ export function buildDaemonInfo(
     version: string;
     root: string;
     stateDir: string;
-    isolation?: 'in-process' | 'process';
+    isolation?: Isolation;
     isolationReason?: IsolationReason;
   },
   plugins: readonly Plugin[],

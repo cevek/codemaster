@@ -59,7 +59,7 @@ export const traceTypeWideningOp = defineOp({
     // resolves via `searchSymbols` (the all-program navto fan) — on an oversized in-process repo that
     // OOMs and kills the daemon (§1). The forward walk is single-program (the value's own-config
     // program), so a file+line[:col] / name+file target is single-program-exact and NEVER guarded.
-    // `force` bypasses.
+    // `force` does NOT override it (t-693742).
     if (isFanCapableTarget(args)) {
       const refusal = semanticFanoutRefusal(ctx, ts, args.force);
       if (refusal !== undefined) return fail(refusal);
