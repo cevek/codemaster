@@ -1,7 +1,7 @@
 ---
 id: t-807677
 title: 'A fatal op (in-process OOM) leaves ZERO trace: usage-log writes only after dispatch, so fail.jsonl silently under-reports the worst failures'
-status: backlog
+status: done
 priority: high
 parent: t-031282
 tags:
