@@ -26,10 +26,12 @@ export interface UsageLogEntry {
   response: string;
   /** Whether the response was flagged as an MCP error (dispatch/transport-level). */
   isError: boolean;
-  /** Present ONLY on a record materialized from an orphaned in-flight breadcrumb: the process died
-   *  with this call in flight, so there is no response and no duration. Absent on every ordinary
-   *  record, so an existing consumer's key-set is unchanged. */
-  outcome?: 'crash';
+  /** Present ONLY on a record materialized from an orphaned in-flight breadcrumb — there is no
+   *  response and no duration. `crash`: the owning process is gone, so the call provably died with
+   *  it. `abandoned`: the owner still answers, so death is NOT proven — the call was merely left in
+   *  flight far too long (a wedge, or a recycled pid). Absent on every ordinary record, so an
+   *  existing consumer's key-set is unchanged. */
+  outcome?: 'crash' | 'abandoned';
 }
 
 /** The pre-dispatch breadcrumb: what a call was, stamped to disk BEFORE it runs so a fatal

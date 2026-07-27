@@ -12,7 +12,15 @@
 // One file PER CALL, not one per process: `tools/call`s are concurrent (the MCP layer does not
 // serialize them) and several processes share the one usage dir (bridge, `--in-process`, fallback),
 // so a single overwritten file would drop a live sibling's breadcrumb. Cost is O(1) per call — one
-// small `writeFileSync` + one `unlinkSync`, never work that scales with the repo (§1).
+// small write + rename + unlink, never work that scales with the repo (§1).
+//
+// The two symmetric lies this module must not tell:
+//   - a LOST fatal (a real crash that never becomes a record) — the bug being fixed;
+//   - a FABRICATED fatal (a record for a call that did not die) — the same lie, inverted.
+// Hence: writes are ATOMIC (write-temp + rename, so a reader never meets a half-written file), a
+// promotion CLAIMS by rename (two racing starts can never both count one fatal), a breadcrumb whose
+// owner is still alive is never called dead, and a claim left by a promoter that itself died is
+// re-scannable rather than invisible-forever.
 //
 // Every path here is fully wrapped: telemetry must never touch the request path (§3.6).
 
@@ -33,16 +41,33 @@ interface InflightRecord extends InflightCall {
   pid: number;
 }
 
+/** What a promotion pass did. `deferred` is disclosed rather than dropped: a consumer must be able
+ *  to tell "there were N fatals" from "there were more, capped at N" (§3.4 no silent truncation). */
+export interface PromotionOutcome {
+  promoted: number;
+  deferred: number;
+}
+
 /** Never promote more than this many orphans in one start — the promotion runs at process start,
  *  and an unbounded readdir-and-append would scale with however much junk accumulated (§1).
- *  Leftovers are NOT dropped: they stay on disk and are promoted by a later start. */
+ *  Leftovers are NOT dropped: they stay on disk, are reported as `deferred`, and are promoted by a
+ *  later start. */
 const PROMOTE_CAP = 200;
 
-/** A breadcrumb older than this is promoted even if its pid still answers — the pid was recycled,
- *  so liveness can no longer vouch for it. Without this, such a file would linger forever. */
-const RECYCLED_PID_AGE_MS = 6 * 60 * 60 * 1000;
+/** A breadcrumb whose owner pid is STILL ALIVE but which is older than this is reported as
+ *  `abandoned`, never as `crash`: at that age the pid has most likely been recycled, but the owner
+ *  answering right now is not proof of death — and claiming death we cannot prove is the lie this
+ *  module exists to prevent. Without the sweep such a file would linger forever. */
+const ABANDONED_AGE_MS = 6 * 60 * 60 * 1000;
 
 const NOOP_HANDLE: InflightHandle = { clear: () => undefined };
+
+/** Only `.json` files are breadcrumbs. A partially-written temp (`.tmp`) is therefore invisible to
+ *  a reader by construction — the write becomes visible atomically, at its rename. */
+const SUFFIX = '.json';
+/** A claimed breadcrumb KEEPS the `.json` suffix so that a promoter which itself dies mid-promotion
+ *  leaves a file a later start can still see (an invisible claim = a permanently lost fatal). */
+const CLAIM_MARK = '.claiming-';
 
 export function inflightDir(usageDir: string): string {
   return path.join(usageDir, 'inflight');
@@ -52,7 +77,8 @@ export function inflightDir(usageDir: string): string {
  *  degrades to a no-op handle — a telemetry write must never surface on the request path. */
 export function writeInflight(usageDir: string, call: InflightCall, pid: number): InflightHandle {
   const dir = inflightDir(usageDir);
-  const file = path.join(dir, `${pid}-${call.ts}-${nextSeq()}.json`);
+  const stem = path.join(dir, `${pid}-${call.ts}-${nextSeq()}`);
+  const file = `${stem}${SUFFIX}`;
   const record: InflightRecord = { ...call, pid };
   let line: string;
   try {
@@ -60,19 +86,9 @@ export function writeInflight(usageDir: string, call: InflightCall, pid: number)
   } catch {
     return NOOP_HANDLE; // non-serializable args — better no breadcrumb than a thrown request
   }
-  try {
-    ensureDir(dir);
-    writeFileSync(file, line, 'utf8');
-  } catch {
-    // Retry once through a forced mkdir: the memo may be stale (the dir was removed under us).
-    try {
-      ensured.delete(dir);
-      ensureDir(dir);
-      writeFileSync(file, line, 'utf8');
-    } catch {
-      return NOOP_HANDLE;
-    }
-  }
+  // Write-temp + rename: `writeFileSync` alone is NOT atomic, so a concurrently-starting sibling
+  // could read a truncated file. Under rename, the `.json` name appears whole or not at all.
+  if (!publish(dir, `${stem}.tmp`, file, line)) return NOOP_HANDLE;
   return {
     clear() {
       try {
@@ -82,6 +98,26 @@ export function writeInflight(usageDir: string, call: InflightCall, pid: number)
       }
     },
   };
+}
+
+function publish(dir: string, tmp: string, file: string, line: string): boolean {
+  try {
+    ensureDir(dir);
+    writeFileSync(tmp, line, 'utf8');
+    renameSync(tmp, file);
+    return true;
+  } catch {
+    // The memo may be stale (the dir was removed under us) — force it once, then give up.
+    try {
+      ensured.delete(dir);
+      ensureDir(dir);
+      writeFileSync(tmp, line, 'utf8');
+      renameSync(tmp, file);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 let seq = 0;
@@ -103,37 +139,37 @@ function ensureDir(dir: string): void {
  *
  *  A breadcrumb whose pid is still ALIVE belongs to a concurrently-serving sibling process and is
  *  left untouched — promoting it would invent a fatal that never happened, the same lie class we
- *  are fixing. Returns how many records were promoted (for tests / callers; never throws). */
+ *  are fixing. Never throws. */
 export function promoteOrphanInflight(
   usageDir: string,
   record: (entry: UsageLogEntry) => void,
   now: number,
   selfPid: number = process.pid,
-): number {
+): PromotionOutcome {
   const dir = inflightDir(usageDir);
   let files: string[];
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+    files = readdirSync(dir).filter((f) => f.endsWith(SUFFIX));
   } catch {
-    return 0; // no inflight dir yet (the common case) — nothing to reconcile
+    return { promoted: 0, deferred: 0 }; // no inflight dir yet (the common case)
   }
   let promoted = 0;
   for (const name of files.slice(0, PROMOTE_CAP)) {
     try {
       const claimed = claim(path.join(dir, name), selfPid, now);
       if (claimed === undefined) continue;
-      record(crashEntry(claimed.record, now));
+      record(crashEntry(claimed.record, claimed.outcome, now));
       promoted += 1;
       try {
         unlinkSync(claimed.file);
       } catch {
-        /* the record is already written; a leftover claim file is inert */
+        /* the record is written; a leftover claim is re-scanned later, never silently lost */
       }
     } catch {
       /* one unreadable breadcrumb must never abort the reconciliation of the rest */
     }
   }
-  return promoted;
+  return { promoted, deferred: Math.max(0, files.length - PROMOTE_CAP) };
 }
 
 /** Read a breadcrumb and, if it is a genuine orphan, take exclusive ownership of it by RENAME —
@@ -143,27 +179,58 @@ function claim(
   file: string,
   selfPid: number,
   now: number,
-): { file: string; record: InflightRecord } | undefined {
+): { file: string; record: InflightRecord; outcome: 'crash' | 'abandoned' } | undefined {
+  // A file already carrying a claim mark was taken by an earlier promoter. Take it over ONLY if
+  // that promoter is dead (it died mid-promotion, so the call it held was never recorded); a live
+  // promoter is mid-flight and owns it.
+  const claimer = claimerPidOf(file);
+  if (claimer !== undefined && claimer !== selfPid && isAlive(claimer)) return undefined;
   const record = readRecord(file);
   if (record === undefined) {
-    // Unparseable / truncated (a crash mid-write). Nothing can be honestly attributed — drop it
-    // rather than emit a record whose fields we would have to invent.
-    try {
-      unlinkSync(file);
-    } catch {
-      /* best-effort */
-    }
+    // Unreadable. Under the atomic write above this is genuine corruption rather than a partial
+    // write — but only reap it once it is old enough that no writer can still be involved, and
+    // never emit a record whose fields we would have to invent.
+    reapCorrupt(file, now);
     return undefined;
   }
-  if (record.pid === selfPid) return undefined; // our own live call
-  if (isAlive(record.pid) && now - record.ts <= RECYCLED_PID_AGE_MS) return undefined; // live sibling
-  const claimedFile = `${file}.claiming-${selfPid}`;
+  if (record.pid === selfPid && claimer === undefined) return undefined; // our own live call
+  const alive = isAlive(record.pid);
+  if (alive && now - record.ts <= ABANDONED_AGE_MS) return undefined; // a live sibling's call
+  // An owner that still answers is NOT proven dead, however old the call: report it as `abandoned`
+  // (cause undetermined), never as a crash.
+  const outcome = alive ? 'abandoned' : 'crash';
+  const claimedFile = `${stripClaim(file)}${CLAIM_MARK}${selfPid}${SUFFIX}`;
   try {
-    renameSync(file, claimedFile);
+    if (claimedFile !== file) renameSync(file, claimedFile);
   } catch {
     return undefined; // another start claimed it first
   }
-  return { file: claimedFile, record };
+  return { file: claimedFile, record, outcome };
+}
+
+/** The pid in a claim mark (`<stem>.claiming-<pid>.json`), or undefined for an unclaimed file. */
+function claimerPidOf(file: string): number | undefined {
+  const mark = file.lastIndexOf(CLAIM_MARK);
+  if (mark < 0) return undefined;
+  const pid = Number(file.slice(mark + CLAIM_MARK.length, file.length - SUFFIX.length));
+  return Number.isInteger(pid) ? pid : undefined;
+}
+
+function stripClaim(file: string): string {
+  const mark = file.lastIndexOf(CLAIM_MARK);
+  return mark < 0 ? file.slice(0, file.length - SUFFIX.length) : file.slice(0, mark);
+}
+
+/** A corrupt breadcrumb is removed only once it is older than the abandon age — a fresh unreadable
+ *  file could still belong to a writer we cannot see, and deleting it would lose a real fatal. */
+function reapCorrupt(file: string, now: number): void {
+  try {
+    const stamp = Number(path.basename(file).split('-')[1]);
+    if (Number.isFinite(stamp) && now - stamp <= ABANDONED_AGE_MS) return;
+    unlinkSync(file);
+  } catch {
+    /* best-effort */
+  }
 }
 
 function readRecord(file: string): InflightRecord | undefined {
@@ -204,11 +271,19 @@ function isAlive(pid: number): boolean {
   }
 }
 
-/** The crash record. Key-set is the ordinary entry's (existing consumers keep working) plus the
- *  additive `outcome:'crash'` discriminator. `tool` / `ops` keep their ordinary meaning — naming
- *  the op that killed the process IS the point — and `durationMs` is `null`, not a fabricated 0:
- *  the moment of death is unknown, so no duration can be honestly claimed. */
-function crashEntry(record: InflightRecord, now: number): UsageLogEntry {
+/** The recovered record. Key-set is the ordinary entry's (existing consumers keep working) plus the
+ *  additive `outcome` discriminator. `tool` / `ops` keep their ordinary meaning — naming the op that
+ *  was in flight IS the point — and `durationMs` is `null`, not a fabricated 0: the moment the call
+ *  stopped is unknown, so no duration can be honestly claimed. */
+function crashEntry(
+  record: InflightRecord,
+  outcome: 'crash' | 'abandoned',
+  now: number,
+): UsageLogEntry {
+  const cause =
+    outcome === 'crash'
+      ? `the serving process (pid ${record.pid}) died with this call in flight; cause unknown (OOM / SIGKILL / shutdown)`
+      : `pid ${record.pid} still answers, so this call is NOT proven to have died — it was left in flight for over ${ABANDONED_AGE_MS / 3_600_000}h (a wedged call, or a recycled pid)`;
   return {
     ts: record.ts,
     durationMs: null,
@@ -217,11 +292,8 @@ function crashEntry(record: InflightRecord, now: number): UsageLogEntry {
     ok: false,
     cwd: record.cwd,
     args: record.args,
-    response:
-      `!! no response — the serving process (pid ${record.pid}) died with this call in flight; ` +
-      `cause unknown (OOM / SIGKILL / shutdown). Recovered from an in-flight breadcrumb at ${now}; ` +
-      `durationMs is null because the moment of death is unknown.`,
+    response: `!! no response — ${cause}. Recovered from an in-flight breadcrumb at ${now}; durationMs is null because the moment the call stopped is unknown.`,
     isError: true,
-    outcome: 'crash',
+    outcome,
   };
 }

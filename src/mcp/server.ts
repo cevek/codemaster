@@ -21,7 +21,7 @@ import type { OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import { builtinOps } from '../ops/builtins.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
-import type { UsageLogger } from '../support/usage-log/entry.ts';
+import type { InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
 import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
 import { renderBatch, renderOne, renderResults } from './render-response.ts';
 import { capResponse } from './cap-seam.ts';
@@ -112,6 +112,7 @@ export async function serveMcp(
   // Usage telemetry (spec usage-telemetry): default no-op; the composition root injects the real
   // file logger. `clock` stamps each entry's start time + duration (§16 determinism).
   const usage = options?.usage ?? noopUsageLogger;
+  const NOOP_INFLIGHT: InflightHandle = { clear: () => undefined };
   const clock = options?.clock ?? systemClock;
 
   // The idle deadline is created (and the timer armed) only when `idle` is supplied — i.e.
@@ -288,13 +289,20 @@ export async function serveMcp(
     // trace at all and make fail.jsonl under-report fatals to zero. The breadcrumb is stamped
     // first and cleared alongside the record; an orphan is promoted to a crash entry at the next
     // start. `begin` is wrapped by contract (a telemetry error never reaches the request path).
-    const inflight = usage.begin({
-      ts: startMs,
-      tool: request.params.name,
-      ops: inflightOps(request.params.name, request.params.arguments),
-      cwd,
-      args: (request.params.arguments ?? null) as JsonValue,
-    });
+    // Wrapped even though the file impl wraps internally: `usage` is an INJECTED seam, so the
+    // request path must not depend on an implementation's discipline (§3.6).
+    let inflight: InflightHandle = NOOP_INFLIGHT;
+    try {
+      inflight = usage.begin({
+        ts: startMs,
+        tool: request.params.name,
+        ops: inflightOps(request.params.name, request.params.arguments),
+        cwd,
+        args: (request.params.arguments ?? null) as JsonValue,
+      });
+    } catch {
+      /* telemetry must never crash the daemon */
+    }
     let handled: HandledCall;
     try {
       handled = await handleCall(request, cwd);
@@ -325,11 +333,17 @@ export async function serveMcp(
         response: responseText(handled.result),
         isError: handled.result.isError ?? false,
       });
-      // Cleared only AFTER the record is written: were the process to die between the two, the
-      // breadcrumb survives and the call is reported once as a crash — never lost.
-      inflight.clear();
     } catch {
       /* telemetry must never crash the daemon */
+    } finally {
+      // Cleared AFTER the record attempt (a death between the two still reports the call once), but
+      // UNCONDITIONALLY: a throwing `record` must not leave a breadcrumb behind, or the next start
+      // would invent a crash for a call the agent got an answer to.
+      try {
+        inflight.clear();
+      } catch {
+        /* nothing more we can do; a stale breadcrumb is reconciled later */
+      }
     }
     return handled.result;
   });

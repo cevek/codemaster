@@ -10,16 +10,58 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  mkdtempSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { serveMcp } from '../../src/mcp/server.ts';
 import type { UsageLogEntry } from '../../src/support/usage-log/entry.ts';
 import { defaultUsageLogger } from '../../src/support/usage-log/default.ts';
+import { createFileUsageLogger } from '../../src/support/usage-log/create.ts';
 import { inflightDir, promoteOrphanInflight } from '../../src/support/usage-log/inflight.ts';
+import type { Orchestrator } from '../../src/daemon/orchestrator.ts';
+import { defineOp, type AnyOpDefinition } from '../../src/ops/registry.ts';
+
+process.setMaxListeners(50);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHILD = path.join(repoRoot, 'test', 'e2e', 'usage-log-crash.child.ts');
+
+function stubOp(): AnyOpDefinition {
+  return defineOp({
+    name: 'find_definition',
+    summary: 'stub',
+    mutating: false,
+    requires: [],
+    argsSchema: z.looseObject({}),
+    argsHint: '{ }',
+    run: async () => ({ ok: true, data: {} }),
+  });
+}
+
+/** An orchestrator that answers every request successfully — the telemetry seam is what's on
+ *  trial in these arms, not dispatch. */
+function throwingOrchestrator(): Orchestrator {
+  return {
+    sourceStale: () => false,
+    dispose: async () => undefined,
+    status: async () => ({}) as never,
+    request: async (_c: string, _r: string | undefined, reqs: readonly { name: string }[]) => ({
+      ok: true as const,
+      results: reqs.map((q) => ({ name: q.name, result: { ok: true as const, data: {} } })),
+    }),
+  } as unknown as Orchestrator;
+}
 
 function readEntries(file: string): UsageLogEntry[] {
   if (!existsSync(file)) return [];
@@ -134,22 +176,102 @@ test('a call that COMPLETES leaves no breadcrumb — no phantom crash at the nex
 
 test("a LIVE sibling process's breadcrumb is never promoted (that would invent a fatal)", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-live-'));
-  // A breadcrumb owned by THIS (alive) process, promoted from a different notional pid.
+  // A breadcrumb owned by THIS (alive) process, reconciled from a different notional pid.
   const logger = defaultUsageLogger({ CODEMASTER_USAGE_DIR: dir } as NodeJS.ProcessEnv);
-  logger.begin({
-    ts: Date.now(),
-    tool: 'find_usages',
-    ops: ['find_usages'],
-    cwd: '/x',
-    args: null,
-  });
-  const promoted = promoteOrphanInflight(
-    dir,
-    () => assert.fail('promoted a live call'),
-    Date.now(),
-    -1,
-  );
-  assert.equal(promoted, 0);
+  const now = Date.now();
+  logger.begin({ ts: now, tool: 'find_usages', ops: ['find_usages'], cwd: '/x', args: null });
+  const out = promoteOrphanInflight(dir, () => assert.fail('promoted a live call'), now, -1);
+  assert.deepEqual(out, { promoted: 0, deferred: 0 });
   assert.equal(breadcrumbs(dir).length, 1);
   logger.dispose();
+});
+
+test('a LIVE owner past the abandon age is reported as `abandoned`, never as a proven crash', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-abandon-'));
+  const logger = defaultUsageLogger({ CODEMASTER_USAGE_DIR: dir } as NodeJS.ProcessEnv);
+  const start = Date.now();
+  logger.begin({ ts: start, tool: 'find_usages', ops: ['find_usages'], cwd: '/x', args: null });
+  const entries: UsageLogEntry[] = [];
+  // 7h later, with the owner (this very process) still alive.
+  const out = promoteOrphanInflight(dir, (e) => entries.push(e), start + 7 * 3_600_000, -1);
+  assert.equal(out.promoted, 1);
+  assert.equal(entries[0]?.outcome, 'abandoned', 'a live owner must not be declared dead');
+  assert.match(String(entries[0]?.response), /NOT proven to have died/);
+  logger.dispose();
+});
+
+test('a truncated breadcrumb from a LIVE writer is not deleted (that would lose a real fatal)', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-partial-'));
+  mkdirSync(inflightDir(dir), { recursive: true });
+  const now = Date.now();
+  // A half-written file, as a pre-atomic-write reader would have seen it.
+  writeFileSync(path.join(inflightDir(dir), `${process.pid}-${now}-0.json`), '{"ts":17', 'utf8');
+  const out = promoteOrphanInflight(dir, () => assert.fail('promoted a corrupt record'), now, -1);
+  assert.equal(out.promoted, 0);
+  assert.equal(breadcrumbs(dir).length, 1, 'a fresh unreadable breadcrumb must survive');
+  // Only once it is far too old to belong to any writer is it reaped.
+  promoteOrphanInflight(dir, () => undefined, now + 7 * 3_600_000, -1);
+  assert.deepEqual(breadcrumbs(dir), []);
+});
+
+test('a claim left by a promoter that itself died is recovered, not lost forever', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-claim-'));
+  mkdirSync(inflightDir(dir), { recursive: true });
+  const now = Date.now();
+  const record = { ts: now, tool: 'impact', ops: ['impact'], cwd: '/r', args: null, pid: 999_999 };
+  // A promoter claimed this breadcrumb and then died before writing the record.
+  const file = path.join(inflightDir(dir), `999999-${now}-0.claiming-999998.json`);
+  writeFileSync(file, JSON.stringify(record), 'utf8');
+  const entries: UsageLogEntry[] = [];
+  const out = promoteOrphanInflight(dir, (e) => entries.push(e), now, -1);
+  assert.equal(out.promoted, 1, 'an orphaned CLAIM must still be reconciled');
+  assert.equal(entries[0]?.tool, 'impact');
+  assert.deepEqual(breadcrumbs(dir), []);
+});
+
+test('a throwing `record` still clears the breadcrumb — no phantom crash for an answered call', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-throw-'));
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  const file = createFileUsageLogger(dir);
+  await serveMcp(throwingOrchestrator(), 'test', {
+    transport: serverT,
+    ops: [stubOp()],
+    usage: {
+      begin: (call) => file.begin(call),
+      record: () => {
+        throw new Error('telemetry sink exploded');
+      },
+      dispose: () => file.dispose(),
+    },
+  });
+  const client = new Client({ name: 'throw-test', version: '0' });
+  await client.connect(clientT);
+  const res = await client.callTool({ name: 'find_definition', arguments: { name: 'X' } });
+  assert.ok(res !== undefined, 'a telemetry failure must never surface to the agent');
+  assert.deepEqual(
+    breadcrumbs(dir),
+    [],
+    'the breadcrumb must be cleared even when record() throws',
+  );
+});
+
+test('a throwing `begin` never reaches the agent (the telemetry seam is injected, not trusted)', async () => {
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  await serveMcp(throwingOrchestrator(), 'test', {
+    transport: serverT,
+    ops: [stubOp()],
+    usage: {
+      begin: () => {
+        throw new Error('breadcrumb sink exploded');
+      },
+      record: () => undefined,
+      dispose: () => undefined,
+    },
+  });
+  const client = new Client({ name: 'begin-test', version: '0' });
+  await client.connect(clientT);
+  const res = (await client.callTool({ name: 'find_definition', arguments: {} })) as {
+    isError?: boolean;
+  };
+  assert.notEqual(res.isError, true, 'a telemetry throw must not become the agent-visible answer');
 });

@@ -9,7 +9,11 @@ import { promoteOrphanInflight } from './inflight.ts';
 
 const OFF = new Set(['0', 'off', 'false', 'no']);
 
-export function defaultUsageLogger(env: NodeJS.ProcessEnv = process.env): UsageLogger {
+export function defaultUsageLogger(
+  env: NodeJS.ProcessEnv = process.env,
+  /** Clock seam (§16): the promotion pass needs "now" to age out abandoned breadcrumbs. */
+  now: () => number = Date.now,
+): UsageLogger {
   const flag = env['CODEMASTER_USAGE_LOG'];
   if (flag !== undefined && OFF.has(flag.toLowerCase())) return noopUsageLogger;
   const home = env['HOME'] ?? env['USERPROFILE'] ?? '/tmp';
@@ -18,6 +22,6 @@ export function defaultUsageLogger(env: NodeJS.ProcessEnv = process.env): UsageL
   // Reconcile crash breadcrumbs left by a process that died mid-call (inflight.ts). Done HERE, at
   // the composition root for the serving paths, rather than inside `createFileUsageLogger` — a
   // constructor must stay free of I/O side effects (every unit test builds one).
-  promoteOrphanInflight(dir, (entry) => logger.record(entry), Date.now());
+  promoteOrphanInflight(dir, (entry) => logger.record(entry), now());
   return logger;
 }
