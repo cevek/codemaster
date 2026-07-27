@@ -97,8 +97,9 @@ function remedyFor(reason: IsolationReason | undefined): string {
       return (
         'This repo WAS auto-escalated, but forking the isolated child engine failed, so it fell back ' +
         'to in-process (the cheap no-warm ops still work) — check the daemon debug log for the fork ' +
-        'error, then retry: the next spawn attempts the escalation again. That buys crash-SAFETY, ' +
-        'not capability — the fan-out may still exceed the child heap, honestly.'
+        'error, then restart the daemon (`codemaster daemon restart`) or wait for idle eviction — a ' +
+        'retry alone reuses this same in-process engine. Escalation buys crash-SAFETY, not ' +
+        'capability: the fan-out may still exceed the child heap, honestly.'
       );
     case 'no-process-host':
       return (

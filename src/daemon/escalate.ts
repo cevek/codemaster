@@ -79,17 +79,18 @@ export function resolveIsolation(
  *  fan the same way and are unguarded (t-972931). So this is a damper with a known gap, not a
  *  safety net. */
 const MEMO_MAX_ROOTS = 32;
-/** `undefined` value = the estimate FAILED for this root; memoized too, so a permanently non-git
- *  workspace does not re-pay two synchronous git spawns on every engine spawn (§1 bounded work). */
-const memo = new Map<string, number | undefined>();
+const memo = new Map<string, number>();
 
 function countSourceFiles(root: string): number | undefined {
-  if (memo.has(root)) return memo.get(root);
+  const cached = memo.get(root);
+  if (cached !== undefined) return cached;
   const counted = estimateSourceFileCount(root);
-  if (!isOk(counted)) {
-    memo.set(root, undefined); // git hiccup — honest unknown, never a guessed 0
-    return undefined;
-  }
+  // A FAILURE is deliberately NOT memoized. It is usually transient (an `index.lock` during a
+  // checkout, a HEAD-less fresh `git init`), and caching it would pin the workspace to
+  // `estimate-failed` — i.e. never escalated — for the daemon's whole life, long after git recovered.
+  // Re-paying one cheap listing on the next SPAWN is the right trade against silently disarming the
+  // OOM defence on a repo that is genuinely oversized.
+  if (!isOk(counted)) return undefined;
   if (memo.size >= MEMO_MAX_ROOTS) {
     const oldest = memo.keys().next();
     if (!oldest.done) memo.delete(oldest.value);
