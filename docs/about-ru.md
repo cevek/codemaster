@@ -99,13 +99,19 @@ agent ──MCP──▶ orchestrator (daemon) ──host──▶ workspace eng
 - **Workspace engine** — машина для одного workspace'а: набор зарегистрированных
   **плагинов** + **ops**, которые их композят. Всё в одной памяти — op'ы хопают через
   плагины с zero serialization.
-- **Host** — transport seam. Две взаимозаменяемые реализации, выбираемые `config.daemon.isolation`:
-  - `in-process` (default на этом этапе) — engine внутри orchestrator'а; host-вызов =
+- **Host** — transport seam. Две взаимозаменяемые реализации:
+  - `in-process` — engine внутри orchestrator'а; host-вызов =
     прямой in-memory call. Дёшево, легко дебажить. Минус: heavy synchronous call блокирует
-    shared loop.
+    shared loop, а OOM там неперехватываем — убивает демон вместе со всеми workspace'ами.
   - `process` — один child процесс на workspace + IPC round-trip. Свой heap + GC, свой
     `--max-old-space-size`, ОС забирает память при kill, crash-isolation, реальная
     cross-workspace параллельность.
+
+Режим решается **для каждого workspace'а на спавне** (ARCHITECTURE §2/§9): явный
+`config.daemon.isolation` всегда выигрывает; без него репо в пределах размерного бюджета
+остаётся `in-process` (default), а слишком большое авто-эскалируется в killable child.
+Гарантия эскалации — crash-safety, а не capability: непосильный fan-out возвращается честным
+`ToolFailure{oom}`, демон при этом жив.
 
 Engine написан **один раз, transport-agnostic**.
 

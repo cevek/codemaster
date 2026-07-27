@@ -972,7 +972,8 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   entry, ahead of any resolve/warm; the structural seam that would make coverage automatic rather
   than per-op is open work (t-820448), and the coverage is therefore partial — the MUTATING ops
   (rename / change_signature / move / extract) warm and fan the same way and are unguarded
-  (t-972931), as are the i18n dead-key ops (`find_unused_i18n_keys` / `find_missing_i18n_keys`).
+  (t-972931), as are the i18n dead-key ops (`find_unused_i18n_keys` / `find_missing_i18n_keys` —
+  t-004414).
 - **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
   With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
   `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
