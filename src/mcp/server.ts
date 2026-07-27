@@ -304,48 +304,53 @@ export async function serveMcp(
       /* telemetry must never crash the daemon */
     }
     let handled: HandledCall;
+    // One span from `begin` to the return: the breadcrumb must be cleared no matter WHICH step
+    // between them throws (the seam cap below is outside the telemetry try, and an escaping throw
+    // there would strand a breadcrumb for a call that was answered → a fabricated crash).
     try {
-      handled = await handleCall(request, cwd);
-    } catch (thrown) {
-      // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
-      const message = thrown instanceof Error ? thrown.message : String(thrown);
-      handled = fail(
-        errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
-      );
-    } finally {
-      idleExit?.leave();
-    }
-    // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness ceiling —
-    // a backstop over the per-op §12 caps so no op/status/batch/sql can blow the limit. At the single
-    // chokepoint BEFORE the telemetry write (the log records exactly what the agent got); no-op under
-    // the cap (byte-identical, so goldens/normal responses are untouched). See cap-seam.ts.
-    handled = { ...handled, result: capResponse(handled.result, handled.bareJson) };
-    // ONE telemetry write, wrapped so a disk/serialize error never touches the request path.
-    try {
-      usage.record({
-        ts: startMs,
-        durationMs: clock.now() - startMs,
-        tool: request.params.name,
-        ops: handled.ops,
-        ok: handled.ok,
-        cwd,
-        args: (request.params.arguments ?? null) as JsonValue,
-        response: responseText(handled.result),
-        isError: handled.result.isError ?? false,
-      });
-    } catch {
-      /* telemetry must never crash the daemon */
+      try {
+        handled = await handleCall(request, cwd);
+      } catch (thrown) {
+        // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        handled = fail(
+          errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
+        );
+      } finally {
+        idleExit?.leave();
+      }
+      // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness ceiling —
+      // a backstop over the per-op §12 caps so no op/status/batch/sql can blow the limit. At the single
+      // chokepoint BEFORE the telemetry write (the log records exactly what the agent got); no-op under
+      // the cap (byte-identical, so goldens/normal responses are untouched). See cap-seam.ts.
+      handled = { ...handled, result: capResponse(handled.result, handled.bareJson) };
+      // ONE telemetry write, wrapped so a disk/serialize error never touches the request path.
+      try {
+        usage.record({
+          ts: startMs,
+          durationMs: clock.now() - startMs,
+          tool: request.params.name,
+          ops: handled.ops,
+          ok: handled.ok,
+          cwd,
+          args: (request.params.arguments ?? null) as JsonValue,
+          response: responseText(handled.result),
+          isError: handled.result.isError ?? false,
+        });
+      } catch {
+        /* telemetry must never crash the daemon */
+      }
+      return handled.result;
     } finally {
       // Cleared AFTER the record attempt (a death between the two still reports the call once), but
-      // UNCONDITIONALLY: a throwing `record` must not leave a breadcrumb behind, or the next start
-      // would invent a crash for a call the agent got an answer to.
+      // UNCONDITIONALLY: a breadcrumb left behind for a call that WAS answered becomes an invented
+      // crash at the next start.
       try {
         inflight.clear();
       } catch {
         /* nothing more we can do; a stale breadcrumb is reconciled later */
       }
     }
-    return handled.result;
   });
 
   const transport = options?.transport ?? new StdioServerTransport();
