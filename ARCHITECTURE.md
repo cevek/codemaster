@@ -953,9 +953,12 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   an optimization, not a correctness gate.
 - **Semantic fan-out guard (`ops/guard/semantic-fanout-guard.ts`).** The heavy SEMANTIC ops — those
   that warm the type-checker and fan references/imports across EVERY loaded program (`find_usages` /
-  `find_definition` by bare name / `importers_of` / `member_usages` / `impact` / `impact_type_error` /
-  `affected` / the `find_unused_*` dead-code ops / the `trace_*` family / `list` for a ts-owned
-  registry) — refuse to warm when the repo is oversized **and the engine is still `in-process`**,
+  `importers_of` / `member_usages` / `impact` / `impact_type_error` / `affected` /
+  `find_unused_exports` / `find_unused_props` / `find_unused_scss_classes` / the `trace_*` family;
+  `find_definition` and the conditionally-fanning traces only for a **fan-capable** target — a bare
+  `name`, or a `symbolId` whose §6 rebind may fan (a `name+file` / `file+line[:col]` target is
+  single-program-exact, so guarding it would be a false refusal); `list` for a registry owned by `ts`
+  or by a plugin that depends on it, e.g. react's `components`) — refuse to warm when the repo is oversized **and the engine is still `in-process`**,
   where an OOM is uncatchable and kills the daemon. Under `process` isolation the guard never fires:
   the child absorbs the fatal (§2). The count and threshold are the auto-escalation decision's, BY
   CONSTRUCTION — one `estimateSourceFileCount` + one `ts.searchWarmMaxFiles` expression, not a second
@@ -967,8 +970,9 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   agent is talking to, and §1 ranks a crash below a wrong answer; where forcing IS safe (a
   process-mode child) the guard never runs. The guard is wired call-site by call-site at each op's
   entry, ahead of any resolve/warm; the structural seam that would make coverage automatic rather
-  than per-op is open work (t-820448), as is coverage of the MUTATING ops (rename / change_signature
-  / move / extract warm and fan the same way and are unguarded — t-972931).
+  than per-op is open work (t-820448), and the coverage is therefore partial — the MUTATING ops
+  (rename / change_signature / move / extract) warm and fan the same way and are unguarded
+  (t-972931), as are the i18n dead-key ops (`find_unused_i18n_keys` / `find_missing_i18n_keys`).
 - **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
   With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
   `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
@@ -1424,6 +1428,7 @@ codemaster/
     ops/                     # L3 — public, named, parameterized ops (compose plugins)
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
+      guard/                 # semantic-fanout-guard.ts + fan-capable.ts — the in-process OOM refusal (§9)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
       search-symbol.ts  source.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
