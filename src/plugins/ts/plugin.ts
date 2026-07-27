@@ -30,7 +30,11 @@ import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
 import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
-import { estimateSearchPeak, estimateSourceFileCount } from './surface-size.ts';
+import {
+  DEFAULT_SEARCH_WARM_MAX_FILES,
+  estimateSearchPeak,
+  estimateSourceFileCount,
+} from './surface-size.ts';
 import { failFromThrown } from '../../common/result/construct.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
@@ -84,14 +88,6 @@ export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 
 export type { ResolvedTarget, TsTargetInput };
 export type { TsPluginApi };
-
-/** Default TOTAL-surface file-count above which the SEMANTIC fan-out guard (t-679091:
- *  find_usages / impact / importers_of / bare-name find_definition) refuses to warm. Those ops NEVER
- *  prune (their decl→usage fan-out spans every program), so the total surface is a conservative
- *  proxy. Data-informed: codemaster ~629 (passes, ~6× headroom); a monorepo that OOM'd was ~6076 —
- *  4000 sits between, and the asymmetry favours conservative (a false-refuse is a soft redirect; a
- *  false-allow is an OOM/crash). `search_symbol` has its OWN, pruning-aware peak threshold below. */
-const DEFAULT_SEARCH_WARM_MAX_FILES = 4000;
 
 /** Default POST-PRUNING PEAK file-count above which the DEFAULT (navto) `search_symbol` refuses to
  *  warm (t-399909). Higher than the semantic threshold because it gates what will ACTUALLY build —

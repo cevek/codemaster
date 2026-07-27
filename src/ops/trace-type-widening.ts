@@ -45,7 +45,7 @@ export const traceTypeWideningOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'color', file: 'src/paint.ts' } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), redirecting to `daemon.isolation:'process'` (or `force:true`). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), naming why it was not auto-escalated into a killable child (`force:true` does NOT override). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.',
     'target is the VALUE whose precision you follow (a variable / parameter — by name, file:line:col, or SymbolId). The source type is read at its OWN declaration, so a literal arg is not mis-read as the already-widened parameter type (the contextual-typing trap).',
     'one hop per forward flow-step (var-init / arg→param / return / reassignment). A WIDENED hop notes the kind (literal-widening / union-widened / to-any / to-unknown / narrowing-lost); a preserved hop is shown too so the whole path is visible. `widenings` counts the lost-precision hops.',
     'arg→param crosses INTO the callee (continues from the parameter); return / reassignment are leaves. An any/unknown/untyped boundary is flagged dynamic and STOPPED — precision is erased there, never bridged (§3.3).',

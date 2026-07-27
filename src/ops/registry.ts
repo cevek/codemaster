@@ -34,7 +34,29 @@ export interface DaemonInfo {
    *  `process` is a killable child. The semantic-fanout guard (t-679091) refuses a heavy LS fan-out
    *  only when `in-process`; process-mode survives via the t-000052 kill/respawn mechanism. */
   isolation: 'in-process' | 'process';
+  /** WHY that isolation (t-754922) — so a refusal names the ONE cause and its ONE remedy instead of
+   *  enumerating every possibility we already ruled out (§3.6). A closed union: a consumer switches
+   *  exhaustively, so a new cause is a compile error, never a silently-misread old one. `undefined`
+   *  = not wired on this path (a synthetic context / a forked child) — a consumer must SAY it
+   *  doesn't know, never substitute a plausible cause. */
+  isolationReason?: IsolationReason;
 }
+
+/** The causes behind a workspace's resolved isolation (decided at spawn — `daemon/escalate.ts`).
+ *  Declared here, beside its consumer's contract, so nothing under `ops/` imports upward. */
+export type IsolationReason =
+  /** `daemon.isolation` was set explicitly — honored verbatim, never escalated. */
+  | 'configured'
+  /** Oversized repo, auto-raised into a killable child under the `in-process` default. */
+  | 'auto-escalated'
+  /** Oversized, but `daemon.autoEscalate: false` pinned the mode. */
+  | 'auto-escalate-disabled'
+  /** Oversized and escalation was wanted, but this build provides no process-host factory. */
+  | 'no-process-host'
+  /** Within the size budget — the plain `in-process` default. */
+  | 'within-budget'
+  /** The cheap git size estimate failed, so size was UNKNOWN — never escalate on unknown. */
+  | 'estimate-failed';
 
 export interface OpContext {
   plugins: PluginRegistry;

@@ -43,7 +43,7 @@ export const tracePropThroughTreeOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'App', prop: 'userId' } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), redirecting to `daemon.isolation:'process'` (or `force:true`). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), naming why it was not auto-escalated into a killable child (`force:true` does NOT override). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.',
     'addresses the component that RECEIVES the prop (by name / SymbolId / file+line, like every symbol-addressed op); prop is the prop name as that component receives it. A target that is not a component (a hook / other) → found:0 + an honest note, never a faked trace.',
     'every hop is SYNTACTIC and flagged: an as-is `name={prop}` forward is `partial` (a same-named local could shadow — not type-resolved); a RENAME, a `{...spread}` (child prop name unknown), and a DERIVED expression (`{prop.x}`/`{f(prop)}`) are each `dynamic` with the reason in `note`. dynamicHops counts them.',
     'reaches counts the distinct downstream COMPONENT nodes the prop flows into; a `<host/>` element (a DOM tag) or a non-component tag is a flow SINK leaf (the prop is rendered there), never recursed.',

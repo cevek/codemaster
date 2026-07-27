@@ -180,7 +180,7 @@ export const impactTypeErrorOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'createEngine', edit: { remove: true } } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its closure×find_usages fan-out + cross-program typecheck would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its closure×find_usages fan-out + cross-program typecheck would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'simulates the edit by overlaying it on the declaration span (NO write to disk), then runs the cross-program typecheck over the dependent files and reports the diagnostics the edit INTRODUCED (diffed against a pre-edit baseline, so pre-existing repo errors are never blamed on the edit).',
     "edit is applied VERBATIM: { replace } substitutes new declaration source, { remove } deletes the declaration. Express make-required / drop-param / retype by writing the new source — no mutation DSL (that's `change_signature`'s job).",
     'the dependent SET is the same bounded closure as `impact` (depth + node caps); a truncated closure means the typecheck scope is incomplete and is flagged `!!` — a dependent outside the scope, or in a program the gate could not check, is NEVER reported clean.',

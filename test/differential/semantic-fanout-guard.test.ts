@@ -49,9 +49,10 @@ test('over threshold, in-process: find_usages / impact / importers_of REFUSE + r
       assert.ok(refused(res), `${req.name} must refuse over threshold: ${JSON.stringify(res)}`);
       if ('result' in res && !res.result.ok) {
         const msg = res.result.failure.message;
-        assert.match(msg, /isolation/, `${req.name} redirect names isolation:process`);
-        assert.match(msg, /process/, `${req.name} redirect names process-mode`);
-        assert.match(msg, /force:true/, `${req.name} redirect names the force override`);
+        assert.match(msg, /IN-PROCESS/, `${req.name} names the risky mode`);
+        // The harness wires no process-host factory, so THAT is the honest cause here (t-754922) —
+        // the refusal must name it, not a generic "one of three reasons" menu.
+        assert.match(msg, /process-host factory/, `${req.name} names the actual cause`);
         assert.match(
           msg,
           /\d+ source files > threshold 1/,
@@ -97,12 +98,17 @@ test('find_definition addressing predicate: fan-capable {name} / {symbolId} REFU
   }
 });
 
-test('force:true bypasses the guard over threshold (find_usages warms and answers)', async () => {
+// t-754922 / t-693742: force:true no longer buys a warm the daemon may not survive. The LS-cold
+// fingerprint is the independent oracle that the forced call really warmed NOTHING.
+test('force:true does NOT bypass the guard over threshold (find_usages refuses, LS stays COLD)', async () => {
   const p = await project(FILES(1));
   try {
     const res = await p.op('find_usages', { name: 'Widget', force: true });
-    assert.ok(ok(res), `force:true must warm and answer, not refuse: ${JSON.stringify(res)}`);
-    assert.notEqual(await tsFingerprint(p), 'cold', 'force:true warms the LS');
+    assert.ok(refused(res), `force:true must still refuse: ${JSON.stringify(res)}`);
+    if ('result' in res && !res.result.ok) {
+      assert.match(res.result.failure.message, /does NOT override/);
+    }
+    assert.equal(await tsFingerprint(p), 'cold', 'a forced refusal must not warm the LS');
   } finally {
     await p.dispose();
   }
@@ -139,8 +145,8 @@ test('over threshold, in-process: member_usages / affected / trace_type_widening
       assert.ok(refused(res), `${req.name} must refuse over threshold: ${JSON.stringify(res)}`);
       if ('result' in res && !res.result.ok) {
         const msg = res.result.failure.message;
-        assert.match(msg, /isolation/, `${req.name} redirect names isolation:process`);
-        assert.match(msg, /force:true/, `${req.name} redirect names the force override`);
+        assert.match(msg, /IN-PROCESS/, `${req.name} names the risky mode`);
+        assert.match(msg, /process-host factory/, `${req.name} names the actual cause`);
       }
     }
     // The load-bearing discriminant: a refused fan-out warmed nothing → the ts plugin stays cold.
@@ -175,11 +181,11 @@ test('trace_type_widening addressing predicate: bare {name} REFUSES; {file+line+
   }
 });
 
-test('force:true bypasses the guard for the remaining ops (member_usages warms, not refused)', async () => {
+test('force:true does not bypass the guard for the remaining ops (member_usages refuses)', async () => {
   const p = await project(FILES(1));
   try {
     const res = await p.op('member_usages', { name: 'Widget', member: 'x', force: true });
-    assert.ok(!refused(res), `force:true must not refuse: ${JSON.stringify(res)}`);
+    assert.ok(refused(res), `force:true must still refuse: ${JSON.stringify(res)}`);
   } finally {
     await p.dispose();
   }

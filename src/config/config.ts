@@ -87,6 +87,16 @@ export interface DaemonConfig {
    *  (one child process per workspace: isolation, own heap, killable, parallel). See
    *  ARCHITECTURE.md §2. */
   isolation?: 'in-process' | 'process';
+  /** Auto-escalation (§9): an OVERSIZED repo (more in-root git source files than
+   *  `ts.searchWarmMaxFiles`) is raised into `process` isolation at spawn even under the
+   *  `in-process` default — so a warm that would OOM lands in a killable child and comes back as an
+   *  honest `ToolFailure`, instead of taking the singleton daemon down (an in-process OOM is
+   *  uncatchable). On by default; the repos that need it carry no config at all.
+   *  Set `false` to pin the mode — as does an EXPLICIT `isolation` above, which always wins (the two
+   *  knobs are not competing: an explicit mode is honored verbatim and never escalated).
+   *  Pinning in-process re-arms the semantic fan-out refusal on such a repo (that op then declines
+   *  to warm, `force:true` no longer overrides it). */
+  autoEscalate?: boolean;
   /** Evict an idle workspace engine after N minutes (memory guard, §9). */
   idleEvictionMinutes?: number;
   /** How often (seconds) the orchestrator `stat()`s each engine's `repoRoot` to detect

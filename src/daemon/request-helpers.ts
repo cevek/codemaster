@@ -7,7 +7,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { Clock } from '../common/async/clock.ts';
 import type { OpFlags, OpRequest } from '../ops/contracts.ts';
-import type { DaemonInfo } from '../ops/registry.ts';
+import type { DaemonInfo, IsolationReason } from '../ops/registry.ts';
 import { mergeFreshness } from '../common/result/merge-freshness.ts';
 
 /** The agent-facing flags carried alongside `name`/`args`/`as`/`root` on a request.
@@ -65,6 +65,7 @@ export function buildDaemonInfo(
     root: string;
     stateDir: string;
     isolation?: 'in-process' | 'process';
+    isolationReason?: IsolationReason;
   },
   plugins: readonly Plugin[],
   opNames: readonly string[],
@@ -78,6 +79,9 @@ export function buildDaemonInfo(
     opNames,
     // Default in-process: the mode where the guard matters; a forked child passes 'process' explicitly.
     isolation: meta.isolation ?? 'in-process',
+    // Omitted when unknown (a direct createEngine / a forked child) — a consumer says "unknown",
+    // never invents a cause (§3.6).
+    ...(meta.isolationReason !== undefined ? { isolationReason: meta.isolationReason } : {}),
   };
 }
 

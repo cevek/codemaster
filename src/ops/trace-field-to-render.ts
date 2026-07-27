@@ -43,7 +43,7 @@ export const traceFieldToRenderOp = defineOp({
   argsHint: '{ field: string, force?: boolean }',
   example: { args: { field: 'src/types.ts:1:25' } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the member reference scan fans across every program and would OOM, killing the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the member reference scan fans across every program and would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous; a name shared by several types is an honest miss → address by loc/SymbolId). 0 matches → found:0, never a faked trace.',
     'renderedBy counts the components that render the field in a HOST element (`<span>{u.email}</span>`). A read inside a VALUE element (`<Avatar email={u.email}/>`) is passed-to (partial) — the child decides the render, so it is NOT counted; follow it with trace_prop_through_tree.',
     'every hop carries per-hop confidence + provenance (rendered-in = type/LS member ref; passed-to/destructured = syntactic). A destructure binding, a host-attribute bind, or a wrapped/indirect component is flagged on its hop, never silently treated as a clean render.',

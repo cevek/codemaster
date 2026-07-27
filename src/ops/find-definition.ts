@@ -30,7 +30,7 @@ export const findDefinitionOp = defineOp({
   example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
   notes: [
     'verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).',
-    "a BARE-`name` target, or a `symbolId` whose file moved (the §6 rebind), resolves via a repo-wide navto fan-out; on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000) it REFUSES to warm (would OOM-kill the daemon) and redirects to `daemon.isolation:'process'` (or `force:true`). A file+line+col / name+file target is single-program-exact and is never guarded.",
+    'a BARE-`name` target, or a `symbolId` whose file moved (the §6 rebind), resolves via a repo-wide navto fan-out; on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000) it REFUSES to warm (would OOM-kill the daemon) and names why the repo was not auto-escalated into a killable child (`force:true` does NOT override). A file+line+col / name+file target is single-program-exact and is never guarded.',
   ],
   async run(ctx, args) {
     const ts = ctx.plugins.get<TsPluginApi>('ts');

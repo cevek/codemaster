@@ -9,6 +9,7 @@ import type { CodemasterConfig } from '../config/config.ts';
 import type { RepoId } from '../core/brands.ts';
 import { attachRepoLogSink } from './repo-log-sink.ts';
 import { createEngine } from './engine.ts';
+import { resolveIsolation } from './escalate.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
 import type { OrchestratorDeps } from './orchestrator.ts';
@@ -44,9 +45,26 @@ export async function buildWorkspaceHost(
   const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
   const stateDir = deps.stateDir ?? path.join(home, '.codemaster');
 
-  if (config.daemon?.isolation === 'process') {
+  // The isolation DECISION (§2/§9, t-754922): the config's explicit mode, else auto-escalation for
+  // an oversized repo. Taken here, before any engine exists, off a host-free git count that the
+  // downstream fan-out guard re-derives from the same function + threshold (see escalate.ts).
+  const decision = resolveIsolation(root, config, deps.spawnProcessHost !== undefined);
+  // Traced with the CAUSE, always — an auto-escalated repo silently forking a child would be a
+  // capability change the user (notably one who chose `--in-process` to debug) never saw (§3.6).
+  deps.debug.ns('daemon')('isolation resolved', () => ({
+    repo: repoId,
+    isolation: decision.isolation,
+    reason: decision.reason,
+    ...(decision.files !== undefined ? { files: decision.files } : {}),
+    ...(decision.threshold !== undefined ? { threshold: decision.threshold } : {}),
+  }));
+
+  if (decision.isolation === 'process') {
     const factory = deps.spawnProcessHost;
     if (factory === undefined) {
+      // Unreachable for an AUTO escalation (it degrades to in-process when no factory exists —
+      // escalate.ts); this is the EXPLICIT `isolation:'process'` request, which must fail honestly
+      // rather than silently run in a mode the user did not ask for.
       return {
         ok: false,
         message:
@@ -81,6 +99,7 @@ export async function buildWorkspaceHost(
     version: deps.version,
     stateDir,
     isolation: 'in-process',
+    isolationReason: decision.reason,
     plugins: deps.pluginsFor?.(config, root) ?? [],
     ops: deps.opsFor?.(config) ?? [],
     clock: deps.clock,

@@ -231,7 +231,7 @@ export const importersOfOp = defineOp({
   intake: { aliases: { path: 'module', file: 'module' }, moduleTarget: true },
   example: { args: { module: '@/components/ui/dialog' } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (a repo-wide import fan-out would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (a repo-wide import fan-out would OOM and can kill the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'module = a repo-relative path or any import specifier the project uses (@/… aliases resolve via tsconfig paths); catches re-exports, not just direct imports.',
     'importers are found across ALL loaded programs (a `test/**` importer under a sibling tsconfig too) — see concepts: cross-program-read.',
     'the result carries `resolved`: `false` means the specifier did NOT resolve to a file (a typo / out-of-project path) — a `0` there is a bad arg, said LOUDLY (`module unresolved`), distinct from an honest resolved-0. §3.6.',

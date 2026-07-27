@@ -31,6 +31,16 @@ interface RelHost {
   relOf(abs: string): string;
 }
 
+/** Default TOTAL-surface file-count above which the SEMANTIC fan-out guard (t-679091:
+ *  find_usages / impact / importers_of / bare-name find_definition) refuses to warm, and above which
+ *  a workspace AUTO-ESCALATES into process isolation (t-754922 — one threshold, one meaning: "a warm
+ *  here risks OOM"). Those ops NEVER prune (their decl→usage fan-out spans every program), so the
+ *  total surface is a conservative proxy. Data-informed: codemaster ~629 (passes, ~6× headroom); a
+ *  monorepo that OOM'd was ~6076 — 4000 sits between, and the asymmetry favours conservative (a
+ *  false-escalate costs a child process; a false-allow is an OOM/crash). `search_symbol` has its OWN,
+ *  pruning-aware peak threshold (`DEFAULT_SEARCH_WARM_PEAK_MAX_FILES`). */
+export const DEFAULT_SEARCH_WARM_MAX_FILES = 4000;
+
 /** Count the git-tracked source files under `root` (`.ts/.tsx/.mts/.cts`, minus `.d.ts`) — the total
  *  in-root source surface, one cheap git listing, NEVER parses or warms. Used by the SEMANTIC fan-out
  *  guard (t-679091), whose decl→usage fan-out never prunes; the `search_symbol` guard gates on the

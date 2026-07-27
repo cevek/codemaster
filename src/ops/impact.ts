@@ -198,7 +198,7 @@ export const impactOp = defineOp({
   intake: tsTargetIntake,
   example: { args: { name: 'createEngine', depth: 2 } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its nodes×find_usages fan-out would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its nodes×find_usages fan-out would OOM and can kill the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'bounded BFS over find_usages: who transitively depends on the target (encloser rollup → those enclosers’ usages → …). Each dependent is a chainable SymbolId, grouped by its SHALLOWEST depth (proximity), sorted by fan-in within a depth.',
     'HARD bounds (never-hang): a depth cap AND a global node cap (total work = nodes × find_usages). Hitting either — or a dependent that cannot be re-expanded (a module-level rollup) — is flagged `!!`; a truncated closure NEVER reads as complete.',
     'value-flow boundary: a dependent that reads a callable target as a VALUE (not call/jsx) is where dynamic dispatch can carry impact past what find_usages sees — flagged `dynamic`, NOT traversed, the closure reported PARTIAL (never silently bridged).',
