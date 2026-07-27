@@ -76,13 +76,17 @@ export function resolveIsolation(
  *  of roots so it can never grow with usage. Drift can only land in the safe direction: a repo that
  *  outgrew a cached count stays in-process, where the guard's own FRESH count refuses honestly. */
 const MEMO_MAX_ROOTS = 32;
-const memo = new Map<string, number>();
+/** `undefined` value = the estimate FAILED for this root; memoized too, so a permanently non-git
+ *  workspace does not re-pay two synchronous git spawns on every engine spawn (§1 bounded work). */
+const memo = new Map<string, number | undefined>();
 
 function countSourceFiles(root: string): number | undefined {
-  const cached = memo.get(root);
-  if (cached !== undefined) return cached;
+  if (memo.has(root)) return memo.get(root);
   const counted = estimateSourceFileCount(root);
-  if (!isOk(counted)) return undefined; // git hiccup — honest unknown, never a guessed 0
+  if (!isOk(counted)) {
+    memo.set(root, undefined); // git hiccup — honest unknown, never a guessed 0
+    return undefined;
+  }
   if (memo.size >= MEMO_MAX_ROOTS) {
     const oldest = memo.keys().next();
     if (!oldest.done) memo.delete(oldest.value);

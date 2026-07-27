@@ -135,7 +135,13 @@ test('a non-git root (size unmeasurable) never escalates on unknown', () => {
 
 // ── the decision really FORKS, and a fatal in that child is structural ───────────────────────────
 
-test('oversized repo, no isolation configured: the orchestrator really forks a child; a fatal there is a structural ToolFailure and the daemon respawns', async () => {
+// Scope note: the fatal driven here is the §9 kill-on-deadline (requestDeadlineMs=1 → the child is
+// SIGKILLed mid-request), which is what a test can force deterministically in seconds. The OOM
+// flavour of the same conversion was verified live on a real 6.1k-file repo with no config at all
+// (`FAIL tool=oom — isolated engine process ran out of memory`, daemon alive) — unreproducible here
+// without a multi-minute real warm. Both arrive through this one path: child dies → structured
+// failure → slot evicted → respawn.
+test('oversized repo, no isolation configured: the orchestrator really forks a child; a child fatal (kill-on-deadline) is a structural ToolFailure and the daemon respawns', async () => {
   // A small repo with a LOW threshold is the same decision path as 4001-files-vs-4000, but forks in
   // seconds. (The default-threshold half is proven above, on a real 4001-file repo.) Note the config
   // sets NO `daemon.isolation` — process-mode here is the auto-escalation, not an opt-in.
@@ -189,6 +195,13 @@ test('oversized repo, no isolation configured: the orchestrator really forks a c
       firstR !== undefined && 'result' in firstR && firstR.result.ok === false,
       'a fatal in the escalated child reaches the client as a structured failure, not a throw',
     );
+    assert.equal(
+      firstR !== undefined && 'result' in firstR && !firstR.result.ok
+        ? firstR.result.failure.tool
+        : undefined,
+      'timeout',
+      'and it is the kill-on-deadline conversion, not an unrelated failure (e.g. a child that never started)',
+    );
     // The daemon is ALIVE right after that fatal — it answers its own state.
     assert.ok(orch.daemonInfo().pid > 0, 'daemon survives the child fatal');
     assert.ok(
@@ -206,6 +219,47 @@ test('oversized repo, no isolation configured: the orchestrator really forks a c
       'the next request respawns an escalated child and answers',
     );
     assert.equal(pids.length, 2, 'a FRESH child was spawned');
+  } finally {
+    await orch.dispose();
+    cleanup();
+  }
+});
+
+// A FAILED fork must not kill the workspace: escalation was OUR decision, not the user's request, so
+// the fallback keeps the cheap no-warm ops answering (they worked before escalation existed) and only
+// the heavy fan-out is refused — with the fork failure named as the cause.
+test('escalation whose fork FAILS degrades to in-process: cheap ops still answer, the heavy one refuses naming the failed fork', async () => {
+  const { root, cleanup } = makeGitRepo(3, `export default { ts: { searchWarmMaxFiles: 1 } };\n`);
+  const stateDir = path.join(root, '.state');
+  mkdirSync(stateDir);
+  resetIsolationMemo();
+  const orch = new Orchestrator({
+    clock: systemClock,
+    debug: createDebugSystem(systemClock),
+    watcher: nullWatcher,
+    version: 'test',
+    stateDir,
+    pluginsFor: builtinPlugins,
+    opsFor: () => builtinOps(),
+    spawnProcessHost: () => Promise.resolve({ ok: false as const, message: 'fork blew up' }),
+  });
+  try {
+    // A no-warm op must still work — the whole workspace must NOT be dead.
+    const cheap = await orch.request(root, root, [{ name: 'symbols_overview', args: {} as never }]);
+    const c0 = cheap.ok ? cheap.results[0] : undefined;
+    assert.ok(
+      c0 !== undefined && 'result' in c0 && c0.result.ok,
+      `a failed escalation must not kill cheap ops: ${JSON.stringify(cheap)}`,
+    );
+
+    const heavy = await orch.request(root, root, [
+      { name: 'find_usages', args: { name: 'v0' } as never },
+    ]);
+    const h0 = heavy.ok ? heavy.results[0] : undefined;
+    assert.ok(h0 !== undefined && 'result' in h0 && !h0.result.ok, 'the heavy op refuses');
+    if (h0 !== undefined && 'result' in h0 && !h0.result.ok) {
+      assert.match(h0.result.failure.message, /forking the isolated child engine failed/);
+    }
   } finally {
     await orch.dispose();
     cleanup();

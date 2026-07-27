@@ -91,6 +91,12 @@ function remedyFor(reason: IsolationReason | undefined): string {
         "This workspace pins `daemon.isolation: 'in-process'` in codemaster.config — remove it (an " +
         'oversized repo then auto-escalates into a killable child) or set it to `process`.'
       );
+    case 'escalation-failed':
+      return (
+        'This repo WAS auto-escalated, but forking the isolated child engine failed, so it fell back ' +
+        'to in-process (the cheap no-warm ops still work) — check the daemon debug log for the fork ' +
+        'error, then retry: the next spawn attempts the escalation again.'
+      );
     case 'no-process-host':
       return (
         'This build provides no process-host factory, so the repo could not be escalated into a ' +

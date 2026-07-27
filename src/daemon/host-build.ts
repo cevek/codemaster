@@ -82,9 +82,23 @@ export async function buildWorkspaceHost(
       stateDir,
       onExit: () => evictIfCurrent(ref.host),
     });
-    if (!spawned.ok) return spawned;
-    ref.host = spawned.host;
-    return { ok: true, host: spawned.host };
+    if (spawned.ok) {
+      ref.host = spawned.host;
+      return { ok: true, host: spawned.host };
+    }
+    // A fork that FAILS (cold-machine startup deadline, EAGAIN, an unreachable child bin) must not
+    // kill the whole workspace: an AUTO escalation was our decision, not the user's request, and
+    // failing it hard would take down the cheap no-warm ops (symbols_overview, syntactic search)
+    // that worked before escalation existed. Degrade to in-process and record WHY, so the fan-out
+    // guard still refuses the heavy ops honestly. An EXPLICIT `isolation:'process'` keeps failing
+    // hard — a user told which mode they want is told when they cannot have it.
+    if (decision.reason !== 'auto-escalated') return spawned;
+    deps.debug.ns('daemon')('escalation fork failed — degrading to in-process', () => ({
+      repo: repoId,
+      error: spawned.message,
+    }));
+    decision.isolation = 'in-process';
+    decision.reason = 'escalation-failed';
   }
 
   // Per-repo debug log (§13): ~/.codemaster/<repoKey>/debug.log, routed by repoId.

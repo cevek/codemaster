@@ -53,6 +53,8 @@ export type IsolationReason =
   | 'auto-escalate-disabled'
   /** Oversized and escalation was wanted, but this build provides no process-host factory. */
   | 'no-process-host'
+  /** Oversized and escalation was attempted, but forking the child engine FAILED. */
+  | 'escalation-failed'
   /** Within the size budget — the plain `in-process` default. */
   | 'within-budget'
   /** The cheap git size estimate failed, so size was UNKNOWN — never escalate on unknown. */
