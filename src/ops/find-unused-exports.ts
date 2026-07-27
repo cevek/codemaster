@@ -94,7 +94,7 @@ export const findUnusedExportsOp = defineOp({
     '{ pathInclude?: string[], pathExclude?: string[], limit?: number, programs?: string[] (extra tsconfig paths to load, to recover certain verdicts over an undiscovered nested config) }',
   example: { args: { pathInclude: ['src/features/**'] } },
   notes: [
-    "on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the dead-export scan warms the whole program and fans a reference search per candidate, which would OOM and can kill the daemon) and redirects to `daemon.isolation:'process'`; pass `force:true` to warm anyway. No refusal in process-mode.",
+    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the dead-export scan warms the whole program and fans a reference search per candidate, which would OOM and can kill the daemon) and says WHY the repo was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'semantic, not textual: an aliased `import { X as Y }` (which text-grep would miss) still counts X as used, so X is never falsely reported.',
     'an export reached only via a barrel re-export (`export { X } from`), an `export *`, or a dynamic `import()` demotes to partial — flagged "could not prove dead", never reported as definitely unused.',
     'an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.',
