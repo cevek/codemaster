@@ -6,8 +6,9 @@
 // letting a prefix of un-promotable entries starve a real orphan, and reading a capped pass as a
 // complete one.
 
-import { test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import {
   mkdtempSync,
   existsSync,
@@ -22,6 +23,17 @@ import type { UsageLogEntry } from '../../src/support/usage-log/entry.ts';
 import { defaultUsageLogger } from '../../src/support/usage-log/default.ts';
 import { createFileUsageLogger } from '../../src/support/usage-log/create.ts';
 import { inflightDir, promoteOrphanInflight } from '../../src/support/usage-log/inflight.ts';
+
+/** A pid that is PROVABLY dead: spawn a process, wait for it to exit, reuse its pid. Hardcoding a
+ *  "surely free" number is a CI flake waiting to happen — Linux's default `pid_max` is 4194304, so
+ *  999_999 can be a live process there, and the arms that prove the fix would silently go green for
+ *  the wrong reason (a live owner is skipped, never promoted). */
+let DEAD_PID = 0;
+before(() => {
+  const done = spawnSync('node', ['-e', ''], { stdio: 'ignore' });
+  assert.ok(done.pid !== undefined && done.pid > 0, 'could not obtain a dead pid');
+  DEAD_PID = done.pid;
+});
 
 function readEntries(file: string): UsageLogEntry[] {
   if (!existsSync(file)) return [];
@@ -47,7 +59,12 @@ test("a LIVE sibling process's breadcrumb is never promoted (that would invent a
   const logger = defaultUsageLogger({ CODEMASTER_USAGE_DIR: dir } as NodeJS.ProcessEnv);
   const now = Date.now();
   logger.begin({ ts: now, tool: 'find_usages', ops: ['find_usages'], cwd: '/x', args: null });
-  const out = promoteOrphanInflight(dir, () => assert.fail('promoted a live call'), now, 999_001);
+  const out = promoteOrphanInflight(
+    dir,
+    () => assert.fail('promoted a live call'),
+    now,
+    DEAD_PID + 1,
+  );
   assert.deepEqual(out, { promoted: 0, deferred: 0 });
   assert.equal(breadcrumbs(dir).length, 1);
   logger.dispose();
@@ -60,7 +77,12 @@ test('a LIVE owner past the abandon age is reported as `abandoned`, never as a p
   logger.begin({ ts: start, tool: 'find_usages', ops: ['find_usages'], cwd: '/x', args: null });
   const entries: UsageLogEntry[] = [];
   // 7h later, with the owner (this very process) still alive.
-  const out = promoteOrphanInflight(dir, (e) => entries.push(e), start + 7 * 3_600_000, 999_001);
+  const out = promoteOrphanInflight(
+    dir,
+    (e) => entries.push(e),
+    start + 7 * 3_600_000,
+    DEAD_PID + 1,
+  );
   assert.equal(out.promoted, 1);
   assert.equal(entries[0]?.outcome, 'abandoned', 'a live owner must not be declared dead');
   assert.match(String(entries[0]?.response), /NOT proven to have died/);
@@ -77,12 +99,12 @@ test('a truncated breadcrumb from a LIVE writer is not deleted (that would lose 
     dir,
     () => assert.fail('promoted a corrupt record'),
     now,
-    999_001,
+    DEAD_PID + 1,
   );
   assert.equal(out.promoted, 0);
   assert.equal(breadcrumbs(dir).length, 1, 'a fresh unreadable breadcrumb must survive');
   // Only once it is far too old to belong to any writer is it reaped.
-  promoteOrphanInflight(dir, () => undefined, now + 7 * 3_600_000, 999_001);
+  promoteOrphanInflight(dir, () => undefined, now + 7 * 3_600_000, DEAD_PID + 1);
   assert.deepEqual(breadcrumbs(dir), []);
 });
 
@@ -90,8 +112,12 @@ test('a claim left by a promoter that itself died is recovered, not lost forever
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-claim-'));
   mkdirSync(inflightDir(dir), { recursive: true });
   const now = Date.now();
-  const rec = { ts: now, tool: 'impact', ops: ['impact'], cwd: '/r', args: null, pid: 999_999 };
-  writeFileSync(path.join(inflightDir(dir), `999999-${now}-0.json`), JSON.stringify(rec), 'utf8');
+  const rec = { ts: now, tool: 'impact', ops: ['impact'], cwd: '/r', args: null, pid: DEAD_PID };
+  writeFileSync(
+    path.join(inflightDir(dir), `${DEAD_PID}-${now}-0.json`),
+    JSON.stringify(rec),
+    'utf8',
+  );
 
   // Pass 1 — a promoter that claims the breadcrumb and then dies before recording it. The claimed
   // NAME must come from the module itself, not be hand-written: a claim name the promoter's own
@@ -102,16 +128,16 @@ test('a claim left by a promoter that itself died is recovered, not lost forever
       throw new Error('promoter died mid-promotion');
     },
     now,
-    999_001,
+    DEAD_PID + 1,
   );
   const left = readdirSync(inflightDir(dir));
   assert.equal(left.length, 1, 'the claim must remain on disk');
-  assert.ok(left[0]?.includes('.claiming-999001'), 'and it must be OUR claim');
+  assert.ok(left[0]?.includes(`.claiming-${DEAD_PID + 1}`), 'and it must be OUR claim');
   assert.deepEqual(breadcrumbs(dir), left, 'a claim MUST stay visible to the promoter’s own scan');
 
   // Pass 2 — a later start (the claimer, pid 999001, is not a live process) recovers it.
   const entries: UsageLogEntry[] = [];
-  const out = promoteOrphanInflight(dir, (e) => entries.push(e), now, 999_002);
+  const out = promoteOrphanInflight(dir, (e) => entries.push(e), now, DEAD_PID + 2);
   assert.equal(out.promoted, 1, 'an orphaned CLAIM must still be reconciled');
   assert.equal(entries[0]?.tool, 'impact');
   assert.match(
@@ -143,12 +169,19 @@ test('a capped promotion pass takes the OLDEST breadcrumbs and discloses what it
       ops: [`op${i}`],
       cwd: '/r',
       args: null,
-      pid: 999999,
+      pid: DEAD_PID,
     };
-    writeFileSync(path.join(inflightDir(dir), `999999-${base + i}-0.json`), JSON.stringify(rec));
+    // The LEADING name segment is scattered on purpose: with a common prefix and equal-width
+    // stamps, lexicographic readdir order already equals chronological order, and the oldest-first
+    // assertion below would hold even with no sort at all.
+    const namePid = 900_000 + ((i * 37 + 91) % 205);
+    writeFileSync(
+      path.join(inflightDir(dir), `${namePid}-${base + i}-0.json`),
+      JSON.stringify(rec),
+    );
   }
   const entries: UsageLogEntry[] = [];
-  const out = promoteOrphanInflight(dir, (e) => entries.push(e), Date.now(), 999_001);
+  const out = promoteOrphanInflight(dir, (e) => entries.push(e), Date.now(), DEAD_PID + 1);
   assert.deepEqual({ ...out }, { promoted: 200, deferred: 5 }, 'the cap is disclosed, not silent');
   assert.equal(
     entries[0]?.tool,
@@ -169,9 +202,12 @@ test('a capped start DISCLOSES the deferral in the log — the crash count reads
       ops: ['source'],
       cwd: '/r',
       args: null,
-      pid: 999999,
+      pid: DEAD_PID,
     };
-    writeFileSync(path.join(inflightDir(dir), `999999-${base + i}-0.json`), JSON.stringify(rec));
+    writeFileSync(
+      path.join(inflightDir(dir), `${DEAD_PID}-${base + i}-0.json`),
+      JSON.stringify(rec),
+    );
   }
   defaultUsageLogger({ CODEMASTER_USAGE_DIR: dir } as NodeJS.ProcessEnv).dispose();
   const fails = readEntries(path.join(dir, 'fail.jsonl'));
@@ -208,13 +244,53 @@ test('un-promotable entries do not eat the cap — a real orphan behind them is 
     ops: ['find_usages'],
     cwd: '/r',
     args: null,
-    pid: 999_999,
+    pid: DEAD_PID,
   };
-  writeFileSync(path.join(inflightDir(dir), `999999-${ts}-0.json`), JSON.stringify(orphan));
+  writeFileSync(path.join(inflightDir(dir), `${DEAD_PID}-${ts}-0.json`), JSON.stringify(orphan));
 
   const entries: UsageLogEntry[] = [];
-  const out = promoteOrphanInflight(dir, (e) => entries.push(e), Date.now(), 999_001);
+  const out = promoteOrphanInflight(dir, (e) => entries.push(e), Date.now(), DEAD_PID + 1);
   assert.equal(out.promoted, 1, 'the orphan behind 250 live entries must still be promoted');
   assert.equal(entries[0]?.tool, 'find_usages');
   assert.equal(breadcrumbs(dir).length, 250, "the live sibling's breadcrumbs are left alone");
+});
+
+test('an aged temp left by a death between write and rename is swept, not accumulated forever', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-temp-'));
+  mkdirSync(inflightDir(dir), { recursive: true });
+  const now = Date.now();
+  const fresh = `${DEAD_PID}-${now}-0.tmp`;
+  const aged = `${DEAD_PID}-${now - 7 * 3_600_000}-1.tmp`;
+  writeFileSync(path.join(inflightDir(dir), fresh), '{"ts":1');
+  writeFileSync(path.join(inflightDir(dir), aged), '{"ts":1');
+  promoteOrphanInflight(dir, () => undefined, now, DEAD_PID + 1);
+  const left = readdirSync(inflightDir(dir));
+  // A temp is invisible to every other path (it is not `.json`), so nothing else would ever remove
+  // it — but a FRESH one may belong to a writer mid-publish.
+  assert.deepEqual(left, [fresh], 'the aged temp is swept; the fresh one is left alone');
+});
+
+test('a breadcrumb whose name is not ours is reaped, not left to eat the scan budget forever', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-foreign-'));
+  mkdirSync(inflightDir(dir), { recursive: true });
+  writeFileSync(path.join(inflightDir(dir), 'not-our-format.json'), 'garbage');
+  promoteOrphanInflight(dir, () => assert.fail('promoted garbage'), Date.now(), DEAD_PID + 1);
+  assert.deepEqual(breadcrumbs(dir), [], 'an unparseable name has no age to wait out');
+});
+
+test('a failed breadcrumb write degrades to a no-op handle and strands nothing', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-usage-nowrite-'));
+  // The inflight PATH is occupied by a file, so the directory can never be created.
+  writeFileSync(inflightDir(dir), 'in the way');
+  const logger = createFileUsageLogger(dir);
+  const handle = logger.begin({
+    ts: Date.now(),
+    tool: 'list',
+    ops: ['list'],
+    cwd: '/r',
+    args: null,
+  });
+  handle.clear(); // must not throw either
+  logger.dispose();
+  assert.equal(readFileSync(inflightDir(dir), 'utf8'), 'in the way', 'nothing was written over it');
 });

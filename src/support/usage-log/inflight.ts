@@ -281,7 +281,11 @@ function stripClaim(file: string): string {
  *  file could still belong to a writer we cannot see, and deleting it would lose a real fatal. */
 function reapCorrupt(file: string, now: number): void {
   try {
-    if (now - stampOf(file) <= ABANDONED_AGE_MS) return;
+    // An UNPARSEABLE name (`stampOf` → Infinity) has no age to wait out — it can belong to no
+    // writer of ours, so it is reaped immediately. Keeping it would make it a permanent resident
+    // eating the scan budget at every start.
+    const stamp = stampOf(file);
+    if (Number.isFinite(stamp) && now - stamp <= ABANDONED_AGE_MS) return;
     unlinkSync(file);
   } catch {
     /* best-effort */

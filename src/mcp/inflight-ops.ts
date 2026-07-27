@@ -25,5 +25,8 @@ export function inflightOps(tool: string, rawArgs: unknown): string[] {
     const name = (canonical as { name?: unknown }).name;
     if (typeof name === 'string') names.push(name);
   }
+  // §3.4: never a silently short list. A crash record whose `ops` was truncated must say so, or a
+  // 40-op batch killed by its last op reads as 32 innocent names and nothing else.
+  if (requests.length > MAX_OPS) names.push(`+${requests.length - MAX_OPS} more`);
   return names;
 }
