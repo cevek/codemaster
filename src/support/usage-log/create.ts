@@ -5,7 +5,8 @@
 
 import * as path from 'node:path';
 import { createRotatingFileSink } from '../debug/file-sink.ts';
-import type { UsageLogEntry, UsageLogger } from './entry.ts';
+import type { InflightCall, InflightHandle, UsageLogEntry, UsageLogger } from './entry.ts';
+import { writeInflight } from './inflight.ts';
 
 /** 64 MB per file before a single-step rotate to `<name>.1`. */
 const DEFAULT_USAGE_MAX_BYTES = 64 * 1024 * 1024;
@@ -17,6 +18,11 @@ export function createFileUsageLogger(
   const success = createRotatingFileSink(path.join(dir, 'success.jsonl'), maxBytes);
   const fail = createRotatingFileSink(path.join(dir, 'fail.jsonl'), maxBytes);
   return {
+    // Pre-dispatch breadcrumb (inflight.ts): a call that never returns — an in-process OOM — is
+    // otherwise invisible to this log, which makes the log lie about the tool's worst failures.
+    begin(call: InflightCall): InflightHandle {
+      return writeInflight(dir, call, process.pid);
+    },
     record(entry: UsageLogEntry) {
       // JSON.stringify can throw on a circular/oversized value; the args/response we pass are
       // already plain JSON, but guard anyway — a telemetry serialize error must not surface.
@@ -37,6 +43,9 @@ export function createFileUsageLogger(
 
 /** Telemetry-disabled logger — records nothing. Returned when usage logging is opted out. */
 export const noopUsageLogger: UsageLogger = {
+  begin() {
+    return { clear: () => undefined };
+  },
   record() {
     /* disabled */
   },

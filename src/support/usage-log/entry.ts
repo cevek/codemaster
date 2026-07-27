@@ -7,8 +7,10 @@ import type { JsonValue } from '../../core/json.ts';
 export interface UsageLogEntry {
   /** Epoch ms when the call started (stamped via the injected Clock — §16 determinism). */
   ts: number;
-  /** Wall-clock the call took, start→response. */
-  durationMs: number;
+  /** Wall-clock the call took, start→response. `null` ONLY on an `outcome:'crash'` record: the
+   *  process died with the call in flight, so the moment of death is unknown and any number here
+   *  would be fabricated. */
+  durationMs: number | null;
   /** Which MCP tool was invoked (an op name / `status` / `batch`, or a verbatim unknown name). */
   tool: string;
   /** The op name(s) involved: the op name for a per-op call, the batch's names for `batch`, empty for `status`. */
@@ -24,11 +26,40 @@ export interface UsageLogEntry {
   response: string;
   /** Whether the response was flagged as an MCP error (dispatch/transport-level). */
   isError: boolean;
+  /** Present ONLY on a record materialized from an orphaned in-flight breadcrumb: the process died
+   *  with this call in flight, so there is no response and no duration. Absent on every ordinary
+   *  record, so an existing consumer's key-set is unchanged. */
+  outcome?: 'crash';
+}
+
+/** The pre-dispatch breadcrumb: what a call was, stamped to disk BEFORE it runs so a fatal
+ *  (in-process OOM, SIGKILL) still leaves a trace. Cleared when the call returns. */
+export interface InflightCall {
+  /** Epoch ms when the call started (injected Clock — §16 determinism). */
+  ts: number;
+  /** The MCP tool invoked — the op name for a per-op call, `status` / `batch`. */
+  tool: string;
+  /** Best-effort op names (a batch's constituent ops), so a crash is attributed to an OP. */
+  ops: string[];
+  /** Client working directory — the first triage question is WHICH repo killed the process. */
+  cwd: string;
+  /** The raw tool arguments the agent sent. */
+  args: JsonValue;
+}
+
+/** Handle returned by `begin`: `clear()` removes the breadcrumb once the call has been recorded. */
+export interface InflightHandle {
+  clear(): void;
 }
 
 /** Routes a record to the success or fail sink. A no-op impl (telemetry disabled) and a
- *  file-backed impl both satisfy it; the MCP facade depends only on this. */
+ *  file-backed impl both satisfy it; the MCP facade depends only on this.
+ *
+ *  `begin` is REQUIRED, not optional: a logger that silently skipped the breadcrumb would
+ *  reintroduce the invisible-fatal hole this seam exists to close, so an incomplete impl must be a
+ *  compile error. */
 export interface UsageLogger {
+  begin(call: InflightCall): InflightHandle;
   record(entry: UsageLogEntry): void;
   dispose(): void;
 }

@@ -35,6 +35,7 @@ import {
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
+import { inflightOps } from './inflight-ops.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -282,6 +283,18 @@ export async function serveMcp(
     idleExit?.enter();
     const startMs = clock.now();
     const cwd = process.cwd();
+    // Pre-dispatch crash breadcrumb (t-807677): the telemetry write below happens only AFTER the
+    // call returns, so a FATAL call (an in-process OOM kills this very process) would leave no
+    // trace at all and make fail.jsonl under-report fatals to zero. The breadcrumb is stamped
+    // first and cleared alongside the record; an orphan is promoted to a crash entry at the next
+    // start. `begin` is wrapped by contract (a telemetry error never reaches the request path).
+    const inflight = usage.begin({
+      ts: startMs,
+      tool: request.params.name,
+      ops: inflightOps(request.params.name, request.params.arguments),
+      cwd,
+      args: (request.params.arguments ?? null) as JsonValue,
+    });
     let handled: HandledCall;
     try {
       handled = await handleCall(request, cwd);
@@ -312,6 +325,9 @@ export async function serveMcp(
         response: responseText(handled.result),
         isError: handled.result.isError ?? false,
       });
+      // Cleared only AFTER the record is written: were the process to die between the two, the
+      // breadcrumb survives and the call is reported once as a crash — never lost.
+      inflight.clear();
     } catch {
       /* telemetry must never crash the daemon */
     }
