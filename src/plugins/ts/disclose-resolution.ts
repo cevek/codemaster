@@ -44,7 +44,15 @@ function noteFor(doubt: ResolutionDoubt): string {
       `${doubt.unindexed.length} nested tsconfig(s) are NOT loaded as programs (${nameWithMore(doubt.unindexed, MAX_NAMED)}), so a distinct same-named declaration may be declared there, unindexed`,
     );
   }
-  return `${causes.join('; and ')}. Counts / emptiness / completeness about this target are a FLOOR. Re-address exactly — name+file or file:line:col ranks nothing. (status → concepts:disclosure)`;
+  // Two remedies, and the second is NOT a rephrasing of the first: exact addressing gets THIS answer
+  // right, while indexing the config removes the doubt for every future query. An unindexed program
+  // is a repo-shaped cause with a repo-shaped fix, and an agent told only how to re-word its query
+  // keeps hitting the same floor.
+  const indexIt =
+    doubt.unindexed.length > 0
+      ? ' To remove the doubt for good, index the config: add it to a parent `references`, or place it adjacent to the primary.'
+      : '';
+  return `${causes.join('; and ')}. Counts / emptiness / completeness about this target are a FLOOR. Re-address exactly — name+file or file:line:col ranks nothing.${indexIt} (status → concepts:disclosure)`;
 }
 
 /** How the target was addressed, so a disclosure is attributed to the resolution that is actually
@@ -81,19 +89,27 @@ export function discloseMergeDoubt(name: string, doubt: ResolutionDoubt): void {
   disclose(claim(`name '${name}'`, doubt));
 }
 
-/** What a completed resolution could not see. The unindexed cause is scoped to a BARE name: a
- *  handle, a position, and a `name+file` all pin the declaration, and a same-named twin under an
- *  unloaded program is irrelevant to an answer about a pinned one — claiming doubt there would dress
- *  a complete resolution as partial (§3.6). Structurally typed on the host so this stays a leaf. */
+/** Is this target addressed ONLY by a bare name — the one form a same-named twin under an unloaded
+ *  program can hijack? A handle, a position, and a `name+file` all pin the declaration, so a twin
+ *  elsewhere is irrelevant to an answer about a pinned one and claiming doubt there would dress a
+ *  complete resolution as partial (§3.6).
+ *
+ *  Exported (through the plugin's public surface) because the ops layer gates the same floor on the
+ *  same question. Two spellings of it drift in BOTH directions at once: the looser one stamps a
+ *  name-floor on a handle-addressed answer, and the stricter one leaves a floored answer with no
+ *  channel stating why. */
+export function isBareNameTarget(target: TsTargetInput): boolean {
+  return target.name !== undefined && target.file === undefined && target.symbolId === undefined;
+}
+
+/** What a completed resolution could not see. Structurally typed on the host so this stays a leaf. */
 export function doubtOf(
   host: { undiscoveredProgramLabels(): readonly string[] },
   target: TsTargetInput,
   resolved: { searchTruncated?: true },
 ): ResolutionDoubt {
-  const bareName =
-    target.name !== undefined && target.file === undefined && target.symbolId === undefined;
   return {
     cut: resolved.searchTruncated === true,
-    unindexed: bareName ? host.undiscoveredProgramLabels() : [],
+    unindexed: isBareNameTarget(target) ? host.undiscoveredProgramLabels() : [],
   };
 }

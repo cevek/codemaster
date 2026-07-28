@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import { isBareNameTarget, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { withUndiscoveredHint, definitionFloor, searchCapFloor } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
@@ -60,17 +60,19 @@ export const findDefinitionOp = defineOp({
       }
       // §3.6 floor: a bare-NAME target resolved to a decl, but if a nested tsconfig is unloaded a
       // DISTINCT same-named symbol may live there — so this single/first definition is a possible
-      // MIS-target, not a proven answer. Fires ONLY on name-WITHOUT-a-file-pin: a symbolId/position is
-      // EXACT, and a `name`+`file` (or `name`+`file`+`line`) target is file-pinned — an equally exact
-      // resolution where a cross-program twin is irrelevant, so it gets NO note (a floor there would
-      // dress a COMPLETE answer as partial — the §3.6 inverse). Verdict-first (§12): the machine-
-      // readable `complete:false`+`undiscoveredPrograms` LEAD and survive the char-cap; `definitions`
-      // then the prose `!!` note trail (the note may truncate under a huge decl set — the load-bearing
-      // verdict is the fields, not the prose).
-      const nameOnly = args.name !== undefined && args.file === undefined;
-      const floor = definitionFloor(nameOnly ? ts.undiscoveredProgramLabels() : []);
-      // The second, independent cause of the same incompleteness: the name search itself was cut
-      // short by the LS's page cap, so a same-named declaration may sit behind it (§3.4).
+      // MIS-target, not a proven answer. Fires ONLY on name-WITHOUT-a-file-pin (`isBareNameTarget`,
+      // the SAME predicate the resolve-time disclosure gates on — a second spelling drifts in both
+      // directions at once): a symbolId/position is EXACT, and a `name`+`file` target is file-pinned,
+      // an equally exact resolution where a cross-program twin is irrelevant, so a floor there would
+      // dress a COMPLETE answer as partial (the §3.6 inverse).
+      //
+      // FIELDS only. Both floors state the same thing — the target may not be the only symbol of
+      // this name — and that claim is stated in words ONCE, on the envelope, by the resolve. What
+      // rides `data` is the machine-readable verdict, verdict-first (§12) so it leads and survives
+      // the char-cap.
+      const floor = definitionFloor(isBareNameTarget(args) ? ts.undiscoveredProgramLabels() : []);
+      // The second, independent cause of that same claim: the candidate set was cut before every
+      // same-named declaration was seen (§3.4).
       const capFloor = searchCapFloor(outcome.searchTruncated === true);
       return ok(
         {

@@ -66,11 +66,6 @@ test('a resolution built on a sliced page discloses that it may not be the only 
     const d = single.result.data as { complete?: boolean; searchTruncated?: boolean };
     assert.equal(d.complete, false, 'a single resolution off a sliced page is a floor, not a fact');
     assert.equal(d.searchTruncated, true, 'and the cause is machine-readable, not prose-only');
-    assert.equal(
-      (single.result.data as { notes?: string[] }).notes,
-      undefined,
-      'a complete-program answer carries no set-level floor note either',
-    );
 
     // The claim is STATED — in prose, where the agent reads verdicts — on the envelope.
     assert.ok(
@@ -81,7 +76,9 @@ test('a resolution built on a sliced page discloses that it may not be the only 
     );
     // …and stated ONCE. A `!!` line restating the envelope's sentence a line away from it is how the
     // marker stops being read, so the payload must NOT carry a second copy of this claim's prose.
-    // This half of the oracle is new: nothing previously caught the duplication.
+    // This half of the oracle is new: nothing previously caught the duplication. It filters rather
+    // than demanding an EMPTY note list, so an unrelated future note (an imports-collapsed advisory,
+    // a role breakdown) cannot red it for a non-defect — only a restatement of THIS claim can.
     assert.deepEqual(
       ((single.result.data as { notes?: string[] }).notes ?? []).filter((n) =>
         /result cap|same-named|only declaration/i.test(n),
@@ -204,6 +201,14 @@ test('mergeDeclarations discloses when the candidate budget — not just the LS 
     assert.ok(covered < 61, `precondition: the budget cut the set (covered ${covered} of 61)`);
     assert.equal(d.complete, false, 'a union over a cut set must not read as "all of them"');
     assert.equal(d.searchTruncated, true, 'and the cause is machine-readable');
+    // The claim is stated for THIS cause too — our own candidate budget, with the LS page never
+    // cut. Both causes make the same assertion unsafe, so both must reach the agent identically;
+    // pinning only the page-cut cause would leave this producer path unguarded.
+    assert.deepEqual(
+      (r.result.disclosures ?? []).map((x) => x.unsafe),
+      ['target-is-the-only-symbol-of-this-name'],
+      'the budget cut states the same claim as the page cut',
+    );
   } finally {
     await p.dispose();
   }

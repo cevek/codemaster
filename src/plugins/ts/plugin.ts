@@ -86,6 +86,11 @@ export type { WideningSink, WideningEndpoint } from './type-widening.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
+// The addressing predicate the resolve-time disclosure gates on, exposed so an op gating the SAME
+// question (find_definition's undiscovered-program floor) asks it with the SAME expression. Two
+// spellings drift in both directions: one stamps a name-floor on a handle, the other leaves a
+// floored answer unexplained.
+export { isBareNameTarget } from './disclose-resolution.ts';
 
 export type { ResolvedTarget, TsTargetInput };
 // The host-free pre-warm size estimate + its threshold default, re-exported through the plugin's
