@@ -117,3 +117,23 @@ So the `member_usages {member:'…'}` → `bad_args` complaint quoted above has 
 status: the missing CAPABILITY (no prop-aware JSX query) is what this task tracks and is open; the
 "workable form is not discoverable from the message" half is satisfied infrastructure — a new refusal on
 this path should consume `ops/guard/navigate.ts` rather than write its own prose.
+
+## Verification status of the "11 files" number: NOT proven, and why that is acceptable
+
+The fix was verified live on the amiro case (the second report): `Sheet {dirtyGuard:['false']}` → 18 sites
+including the dynamic `dirtyGuard={!isView}` that both reports nearly lost, `dynamicValue=1`,
+`excludedByProps=22`; `Dialog {dirtyGuard:true}` → 7 sites + 1 spread-opaque.
+
+The backoffice2 case (the first report, "3 files vs 11") could NOT be re-measured: `find_usages` OOMs
+there on both default and raised heap — the pre-existing class this task itself names as upstream
+(t-333163 / t-544207). Writing a config into someone else's repo to raise the ceiling was correctly
+refused (t-187018 blast radius).
+
+What was done instead, and what it does prove: the source was read directly —
+`apps/emr/src/components/BlueButton/BlueButton.tsx:9-16` is
+`<Button variant="contained" … {...props}>`, i.e. form (a)-wraps-(b) PLUS a spread. That validates the
+spread-ordering classification against the real repo even though the query could not run there.
+
+So: the capability is proven on one of the two reported cases and the classification is proven against the
+other's source. The "11" itself stays unconfirmed until the OOM class is addressed — recorded here rather
+than filed as a new task, since t-544207 already owns it.
