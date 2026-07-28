@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000142
+surface:
+  - format
+audience: both
+evidence: unverified
 created: '2026-07-08T00:02:20.000Z'
 ---
 **shape renderers are not wrapped in try/catch** — `condense`'s tag-dispatch calls the renderer

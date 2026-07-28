@@ -6,6 +6,12 @@ priority: low
 type: feat
 complexity: L
 area: scss
+relates:
+  - t-000119
+surface:
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:05.000Z'
 ---
 **cross-file source order is unknown** — we don't model `@use`/`@forward`/import order, so a

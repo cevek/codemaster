@@ -6,6 +6,10 @@ priority: low
 type: dx
 complexity: S
 area: i18n
+surface:
+  - plugins/i18n
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:09.000Z'
 ---
 **I-d — `splitNames` silently no-ops a malformed name** — a leading-dot `.t` or multi-segment

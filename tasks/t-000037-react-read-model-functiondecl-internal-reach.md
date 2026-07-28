@@ -6,6 +6,11 @@ priority: low
 type: imp
 complexity: S
 area: framework
+surface:
+  - plugins/react
+  - plugins/ts
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:36.000Z'
 ---
 **react read-model: `FunctionDecl` internal-reach** — `react/unused-props.ts` + `react/detect.ts`

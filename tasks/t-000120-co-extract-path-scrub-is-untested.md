@@ -6,6 +6,11 @@ priority: low
 type: bug
 complexity: S
 area: scss
+surface:
+  - plugins/scss
+  - test
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:01:59.000Z'
 ---
 **co-extract path-scrub is untested** — the `classifyForExtract`/`extractRules` catch blocks

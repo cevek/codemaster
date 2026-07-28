@@ -6,6 +6,11 @@ priority: low
 type: bug
 complexity: M
 area: i18n
+surface:
+  - plugins/i18n
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:08.000Z'
 ---
 **I-c — a `tsconfig` `paths`/`baseUrl` edit leaves the identity scan on STALE compiler options**

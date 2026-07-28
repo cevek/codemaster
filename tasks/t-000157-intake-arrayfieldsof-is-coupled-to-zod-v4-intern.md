@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000156
+  - t-900973
+surface:
+  - ops/intake
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:36.000Z'
 ---
 **intake: `arrayFieldsOf` is coupled to zod-v4 internals (`.def.type`/`.def.innerType`)** — the

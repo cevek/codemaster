@@ -10,6 +10,15 @@ type: feat
 complexity: M
 area: render
 source: dogfood-jul
+relates:
+  - t-034392
+  - t-245013
+  - t-633403
+surface:
+  - format
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T12:52:01.101Z'
 ---
 On codemaster's own repo the undiscovered-program floor and its matching `!! CANNOT CLAIM` disclosure fire

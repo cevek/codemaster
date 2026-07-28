@@ -9,6 +9,17 @@ tags:
 type: imp
 complexity: S
 area: render
+relates:
+  - t-194771
+  - t-309134
+  - t-803574
+  - t-974740
+surface:
+  - common
+  - plugins/react
+  - plugins/ts
+audience: internal
+evidence: repro
 created: '2026-07-28T17:25:08.229Z'
 ---
 "Is this declaration the repo's own, or a dependency's?" is answered in TWO places, on purpose,
@@ -40,3 +51,5 @@ is passed through ABSOLUTE by `relOf`, and an in-root dependency path has no lea
 single predicate needs an explicit canonicalization step at one of the call sites (or two typed
 entry points over one rule) — a bare `.includes('/node_modules/')` silently misses the in-root
 relative form, which is the common case on the react side.
+
+**Related:** t-974740 and t-309134 are the same rule at a different site — one fact rendered/decided in two places, with `common/` as the home once the duplicate starts gating rather than ordering. t-309134 is where that precedence gets written down.

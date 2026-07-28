@@ -6,6 +6,11 @@ priority: medium
 type: dx
 complexity: M
 area: i18n
+surface:
+  - plugins/i18n
+  - plugins/ts
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:10.000Z'
 ---
 **I-e — dynamic-prefix re-derives template parsing from raw source (§4 boundary)** —

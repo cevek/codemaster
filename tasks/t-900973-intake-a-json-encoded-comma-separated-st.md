@@ -10,6 +10,15 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-000156
+  - t-000157
+  - t-000158
+  - t-427337
+surface:
+  - ops/intake
+audience: external
+evidence: measured
 created: '2026-07-27T22:18:57.286Z'
 ---
 The §7 intake normalizer coerces a bare SCALAR into a one-element array on a pure-array field, but not a

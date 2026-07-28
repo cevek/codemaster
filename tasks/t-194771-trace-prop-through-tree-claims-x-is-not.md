@@ -10,6 +10,14 @@ tags:
 type: bug
 complexity: S
 area: render
+relates:
+  - t-480164
+  - t-803574
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-28T17:32:27.275Z'
 ---
 `src/ops/trace-prop-through-tree-walk.ts:210-231` (`checkPropDeclared`) reads the root's declared

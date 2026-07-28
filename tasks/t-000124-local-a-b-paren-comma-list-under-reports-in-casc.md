@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: scss
+relates:
+  - t-000123
+  - t-000125
+surface:
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:03.000Z'
 ---
 **`:local(.a, .b)` paren-comma list under-reports in cascade** — a multi-subject `:local(...)`

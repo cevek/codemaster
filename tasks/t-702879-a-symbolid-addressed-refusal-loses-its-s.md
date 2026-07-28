@@ -3,6 +3,7 @@ id: t-702879
 title: A symbolId-addressed refusal loses its subject, so the redirect degrades to a generic browse exactly where the agent held the most precise handle
 status: backlog
 priority: medium
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,16 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-000139
+  - t-193866
+  - t-633403
+  - t-847874
+surface:
+  - ops/guard
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-28T12:36:28.366Z'
 ---
 `ops/guard/navigate.ts` interpolates the refused call's subject into the redirect so the next call is

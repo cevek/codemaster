@@ -10,6 +10,15 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-503986
+  - t-534107
+surface:
+  - cli
+  - common
+  - mcp
+audience: both
+evidence: repro
 created: '2026-07-28T12:28:30.696Z'
 ---
 ## The false claim is fixed; the budget VALUE is the residual

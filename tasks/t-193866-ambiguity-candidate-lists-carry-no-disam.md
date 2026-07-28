@@ -3,6 +3,7 @@ id: t-193866
 title: Ambiguity candidate lists carry no disambiguating signal (file:line:col + kind only) — add the resolved signature head per candidate, turning a 2-call guess into a 1-call pick
 status: backlog
 priority: medium
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,13 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-702879
+surface:
+  - format
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-28T08:27:36.931Z'
 ---
 `expand_type {name:'list'}` fails with "'list' is ambiguous (9 distinct declarations: …)" listing only

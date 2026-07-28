@@ -3,6 +3,7 @@ id: t-011315
 title: '`codemod` IS the read op for declaration-shape questions, but its mutation label filters it out before an agent reads its semantics — capability present, correct, and structurally undiscoverable'
 status: backlog
 priority: high
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,15 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-000143
+  - t-248218
+  - t-566356
+surface:
+  - mcp
+  - ops
+audience: external
+evidence: reported
 created: '2026-07-28T16:47:56.881Z'
 ---
 A new discoverability failure mode, and the cheapest one found so far: the capability EXISTS, is correctly

@@ -3,6 +3,7 @@ id: t-034392
 title: 'The stale-daemon banner drives dogfooders to grep: it names only `daemon restart` (expensive, burns the warm LS) and never mentions that a CLI one-shot answers on current source in ~1.7 s'
 status: backlog
 priority: urgent
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,19 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-000154
+  - t-286255
+  - t-534107
+  - t-633403
+  - t-793745
+surface:
+  - daemon
+  - docs
+  - format
+  - mcp
+audience: internal
+evidence: measured
 created: '2026-07-27T23:23:13.905Z'
 ---
 Reported by worker 668b2fe3 against its OWN behaviour, which is what makes it load-bearing: it answered

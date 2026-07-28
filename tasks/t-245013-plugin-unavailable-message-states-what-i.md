@@ -3,6 +3,7 @@ id: t-245013
 title: Plugin-unavailable message states WHAT is missing but never the ACTIVATION RULE — collapses "this repo has no i18n" with "you didn't configure i18n.locales", so an honest failure yields a false negative
 status: backlog
 priority: medium
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,16 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-004414
+  - t-286255
+  - t-457761
+  - t-847874
+surface:
+  - daemon
+  - ops
+audience: external
+evidence: repro
 created: '2026-07-28T08:27:19.424Z'
 ---
 `find_missing_i18n_keys {}` → "DISPATCH unavailable: op needs plugin(s) [i18n] which are not active in

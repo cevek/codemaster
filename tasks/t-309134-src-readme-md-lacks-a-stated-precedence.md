@@ -8,6 +8,13 @@ tags:
 type: doc
 complexity: S
 area: docs
+relates:
+  - t-480164
+  - t-974740
+surface:
+  - docs
+audience: internal
+evidence: repro
 created: '2026-07-28T07:25:10.775Z'
 ---
 The tree now holds two patterns for one problem — a display contract a plugin produces and `format/`

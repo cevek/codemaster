@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: scss
+relates:
+  - t-000121
+  - t-000126
+surface:
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:58.000Z'
 ---
 **indented `.sass` → parse failure (half-support)** — the index gate accepts `.sass` (to match
@@ -15,3 +22,5 @@ extracted), never a silent skip. Its `s.foo` usages are still seen by the ts tie
 classes are invisible to `scss_classes`/`find_unused` while usages are counted — an honest
 half-support. Full indented-sass support needs a real indented-sass parser (dart-sass /
 `sass`). `bug`·`low`·`cx:M`
+
+**Related:** t-000126 is blocked on the same missing capability — a real dart-sass evaluation. Both are honest half-support today; one evaluator closes both.

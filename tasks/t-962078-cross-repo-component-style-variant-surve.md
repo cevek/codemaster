@@ -9,6 +9,11 @@ type: feat
 complexity: L
 area: scss
 source: dogfood-jul
+surface:
+  - ops
+  - plugins/scss
+audience: external
+evidence: reported
 created: '2026-07-15T11:33:18.420Z'
 ---
 **Task shape.** Survey every Button/Input/Label variant+style in a design repo (Tailwind/cva) and diff against another repo's equivalents (SCSS modules). codemaster's TS-symbol strengths didn't help: (1) the design repo isn't a warm root (needs indexing via `root`); (2) the visual contract lives in Tailwind utility strings / .module.scss property values, not TS types — so the agent fell back to raw cross-repo Read on ~15 files.

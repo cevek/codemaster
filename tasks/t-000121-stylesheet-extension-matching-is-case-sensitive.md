@@ -5,6 +5,13 @@ status: backlog
 priority: low
 type: bug
 area: scss
+relates:
+  - t-000119
+surface:
+  - plugins/scss
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:00.000Z'
 ---
 **stylesheet-extension matching is case-sensitive** — `isStylesheetFile`/`isCssModuleFile`

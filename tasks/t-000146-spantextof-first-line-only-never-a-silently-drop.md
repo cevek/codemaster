@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000145
+surface:
+  - format
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:02:25.000Z'
 ---
 **`spanTextOf` first-line-only — "never a silently-dropped body" comment overstated** — the `symbol`

@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: render
+relates:
+  - t-000015
+  - t-000141
+surface:
+  - format
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:02:21.000Z'
 ---
 **`looksLikeSpan` short-circuits before tag-dispatch** — `condenseSpans` renders a top-level

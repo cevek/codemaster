@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000144
+surface:
+  - format
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:32.000Z'
 ---
 **misc density test-coverage gaps** — `dominant=sibling` prog-hoist case (symbol mostly in

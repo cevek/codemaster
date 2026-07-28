@@ -6,6 +6,12 @@ priority: low
 type: feat
 complexity: S
 area: framework
+relates:
+  - t-000027
+surface:
+  - plugins/react-query
+audience: external
+evidence: unverified
 created: '2026-07-08T00:00:21.000Z'
 ---
 **`queryKeys` registry = query keys only** — lists each query's key (one entry per query site,

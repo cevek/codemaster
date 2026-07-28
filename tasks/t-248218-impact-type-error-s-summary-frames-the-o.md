@@ -3,6 +3,7 @@ id: t-248218
 title: '`impact_type_error`''s summary frames the OUTPUT (type errors) not the INPUT (a proposed contract change) — so the op that computes "what breaks if I change this declaration" is not found at the moment that decision is made'
 status: backlog
 priority: medium
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,14 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-011315
+  - t-566356
+surface:
+  - mcp
+  - ops
+audience: external
+evidence: reported
 created: '2026-07-28T08:28:26.495Z'
 ---
 Self-reported miss from worker 668b2fe3, about STEERING rather than capability.

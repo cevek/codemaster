@@ -3,6 +3,7 @@ id: t-691093
 title: '`list`: pathInclude filters AFTER full enumeration (a narrow-looking arg is not a cheap query), and valid registry names are discoverable only by triggering an error'
 status: backlog
 priority: medium
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,13 @@ type: dx
 complexity: M
 area: render
 source: dogfood-jul
+relates:
+  - t-815425
+surface:
+  - ops
+  - ops/guard
+audience: external
+evidence: measured
 created: '2026-07-27T23:00:25.827Z'
 ---
 Two findings on `list`, from the OOM investigation (worker dd428a19, measured on backoffice2).
@@ -28,3 +36,5 @@ rejection — surface it as a first-class answer (an empty/omitted `registry` re
 The rejection path itself is now correct and must stay: the semantic-fanout guard in `list` runs AFTER
 the cheap owner resolve, so an unknown or non-ts-owned registry still gets its honest available-list
 instead of a size-guard refusal (would have been a §3.6 regression).
+
+**Related:** t-815425 part 2 reports the same discoverability gap on this op from the greenfield side — `found=false` cannot distinguish an unknown registry from an empty project.

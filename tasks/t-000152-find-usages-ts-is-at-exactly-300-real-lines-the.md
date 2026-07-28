@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000122
+surface:
+  - ops
+audience: internal
+evidence: measured
 created: '2026-07-08T00:02:31.000Z'
 ---
 **`find-usages.ts` is at exactly 300 real lines (the cap, no headroom)** — passes eslint

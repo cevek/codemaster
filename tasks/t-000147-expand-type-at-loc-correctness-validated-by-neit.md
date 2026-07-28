@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000148
+surface:
+  - ops
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:26.000Z'
 ---
 **`expand_type` `at`-loc correctness validated by neither suite** — `span-validity.test.ts` correctly

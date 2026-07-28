@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: S
 area: framework
+relates:
+  - t-000134
+  - t-000136
+surface:
+  - plugins/react
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:00:35.000Z'
 ---
 **jsxCallSites: member-expression tagName `<C.Sub/>`** — a ref to `C` inside a member-expr tagName

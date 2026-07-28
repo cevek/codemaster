@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: framework
+relates:
+  - t-000137
+surface:
+  - ops
+  - plugins/react-query
+audience: external
+evidence: repro
 created: '2026-07-08T00:00:22.000Z'
 ---
 **`dynamicKeyedQueries` note wording** — for a BROAD edge (`invalidateQueries()` with no key)

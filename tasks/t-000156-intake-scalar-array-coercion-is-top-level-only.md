@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000157
+  - t-900973
+surface:
+  - ops/intake
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:35.000Z'
 ---
 **intake: scalar→array coercion is TOP-LEVEL only — a pure-array field nested inside `filter{}`

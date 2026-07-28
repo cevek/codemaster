@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-900973
+surface:
+  - ops/intake
+audience: external
+evidence: reported
 created: '2026-07-08T00:02:37.000Z'
 ---
 **intake: `invalidations_for {name}` could alias to `mutation` (Postel)** — the canonical arg is

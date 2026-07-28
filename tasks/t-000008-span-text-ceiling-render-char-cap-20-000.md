@@ -6,6 +6,13 @@ priority: medium
 type: bug
 complexity: S
 area: render
+relates:
+  - t-000009
+surface:
+  - format
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-08T00:00:07.000Z'
 ---
 **`SPAN_TEXT_CEILING == RENDER_CHAR_CAP` (20_000) — one large span can fill the whole render

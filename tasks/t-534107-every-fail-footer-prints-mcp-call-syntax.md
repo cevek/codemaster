@@ -10,6 +10,16 @@ type: bug
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-034392
+  - t-534166
+  - t-793745
+surface:
+  - cli
+  - format
+  - mcp
+audience: both
+evidence: repro
 created: '2026-07-28T12:52:09.424Z'
 ---
 `render-result.ts:69` appends to the footer of every FAIL: `— blocked or missing a capability? file it:

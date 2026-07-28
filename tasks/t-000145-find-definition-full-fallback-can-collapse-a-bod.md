@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: S
 area: render
+relates:
+  - t-000146
+surface:
+  - format
+audience: external
+evidence: unverified
 created: '2026-07-08T00:02:24.000Z'
 ---
 **`find_definition` full fallback can collapse a body-bearing sibling post-FLIP** — at full,

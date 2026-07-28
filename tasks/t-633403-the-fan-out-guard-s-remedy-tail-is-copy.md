@@ -10,6 +10,16 @@ type: imp
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-034392
+  - t-286255
+  - t-702879
+  - t-847874
+surface:
+  - ops
+  - ops/guard
+audience: internal
+evidence: measured
 created: '2026-07-28T13:00:00.094Z'
 ---
 Every op carrying the semantic fan-out guard repeats a byte-identical tail in its static `notes[]`:

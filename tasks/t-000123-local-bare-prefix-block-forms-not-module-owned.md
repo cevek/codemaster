@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: scss
+relates:
+  - t-000124
+  - t-000125
+surface:
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:02.000Z'
 ---
 **`:local` bare-prefix / block forms not module-owned** — the paren subject form `:local(.foo){}`

@@ -11,6 +11,16 @@ type: imp
 complexity: L
 area: render
 source: dogfood-jul
+surface:
+  - cli
+  - daemon
+  - docs
+  - format
+  - mcp
+  - ops
+  - ops/guard
+  - plugins/scss
+  - plugins/ts
 audience: both
 evidence: measured
 created: '2026-07-28T20:48:24.952Z'

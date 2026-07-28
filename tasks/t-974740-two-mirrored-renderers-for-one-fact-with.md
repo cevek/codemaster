@@ -9,6 +9,15 @@ tags:
 type: imp
 complexity: S
 area: render
+relates:
+  - t-309134
+  - t-480164
+surface:
+  - common
+  - format
+  - ops
+audience: internal
+evidence: repro
 created: '2026-07-28T07:24:03.047Z'
 ---
 `src/ops/find-usages-table.ts` (`destructuresCell`) and `src/format/render/shapes/helpers.ts`

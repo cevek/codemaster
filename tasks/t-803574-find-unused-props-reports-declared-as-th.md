@@ -9,6 +9,14 @@ tags:
 type: bug
 complexity: S
 area: render
+relates:
+  - t-194771
+  - t-480164
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-28T18:10:07.094Z'
 ---
 `src/ops/find-unused-props.ts` emits `declared: view.declaredCount`, which is

@@ -6,6 +6,14 @@ priority: low
 type: feat
 complexity: S
 area: framework
+relates:
+  - t-000021
+  - t-000133
+surface:
+  - plugins/react-query
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-08T00:00:19.000Z'
 ---
 **react-query v4 positional hook signatures** — `useQuery(key, fn)` / `useMutation(fn, opts)`

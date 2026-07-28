@@ -10,6 +10,17 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-245013
+  - t-544207
+  - t-633403
+  - t-702879
+surface:
+  - cli
+  - mcp
+  - ops/guard
+audience: external
+evidence: measured
 created: '2026-07-28T08:27:44.910Z'
 ---
 First contact with backoffice2 (6101 files), three frictions in one round-trip:
@@ -26,3 +37,5 @@ First contact with backoffice2 (6101 files), three frictions in one round-trip:
 
 Point 3 overlaps t-959904 (refusals should name the working path) and is largely obviated by t-754922
 (auto-escalation) — but 1 and 2 are independent ergonomics of the batch surface itself.
+
+**Related:** point 3 is t-245013's defect on the guard surface — the message names what is missing (a config file) without the means to act (what a minimal one contains, where it goes). The refusal TEXT home is t-633403; the subject-loss on the same path is t-702879.

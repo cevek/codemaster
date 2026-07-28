@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: scss
+relates:
+  - t-000123
+  - t-000124
+surface:
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:04.000Z'
 ---
 **`:global` bare-prefix handling is best-effort syntactic** — `:global(.x)` and bare

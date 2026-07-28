@@ -7,6 +7,14 @@ type: feat
 complexity: S
 area: framework
 source: dogfood-jul
+relates:
+  - t-000019
+  - t-457761
+surface:
+  - daemon
+  - plugins/react
+audience: external
+evidence: repro
 created: '2026-07-08T00:00:25.000Z'
 ---
 **autodetection** — presence of dep in `package.json` + config gate. `feat`·`low`·`cx:S`

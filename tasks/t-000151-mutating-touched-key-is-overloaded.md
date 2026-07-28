@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: M
 area: render
+relates:
+  - t-000150
+surface:
+  - format
+  - ops
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:30.000Z'
 ---
 **mutating `touched` key is overloaded** — `string[]` in full mode, structured

@@ -10,6 +10,13 @@ type: imp
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-427337
+surface:
+  - daemon
+  - ops/intake
+audience: internal
+evidence: repro
 created: '2026-07-15T18:21:35.243Z'
 ---
 `Normalized.flagError` (`src/ops/intake/normalize.ts`) now carries both a lift-flags error AND the misfit-reject message; the name reads as flag-only. Behaviorally correct, just misnamed. Rename to `intakeError`/`rejectMessage` — touches `src/daemon/resolve-args.ts` (the consumer).

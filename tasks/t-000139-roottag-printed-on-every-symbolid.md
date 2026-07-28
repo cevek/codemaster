@@ -6,6 +6,14 @@ priority: medium
 type: dx
 complexity: L
 area: render
+relates:
+  - t-702879
+surface:
+  - core
+  - format
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-08T00:02:18.000Z'
 ---
 **`~<rootTag>` printed on every SymbolId — two-halves task (resolver-semantics THEN render-strip,
@@ -27,3 +35,5 @@ strip `:\d+~<tag>$`, 0/multi-tag honest fallback; JSON keeps the FULL tagged id;
 once in the header). DANGER: today the tag-less mis-resolve is LATENT (nothing strips); shipping
 half (2) without half (1) ACTIVATES it. The token win is also concentrated where it's least
 needed (json — the programmatic chaining path — already keeps the full id). `dx`·`med`·`cx:L`
+
+**Related:** t-702879 turns on the same §6 question from the other side — what may be read off a SymbolId OUTSIDE the owning plugin. That task needs a decode seam to recover a refused call's subject; this one shows a tag-LESS id resolving cross-root as `certain`. Both fix what the tag is for; neither can be designed without the other's constraint.

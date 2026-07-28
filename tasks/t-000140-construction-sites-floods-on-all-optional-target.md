@@ -6,6 +6,11 @@ priority: low
 type: bug
 complexity: M
 area: render
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-08T00:02:19.000Z'
 ---
 **`construction_sites` floods on all-optional target types** — `ButtonProps` (a big

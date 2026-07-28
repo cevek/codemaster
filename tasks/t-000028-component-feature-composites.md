@@ -6,6 +6,10 @@ priority: medium
 type: feat
 complexity: L
 area: framework
+surface:
+  - ops
+audience: external
+evidence: unverified
 created: '2026-07-08T00:00:27.000Z'
 ---
 **component/feature composites** — `ops/component-card`, `feature-map`, `mount-path`,

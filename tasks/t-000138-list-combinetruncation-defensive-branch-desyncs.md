@@ -6,6 +6,10 @@ priority: low
 type: bug
 complexity: S
 area: framework
+surface:
+  - ops
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:02:17.000Z'
 ---
 **`list` combineTruncation defensive branch desyncs with the path filter** — in `list.ts`

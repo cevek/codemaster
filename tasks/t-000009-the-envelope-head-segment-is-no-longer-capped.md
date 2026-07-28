@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: S
 area: render
+relates:
+  - t-000008
+surface:
+  - format
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:00:08.000Z'
 ---
 **the envelope `head` segment is no longer capped — a pathological `failure.message` escapes

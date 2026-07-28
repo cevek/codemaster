@@ -3,6 +3,7 @@ id: t-089408
 title: The symbol question has no SALIENCE inside a grep-heavy workflow — a doc-sync track is ~95% legitimate grep, so the 5% that must not be grep arrives in the same shell rhythm and is never recognized
 status: backlog
 priority: high
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -10,6 +11,15 @@ type: dx
 complexity: M
 area: render
 source: dogfood-jul
+relates:
+  - t-158109
+  - t-815425
+surface:
+  - cli
+  - docs
+  - mcp
+audience: both
+evidence: measured
 created: '2026-07-28T11:06:01.124Z'
 ---
 The strongest self-report of three waves, from worker c850b51e — and the first one framed as a RECOGNITION

@@ -6,6 +6,11 @@ priority: low
 type: dx
 complexity: S
 area: render
+surface:
+  - ops
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:28.000Z'
 ---
 **no dedicated sql-mode test for `list` `allConfidence` backfill** — `listTable.rows` fills

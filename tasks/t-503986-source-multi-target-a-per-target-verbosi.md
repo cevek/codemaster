@@ -9,6 +9,13 @@ type: dx
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-534166
+surface:
+  - format
+  - ops
+audience: external
+evidence: reported
 created: '2026-07-15T11:33:22.840Z'
 ---
 `source` with 5 targets at verbosity:full returned 4 bodies; the largest was replaced with "… source elided for 1 target(s) (re-request individually)". Reasonable size protection, but: (1) no indication of WHICH size threshold tripped or how close the others were, and (2) it forces a second round-trip a per-target knob could avoid.

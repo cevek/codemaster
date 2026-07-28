@@ -6,6 +6,13 @@ priority: low
 type: doc
 complexity: S
 area: render
+relates:
+  - t-000147
+surface:
+  - docs
+  - ops
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:27.000Z'
 ---
 **`expand_type` span→`at` agent-facing rename under-documented** — the data-shape changed

@@ -10,6 +10,14 @@ type: doc
 complexity: S
 area: render
 source: dogfood-jul
+relates:
+  - t-000155
+  - t-613878
+  - t-900973
+surface:
+  - ops/intake
+audience: internal
+evidence: repro
 created: '2026-07-15T18:21:32.303Z'
 ---
 `OpIntake.targetArray` (registry/contracts) now drives BOTH element-coercion of `targets[]` entries AND the flat `{name}`/`{query}`/`{symbolId}`/`{names:[]}`→`targets[]` collapse (added for `source`). The JSDoc documents only element-coercion. Latent (source is the only op with `targetArray` today), so no live misread, but the next op adopting it would be misled.

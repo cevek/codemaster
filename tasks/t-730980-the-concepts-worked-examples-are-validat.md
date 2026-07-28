@@ -9,6 +9,11 @@ tags:
 type: dx
 complexity: S
 area: docs
+surface:
+  - docs
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-28T07:24:51.520Z'
 ---
 Two test-side residuals found while adding the `absence-audit` recipe.

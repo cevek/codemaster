@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000151
+surface:
+  - ops
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:29.000Z'
 ---
 **mutating envelope: `DiffstatEntry` type name + "for the diffstat" comment are stale** — the
