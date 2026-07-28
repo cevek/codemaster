@@ -69,5 +69,5 @@ function altAddressing(sourceFile: ts.SourceFile, file: string, name: string | u
   if (topLevelDeclarationsNamed(sourceFile, name).length > 0) {
     return `, or drop 'line' (name+file resolves the file's TOP-LEVEL declaration of that name)`;
   }
-  return ` (name+file does not reach it either — no anchorable top-level '${name}' in ${file}; check the name, or search it repo-wide)`;
+  return `; name+file does not reach it either — no anchorable top-level '${name}' in ${file}: check the name, or search it repo-wide`;
 }
