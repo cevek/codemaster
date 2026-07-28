@@ -101,3 +101,38 @@ annotated, leading `<unstated>` = the chain is a subset.
 Residuals filed: t-278380 (member_usages has no `conditions`), t-109609 (default-value
 short-circuits, disclosed not measured), t-077593 (per-row climb cost + `⟨no branch⟩` density),
 t-974740 / t-309134 (the mirrored-renderer pattern this avoided), t-213394, t-730980.
+
+## The defect class this feature kept re-creating — read this before touching the chain
+
+**An empty chain claiming "no enclosing branch" where a branch exists.** Not incompleteness — a
+FALSE FACT about the code, the same class as an inverted then/else polarity: an audit reads `''` as
+"calls F unconditionally" and the hole disappears. Three separate rounds landed on it:
+
+1. `?.` was not treated as a branch at all — `logger?.info(fmt(x))` reported `⟨no branch⟩` though the
+   argument is never evaluated when `logger` is nullish.
+2. `||=` / `&&=` / `??=` likewise (`cache ||= build()` read as an unconditional call).
+3. Then the FIX for (1) re-created the class one level down: a multi-link chain reported only the
+   LEFTMOST link, e.g. `a?.b?.(F())` → `a != null`. True whenever `a` exists — so the chain reads as
+   complete while the site is skipped because `a.b` is nullish. A true-but-insufficient SUBSET
+   presented as the whole guard, with no `partial` to say so.
+
+**The rule, and why one term is enough** (this is the part a reader will otherwise "fix" back into
+the insufficient subset): report the NEAREST (rightmost) optional link's LHS, because its own SOURCE
+TEXT already contains every earlier `?.`. For `a?.b?.(F())` that LHS is `a?.b`, and `a?.b != null` is
+false both when `a` is nullish and when `a.b` is — exactly the conjunction `a != null && a.b != null`,
+in one term that stays evaluable. Naming the leftmost link instead drops every other link silently.
+
+Marking `partial` instead of reporting the real guard was considered and rejected: the runtime oracle
+SKIPS partial rows, so it would have silenced the check rather than satisfied it — a rule nothing
+validates is how (3) shipped in the first place.
+
+**Two neighbours of the same shape:** a `!` between the argument and the nearest link is stepped
+THROUGH (the assertion is erased at run time, so the short-circuit still happens), while a
+PARENTHESISED chain is deliberately not (`(a?.b).c` throws rather than short-circuits, so a guard
+there would be invented). Both directions are mutation-pinned.
+
+**Every rule is mutation-pinned, with one asymmetry stated:** reverting to the leftmost link, dropping
+the `!` step-through, dropping the argument-position narrowing, or stepping through parentheses each
+fails at least one oracle (verified by running the mutations). The optional-chain rules are pinned by
+EXECUTION; the `!` step-through only by the fixture table and the descent oracle, because a runtime
+site exercising it throws and would abort the fixture run — an honest limit, not a covered case.

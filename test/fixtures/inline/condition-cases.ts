@@ -30,7 +30,7 @@ export const CASES: Case[] = [
     code:
       'export function b(o: { n?: number; b?: () => boolean; c?: { d: (v: boolean) => boolean }; ' +
       'e?: Record<string, (v: boolean) => boolean>; f?: boolean[]; g?: boolean; h?: boolean; ' +
-      'm?: { g?: (v: boolean) => boolean; h?: boolean[] } }, ' +
+      'm?: { g?: (v: boolean) => boolean; h?: boolean[] }; gen?: <T>(n: number) => boolean }, ' +
       'k: string, x: boolean, arr: boolean[]): void {',
     conditions: [],
   },
@@ -74,9 +74,19 @@ export const CASES: Case[] = [
   // Parenthesising ENDS the chain inside it, but a `?.` AFTER the group starts a new one — so the
   // nearest link here is `?.name`, and its LHS is the whole parenthesised group.
   { code: '  (o.m?.g)?.name.padEnd(F() ? 1 : 2);', conditions: ['(o.m?.g) != null'] },
-  // …whereas a NON-optional access on a parenthesised chain short-circuits nothing: it THROWS when
-  // the inner chain yields undefined, so there is no guard to report (reporting one would invent it).
-  { code: '  void [(o.m?.g).length, F()];', conditions: [] },
+  // A NON-optional access on a parenthesised chain short-circuits nothing: it THROWS when the inner
+  // chain yields undefined, so there is no guard to report — and reporting one would INVENT a guard
+  // (stepping the walk through the parens turns this into a false `o.m != null`, which is why this
+  // case exists: it is the only one that fails on that mutation).
+  { code: '  (o.m?.g).call(null, F());', conditions: [] },
+  // A site that is not an argument in the chain's own spine (here an array element) is untouched by
+  // the optional-chain rule — it never reaches the spine walk at all.
+  { code: '  void [(o.m?.g)?.length, F()];', conditions: [] },
+  // TYPE-argument position: erased before run time, so it gets NO runtime guard — while an enclosing
+  // branch still applies. Without the argument-position narrowing the first line reads `o.gen != null`,
+  // a fabricated fact about a compile-time reference.
+  { code: '  void o.gen?.<typeof F>(1);', conditions: [] },
+  { code: '  if (x) { void o.gen?.<typeof F>(1); }', conditions: ['x'] },
   // Logical assignment short-circuits like its non-assigning twin.
   { code: '  o.g ||= F();', conditions: ['!(o.g)'] },
   { code: '  o.g &&= F();', conditions: ['o.g'] },

@@ -120,9 +120,14 @@ function caseCondition(clause: ts.CaseClause, sf: ts.SourceFile): { text: string
  *  but `(a?.b).c` is NOT — parenthesising ENDS an optional chain (it throws rather than
  *  short-circuits), and treating it as a link would invent a guard that does not exist.
  *
- *  A spine longer than the step bound means the site is at least that deep in ancestors too, so the
- *  outer climb's own cap already discloses `partial` — no separate signal is needed here. */
-function optionalGuardRoot(spine: ts.Node): ts.Expression | undefined {
+ *  The spine is a SIBLING axis, not the site's ancestors — a 400-link spine sits ~5 ancestors deep —
+ *  so the outer climb's cap says nothing about this one. A spine that outruns the bound therefore
+ *  reports `exhausted`, and the caller discloses `partial`: without it a machine-generated chain would
+ *  yield the MEASURED "no enclosing branch" for a site that is in fact guarded (§3.4). */
+function optionalGuardRoot(spine: ts.Node): {
+  root?: ts.Expression;
+  exhausted?: true;
+} {
   let cur: ts.Node = spine;
   let found: ts.Expression | undefined;
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -139,9 +144,10 @@ function optionalGuardRoot(spine: ts.Node): ts.Expression | undefined {
       cur = cur.expression;
       continue;
     }
-    return found;
+    return found !== undefined ? { root: found } : {};
   }
-  return found;
+  // Ran out of steps: a `?.` may sit beyond the bound, so "no guard" is not something we measured.
+  return found !== undefined ? { root: found } : { exhausted: true };
 }
 
 /** One climb step: the condition `child` sits under within `parent`, if any.
@@ -189,8 +195,9 @@ function stepCondition(
     (ts.isCallExpression(parent) && parent.arguments.some((arg) => arg === child)) ||
     (ts.isElementAccessExpression(parent) && parent.argumentExpression === child)
   ) {
-    const root = optionalGuardRoot(parent);
-    return root === undefined ? undefined : { text: `${flatText(root, sf)} != null` };
+    const { root, exhausted } = optionalGuardRoot(parent);
+    if (root !== undefined) return { text: `${flatText(root, sf)} != null` };
+    return exhausted === true ? { unstated: true } : undefined;
   }
   // A `while`/`for` test guards the body; `for..of`/`for..in`/`do..while` bodies carry no boolean
   // branch condition (a do-while body runs at least once; an empty iterable is not a guard), so

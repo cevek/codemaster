@@ -105,7 +105,8 @@ function sectionRows(s: Section): readonly Cell[][] {
 }
 
 /** The tabular cell for a site's enclosing condition chain: the rendered chain (`a && !(b)`, a
- *  leading `…` when a branch above is unstated), `''` for the MEASURED "no enclosing branch", or
+ *  leading `<unstated>` when a branch above is not stated), `''` for the MEASURED "no enclosing
+ *  branch", or
  *  NULL when the annotation was not requested. The `'' vs NULL` split is load-bearing — an audit
  *  asks `WHERE condition != ''` for "guarded only conditionally", which a collapsed NULL would
  *  silently answer wrong (§3.4). */
@@ -207,9 +208,8 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     // flag is off, the row is not a call, or it is a grouped/text row.
     { name: 'destructures', type: 'text' },
     // t-933867 (opt-in `conditions:true`): the enclosing conditional-BRANCH chain of a SITE, with
-    // polarity applied. `''` = measured "no enclosing branch" (NOT "always runs"); a leading `…` =
-    // a real branch whose condition is unstated. NULL when the flag is off, or the row is
-    // grouped/textual.
+    // polarity applied. `''` = measured "no enclosing branch" (NOT "always runs"); a leading
+    // `<unstated>` = the chain is a subset. NULL when the flag is off, or the row is grouped/textual.
     { name: 'condition', type: 'text' },
   ],
   rows(data) {

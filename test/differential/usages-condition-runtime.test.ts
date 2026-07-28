@@ -164,6 +164,11 @@ test('runtime oracle: a site fires EXACTLY when its reported condition chain is 
       lines.size * combos().length,
       'every site × input pair must be checked — a site that degraded to `partial` retires its rule',
     );
+    // The equality above pins COMPLETENESS but not BREADTH: a shrunken `combos()` satisfies it
+    // trivially (20 === 20·1). Both halves are needed — the matrix must stay wide AND whole. The floor
+    // is deliberately a plain number well under the real product (576 = 2·2·3·2·2·2·2·3) rather than
+    // that product recomputed, which would be the same tautology in another spelling.
+    assert.ok(combos().length >= 400, `matrix too narrow: ${combos().length} input combinations`);
   } finally {
     await p.dispose();
   }
