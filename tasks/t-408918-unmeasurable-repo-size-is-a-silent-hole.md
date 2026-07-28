@@ -8,6 +8,15 @@ tags:
 type: bug
 complexity: M
 area: platform
+relates:
+  - t-324342
+  - t-810757
+  - t-980509
+surface:
+  - daemon
+  - ops/guard
+audience: both
+evidence: unverified
 created: '2026-07-27T23:06:01.718Z'
 ---
 Both halves of the OOM defence fall through on the SAME correlated failure — a size estimate that cannot be taken (non-git root, `git` absent from the daemon's PATH, an `ls-files` timeout on a huge tree, submodule breakage):

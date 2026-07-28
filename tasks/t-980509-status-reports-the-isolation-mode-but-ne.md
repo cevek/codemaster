@@ -10,6 +10,19 @@ type: feat
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-000054
+  - t-187018
+  - t-233427
+  - t-408918
+  - t-474125
+  - t-544207
+surface:
+  - daemon
+  - mcp
+  - ops/guard
+audience: both
+evidence: repro
 created: '2026-07-28T08:27:26.318Z'
 ---
 On a 6.1k-file repo the recurring question is "will this workspace run in-process or in a child, and on

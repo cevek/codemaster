@@ -9,6 +9,17 @@ tags:
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-056977
+  - t-302720
+  - t-359677
+  - t-392172
+  - t-617982
+surface:
+  - mcp
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-28T16:09:45.409Z'
 ---
 `minItems:1` объявлен у `search_symbol`, `symbols_overview`, `impact`, `list`, `find_usages.filter`; НЕ объявлен у `member_usages`, `construction_sites`, `discrimination_sites`, `find_unused_exports`, `css_cascade`, `find_unused_scss_classes`, `find_unused_i18n_keys`, `affected.files`/`testGlobs`.

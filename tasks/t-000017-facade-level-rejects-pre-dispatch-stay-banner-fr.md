@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000016
+  - t-000018
+  - t-793745
+surface:
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:16.000Z'
 ---
 **facade-level rejects (pre-dispatch) stay banner-free on a stale daemon** — two per-op paths

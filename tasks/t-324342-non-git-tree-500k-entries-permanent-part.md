@@ -9,6 +9,15 @@ tags:
 type: imp
 complexity: M
 area: platform
+relates:
+  - t-000061
+  - t-408918
+  - t-810757
+surface:
+  - daemon
+  - support
+audience: external
+evidence: repro
 created: '2026-07-16T11:43:56.040Z'
 ---
 **Residual from t-368812** (§1 never-hang walk fix). `support/fs/walk.ts` caps at `DEFAULT_MAX_ENTRIES = 500_000` entries → on a genuinely huge NON-GIT source tree the walk returns `partial{tool:'fs', 'entry cap … reached'}`, so `daemon/freshness.ts` mtime-walk mode carries a permanent `unverified` freshness (never a clean commit anchor).

@@ -11,6 +11,13 @@ tags:
 type: feat
 complexity: S
 area: platform
+relates:
+  - t-000115
+surface:
+  - ops
+  - support
+audience: both
+evidence: unverified
 created: '2026-07-17T10:29:30.264Z'
 ---
 Split from t-072590. That task wired `ctx.deadline` into the LS-driven mutating ops (rename/move/extract/change_signature/transaction) and into the shared `applyMutation`/`applyRefactorPlan` gate + pre-write guard. Because `codemod` routes through `applyMutation`, its §2.8 typecheck gate AND its pre-write guard are ALREADY deadline-bounded for free (no codemod.ts change was needed).

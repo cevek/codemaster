@@ -9,6 +9,11 @@ type: feat
 complexity: L
 area: schema
 source: dogfood-jul
+surface:
+  - ops
+  - plugins/schema
+audience: external
+evidence: reported
 created: '2026-07-15T11:33:07.339Z'
 ---
 **Context.** A common big task is migrating after an orval-style `api:sync` that renames/removes fields across the generated client (e.g. `ServiceItemAddonDto`/`SaleItemAddonDto` gain `addonId`; request bodies `addons:{code}`→`{id}`; `AppointmentTypeServiceDto.predefinedAddonCodes`→`predefinedAddonIds`; an op + its input DTO removed). The DRIVER lives in the generated layer + a diff between two openapi snapshots — codemaster had no path, so the agent hand-diffed `src/api/generated/{api,types}.ts` with git and chased tsc errors.

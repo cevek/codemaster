@@ -6,6 +6,12 @@ priority: low
 type: feat
 complexity: M
 area: transaction
+relates:
+  - t-000117
+surface:
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:57.000Z'
 ---
 **E-e — a path swap/cycle within a composed transaction** (`a→b` while `c→a`) hits the clobber

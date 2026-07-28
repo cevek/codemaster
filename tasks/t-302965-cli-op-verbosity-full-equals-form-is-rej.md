@@ -9,6 +9,13 @@ type: dx
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-198617
+  - t-320098
+surface:
+  - cli
+audience: internal
+evidence: repro
 created: '2026-07-16T10:21:09.986Z'
 ---
 **Found during t-337633/t-865108 review (verified on current main).** The CLI `op` path parses `--verbosity` via `argValue` (space-form only: `--verbosity full`), while `--format` uses `flagValue` (both `--format json` and `--format=json`). So `--verbosity=full` is NOT spliced and falls through to `unknownFlags`, which rejects it as an unrecognized flag (exit 2).

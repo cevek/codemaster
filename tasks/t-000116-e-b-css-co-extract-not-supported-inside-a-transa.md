@@ -6,6 +6,13 @@ priority: low
 type: feat
 complexity: M
 area: transaction
+relates:
+  - t-000115
+surface:
+  - ops
+  - plugins/scss
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:55.000Z'
 ---
 **E-b — CSS co-extract not supported inside a transaction `extract_symbol` step** — the scss

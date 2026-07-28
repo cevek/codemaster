@@ -10,6 +10,17 @@ type: feat
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-544207
+  - t-847874
+  - t-972931
+  - t-980509
+surface:
+  - daemon
+  - mcp
+  - support
+audience: external
+evidence: repro
 created: '2026-07-28T08:26:59.251Z'
 ---
 `root` selects the repo per call, but `isolation` and `maxOldSpaceMB` come ONLY from `codemaster.config.*`

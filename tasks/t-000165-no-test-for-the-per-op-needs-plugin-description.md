@@ -6,6 +6,11 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+surface:
+  - mcp
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-08T00:02:44.000Z'
 ---
 **no test for the per-op `needs:<plugin>` description tag** — `buildOpToolDescriptor` adds a

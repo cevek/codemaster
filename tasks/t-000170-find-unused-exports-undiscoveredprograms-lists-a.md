@@ -6,6 +6,11 @@ priority: low
 type: bug
 complexity: S
 area: correctness
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:49.000Z'
 ---
 **`find_unused_exports.undiscoveredPrograms` lists ABSOLUTE paths** — `/Users/…/tsconfig.json`

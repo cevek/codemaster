@@ -6,6 +6,17 @@ priority: low
 type: imp
 complexity: M
 area: platform
+relates:
+  - t-000017
+  - t-000018
+  - t-474125
+  - t-617982
+  - t-793745
+surface:
+  - core
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:15.000Z'
 ---
 **json op/batch consumers never see daemon self-staleness** — the always-on staleness banner

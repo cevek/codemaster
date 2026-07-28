@@ -6,6 +6,14 @@ priority: low
 type: feat
 complexity: L
 area: transaction
+relates:
+  - t-000113
+  - t-000116
+  - t-882645
+surface:
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:54.000Z'
 ---
 **E-a — `codemod` is not a transaction step** — it reads disk directly + detects captures

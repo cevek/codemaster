@@ -6,6 +6,12 @@ priority: low
 type: perf
 complexity: S
 area: platform
+relates:
+  - t-324342
+surface:
+  - daemon
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:00.000Z'
 ---
 **freshness `statDirty` stats the FULL dirty set incl. `--untracked-files=all`** — the

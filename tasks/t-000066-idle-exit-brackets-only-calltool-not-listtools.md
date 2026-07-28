@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-823472
+  - t-824810
+surface:
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-08T00:01:05.000Z'
 ---
 **idle-exit brackets only `CallTool`, not `ListTools`** — the Stage-1 idle deadline

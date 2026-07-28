@@ -6,6 +6,13 @@ priority: medium
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000065
+surface:
+  - daemon
+  - support
+audience: both
+evidence: unverified
 created: '2026-07-08T00:00:11.000Z'
 ---
 **chokidar feeds absolute OS paths into the reindex pipeline** —

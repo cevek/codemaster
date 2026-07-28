@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000016
+  - t-000017
+  - t-793745
+surface:
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:17.000Z'
 ---
 **two non-op error paths carry no staleness banner** — `runOpTool`'s `result === undefined` ("no

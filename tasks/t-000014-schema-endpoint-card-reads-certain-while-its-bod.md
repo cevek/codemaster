@@ -6,6 +6,11 @@ priority: medium
 type: bug
 complexity: S
 area: schema
+surface:
+  - ops
+  - plugins/schema
+audience: both
+evidence: repro
 created: '2026-07-08T00:00:13.000Z'
 ---
 **schema endpoint card reads `certain` while its body/response type is unresolvable** —

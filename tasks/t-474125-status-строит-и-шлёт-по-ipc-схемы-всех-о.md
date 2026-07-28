@@ -9,6 +9,15 @@ tags:
 type: perf
 complexity: S
 area: platform
+relates:
+  - t-000016
+  - t-954198
+  - t-980509
+surface:
+  - daemon
+  - mcp
+audience: both
+evidence: measured
 created: '2026-07-28T16:26:27.696Z'
 ---
 `buildWorkspaceStatus` (src/daemon/workspace-status.ts) кладёт `inputSchema` в view КАЖДОГО опа, а рендер печатает её только на single-op пути (`renderOps(..., {schema:true})`). Значит терсовый `status` и `status {full:true}` тащат ~36 KB схем через IPC (process-режим) и выбрасывают их.

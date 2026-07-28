@@ -10,6 +10,17 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-146140
+  - t-198617
+  - t-281434
+  - t-320098
+surface:
+  - cli
+  - mcp
+  - ops/intake
+audience: both
+evidence: repro
 created: '2026-07-28T12:37:04.176Z'
 ---
 `root` sits in `OP_TOOL_RESERVED_KEYS` (`src/mcp/op-tools.ts`) but NOT in `OP_FLAG_KEYS`

@@ -9,6 +9,17 @@ tags:
 type: dx
 complexity: M
 area: platform
+relates:
+  - t-056977
+  - t-302720
+  - t-378009
+  - t-392172
+  - t-617982
+surface:
+  - mcp
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-28T16:10:02.868Z'
 ---
 `OpDefinition.requiredOneOf` — ОДНА группа «хотя бы одна из веток», рендерится в `anyOf:[{required:[…]},…]`. Этого хватило на таргет-ограничение (16 опов) и на `css_cascade` (file+class ⊻ selector).

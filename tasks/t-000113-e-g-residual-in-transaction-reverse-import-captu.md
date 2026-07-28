@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: transaction
+relates:
+  - t-000115
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:52.000Z'
 ---
 **E-g residual — in-transaction REVERSE import-capture is not overlay-aware** — the FORWARD

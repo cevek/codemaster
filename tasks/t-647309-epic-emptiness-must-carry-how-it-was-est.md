@@ -11,6 +11,14 @@ type: imp
 complexity: L
 area: correctness
 source: dogfood-jul
+relates:
+  - t-561552
+surface:
+  - ops
+  - plugins/react
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T20:34:26.581Z'
 ---
 Five instances found in one session, five DIFFERENT mechanisms, one symptom: the tool returns `0` /

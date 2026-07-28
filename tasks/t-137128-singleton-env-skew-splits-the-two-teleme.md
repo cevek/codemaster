@@ -8,6 +8,15 @@ tags:
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000001
+  - t-034931
+  - t-137057
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-28T07:26:38.056Z'
 ---
 Telemetry ownership is split by role: the agent-facing process writes the one accounting record per call, the daemon writes only its own in-flight crash breadcrumbs. Correlating a fatal means matching the two views on `cwd` + `ops`, which requires both to be in the SAME usage directory.

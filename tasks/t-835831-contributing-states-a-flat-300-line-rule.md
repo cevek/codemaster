@@ -10,6 +10,16 @@ type: infra
 complexity: S
 area: correctness
 source: dogfood-jul
+relates:
+  - t-000058
+  - t-000166
+  - t-035990
+  - t-500947
+surface:
+  - docs
+  - test
+audience: internal
+evidence: measured
 created: '2026-07-28T17:49:18.009Z'
 ---
 Reported proactively by worker 98284777 so it would not surface as a surprise at merge.

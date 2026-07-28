@@ -9,6 +9,17 @@ tags:
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-056977
+  - t-302720
+  - t-359677
+  - t-378009
+  - t-617982
+surface:
+  - mcp
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-28T16:10:16.693Z'
 ---
 `list.registry` объявлен как `{type:'string'}`, хотя набор реестров конечен и известен: его дают активные плагины (`components`, `hooks`, `routes`, `stores`, …). Опечатка ловится только на диспатче (там есть did-you-mean со списком `available`), но не на границе.

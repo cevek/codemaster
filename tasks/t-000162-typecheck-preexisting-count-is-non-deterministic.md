@@ -6,6 +6,13 @@ priority: medium
 type: bug
 complexity: M
 area: correctness
+relates:
+  - t-000114
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-08T00:02:41.000Z'
 ---
 **`typecheck.preExisting` count is non-deterministic across identical runs** — two back-to-back

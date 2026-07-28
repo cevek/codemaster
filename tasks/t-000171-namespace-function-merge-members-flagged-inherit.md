@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: correctness
+relates:
+  - t-000169
+  - t-580913
+surface:
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:50.000Z'
 ---
 **namespace/function-merge members flagged `inherited=true`** — `isInherited` (type-expand.ts:155)

@@ -6,6 +6,13 @@ priority: low
 type: feat
 complexity: S
 area: platform
+relates:
+  - t-000060
+surface:
+  - ops
+  - plugins/scss
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:03.000Z'
 ---
 **`ops/scss-class-diff.ts`** — the remaining Phase-3 op. `feat`·`low`·`cx:S`

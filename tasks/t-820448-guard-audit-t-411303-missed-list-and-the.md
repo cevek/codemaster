@@ -12,6 +12,19 @@ type: bug
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-004414
+  - t-048595
+  - t-163532
+  - t-396905
+  - t-544207
+  - t-735577
+  - t-972931
+surface:
+  - ops
+  - ops/guard
+audience: both
+evidence: measured
 created: '2026-07-27T22:23:26.230Z'
 ---
 ## Repro (live, /Users/cody/Dev/backoffice2, ~6101 files, in-process; agent transcript 7237bc5c)

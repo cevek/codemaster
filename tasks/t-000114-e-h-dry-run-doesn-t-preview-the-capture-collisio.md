@@ -6,6 +6,13 @@ priority: medium
 type: dx
 complexity: M
 area: transaction
+relates:
+  - t-000161
+  - t-000162
+surface:
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:53.000Z'
 ---
 **E-h — dry-run doesn't preview the capture/collision/dirty REFUSAL verdict** — the shared

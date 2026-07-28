@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-000012
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:01:04.000Z'
 ---
 **watcher-bridge as its own seam consumer** — today the engine fans watcher batches into

@@ -6,6 +6,15 @@ priority: low
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000053
+  - t-000056
+  - t-000057
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:54.000Z'
 ---
 **daemon bind sets `process.umask(0o177)` process-globally** for the bind window

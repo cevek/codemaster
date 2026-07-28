@@ -9,6 +9,12 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-000002
+surface:
+  - ops
+audience: internal
+evidence: repro
 created: '2026-07-28T13:00:19.928Z'
 ---
 `src/ops/find-phantom-deps.ts` carries a literal NUL byte at offset ~7246 — a composite map key

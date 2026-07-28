@@ -10,6 +10,20 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-000016
+  - t-000164
+  - t-056977
+  - t-146140
+  - t-302720
+  - t-359677
+  - t-378009
+  - t-392172
+surface:
+  - mcp
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-28T12:36:51.670Z'
 ---
 `batchToolSchema` (`src/mcp/schema.ts`) is a plain `z.object`, so zod strips unknown top-level keys

@@ -12,6 +12,14 @@ tags:
 type: feat
 complexity: L
 area: platform
+relates:
+  - t-000050
+  - t-000176
+surface:
+  - daemon
+  - mcp
+audience: both
+evidence: unverified
 created: '2026-07-17T00:04:05.108Z'
 ---
 Split out of t-000051 (wedged-daemon recovery) as its B2 phase — deferred because it is unsafe without a prerequisite.

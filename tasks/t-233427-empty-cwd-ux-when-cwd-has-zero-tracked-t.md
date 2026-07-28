@@ -9,6 +9,16 @@ type: dx
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-281434
+  - t-815425
+  - t-980509
+surface:
+  - daemon
+  - mcp
+  - ops
+audience: external
+evidence: repro
 created: '2026-07-15T11:33:42.758Z'
 ---
 Session cwd was an empty dir (no package.json, no TS); the real code lived in a sibling repo. Consequences: (1) had to pass `root` on EVERY op call since cwd had nothing to resolve against; (2) `status` reported the sibling workspace only because root was passed — the default warm root would have been the empty cwd.

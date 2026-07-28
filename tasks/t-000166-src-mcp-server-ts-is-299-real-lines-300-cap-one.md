@@ -6,6 +6,14 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+relates:
+  - t-000058
+  - t-000152
+  - t-835831
+surface:
+  - mcp
+audience: internal
+evidence: measured
 created: '2026-07-08T00:02:45.000Z'
 ---
 **`src/mcp/server.ts` is ~299 real lines (300 cap) — one line of headroom** — the exit-seam track

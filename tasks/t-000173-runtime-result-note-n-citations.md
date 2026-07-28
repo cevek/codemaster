@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+relates:
+  - t-000159
+surface:
+  - ops
+  - plugins/scss
+audience: external
+evidence: repro
 created: '2026-07-08T00:02:52.000Z'
 ---
 **runtime result-note §N citations** — the status-notes density pass (concepts hoist + § strip)

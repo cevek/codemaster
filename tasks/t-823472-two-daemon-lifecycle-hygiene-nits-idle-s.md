@@ -8,6 +8,14 @@ tags:
 type: imp
 complexity: S
 area: platform
+relates:
+  - t-000066
+  - t-824810
+surface:
+  - common
+  - daemon
+audience: internal
+evidence: measured
 created: '2026-07-28T07:27:00.057Z'
 ---
 Two small pre-existing rough edges surfaced while reviewing the daemon's crash-breadcrumb span. Neither is a live defect; both are "correct only by coincidence".

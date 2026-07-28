@@ -13,6 +13,16 @@ tags:
 type: imp
 complexity: M
 area: platform
+relates:
+  - t-254076
+  - t-501098
+  - t-735577
+  - t-820448
+surface:
+  - ops/guard
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-17T10:30:42.845Z'
 ---
 Surfaced by t-399909 during the pruning-aware size-guard work. Deferred to avoid two live tracks (t-399909 + t-411303) editing the shared `semantic-fanout-guard.ts` + its test file concurrently.

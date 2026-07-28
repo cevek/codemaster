@@ -10,6 +10,13 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-396905
+surface:
+  - core
+  - docs
+audience: both
+evidence: repro
 created: '2026-07-28T16:07:11.722Z'
 ---
 Found by the doc track (t-720379) while sweeping for drift, left unfixed because it lives in `src/` and

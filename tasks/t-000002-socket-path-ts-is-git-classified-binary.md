@@ -6,6 +6,14 @@ priority: low
 type: infra
 complexity: S
 area: platform
+relates:
+  - t-000003
+  - t-000004
+  - t-823731
+surface:
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-08T00:00:01.000Z'
 ---
 **`socket-path.ts` is git-classified BINARY** (numstat `- -`, `Bin` in diff) despite 0 NUL /

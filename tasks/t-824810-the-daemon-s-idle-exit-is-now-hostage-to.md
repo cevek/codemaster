@@ -8,6 +8,17 @@ tags:
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000066
+  - t-031282
+  - t-384920
+  - t-823472
+  - t-826996
+surface:
+  - common
+  - daemon
+audience: internal
+evidence: repro
 created: '2026-07-28T07:26:31.287Z'
 ---
 `daemon/daemon-server.ts` `handle()` brackets each dispatch with `idle.enter()` / `idle.leave()` (the `finally`), so the idle deadline cannot fire while a request is in flight. That is deliberate and load-bearing: without it a client disconnecting mid-call releases the per-connection hold and the daemon can idle-exit under a live op — killing the call and leaving a breadcrumb behind a clean exit, which the next start promotes as a fabricated fatal.

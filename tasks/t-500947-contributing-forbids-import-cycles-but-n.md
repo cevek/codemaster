@@ -10,6 +10,14 @@ type: infra
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-035990
+  - t-835831
+surface:
+  - docs
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-28T09:24:18.862Z'
 ---
 `CONTRIBUTING` states the rule plainly — "imports flow downward only, no cycles" — and `src/README.md`

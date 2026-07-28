@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: correctness
+relates:
+  - t-000114
+surface:
+  - format
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:40.000Z'
 ---
 **A refused-on-`apply` mutating op reports `mode=dry-run`** — `move_symbol … apply:true` that the

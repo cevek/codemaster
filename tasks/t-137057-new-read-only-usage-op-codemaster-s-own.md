@@ -10,6 +10,19 @@ type: feat
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-034931
+  - t-048595
+  - t-137128
+  - t-287742
+  - t-469353
+  - t-810757
+  - t-954198
+surface:
+  - ops
+  - support
+audience: internal
+evidence: measured
 created: '2026-07-28T08:05:45.571Z'
 ---
 From worker 97c0652d's dogfood report, and independently confirmed by this manager's own session.

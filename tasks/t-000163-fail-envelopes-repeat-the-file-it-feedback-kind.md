@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+relates:
+  - t-534107
+surface:
+  - format
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:42.000Z'
 ---
 **FAIL envelopes repeat the `file it: feedback({kind:'bug'…})` footer** — every `FAIL tool=…`

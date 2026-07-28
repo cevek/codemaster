@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: M
 area: platform
+relates:
+  - t-000176
+  - t-783490
+surface:
+  - daemon
+  - mcp
+audience: both
+evidence: unverified
 created: '2026-07-08T00:00:49.000Z'
 ---
 **MCP connection instability over long sessions (UNVERIFIED — likely harness-side)** — dogfood

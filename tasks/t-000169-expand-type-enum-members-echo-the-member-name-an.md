@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: correctness
+relates:
+  - t-000171
+  - t-580913
+surface:
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:48.000Z'
 ---
 **`expand_type` enum members echo the member name and omit the value** — enum/const-enum members

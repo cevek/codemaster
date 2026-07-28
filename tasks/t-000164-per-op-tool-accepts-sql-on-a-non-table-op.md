@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+relates:
+  - t-617982
+surface:
+  - mcp
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:43.000Z'
 ---
 **per-op tool accepts `sql` on a non-table op** — `opToolSchema` accepts `sql` for any op, but

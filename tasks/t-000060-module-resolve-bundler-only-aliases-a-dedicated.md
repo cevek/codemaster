@@ -6,6 +6,12 @@ priority: low
 type: feat
 complexity: M
 area: platform
+relates:
+  - t-000064
+surface:
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:00:59.000Z'
 ---
 **`module-resolve`: bundler-only aliases + a dedicated module** — relative AND tsconfig-`paths`

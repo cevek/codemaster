@@ -9,6 +9,14 @@ tags:
 type: imp
 complexity: S
 area: platform
+relates:
+  - t-396905
+  - t-544207
+surface:
+  - daemon
+  - ops/guard
+audience: internal
+evidence: unverified
 created: '2026-07-17T02:03:48.993Z'
 ---
 Latent over-refusal surfaced by the t-679091 architecture-reviewer (not yet reachable — filed so it isn't lost).

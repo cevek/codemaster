@@ -10,6 +10,17 @@ type: bug
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-137057
+  - t-287742
+  - t-324342
+  - t-408918
+surface:
+  - ops
+  - plugins/ts
+  - support
+audience: external
+evidence: repro
 created: '2026-07-28T08:23:46.799Z'
 ---
 Three inbox reports from different sessions, none previously converted to backlog (manager's own gap —

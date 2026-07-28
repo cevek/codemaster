@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-000062
+surface:
+  - plugins/ts
+audience: internal
+evidence: repro
 created: '2026-07-08T00:01:02.000Z'
 ---
 **re-export `callArgShapes` result types on the `ts` public surface** (feedback) — `plugins/ts/plugin.ts`

@@ -10,6 +10,13 @@ type: bug
 complexity: S
 area: correctness
 source: dogfood-jul
+relates:
+  - t-163532
+surface:
+  - common
+  - daemon
+audience: internal
+evidence: repro
 created: '2026-07-28T17:15:14.848Z'
 ---
 `common/result/construct.ts` `fail()` builds `{ ...failure, partial: false }` — the spread is

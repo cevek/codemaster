@@ -9,6 +9,12 @@ tags:
 type: bug
 complexity: M
 area: platform
+relates:
+  - t-647309
+surface:
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-28T18:41:41.813Z'
 ---
 `src/plugins/ts/declarations-on-line.ts` `topLevelDeclarationsNamed` walks `sf.statements` and

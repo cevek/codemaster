@@ -9,6 +9,14 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-034931
+  - t-137057
+surface:
+  - mcp
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-27T23:12:37.770Z'
 ---
 `src/mcp/call-telemetry.ts` clears the crash breadcrumb in a `finally` spanning the whole call, so a

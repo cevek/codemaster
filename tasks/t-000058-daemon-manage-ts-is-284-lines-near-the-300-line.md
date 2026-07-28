@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-000166
+  - t-835831
+surface:
+  - daemon
+audience: internal
+evidence: measured
 created: '2026-07-08T00:00:57.000Z'
 ---
 **`daemon/manage.ts` is ~284 lines — near the 300 line-cap** (like `imports.ts`). No issue today,

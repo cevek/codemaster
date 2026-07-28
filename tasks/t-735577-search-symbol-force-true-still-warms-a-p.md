@@ -8,6 +8,15 @@ tags:
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-396905
+  - t-544207
+  - t-820448
+surface:
+  - ops
+  - ops/guard
+audience: both
+evidence: repro
 created: '2026-07-27T23:12:23.379Z'
 ---
 The semantic fan-out guard no longer lets `force:true` override an in-process refusal (t-693742: forcing the warm killed the daemon, and the refusal text advertised force as the escape).

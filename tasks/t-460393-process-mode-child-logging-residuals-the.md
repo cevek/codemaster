@@ -10,6 +10,14 @@ type: dx
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-034931
+  - t-163532
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-28T07:34:28.471Z'
 ---
 Residuals around the engine child's stderr relay (`daemon/child-stderr-relay.ts`, wired in

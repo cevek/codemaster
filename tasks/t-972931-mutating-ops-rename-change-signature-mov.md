@@ -8,6 +8,15 @@ tags:
 type: bug
 complexity: M
 area: platform
+relates:
+  - t-004414
+  - t-187018
+  - t-820448
+surface:
+  - ops
+  - ops/guard
+audience: both
+evidence: unverified
 created: '2026-07-27T23:12:10.539Z'
 ---
 `semanticFanoutRefusal` covers the READ fan-out ops. The MUTATING ops — `rename_symbol`, `change_signature`, `move_symbol`, `extract_symbol` — warm the LS and fan their edit sites across every containing program (ARCHITECTURE §5-L2 "writes fan out too"), plus the §2.8 typecheck gate over every affected program. Same memory profile, no guard.

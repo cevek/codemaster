@@ -12,6 +12,18 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-137057
+  - t-137128
+  - t-460393
+  - t-469353
+  - t-954198
+surface:
+  - daemon
+  - mcp
+  - support
+audience: internal
+evidence: repro
 created: '2026-07-27T23:16:30.698Z'
 ---
 The bridge outlives its daemon, so when the daemon dies mid-call the bridge writes an ordinary record — `ok:false`, `isError:true`, a real `durationMs`, and a message saying the connection closed. A fatal that reads like a transport hiccup.

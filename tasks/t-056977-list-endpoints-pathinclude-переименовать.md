@@ -10,6 +10,18 @@ tags:
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-302720
+  - t-359677
+  - t-378009
+  - t-392172
+  - t-617982
+surface:
+  - mcp
+  - ops
+  - ops/intake
+audience: both
+evidence: repro
 created: '2026-07-28T16:09:33.776Z'
 ---
 `list_endpoints.pathInclude` — `{type:'string'}` с семантикой ПОДСТРОКИ URL. У 10+ остальных опов `pathInclude` — массив глобов по путям репо. Одно имя, два несовместимых типа и две разные семантики.

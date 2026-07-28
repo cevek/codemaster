@@ -10,6 +10,14 @@ type: infra
 complexity: S
 area: correctness
 source: dogfood-jul
+relates:
+  - t-500947
+  - t-835831
+surface:
+  - ops
+  - test
+audience: internal
+evidence: repro
 created: '2026-07-28T09:24:32.468Z'
 ---
 Softening one noun in an ambiguity FAIL message ("declarations" → "declaration sites") broke an e2e test

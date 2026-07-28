@@ -10,6 +10,14 @@ type: feat
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-137057
+  - t-810757
+surface:
+  - ops
+  - support
+audience: internal
+evidence: measured
 created: '2026-07-28T08:31:12.083Z'
 ---
 Every inbox entry carries `repo=`, `cm=<version>`, `plugins=`, `ops=` — enough to know WHERE it happened

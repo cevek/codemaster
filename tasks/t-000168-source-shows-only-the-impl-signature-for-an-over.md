@@ -6,6 +6,11 @@ priority: low
 type: feat
 complexity: M
 area: correctness
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:47.000Z'
 ---
 **`source` shows only the impl signature for an overloaded function** — `source` on an

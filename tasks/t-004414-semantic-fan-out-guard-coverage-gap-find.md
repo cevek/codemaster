@@ -10,6 +10,15 @@ type: bug
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-820448
+  - t-972931
+surface:
+  - ops
+  - ops/guard
+  - plugins/i18n
+audience: both
+evidence: unverified
 created: '2026-07-27T23:42:33.636Z'
 ---
 `src/ops/find-unused-i18n-keys.ts` and `src/ops/find-missing-i18n-keys.ts` carry NO

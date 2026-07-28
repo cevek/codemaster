@@ -9,6 +9,13 @@ tags:
 type: feat
 complexity: S
 area: platform
+relates:
+  - t-826996
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: reported
 created: '2026-07-17T00:23:07.399Z'
 ---
 **Fold-in split out of t-095661** (the two watchdog backstops shipped; this is the deferred third fold-in). t-095661's body asks: "fire the stall breadcrumb on the §19 cancellable-deadline path too (the more common partial-stall leaves a diagnostic)."

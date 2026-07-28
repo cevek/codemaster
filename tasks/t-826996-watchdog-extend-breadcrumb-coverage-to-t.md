@@ -9,6 +9,14 @@ tags:
 type: feat
 complexity: S
 area: platform
+relates:
+  - t-140171
+  - t-824810
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: reported
 created: '2026-07-17T00:32:19.050Z'
 ---
 **Coverage-gap follow-up from t-095661** (both reviewers flagged; safe direction — a MISSED wedge, never a false-positive kill, so not a merge blocker).

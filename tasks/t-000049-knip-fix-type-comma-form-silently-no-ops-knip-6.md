@@ -6,6 +6,10 @@ priority: low
 type: dx
 complexity: S
 area: platform
+surface:
+  - docs
+audience: internal
+evidence: measured
 created: '2026-07-08T00:00:48.000Z'
 ---
 **`knip --fix-type` comma form silently no-ops (knip@6.15).** `fix-and-check` strips dead

@@ -10,6 +10,14 @@ type: feat
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-137057
+  - t-820448
+surface:
+  - daemon
+  - ops
+audience: internal
+evidence: measured
 created: '2026-07-28T08:45:16.973Z'
 ---
 Filed as a NEGATIVE result so the next reader does not redo the assessment.

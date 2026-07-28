@@ -6,6 +6,10 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+surface:
+  - test
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:02:46.000Z'
 ---
 **exit-seam masking test: orphaned `.gen.ts` child swept only on the NEXT run** — `exit-seam-

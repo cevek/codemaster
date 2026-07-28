@@ -6,6 +6,15 @@ priority: low
 type: perf
 complexity: S
 area: platform
+relates:
+  - t-000053
+  - t-000055
+  - t-000056
+surface:
+  - daemon
+  - support
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:00:56.000Z'
 ---
 **`transport.connect()` has no explicit timeout** (`support/transport/unix-socket.ts` /

@@ -10,6 +10,16 @@ type: dx
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-146140
+  - t-302965
+  - t-320098
+  - t-848858
+surface:
+  - cli
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-28T12:36:40.062Z'
 ---
 Op ARGS have one gate (the op's `argsSchema`, §7) and the batch ENVELOPE has one gate

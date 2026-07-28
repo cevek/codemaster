@@ -9,6 +9,15 @@ type: dx
 complexity: S
 area: platform
 source: dogfood-jul
+relates:
+  - t-198617
+  - t-302965
+  - t-848858
+surface:
+  - cli
+  - ops/intake
+audience: internal
+evidence: repro
 created: '2026-07-15T11:33:37.348Z'
 ---
 Three CLI self-dev papercuts (the dogfood loop CONTRIBUTING.md points to), all on `node src/bin.ts op …`:

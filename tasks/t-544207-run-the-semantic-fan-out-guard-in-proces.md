@@ -12,6 +12,16 @@ tags:
 type: imp
 complexity: S
 area: platform
+relates:
+  - t-187018
+  - t-254076
+  - t-735577
+  - t-820448
+  - t-980509
+surface:
+  - ops/guard
+audience: both
+evidence: measured
 created: '2026-07-28T06:49:38.243Z'
 ---
 `ops/guard/semantic-fanout-guard.ts` returns early unless `ctx.daemon.isolation === 'in-process'`, so an auto-escalated workspace never sees it. There, a heavy fan-out runs to completion — and on a repo whose fan-out does not fit, "completion" is an OOM at ~31 s. The failure is honest and the daemon survives (t-754922 did its job); what is missing is that the same verdict was knowable before the warm.

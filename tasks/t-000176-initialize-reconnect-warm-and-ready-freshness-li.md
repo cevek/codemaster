@@ -6,6 +6,13 @@ priority: medium
 type: dx
 complexity: S
 area: platform
+relates:
+  - t-000050
+  - t-783490
+surface:
+  - mcp
+audience: both
+evidence: reported
 created: '2026-07-08T00:02:55.000Z'
 ---
 **`initialize`/reconnect "warm and ready (freshness:…)" line** — dogfood friction (amiro,

@@ -8,6 +8,15 @@ tags:
 type: imp
 complexity: S
 area: platform
+relates:
+  - t-034931
+  - t-137057
+  - t-474125
+surface:
+  - daemon
+  - mcp
+audience: internal
+evidence: repro
 created: '2026-07-28T07:26:50.025Z'
 ---
 The MCP tool name never crosses the socket, so `daemon/daemon-server.ts` `describe()` derives `tool` for its crash breadcrumb from the wire request. The wire's `batch` field looks like the discriminator but is not: `mcp/server.ts` attaches it only when the call carries `sql`, so a plain `batch({requests:[…]})` arrives WITHOUT it and a per-op call WITH `sql` arrives with it.

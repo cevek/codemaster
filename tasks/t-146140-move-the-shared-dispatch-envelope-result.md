@@ -9,6 +9,18 @@ type: imp
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-198617
+  - t-617982
+  - t-848858
+surface:
+  - cli
+  - core
+  - format
+  - mcp
+  - ops
+audience: internal
+evidence: repro
 created: '2026-07-28T12:37:27.235Z'
 ---
 `src/cli/` and `src/mcp/` are peer L5 front doors. Three pieces that belong to neither live in

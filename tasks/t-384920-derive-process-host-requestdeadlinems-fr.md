@@ -12,6 +12,13 @@ tags:
 type: imp
 complexity: S
 area: platform
+relates:
+  - t-824810
+surface:
+  - cli
+  - daemon
+audience: both
+evidence: repro
 created: '2026-07-17T01:05:54.641Z'
 ---
 Reconcile between t-000052 (process-mode isolation) and t-000059 (sync-op wall-clock deadline), deferred because the two landed separately (the config field didn't exist when the keystone merged).

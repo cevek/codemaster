@@ -10,6 +10,17 @@ type: dx
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-000016
+  - t-000017
+  - t-000018
+  - t-000154
+  - t-534107
+surface:
+  - daemon
+  - mcp
+audience: external
+evidence: repro
 created: '2026-07-28T12:28:47.912Z'
 ---
 `sourceStale` is a fingerprint of **codemaster's own `src/**`**, taken once per daemon at spawn

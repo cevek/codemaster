@@ -7,6 +7,14 @@ type: dx
 complexity: M
 area: platform
 source: dogfood-jul
+relates:
+  - t-233427
+  - t-848858
+surface:
+  - daemon
+  - ops
+audience: external
+evidence: repro
 created: '2026-07-07T20:42:01.902Z'
 ---
 Split off from t-614260. Once absolute-path normalization is fixed (t-614260 part a), an absolute `file`/`symbolId` still requires an explicit `--root`/`root` when the client cwd isn't inside the target repo. The filed convenience — infer the root from the absolute path itself (git-toplevel it) — was deferred because `route(cwd, root?)` is deliberately arg-AGNOSTIC: making the orchestrator peek into `req.args` for a path-shaped field to derive root couples routing to per-op arg shapes (fragile, a layering smell).

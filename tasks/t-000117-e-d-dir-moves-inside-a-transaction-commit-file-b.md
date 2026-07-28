@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: transaction
+relates:
+  - t-000118
+surface:
+  - ops
+  - support
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:56.000Z'
 ---
 **E-d — dir moves inside a transaction commit file-by-file** (per-file `git mv`) so an emptied

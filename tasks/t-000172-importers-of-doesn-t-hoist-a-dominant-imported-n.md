@@ -6,6 +6,11 @@ priority: low
 type: dx
 complexity: S
 area: correctness
+surface:
+  - format
+  - ops
+audience: both
+evidence: repro
 created: '2026-07-08T00:02:51.000Z'
 ---
 **`importers_of` doesn't hoist a dominant imported name** — each row trails `· <imports>`, which

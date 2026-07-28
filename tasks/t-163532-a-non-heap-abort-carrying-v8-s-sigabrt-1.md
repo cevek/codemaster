@@ -11,6 +11,15 @@ type: bug
 complexity: M
 area: correctness
 source: dogfood-jul
+relates:
+  - t-460393
+  - t-820448
+  - t-946708
+surface:
+  - daemon
+  - ops/guard
+audience: both
+evidence: unverified
 created: '2026-07-28T17:39:38.184Z'
 ---
 `daemon/process-host.ts` `isOom` classifies a dead engine child as an OOM from the exit signature

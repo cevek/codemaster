@@ -9,6 +9,14 @@ tags:
 type: imp
 complexity: L
 area: platform
+relates:
+  - t-824810
+surface:
+  - daemon
+  - ops
+  - support
+audience: both
+evidence: measured
 created: '2026-07-16T12:02:27.839Z'
 ---
 Umbrella for the north-star §1 invariant ("never hang — the worst failure") and its neighbours (never-OOM at scale, wedge-survival). Motivated by the 2026-07-16 live incident (t-895142): an orphaned `mcp --in-process` server spun at 100% CPU for 46 min from an unbounded `walk.ts` symlink-cycle — the acute cause is now fixed (t-368812), but the incident exposed that the tool has **no backstop for a *future* unknown wedge** and **no bound on several known per-call/synchronous paths**.

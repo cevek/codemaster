@@ -6,6 +6,16 @@ priority: low
 type: bug
 complexity: S
 area: platform
+relates:
+  - t-000004
+  - t-000055
+  - t-000056
+  - t-000057
+surface:
+  - daemon
+  - support
+audience: both
+evidence: unverified
 created: '2026-07-08T00:00:52.000Z'
 ---
 **convergence hardening — liveness-probe-before-unlink / bind-first** (`connect-or-spawn.ts`).
