@@ -155,7 +155,7 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // A line PAST THE END of the file: here no column resolves anything, so the column must NOT
     // be the remedy — the line number is. (The in-range hint above would be a false promise.)
     const past = failMsg(await p.op('find_usages', { file: 'src/d.ts', line: 99 }));
-    assert.match(past, /past the end of src\/d\.ts/, 'says why, without quoting a line count it');
+    assert.match(past, /line 99 is outside src\/d\.ts/, 'says why, quoting no line count');
     assert.match(past, /check the line number/, 'names the remedy that applies');
     assert.ok(!/pass file:line:col/.test(past), `no column remedy past EOF: ${past}`);
 

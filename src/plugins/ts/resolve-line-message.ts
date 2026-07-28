@@ -32,7 +32,10 @@ export function lineMissMessage(
   const outside = line < 1 || line > sourceFile.getLineStarts().length;
   const head = `no declaration${name !== undefined ? ` named '${name}'` : ''} on ${file}:${line}`;
   if (outside) {
-    return `${head} — line ${line} is past the end of ${file}, so NO column resolves there: check the line number`;
+    // "outside", not "past the end": the same branch guards a non-positive line (unreachable
+    // through the op boundary, which validates a positive int, but this is a plugin-level entry
+    // too), and it matches the wording the col-carrying path already uses for the same fact.
+    return `${head} — line ${line} is outside ${file}, so NO column resolves there: check the line number`;
   }
   const there =
     all.length > 0
