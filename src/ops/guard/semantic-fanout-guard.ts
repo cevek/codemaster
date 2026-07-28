@@ -80,7 +80,7 @@ function fanoutRefusalMessage(
   return (
     `${nav.op} declines: repo ${count} src files > threshold ${threshold}, engine IN-PROCESS — its ` +
     `cross-program reference fan-out can OOM the daemon uncatchably, killing every workspace on it. ` +
-    `${navigationFor(nav.op, nav.args)} ` +
+    `${navigationFor(nav.op, nav.args, 'guard')} ` +
     `Cause (needs config/daemon access): ${remedyFor(reason)}${forcedNote}`
   );
 }

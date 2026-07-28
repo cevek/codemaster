@@ -29,7 +29,27 @@ import { classifyTargetString } from '../intake/smart-string.ts';
 
 /** One paste-able call plus what it actually returns. `gives` states the answer's real extent,
  *  including what it is NOT, so a redirect can never read as an equivalent of the refused op. */
-export type CheapCall = { readonly call: string; readonly gives: string };
+export type CheapCall = {
+  readonly call: string;
+  readonly gives: string;
+  /** True when running this call builds a TS program and warms the checker. Such a call escapes the
+   *  fan-out GUARD (which refuses over addressing, not cost) but does NOT escape an engine that just
+   *  died of OOM — see `RefusalCause`. */
+  readonly buildsProgram?: true;
+};
+
+/** Why we are rendering a redirect — and it changes which calls are honest to name.
+ *
+ *  `guard`: an op DECLINED before doing any work. The refusal is about ADDRESSING (a bare name fans
+ *  across every program; a file pin is single-program-exact), so re-pinning the same op provably
+ *  escapes it.
+ *
+ *  `died`: the isolated engine actually ran out of memory — or was killed — running this op. Nothing
+ *  about addressing changes that. Measured on a 6k-file repo: a FILE-PINNED
+ *  `trace_prop_through_tree` OOMs exactly as the bare-name one does, so offering the re-pin here
+ *  would hand the agent back the very call that just failed. Under `died` only calls that build no
+ *  program at all survive; the rest is honestly reported as out of reach. */
+export type RefusalCause = 'guard' | 'died';
 
 /** The target fields a redirect can interpolate. Read defensively — a shape mismatch degrades to a
  *  subject-less redirect, never a throw. */
@@ -141,23 +161,18 @@ function usageAlternatives(name: string | undefined): CheapCall[] {
 function definitionAlternatives(nav: NavArgs): CheapCall[] {
   const { name, file } = nav;
   if (name === undefined) return [];
-  if (file !== undefined) {
-    return [
-      {
-        call: `find_definition {name:${j(name)},file:${j(file)}}`,
-        gives: 'the type-verified declaration — a file pin is single-program-exact and never fans',
-      },
-    ];
-  }
+  const pinned: CheapCall = {
+    call: `find_definition {name:${j(name)},file:${file === undefined ? '"<file from the call above>"' : j(file)}}`,
+    gives: 'the type-verified declaration — a file pin is single-program-exact and never fans',
+    buildsProgram: true,
+  };
+  if (file !== undefined) return [pinned];
   return [
     {
       call: `search_symbol {query:${j(name)},syntactic:true}`,
       gives: `the file(s) declaring ${j(name)}`,
     },
-    {
-      call: `find_definition {name:${j(name)},file:"<file from the call above>"}`,
-      gives: 'the type-verified declaration — a file pin is single-program-exact and never fans',
-    },
+    pinned,
   ];
 }
 
@@ -185,7 +200,11 @@ function repinAlternatives(op: string, nav: NavArgs): CheapCall[] {
   const pinned = file === undefined ? undefined : repinnedCall(op, bag, file);
   if (pinned !== undefined) {
     return [
-      { call: pinned, gives: `the same ${op}, single-program-exact — a file pin never fans` },
+      {
+        call: pinned,
+        gives: `the same ${op}, single-program-exact — a file pin never fans`,
+        buildsProgram: true,
+      },
     ];
   }
   return [
@@ -196,6 +215,7 @@ function repinAlternatives(op: string, nav: NavArgs): CheapCall[] {
     {
       call: `${op} {…same args…,file:"<file from the call above>"}`,
       gives: `the same ${op} re-addressed — pinning the file makes it single-program-exact, so it never fans`,
+      buildsProgram: true,
     },
   ];
 }
@@ -239,23 +259,30 @@ const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
 export function cheapCallsFor(
   op: string,
   args: unknown,
+  cause: RefusalCause,
 ): { readonly calls: readonly CheapCall[]; readonly substitute: boolean } {
   const nav = readArgs(args);
-  const specific = BY_OP.get(op)?.(nav) ?? [];
+  // A dead engine is not escaped by re-addressing: drop every call that would build a program, and
+  // let what remains (or nothing) decide whether a substitute can honestly be claimed.
+  const specific = (BY_OP.get(op)?.(nav) ?? []).filter(
+    (c) => cause === 'guard' || c.buildsProgram !== true,
+  );
   if (specific.length > 0) return { calls: specific, substitute: true };
   return { calls: orientation(nav.name), substitute: false };
 }
 
 /** Render the redirect as ONE dense clause (§12 — a refusal that buries its own next step in prose
  *  is the failure this table exists to fix). Verdict first: what to run, then what it returns. */
-export function navigationFor(op: string, args: unknown): string {
-  const { calls, substitute } = cheapCallsFor(op, args);
+export function navigationFor(op: string, args: unknown, cause: RefusalCause): string {
+  const { calls, substitute } = cheapCallsFor(op, args, cause);
   const body = calls.map((c) => `${c.call} → ${c.gives}`).join(' · ');
-  // The lead may not have the refused op as its implied subject: this same string is rendered on a
-  // path where the op has ALREADY died (the isolated engine's OOM), so "still runs here" would read
-  // as a claim about the corpse. It asserts only about the calls it lists.
+  // The lead carries NO cost claim: under `guard` some of these calls do build a program (a file pin
+  // escapes the guard without being free), so a blanket "no program build" would be false. What each
+  // call costs and covers lives in its own `gives`, which is per-call and cannot over-generalise.
+  // Nor can the lead take the refused op as its implied subject — on the `died` path that op is
+  // already gone, so "still runs here" would be a claim about the corpse.
   const lead = substitute
-    ? 'RUN INSTEAD (no program build, no fan)'
+    ? 'RUN INSTEAD'
     : `NO cheaper in-tool path to this question (${op} is what answers it). What still answers here`;
   return `${lead}: ${body}.`;
 }

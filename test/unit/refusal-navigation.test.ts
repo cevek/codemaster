@@ -106,7 +106,7 @@ test('no refusal redirects into another refusal — every op, every arg shape', 
   assert.ok(everyOp.length > GUARDED.size, 'the sweep must reach unguarded ops as well');
   for (const op of everyOp) {
     for (const shape of ARG_SHAPES) {
-      for (const c of cheapCallsFor(op, shape.args).calls) {
+      for (const c of cheapCallsFor(op, shape.args, 'guard').calls) {
         assertReachable(c.call, `${op} (${shape.label})`);
       }
     }
@@ -131,7 +131,7 @@ test('every BY_OP key names a real op (a stale key would silently degrade to the
 // say the question itself is out of reach here, or the agent takes the near-miss for the real thing.
 test('an op with no cheap equivalent reports substitute:false rather than a near-equivalent', () => {
   for (const op of ['impact', 'affected', 'importers_of', 'find_unused_exports']) {
-    const { calls, substitute } = cheapCallsFor(op, { name: 'Button' });
+    const { calls, substitute } = cheapCallsFor(op, { name: 'Button' }, 'guard');
     assert.equal(substitute, false, `${op} must not claim a substitute`);
     assert.ok(calls.length > 0, `${op} must still name what does work here`);
   }
@@ -141,7 +141,7 @@ test('an op with no cheap equivalent reports substitute:false rather than a near
 // copy-pasteable SymbolIds. A suggestion carrying no concrete subject is a hint, not a next call.
 test('redirects interpolate the refused call subject verbatim', () => {
   for (const op of ['find_usages', 'find_definition', 'search_symbol']) {
-    const calls = cheapCallsFor(op, { name: 'Butt"on' }).calls;
+    const calls = cheapCallsFor(op, { name: 'Butt"on' }, 'guard').calls;
     assert.ok(calls.length > 0);
     for (const c of calls) {
       assert.match(c.call, /"Butt\\"on"/, `${op} must JSON-quote the subject: ${c.call}`);
@@ -154,19 +154,19 @@ test('redirects interpolate the refused call subject verbatim', () => {
 // and a `name` that is really a position must NOT be pasted into a name-matching query — a redirect
 // that quietly finds nothing is worse than one that admits it has no subject.
 test('raw pre-intake args: alias keeps the subject, a path-shaped name never becomes a query', () => {
-  const aliased = cheapCallsFor('find_usages', { symbol: 'Button' });
+  const aliased = cheapCallsFor('find_usages', { symbol: 'Button' }, 'guard');
   assert.equal(aliased.substitute, true, '`symbol` is the §7 alias of `name`');
   assert.ok(aliased.calls[0]?.call.includes('"Button"'), 'subject survives the alias');
 
   for (const posed of ['src/x.ts:10:3', 'src/x.ts:10']) {
-    for (const c of cheapCallsFor('find_usages', { name: posed }).calls) {
+    for (const c of cheapCallsFor('find_usages', { name: posed }, 'guard').calls) {
       assert.doesNotMatch(c.call, /query:"src/, `a position leaked into a name query: ${c.call}`);
     }
   }
 
   // An implausibly long "name" is dropped rather than elided: a call cut with `…` reads as runnable
   // and is not.
-  for (const c of cheapCallsFor('find_usages', { name: 'x'.repeat(500) }).calls) {
+  for (const c of cheapCallsFor('find_usages', { name: 'x'.repeat(500) }, 'guard').calls) {
     assert.doesNotMatch(c.call, /…/, `emitted an un-runnable elided call: ${c.call}`);
   }
 });
@@ -177,24 +177,29 @@ test('raw pre-intake args: alias keeps the subject, a path-shaped name never bec
 // `oom`/`timeout` verdict, for every request in the batch, with an internal stack trace.
 test('a non-own op name yields a redirect, never a throw', () => {
   for (const op of ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'find_usage']) {
-    const line = navigationFor(op, { name: 'Button' });
+    const line = navigationFor(op, { name: 'Button' }, 'guard');
     assert.match(
       line,
       /symbols_overview|search_symbol/,
       `${op} must still name something runnable`,
     );
-    for (const c of cheapCallsFor(op, { name: 'Button' }).calls) assertReachable(c.call, op);
+    for (const c of cheapCallsFor(op, { name: 'Button' }, 'guard').calls)
+      assertReachable(c.call, op);
   }
 });
 
 // A conditionally guarded op refuses over its ADDRESSING, not its question, so the honest redirect
 // is the same op re-pinned — carrying the caller's own args, or the promise "paste this" is false.
 test('a trace re-pins itself and keeps its own args, rather than borrowing find_definition', () => {
-  const pinned = cheapCallsFor('trace_prop_through_tree', {
-    name: 'App',
-    prop: 'userId',
-    file: 'src/App.tsx',
-  });
+  const pinned = cheapCallsFor(
+    'trace_prop_through_tree',
+    {
+      name: 'App',
+      prop: 'userId',
+      file: 'src/App.tsx',
+    },
+    'guard',
+  );
   assert.equal(pinned.substitute, true);
   const [call] = pinned.calls;
   assert.ok(call !== undefined);
@@ -204,7 +209,11 @@ test('a trace re-pins itself and keeps its own args, rather than borrowing find_
 
   // Without a file there is nothing to pin yet: locate first, then re-address — and it must still
   // never present "where is App declared" as an answer to "where does userId flow".
-  const unpinned = cheapCallsFor('trace_prop_through_tree', { name: 'App', prop: 'userId' });
+  const unpinned = cheapCallsFor(
+    'trace_prop_through_tree',
+    { name: 'App', prop: 'userId' },
+    'guard',
+  );
   for (const c of unpinned.calls) assertReachable(c.call, 'trace_prop_through_tree (unpinned)');
   assert.ok(
     unpinned.calls.some((c) => c.call.startsWith('trace_prop_through_tree ')),
@@ -225,7 +234,7 @@ test('the subject is found wherever the op keeps it', () => {
     ['find_unused_props', { component: 'Button' }],
     ['find_usages', { symbols: ['Button'] }],
   ] as const) {
-    const { calls } = cheapCallsFor(op, args);
+    const { calls } = cheapCallsFor(op, args, 'guard');
     const subject: unknown = Object.values(args)[0];
     const want: unknown = Array.isArray(subject) ? (subject as readonly unknown[])[0] : subject;
     assert.ok(
@@ -235,10 +244,56 @@ test('the subject is found wherever the op keeps it', () => {
   }
 });
 
+// The sharpest form of this task's defect, and one this table shipped: on the `died` path the engine
+// OOM'd running the op, so re-addressing buys nothing — a file-pinned trace OOMs exactly as its
+// bare-name form does (measured on a 6k-file repo). Offering the re-pin there handed the agent back
+// the very call that had just failed. Under `died`, only calls that build no program may be named.
+test('a died-engine redirect never names a call that builds a program', () => {
+  const everyOp = [...new Set([...OPS.map((o) => o.op), 'search_symbol'])];
+  for (const op of everyOp) {
+    for (const shape of ARG_SHAPES) {
+      for (const c of cheapCallsFor(op, shape.args, 'died').calls) {
+        assert.notEqual(
+          c.buildsProgram,
+          true,
+          `${op} (${shape.label}) offers a program-building call after the engine died: ${c.call}`,
+        );
+      }
+    }
+  }
+});
+
+test('a died-engine redirect never echoes back the call that just failed', () => {
+  const args = { name: 'Button', prop: 'size', file: 'src/Button.tsx' };
+  for (const op of ['trace_prop_through_tree', 'trace_type_widening', 'find_definition']) {
+    const { calls, substitute } = cheapCallsFor(op, args, 'died');
+    for (const c of calls) {
+      assert.ok(!c.call.startsWith(`${op} `), `${op} redirects to itself after dying: ${c.call}`);
+    }
+    // Under the GUARD the very same call IS the right answer — the refusal was about addressing.
+    assert.ok(
+      cheapCallsFor(op, args, 'guard').calls.some((c) => c.call.startsWith(`${op} `)),
+      `${op} must still re-pin itself when the GUARD refused`,
+    );
+    // With a file already pinned, the only specific call each of these had was the program-building
+    // one, so all three honestly fall back rather than claim a substitute they no longer have.
+    assert.equal(substitute, false, `${op} claims a substitute it cannot deliver after dying`);
+  }
+
+  // Without a file, find_definition still has a genuine no-build partial (the syntactic scan finds
+  // the declaring file), so it may claim one — the filter drops only the program-building step.
+  const noFile = cheapCallsFor('find_definition', { name: 'Button' }, 'died');
+  assert.equal(noFile.substitute, true);
+  assert.deepEqual(
+    noFile.calls.map((c) => c.call),
+    ['search_symbol {query:"Button",syntactic:true}'],
+  );
+});
+
 // The partial must never be sold as the whole: the syntactic scan finds declarations and import
 // sites, which is NOT the per-site usage set find_usages would have returned.
 test('the find_usages redirect states what it does NOT give', () => {
-  const [first] = cheapCallsFor('find_usages', { name: 'Button' }).calls;
+  const [first] = cheapCallsFor('find_usages', { name: 'Button' }, 'guard').calls;
   assert.ok(first !== undefined);
   assert.match(first.gives, /NOT the per-site usage set/);
 });
@@ -247,7 +302,7 @@ test('the find_usages redirect states what it does NOT give', () => {
 // not be parsed here) still has to hand back something runnable, not a placeholder-only string.
 test('a subject-less refusal still yields a runnable call', () => {
   for (const args of [{ module: 'src/x.ts' }, {}]) {
-    const { calls } = cheapCallsFor('importers_of', args);
+    const { calls } = cheapCallsFor('importers_of', args, 'guard');
     assert.deepEqual(
       calls.map((c) => c.call),
       ['symbols_overview {}'],

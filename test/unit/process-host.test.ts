@@ -202,6 +202,55 @@ test('oom hint: a SIGABRT/134 exit is labelled oom, not a bare crash', async () 
   );
 });
 
+// t-959904. This is the message an agent on an oversized repo actually reads: such a repo is
+// auto-escalated at spawn, so the in-process fan-out guard never fires there. Three properties, none
+// of which the guards' own tests can pin, because this path composes them differently.
+test('a died-engine failure redirects per request, verdict-scoped, redirect before cause', async () => {
+  const fc = fakeChild();
+  const host = await armedHost(fc, manualClock(), () => undefined);
+  const reqP = host.request([
+    { name: 'find_usages', args: { name: 'Button' } as never },
+    { name: 'impact', args: { name: 'Widget' } as never },
+  ]);
+  fc.exit(134, null); // OOM signature
+  const [a, b] = await reqP;
+  const msg = (r: typeof a) =>
+    r !== undefined && 'result' in r && r.result.ok === false ? r.result.failure.message : '';
+
+  // Per-request, not one shared string: a batch's requests ask different questions.
+  assert.match(msg(a), /"Button"/, 'the first request keeps its own subject');
+  assert.match(msg(b), /"Widget"/, 'the second is not given the first request’s redirect');
+  assert.match(msg(a), /find_usages cannot complete/);
+  assert.match(msg(b), /impact cannot complete/);
+
+  // Redirect BEFORE cause — inverted vs the guards on purpose: this fails a WHOLE batch, so N
+  // messages concatenate and the §12 seam cap trims the tail. The redirect is the actionable part.
+  for (const m of [msg(a), msg(b)]) {
+    const redirect = Math.max(m.indexOf('RUN INSTEAD'), m.indexOf('NO cheaper in-tool path'));
+    assert.ok(redirect > 0 && m.indexOf('Cause:') > redirect, `redirect must precede cause: ${m}`);
+  }
+});
+
+// Only an OOM proves the call cannot succeed here. A deadline overrun does not, and saying so would
+// be an unearned claim of impossibility — the honesty rule applied to our own failure text.
+test('a timeout says the call did not complete, never that the repo cannot answer it', async () => {
+  const fc = fakeChild();
+  const clock = manualClock();
+  const host = await armedHost(fc, clock, () => undefined, { requestDeadlineMs: 10 });
+  const reqP = host.request([{ name: 'find_usages', args: { name: 'Button' } as never }]);
+  clock.advance(10);
+  fc.exit(null, 'SIGKILL');
+  const [r] = await reqP;
+  const msg =
+    r !== undefined && 'result' in r && r.result.ok === false ? r.result.failure.message : '';
+  assert.match(msg, /find_usages did not complete/);
+  assert.doesNotMatch(
+    msg,
+    /cannot complete on this repo/,
+    'a timeout is not proof of impossibility',
+  );
+});
+
 test('no double-settle: a late reply after a crash is ignored', async () => {
   const fc = fakeChild();
   const host = await armedHost(fc, manualClock(), () => undefined);

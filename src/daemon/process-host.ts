@@ -151,6 +151,11 @@ export async function createProcessHost(
       s.reason === 'timeout'
         ? `isolated engine did not reply in ${deps.requestDeadlineMs}ms — killed it`
         : `isolated engine process ${s.reason === 'oom' ? 'ran out of memory' : 'exited'} (${s.detail})`;
+    // Only an OOM earns "cannot complete on this repo": the heap was exhausted, and a retry does the
+    // same thing again. A deadline overrun is not proof of impossibility and a crash is weaker still
+    // — those say what happened to THIS call and nothing about the next one.
+    const verdict = (name: string) =>
+      s.reason === 'oom' ? `${name} cannot complete on this repo` : `${name} did not complete`;
     return reqs.map((r) => ({
       name: r.name,
       result: fail<JsonValue>({
@@ -161,7 +166,10 @@ export async function createProcessHost(
         // function fails an ENTIRE batch at once, so N of these messages concatenate into one frame
         // and the §12 seam cap trims the tail: whatever sits last is what the later requests lose.
         // The cause is one clause and re-derivable; the redirect is the only actionable part.
-        message: `${r.name} cannot complete on this repo. ${navigationFor(r.name, r.args)} Cause: ${cause}.`,
+        // `'died'`: the engine is gone, so a redirect may only name calls that build no program —
+        // re-addressing escapes the fan-out GUARD, never an exhausted heap (measured: a file-pinned
+        // trace OOMs exactly as its bare-name form does).
+        message: `${verdict(r.name)}. ${navigationFor(r.name, r.args, 'died')} Cause: ${cause}.`,
         partial: true,
       }),
     }));

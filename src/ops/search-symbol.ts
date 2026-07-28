@@ -89,7 +89,7 @@ function sizeGuardRefusal(
   return (
     `search_symbol declines to warm: repo is large (${shape}, over the peak threshold ${threshold}) — ` +
     `the navto search risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
-    `throwaway discovery query. ${navigationFor('search_symbol', args)} ` +
+    `throwaway discovery query. ${navigationFor('search_symbol', args, 'guard')} ` +
     `Or pass force:true to warm anyway.`
   );
 }
@@ -280,7 +280,7 @@ export const searchSymbolOp = defineOp({
           // up front, but "what to run instead" is one statement and it lives in navigate.ts. The
           // narrowing hint is this branch's own — a timeout, unlike a size refusal, can also be
           // fixed by asking for less.
-          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}. ${navigationFor('search_symbol', args)} Or narrow the query.`,
+          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}. ${navigationFor('search_symbol', args, 'guard')} Or narrow the query.`,
         });
       }
       return failFromThrown('ts-ls', thrown);
