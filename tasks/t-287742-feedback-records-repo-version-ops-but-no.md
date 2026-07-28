@@ -33,3 +33,23 @@ stable within a session and meaningless outside it does the whole job.
 Same envelope should carry the op sequence that PRECEDED the feedback call if it is cheaply available —
 the usage log already has it (t-137057), so a timestamp + session id is enough to join them after the
 fact rather than duplicating data.
+
+## The id is an ADDRESS, not just a correlation key — which makes this materially more valuable
+
+The session id in `~/.myclaude/projects/<project>/sessions/<id>/` IS the agent id. So an author stamped
+into a feedback entry is not merely traceable, it is **reachable**: the reporter can be asked directly
+about its own finding, and it still holds the track's context (measured on four such agents from this
+week: 27–80% context in use, all addressable, archiving does not affect it).
+
+That changes what the field buys. Today, understanding a finding means a human locating the chat, then an
+agent reading a transcript and inferring intent. With the id in the envelope, the loop is: read the
+finding → ask its author "did you try X, and what did it return" → get an answer from the agent that was
+there. No human relay, no inference from a call log.
+
+Worked example from this wave: t-109741's origin (`7237bc5c`) had to be recovered by grepping
+`~/.myclaude/projects` for the text of the feedback call itself. It worked, but only because the entry
+happened to contain distinctive strings. A finding phrased in generic terms would not be recoverable at
+all — and the mechanism is doing by hand what one field would do by construction.
+
+So the ask sharpens: stamp the agent/session id, and treat it as the reply address for the finding.
+Correlation with the usage log (t-137057) then comes for free on the same key.
