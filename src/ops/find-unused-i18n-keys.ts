@@ -43,10 +43,12 @@ function partialHint(
   view: I18nUnusedView,
   prefix: string | undefined,
   reached: readonly string[],
-  anyCertain: boolean,
 ): string {
   const sites = view.blockers.map(locOf);
-  const at = sites.length > 0 ? ` — blocking dynamic call: ${nameWithMore(sites, 1)}` : '';
+  // Necessary, never sufficient: with a cause no call can fix also standing, repairing the named
+  // site leaves the verdict identical — the remedy line must say so, not just the docs (§3.6).
+  const also = view.nonCallCause ? ' (a non-call cause also stands — see degradedReason)' : '';
+  const at = sites.length > 0 ? ` — blocking dynamic call: ${nameWithMore(sites, 1)}${also}` : '';
   const list = 'partials:"list" to see them';
   if (view.globalDemote)
     return `narrowing does not lift this demote: no key anywhere is provable${at}. ${list}`;
@@ -56,9 +58,10 @@ function partialHint(
   // is demoted too. A BROADER prefix (or none) still has provable siblings to narrow to.
   if (prefix !== undefined && reached.some((h) => `${prefix}.`.startsWith(h)))
     return `narrowing further does not lift this demote: prefix="${prefix}" is inside the demoted namespace(s) ${demoted}${at}. ${list}`;
-  // Only promise the narrowing remedy when this very answer PROVES a provable key exists outside
-  // the demoted heads — with every reported key demoted, "a prefix outside them" may not exist.
-  const remedy = anyCertain ? 'a prefix= outside them returns certain results, or ' : '';
+  // Only promise the narrowing remedy when a key outside the demoted heads actually EXISTS. The
+  // fact is whole-scan (`anyProvableKey`), not this answer's own rows: a caller who already
+  // narrowed into the demoted namespace sees no certain row, which says nothing about the repo.
+  const remedy = view.anyProvableKey ? 'a prefix= outside them returns a provable answer, or ' : '';
   return `these keys are under the demoted namespace(s) ${demoted}${at} — ${remedy}${list}`;
 }
 
@@ -183,7 +186,7 @@ export const findUnusedI18nKeysOp = defineOp({
                       // Only the namespaces that actually cover a REPORTED partial key — a
                       // whole-scan prefix with no in-scope partials would mislabel the summary.
                       demoted: view.globalDemote ? 'global' : reached,
-                      hint: partialHint(view, args.prefix, reached, certain.length > 0),
+                      hint: partialHint(view, args.prefix, reached),
                     },
             }
           : {}),

@@ -267,6 +267,73 @@ test('blame only the CAUSAL call: a parse failure blames no t(), and a global de
   }
 });
 
+test('the remedy line rests on whole-scan facts, not on the answer it is attached to', async () => {
+  // ARM 1 — a headless call AND an unreadable locale. The named site is real, but repairing it
+  // leaves the parse failure standing, so the verdict would not move: a hint that names it without
+  // that qualifier is the same false-remedy shape (§3.6), one layer up from the blocker list.
+  const both = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts': CONFIG,
+    'locales/en.json': '{ "errors": { "codes": { "e1": "X" } }, }', // trailing comma → failure
+    'src/z.ts': 'const t = (k: string) => k;\nexport const z = (k: string) => t(k);\n',
+  });
+  try {
+    const v = okView(await both.op('find_unused_i18n_keys', {}));
+    assert.match(v.degradedReason ?? '', /failed to parse/, 'both causes are named in the reason');
+    assert.deepEqual(v.blocking?.sites.map(loc), ['src/z.ts:2:35'], 'the headless call IS causal');
+    assert.match(
+      v.partial?.hint ?? '',
+      /non-call cause also stands/,
+      'the hint says fixing the named call is not enough',
+    );
+  } finally {
+    await both.dispose();
+  }
+
+  // ARM 2 — a namespace demote plus a provable key OUTSIDE the queried scope. The caller narrowed
+  // into the demoted namespace, so this answer holds no certain row — but the repo does, and
+  // narrowing elsewhere is a remedy that works. Gating the offer on the answer's OWN rows would
+  // drop it; the gate is the whole-scan fact.
+  const outside = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts': CONFIG,
+    'locales/en.json': LOCALE,
+    'src/a.ts': "const t = (k: string) => k;\nexport const a = t(`errors.codes.${'e1'}`);\n",
+  });
+  try {
+    const narrowed = okView(await outside.op('find_unused_i18n_keys', { prefix: 'errors.codes' }));
+    assert.equal(narrowed.unused.length, 0, 'no certain row in THIS answer — every row is demoted');
+    assert.match(narrowed.partial?.hint ?? '', /does not lift/, 'narrowing further cannot help…');
+
+    // …and where the caller has NOT narrowed in, the offer is made — because `ui.*` / `common.*`
+    // are provable, which is a fact about the repo, not about the rows above.
+    const wide = okView(await outside.op('find_unused_i18n_keys', {}));
+    assert.match(wide.partial?.hint ?? '', /returns a provable answer/, 'the remedy exists');
+  } finally {
+    await outside.dispose();
+  }
+
+  // ARM 3 (the negative) — EVERY key in the repo is demoted, so no prefix escapes the demote and
+  // the offer must be withheld. Without this arm the gate could be hardcoded true.
+  const allDemoted = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts': CONFIG,
+    'locales/en.json': JSON.stringify({ errors: { codes: { e1: 'X', e2: 'Y' } } }),
+    'src/a.ts': "const t = (k: string) => k;\nexport const a = t(`errors.${'codes.e1'}`);\n",
+  });
+  try {
+    const v = okView(await allDemoted.op('find_unused_i18n_keys', {}));
+    assert.ok((v.partial?.count ?? 0) > 0, 'there ARE demoted rows to hint about');
+    assert.doesNotMatch(
+      v.partial?.hint ?? '',
+      /returns a provable answer/,
+      'no prefix escapes a repo-wide demote — the offer would be a remedy that does not exist',
+    );
+  } finally {
+    await allDemoted.dispose();
+  }
+});
+
 test('cold == warm: the blocker set and the scoped verdict survive an incremental edit', async () => {
   const initial = {
     'tsconfig.json': TSCONFIG,

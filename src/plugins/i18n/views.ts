@@ -78,6 +78,15 @@ export type I18nUnusedView = {
    *  module) or nothing is reported. Necessary, never sufficient — a hidden cause named in
    *  `degradedReason` outlives every fix here. */
   blockers: readonly Span[];
+  /** A cause NO call can fix is standing (a locale parse failure / an unresolved i18n module), so
+   *  every site in `blockers` is necessary but not sufficient — a consumer's remedy line must say
+   *  so rather than send the caller to a repair that leaves the verdict identical. */
+  nonCallCause: boolean;
+  /** WHOLE-SCAN: some key in the repo is outside every demoted head, so a `prefix` narrowing to it
+   *  yields a provable answer. False under `globalDemote` (nothing is provable anywhere). A scoped
+   *  answer cannot derive this — a caller already narrowed INTO a demoted namespace sees no certain
+   *  row of its own, which says nothing about the repo (t-949045). */
+  anyProvableKey: boolean;
   /** The single ANSWER-LEVEL reason for the demotion (set iff `degraded`). Stated ONCE here, never
    *  stamped per row — every row would carry the identical string (a 1-per-key repeat). Scope-
    *  dependent like `degraded`, unlike the whole-scan `globalDemote` beside it. */
