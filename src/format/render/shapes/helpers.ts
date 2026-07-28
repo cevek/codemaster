@@ -59,16 +59,20 @@ export function usageDeco(v: Record<string, JsonValue>): string {
  *  render glitch, and dropping it would erase the measurement the agent asked for). The wording is
  *  deliberately "no branch", NOT "unconditional": the claim is "no enclosing conditional branch in
  *  this function", and an early `return` above the site or a conditionally-invoked caller would make
- *  "always runs" a lie (§3). The chain text comes from the ONE shared renderer in
- *  `common/condition` — the same string the sql `condition` column carries, so the two faces of the
- *  fact cannot drift (§3.1). An ABSENT field renders nothing: not annotated is not a claim. */
+ *  "always runs" a lie (§3). Both the chain text AND this empty-chain token come from the ONE shared
+ *  renderer in `common/condition` — the sql column passes the default `''` (so `condition <> ''`
+ *  works) and this face passes a readable word, but the two spellings are decided in that one file,
+ *  so the encoding differs by design while the FACT cannot drift (§3.1). An ABSENT field renders
+ *  nothing: not annotated is not a claim. */
 function conditionDeco(c: JsonValue | undefined): string {
   if (!isObject(c)) return '';
-  const rendered = renderConditionChain({
-    conditions: asArray(c['conditions']).map(String),
-    ...(c['partial'] === true ? { partial: true as const } : {}),
-  });
-  return ` ⟨${rendered.length > 0 ? rendered : 'no branch'}⟩`;
+  return ` ⟨${renderConditionChain(
+    {
+      conditions: asArray(c['conditions']).map(String),
+      ...(c['partial'] === true ? { partial: true as const } : {}),
+    },
+    'no branch',
+  )}⟩`;
 }
 
 /** The per-call-site return-shape annotation (t-409060): `⇒{a,b}` for destructured props, a trailing

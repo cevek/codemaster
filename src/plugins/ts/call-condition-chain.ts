@@ -11,27 +11,27 @@
 // HONESTY of the two empty forms — they mean different things and must stay distinct:
 //   • `conditions: []`      — MEASURED: no enclosing conditional branch inside its function.
 //   • the field ABSENT      — not annotated (the opt-in flag is off / grouped or textual row).
-// And a construct whose branch condition we cannot state soundly (a `default:` clause, a `catch`
-// block, an unproven switch fallthrough, an over-cap chain) sets `partial`, which renders as a
-// leading `…` — an unstated condition is disclosed, never silently dropped from the chain (§3.4).
-// `''`/`[]` NEVER means "runs unconditionally": an early `return`/`throw` above the site, or a
-// conditionally-invoked caller, is outside this syntactic scope and is disclosed as such.
+// `partial` is set whenever the chain is a SUBSET — a branch whose condition we cannot state soundly
+// (a `default:` clause, a `catch` block, an unproven switch fallthrough, an over-cap chain, a
+// deep-nesting cap hit) OR an annotation we could not finish for that site (a throw, an unplaceable
+// position). It renders as a leading `<unstated>`: the gap is disclosed, never silently dropped from
+// the chain (§3.4), and an empty chain is therefore never emitted for a site we merely failed to
+// measure. `[]` NEVER means "runs unconditionally" either: an early `return`/`throw` above the site,
+// or a conditionally-invoked caller, is outside this syntactic scope and is disclosed as such.
 
 import ts from 'typescript';
-import { nodeAt } from './ast-node.ts';
+import { isFunctionCore, nodeAt } from './ast-node.ts';
 import { elideString } from '../../common/truncate/elide-string.ts';
-import type { ConditionChain } from '../../common/condition/chain.ts';
+import { CONDITION_TEXT_CAP, type ConditionChain } from '../../common/condition/chain.ts';
 
 /** Max ancestors walked — the climb is O(depth) already; this is the §19 belt-and-braces bound. */
 const MAX_STEPS = 300;
 /** Max conditions reported (innermost kept — the nearest branch is the load-bearing one). */
 const MAX_CONDITIONS = 4;
-/** Per-condition text budget. A long predicate is elided with `…`, never dropped. */
-const MAX_CONDITION_CHARS = 90;
 
 function flatText(node: ts.Node, sf: ts.SourceFile): string {
   // The `…` marker the elision leaves IS the honesty signal for a cut predicate (§3.4).
-  return elideString(node.getText(sf).replace(/\s+/g, ' ').trim(), MAX_CONDITION_CHARS).text;
+  return elideString(node.getText(sf).replace(/\s+/g, ' ').trim(), CONDITION_TEXT_CAP).text;
 }
 
 /** `cond` as written. */
@@ -48,17 +48,17 @@ function negative(cond: ts.Expression, sf: ts.SourceFile): string {
   return `!(${flatText(cond, sf)})`;
 }
 
+/** Where the climb stops: the shared function CORE plus this walk's own extras — accessors and a
+ *  constructor (each its own body), and a CLASS, because a property initializer (`if (x) { class C {
+ *  p = F() } }`) runs at construction, not under the enclosing branch, so attributing that branch to
+ *  it would be a fabricated fact. */
 function isFunctionBoundary(node: ts.Node): boolean {
   return (
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isArrowFunction(node) ||
-    ts.isMethodDeclaration(node) ||
+    isFunctionCore(node) ||
     ts.isConstructorDeclaration(node) ||
-    ts.isGetAccessor(node) ||
-    ts.isSetAccessor(node) ||
-    ts.isClassDeclaration(node) ||
-    ts.isClassExpression(node) ||
+    ts.isGetAccessorDeclaration(node) ||
+    ts.isSetAccessorDeclaration(node) ||
+    ts.isClassLike(node) ||
     ts.isSourceFile(node)
   );
 }
@@ -107,6 +107,28 @@ function caseCondition(clause: ts.CaseClause, sf: ts.SourceFile): { text: string
   return { text, ...(partial !== undefined ? { partial } : {}) };
 }
 
+/** The LHS of the LEFTMOST optional link in an access/call spine (`a?.b.c(…)` → `a`), or `undefined`
+ *  when the spine holds no `?.`. Walking left and keeping the last hit yields the leftmost link,
+ *  which is the one that actually guards everything to its right — a nearer link would understate
+ *  the guard (`a?.b.c()` throws rather than short-circuits when only `a.b.c` is nullish). */
+function optionalGuardRoot(spine: ts.Node): ts.Expression | undefined {
+  let cur: ts.Node = spine;
+  let found: ts.Expression | undefined;
+  for (let step = 0; step < MAX_STEPS; step++) {
+    if (
+      ts.isPropertyAccessExpression(cur) ||
+      ts.isElementAccessExpression(cur) ||
+      ts.isCallExpression(cur)
+    ) {
+      if (cur.questionDotToken !== undefined) found = cur.expression;
+      cur = cur.expression;
+      continue;
+    }
+    return found;
+  }
+  return found;
+}
+
 /** One climb step: the condition `child` sits under within `parent`, if any.
  *  `undefined` = this parent contributes no branch condition (the child always evaluates when the
  *  parent does); `{unstated:true}` = it DOES branch but we cannot state it soundly. */
@@ -133,7 +155,25 @@ function stepCondition(
     if (op === ts.SyntaxKind.BarBarToken) return { text: negative(parent.left, sf) };
     if (op === ts.SyntaxKind.QuestionQuestionToken)
       return { text: `${flatText(parent.left, sf)} == null` };
+    // Logical ASSIGNMENT short-circuits the same way (`cache ||= build()` evaluates the RHS only
+    // when `cache` is falsy), so its RHS is as guarded as `||`'s — reporting it unconditional would
+    // call a conditional write unconditional.
+    if (op === ts.SyntaxKind.BarBarEqualsToken) return { text: negative(parent.left, sf) };
+    if (op === ts.SyntaxKind.AmpersandAmpersandEqualsToken)
+      return { text: positive(parent.left, sf) };
+    if (op === ts.SyntaxKind.QuestionQuestionEqualsToken)
+      return { text: `${flatText(parent.left, sf)} == null` };
     return undefined;
+  }
+  // An OPTIONAL-CHAIN argument (`logger?.info(fmt(x))`, `a?.[k(x)]`): the whole chain short-circuits
+  // when the optional link's LHS is nullish, so the argument is not evaluated at all. Far commoner
+  // than any other shape here — leaving it out read as "called unconditionally".
+  if (
+    (ts.isCallExpression(parent) || ts.isElementAccessExpression(parent)) &&
+    parent.expression !== child
+  ) {
+    const root = optionalGuardRoot(parent);
+    return root === undefined ? undefined : { text: `${flatText(root, sf)} != null` };
   }
   // A `while`/`for` test guards the body; `for..of`/`for..in`/`do..while` bodies carry no boolean
   // branch condition (a do-while body runs at least once; an empty iterable is not a guard), so
@@ -154,23 +194,32 @@ function stepCondition(
   return undefined;
 }
 
-/** The enclosing conditional-branch chain of the site at `offset` — always a `ConditionChain`
- *  (a site we cannot place returns the honest empty chain, never a guessed condition).
+/** The enclosing conditional-branch chain of the site at `offset` — always a `ConditionChain`, never
+ *  a guessed condition.
  *
- *  A throw anywhere in the climb (`getText` on a node without real backing text, an unexpected AST
- *  shape) degrades THIS ONE site to the chain gathered so far + `partial` — never an exception that
- *  fails the whole find_usages answer over one annotation, and never a chain silently presented as
- *  complete (§3.4 / CONTRIBUTING "never crash"). */
+ *  Every way this can fall short is `partial`, never a bare empty chain: a position we cannot place,
+ *  the step cap cut short, or a throw anywhere in the climb (`getText` on a node without real backing
+ *  text, an unexpected AST shape) — the last degrades THIS ONE site to what was gathered, so one bad
+ *  annotation never fails the whole find_usages answer (§3.4 / CONTRIBUTING "never crash"). An empty
+ *  chain is emitted ONLY as a completed measurement. */
 export function conditionChainAt(sourceFile: ts.SourceFile, offset: number): ConditionChain {
   const inner: string[] = []; // innermost → outermost while climbing; reversed at the end
   let partial: true | undefined;
   try {
     const node = nodeAt(sourceFile, offset);
-    if (node === undefined) return { conditions: [] };
+    // A position we cannot place is NOT a measurement of "no branch" — say subset, not empty (§3.4).
+    if (node === undefined) return { conditions: [], partial: true };
     let child: ts.Node = node;
+    // `reachedTop` distinguishes a climb that ENDED at the function boundary (the chain is whole)
+    // from one the step cap cut short (branches above are unexamined → subset, like every other cap
+    // in this file).
+    let reachedTop = false;
     for (let step = 0; step < MAX_STEPS; step++) {
       const parent: ts.Node | undefined = child.parent;
-      if (parent === undefined || isFunctionBoundary(parent)) break;
+      if (parent === undefined || isFunctionBoundary(parent)) {
+        reachedTop = true;
+        break;
+      }
       const found = stepCondition(parent, child, sourceFile);
       if (found?.unstated === true) partial = true;
       else if (found?.text !== undefined) {
@@ -180,6 +229,7 @@ export function conditionChainAt(sourceFile: ts.SourceFile, offset: number): Con
       }
       child = parent;
     }
+    if (!reachedTop) partial = true;
   } catch {
     partial = true; // what we gathered stands; the rest is disclosed as unstated, not claimed
   }

@@ -124,6 +124,29 @@ function destructuresCell(u: UsageView): Cell {
   return `${props.join(',')}${d.rest === true ? (props.length > 0 ? ',*' : '*') : ''}`;
 }
 
+/** The `!!` lower-bound disclosure(s) for a table projection: one per section (or one top-level)
+ *  whose reference set was searched over fewer programs than the repo has. Empty when complete. */
+function floorLabels(data: JsonValue): string[] {
+  const d = data as {
+    complete?: boolean;
+    undiscoveredPrograms?: string[];
+    targets?: { symbol?: string | null; complete?: boolean; undiscoveredPrograms?: string[] }[];
+  };
+  const line = (who: string | undefined, programs: readonly string[]): string =>
+    `!! LOWER BOUND${who !== undefined ? ` (${who})` : ''} — ${programs.length} repo tsconfig(s) NOT searched (${programs.join(', ')}); rows are incomplete, so NOT IN / anti-joins over this table can MISS a row`;
+  const out: string[] = [];
+  if (d.targets !== undefined) {
+    for (const t of d.targets) {
+      if (t.complete === false && t.undiscoveredPrograms !== undefined)
+        out.push(line(t.symbol ?? undefined, t.undiscoveredPrograms));
+    }
+    return out;
+  }
+  if (d.complete === false && d.undiscoveredPrograms !== undefined)
+    out.push(line(undefined, d.undiscoveredPrograms));
+  return out;
+}
+
 function sectionsOf(data: JsonValue): Section[] {
   const d = data as {
     targets?: Section[];
@@ -194,6 +217,12 @@ export const findUsagesTable: TableSpec<JsonValue> = {
   },
   notes(data) {
     const notes: string[] = [];
+    // §3.4 — the LOWER-BOUND floor must reach a SQL consumer. The op puts `complete:false` +
+    // `undiscoveredPrograms` on its data, but a sql answer is `{columns, rows}` + these notes only, so
+    // without this an anti-join over an INCOMPLETE reference set reads as a clean set: the audit's
+    // `NOT IN` would silently gain rows (a missed hole), which is the one direction an absence audit
+    // must never take. Named per section as well as top-level, so a multi-symbol producer discloses it.
+    for (const label of floorLabels(data)) notes.push(label);
     for (const s of sectionsOf(data)) {
       if (s.excludedByFilter !== undefined && s.excludedByFilter > 0) {
         notes.push(
