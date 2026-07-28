@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000100
+  - t-000103
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:41.000Z'
 ---
 **fold-imports leaves an own-line leading comment of a deleted duplicate import hanging** —

@@ -10,6 +10,15 @@ type: imp
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-002010
+  - t-071368
+surface:
+  - ops
+  - plugins/ts
+  - test
+audience: both
+evidence: reported
 created: '2026-07-28T11:15:26.930Z'
 ---
 One resolution off a cut candidate page now produces two prose statements of the same fact in one

@@ -6,6 +6,13 @@ priority: medium
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000096
+  - t-642069
+surface:
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-08T00:01:36.000Z'
 ---
 **the precise move_symbol fail[10] (amiro `getInitials`→`src/lib/utils.ts`, "edits target an unknown

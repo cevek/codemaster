@@ -10,6 +10,13 @@ type: dx
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-662704
+  - t-726108
+surface:
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T09:08:40.720Z'
 ---
 The LS's navto page is asked for `NAME_CANDIDATE_LIMIT * 4` items and sorts case-INSENSITIVELY

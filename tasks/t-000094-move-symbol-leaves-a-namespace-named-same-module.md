@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000098
+  - t-000099
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:33.000Z'
 ---
 **move_symbol leaves a namespace+named same-module pair as two statements** — when dest has

@@ -6,6 +6,13 @@ priority: medium
 type: bug
 complexity: L
 area: ts-refactor
+relates:
+  - t-000034
+  - t-000071
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:27.000Z'
 ---
 **extract baseline: span-aware remap** — a pre-existing error relocated INTO an extracted block

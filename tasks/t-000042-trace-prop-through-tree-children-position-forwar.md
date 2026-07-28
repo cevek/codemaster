@@ -6,6 +6,14 @@ priority: low
 type: feat
 complexity: M
 area: trace
+relates:
+  - t-000043
+  - t-194771
+surface:
+  - ops
+  - plugins/react
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:41.000Z'
 ---
 **trace_prop_through_tree: children-position forwarding** — a prop passed as the `children` value

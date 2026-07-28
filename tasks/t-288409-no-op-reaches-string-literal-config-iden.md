@@ -11,6 +11,13 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-228385
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-28T19:49:03.012Z'
 ---
 External report, `/Users/cody/Dev/claude-ui`. Task: add a per-model custom OpenAI-compatible endpoint to a

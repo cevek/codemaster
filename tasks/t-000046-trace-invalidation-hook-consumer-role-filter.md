@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: trace
+relates:
+  - t-000047
+surface:
+  - ops
+  - plugins/react-query
+audience: both
+evidence: unverified
 created: '2026-07-08T00:00:45.000Z'
 ---
 **trace_invalidation: hook-consumer role filter** — `expand` counts ANY `find_usages` ref to a

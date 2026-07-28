@@ -6,6 +6,12 @@ priority: medium
 type: feat
 complexity: M
 area: ts-refactor
+relates:
+  - t-000106
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:29.000Z'
 ---
 **move_symbol: re-export barrels not repointed** — the LS "Move to file" rewrites DIRECT

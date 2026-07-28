@@ -6,6 +6,15 @@ priority: low
 type: imp
 complexity: M
 area: multi-program
+relates:
+  - t-000076
+  - t-071368
+  - t-433403
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:14.000Z'
 ---
 **`find_usages` / `importers_of` floor is BLUNT (repo-global, not symbol-scoped)** — the floor now

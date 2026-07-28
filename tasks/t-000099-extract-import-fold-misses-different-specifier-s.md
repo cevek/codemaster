@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000092
+  - t-000094
+  - t-000098
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:38.000Z'
 ---
 **extract import-fold misses different-specifier-same-after-rewrite** —

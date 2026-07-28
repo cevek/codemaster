@@ -9,6 +9,13 @@ type: imp
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-071368
+  - t-316487
+surface:
+  - daemon
+audience: both
+evidence: repro
 created: '2026-07-28T11:49:25.620Z'
 ---
 `daemon/sql-batch.ts` `assemble()` has three failure exits. Two carry the producers' resolve-time

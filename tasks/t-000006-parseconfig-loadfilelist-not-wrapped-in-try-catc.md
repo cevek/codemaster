@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000005
+  - t-000079
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:05.000Z'
 ---
 **`parseConfig`/`loadFileList` not wrapped in try/catch (`single.ts` `reindex`)** — a throw

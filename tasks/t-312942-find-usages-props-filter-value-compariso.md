@@ -10,6 +10,12 @@ type: bug
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-872370
+surface:
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-28T16:22:54.402Z'
 ---
 `readAttribute` (src/plugins/ts/jsx-attr-values.ts) takes `init.text` for a string-literal

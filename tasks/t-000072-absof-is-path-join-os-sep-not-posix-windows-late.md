@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000070
+surface:
+  - plugins/ts
+audience: both
+evidence: unverified
 created: '2026-07-08T00:01:11.000Z'
 ---
 **`absOf` is `path.join` (OS-sep), not posix — Windows-latent path-form skew in the gate** —

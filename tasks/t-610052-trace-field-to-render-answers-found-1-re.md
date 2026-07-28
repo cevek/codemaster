@@ -10,6 +10,16 @@ type: bug
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000044
+  - t-000045
+  - t-585566
+  - t-647309
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-28T11:43:52.973Z'
 ---
 `trace_field_to_render` accepts a bare name for `field`, but nothing checks that the resolved

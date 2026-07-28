@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: S
 area: impact-usages
+relates:
+  - t-000035
+  - t-902277
+surface:
+  - docs
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:32.000Z'
 ---
 **impact_type_error: clean-scope caveat note** — `clean:true` means "no introduced error WITHIN the

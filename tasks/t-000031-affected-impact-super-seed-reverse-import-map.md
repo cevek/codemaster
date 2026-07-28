@@ -6,6 +6,13 @@ priority: medium
 type: perf
 complexity: M
 area: impact-usages
+relates:
+  - t-000032
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:30.000Z'
 ---
 **affected/impact super-seed: reverse-import map** — the `affected` super-seed fans `importersOf`

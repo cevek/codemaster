@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000068
+surface:
+  - docs
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:47.000Z'
 ---
 **move_symbol note(b) wording — "fan-out is OFF" reads as a disable-able mechanism** — the

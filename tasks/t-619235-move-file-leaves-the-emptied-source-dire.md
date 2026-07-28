@@ -10,6 +10,13 @@ type: bug
 complexity: S
 area: ts-refactor
 source: dogfood-jul
+relates:
+  - t-701638
+surface:
+  - ops
+  - support
+audience: external
+evidence: repro
 created: '2026-07-28T08:28:16.279Z'
 ---
 `move_file {source:'src/components/DevWorktreeBadge/DevWorktreeBadge.tsx',

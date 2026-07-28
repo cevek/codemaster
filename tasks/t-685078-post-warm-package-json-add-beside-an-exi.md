@@ -10,6 +10,14 @@ type: bug
 complexity: S
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-000007
+  - t-457010
+  - t-862899
+surface:
+  - plugins/ts
+audience: external
+evidence: repro
 created: '2026-07-15T20:41:17.144Z'
 ---
 **Context.** t-865312 anchors package discovery on `package.json` presence beside a `tsconfig*.json`. The structural-reindex trigger `isStructuralConfigChange` (src/plugins/ts/ls-host.ts) fires on a `tsconfig*.json` add/remove, but deliberately EXCLUDES `package.json` from the changed set (it churns on every `npm install`). `addsMemberStray` only fires for a `.ts` file under an already-known package dir.

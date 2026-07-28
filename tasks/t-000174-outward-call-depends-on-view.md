@@ -6,6 +6,10 @@ priority: medium
 type: feat
 complexity: L
 area: impact-usages
+surface:
+  - ops
+audience: both
+evidence: unverified
 created: '2026-07-08T00:02:53.000Z'
 ---
 **Outward-call / `depends_on` view** — the dual of `find_usages`/`impact`: "what does this

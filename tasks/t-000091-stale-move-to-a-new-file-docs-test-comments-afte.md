@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000089
+surface:
+  - docs
+  - test
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:30.000Z'
 ---
 **stale "Move to a new file" docs/test comments after the extract action-switch** — the

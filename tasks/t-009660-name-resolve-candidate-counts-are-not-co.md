@@ -10,6 +10,14 @@ type: bug
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000076
+  - t-000078
+  - t-662704
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-28T07:34:40.638Z'
 ---
 `searchSymbols` fans navto over `host.programs()`, which includes the file-driven nearest-config

@@ -12,6 +12,14 @@ type: feat
 complexity: M
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-000067
+  - t-000068
+  - t-000078
+surface:
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-15T22:00:15.447Z'
 ---
 **Follow-up of t-773499.** Today `rename_symbol` on a symbol whose DECLARATION lives outside the primary program is REFUSED with a `root:<pkg>` redirect (the capture-safety gate is structurally primary-only — `setOverlay` / `withOverlay` live on the primary program only, ls-host.ts §). The safe path exists (re-run with the owning package as `root`, where its program is primary → full capture gate), but it is a SECOND call from a different root.

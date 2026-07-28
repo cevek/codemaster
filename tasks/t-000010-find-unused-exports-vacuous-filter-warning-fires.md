@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: impact-usages
+relates:
+  - t-000011
+  - t-647309
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:09.000Z'
 ---
 **`find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter** —

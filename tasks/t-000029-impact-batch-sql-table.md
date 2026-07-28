@@ -6,6 +6,11 @@ priority: low
 type: feat
 complexity: M
 area: impact-usages
+surface:
+  - ops
+  - support
+audience: both
+evidence: unverified
 created: '2026-07-08T00:00:28.000Z'
 ---
 **impact: `batch+sql` table** — needs a "bounded-by-design, always-partial" table contract

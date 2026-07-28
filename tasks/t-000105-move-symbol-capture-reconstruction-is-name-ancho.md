@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000106
+  - t-000109
+surface:
+  - plugins/ts
+audience: both
+evidence: unverified
 created: '2026-07-08T00:01:44.000Z'
 ---
 **move_symbol: capture reconstruction is name-anchored** — an unnamed/multi-binding move yields

@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000080
+  - t-432523
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:16.000Z'
 ---
 **`importers_of` row-dedup collapses two imports of one module on one source line** — the `(file:line)`

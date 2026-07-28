@@ -8,6 +8,10 @@ tags:
 type: imp
 complexity: S
 area: ts-core
+surface:
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-28T07:24:13.341Z'
 ---
 Six hand-written kind-lists answer "is this node a function boundary", each with a different member

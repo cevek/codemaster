@@ -10,6 +10,15 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-045024
+  - t-159797
+  - t-340801
+surface:
+  - ops
+  - plugins/react-query
+audience: external
+evidence: reported
 created: '2026-07-28T08:28:06.770Z'
 ---
 Hunting a bug CLASS — "the rendered row set depends on N queries, but the loading gate covers only one of

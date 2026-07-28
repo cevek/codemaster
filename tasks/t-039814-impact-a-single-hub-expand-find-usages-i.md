@@ -10,6 +10,13 @@ tags:
 type: perf
 complexity: M
 area: impact-usages
+relates:
+  - t-904175
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-17T00:53:39.173Z'
 ---
 **impact: a single hub-expand `find_usages` is not wall-clock bounded** — `impact`'s BFS

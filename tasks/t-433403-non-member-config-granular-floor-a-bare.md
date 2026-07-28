@@ -9,6 +9,14 @@ type: bug
 complexity: M
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-000075
+  - t-457010
+  - t-703317
+surface:
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-08T16:23:11.408Z'
 ---
 Flagged by t-228533 (pre-existing, not introduced by programs:; documented in code). Member coverage is DIRECTORY-granular (t-851482/t-232769: every git-tracked TS under a package dir must be covered, else floored + stray injection). A NON-member config (a bare nested tsconfig, no package.json) is judged on its OWN GLOB only, so a git-tracked orphan under its dir but outside its include, that nothing else globs, is unsearched yet does not keep the config floored -> loading it (via programs: OR auto-discovery) can lift the floor over the orphan = a narrow completeness gap. Identical for auto-discovered non-members; the member-orphan case IS handled via stray injection. Close by extending directory-granular coverage to non-member configs, or documenting the config-granular boundary. Related to the t-608842 fallback/coverage family.

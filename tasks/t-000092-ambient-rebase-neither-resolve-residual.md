@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: S
 area: ts-refactor
+relates:
+  - t-000099
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:31.000Z'
 ---
 **ambient-rebase neither-resolve residual** — `imports/rebase-ambient.ts` rebases a new-file

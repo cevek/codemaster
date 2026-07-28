@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000070
+  - t-000088
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:10.000Z'
 ---
 **Write-gate `introduced` list can double-count under OVERLAPPING globs** — a genuinely-new

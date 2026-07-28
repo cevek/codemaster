@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: M
 area: multi-program
+relates:
+  - t-000074
+surface:
+  - test
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:21.000Z'
 ---
 **`find_usages` cross-program merge has no PER-OFFSET oracle** — the differential test pins the

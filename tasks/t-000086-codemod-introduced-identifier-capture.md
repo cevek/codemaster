@@ -6,6 +6,15 @@ priority: low
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000067
+  - t-000085
+  - t-000087
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:25.000Z'
 ---
 **codemod: introduced-identifier capture** — only metavar-PRESERVED refs are checked; a rewrite

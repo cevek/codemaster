@@ -7,6 +7,13 @@ type: doc
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-162650
+surface:
+  - docs
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T19:41:03.502Z'
 ---
 Doc-string accuracy from t-608842. The construction_sites and discrimination_sites op NOTES read "primary program only" — literally true for a rooted repo, but in a NO-root repo they now scan the deepest-enclosing MEMBER program (via typeAuthorityFor), consistent with their disclosed single-program/no-fan-out contract but "primary" is imprecise wording. Reword to "single (owning) program, no fan-out". fix-locus: src/ops/construction-sites.ts + src/ops/discrimination-sites.ts notes.

@@ -10,6 +10,15 @@ type: dx
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-161435
+  - t-821130
+  - t-826059
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T19:48:02.563Z'
 ---
 Measured by worker cb8fedab after finding the third proven-absence instance (t-194771) by grep, then

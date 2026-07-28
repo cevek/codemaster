@@ -10,6 +10,16 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-162650
+  - t-288409
+  - t-340801
+  - t-529726
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: unverified
 created: '2026-07-28T16:38:52.435Z'
 ---
 Found by the worker that shipped the JSX half (t-109741), looking at the op set from the position of

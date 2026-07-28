@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: M
 area: ts-refactor
+relates:
+  - t-000090
+  - t-000105
+  - t-000109
+surface:
+  - plugins/ts
+audience: both
+evidence: unverified
 created: '2026-07-08T00:01:45.000Z'
 ---
 **move_symbol: renamed default-import under-detection** — a locally-renamed default import of a

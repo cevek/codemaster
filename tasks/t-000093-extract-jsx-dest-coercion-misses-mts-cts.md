@@ -6,6 +6,10 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:32.000Z'
 ---
 **extract JSX-dest coercion misses `.mts`/`.cts`** — `move-to-file.ts` coerces a JSX body's dest

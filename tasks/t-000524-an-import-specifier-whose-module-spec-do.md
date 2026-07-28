@@ -10,6 +10,15 @@ type: bug
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000076
+  - t-000078
+  - t-000080
+  - t-821130
+surface:
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-28T07:00:42.499Z'
 ---
 Measured on /Users/cody/Dev/backoffice2 (a loose-root monorepo: root `tsconfig.json` globs `apps/emr/**`,

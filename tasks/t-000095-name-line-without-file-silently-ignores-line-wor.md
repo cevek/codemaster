@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: ts-refactor
+relates:
+  - t-161435
+  - t-944489
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:34.000Z'
 ---
 **`name+line` WITHOUT `file` silently ignores `line` → workspace-wide `resolveByName`** —

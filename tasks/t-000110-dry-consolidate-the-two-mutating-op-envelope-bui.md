@@ -6,6 +6,11 @@ priority: low
 type: dx
 complexity: M
 area: ts-refactor
+surface:
+  - ops
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:49.000Z'
 ---
 **DRY: consolidate the two mutating-op envelope builders** — `refactor-apply.ts` (flat-edit) and

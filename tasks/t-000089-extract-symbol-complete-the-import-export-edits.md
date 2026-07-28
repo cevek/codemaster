@@ -6,6 +6,13 @@ priority: medium
 type: feat
 complexity: L
 area: ts-refactor
+relates:
+  - t-000091
+surface:
+  - docs
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:28.000Z'
 ---
 **`extract_symbol`: complete the import/export edits the LS leaves (KS-2/KS-3)** —

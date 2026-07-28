@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: multi-program
+relates:
+  - t-000082
+surface:
+  - plugins/ts
+  - test
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:13.000Z'
 ---
 **The `ls-host` reindex sibling-dispose branch is uncovered by tests** — `reindex`'s tsconfig-change

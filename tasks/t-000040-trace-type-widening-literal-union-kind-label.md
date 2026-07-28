@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: S
 area: trace
+relates:
+  - t-000041
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:39.000Z'
 ---
 **trace_type_widening: literal→union kind label** — `'a'` → `'a' | 'b'` is classified

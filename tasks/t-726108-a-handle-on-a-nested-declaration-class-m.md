@@ -10,6 +10,13 @@ type: bug
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-233072
+  - t-662704
+surface:
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T09:07:34.809Z'
 ---
 The §6 rebind re-reads the handle's OWN file first (`plugins/ts/rebind-symbol-id.ts`), which is what

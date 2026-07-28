@@ -10,6 +10,14 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-701638
+  - t-709349
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-28T16:10:36.915Z'
 ---
 External report, `amiro/save-only-docs-alignment`, from a docs-vs-code alignment pass.

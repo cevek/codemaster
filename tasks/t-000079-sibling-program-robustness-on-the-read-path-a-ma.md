@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000005
+  - t-000006
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:18.000Z'
 ---
 **Sibling-program robustness on the READ path — a malformed sibling tsconfig sinks the op** —

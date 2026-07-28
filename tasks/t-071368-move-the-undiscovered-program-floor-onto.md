@@ -10,6 +10,17 @@ type: imp
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000075
+  - t-002010
+  - t-162650
+  - t-316487
+surface:
+  - core
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-28T10:55:19.056Z'
 ---
 `Result.disclosures` (`core/result.ts`) carries resolve-time claims an answer does NOT support, keyed

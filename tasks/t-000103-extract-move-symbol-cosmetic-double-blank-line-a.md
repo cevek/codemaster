@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000100
+  - t-000102
+surface:
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:42.000Z'
 ---
 **extract/move_symbol: cosmetic double blank line after the import block (no-doc case)** — the LS

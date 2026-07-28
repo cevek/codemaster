@@ -6,6 +6,15 @@ priority: medium
 type: imp
 complexity: L
 area: multi-program
+relates:
+  - t-000068
+  - t-000524
+  - t-009660
+  - t-986233
+surface:
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-08T00:01:17.000Z'
 ---
 **loose-root monorepo picks the wrong primary for MUTATION (read-path cousin)** — the file-driven

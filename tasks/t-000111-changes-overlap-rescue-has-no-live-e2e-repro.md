@@ -6,6 +6,12 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000109
+surface:
+  - test
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:01:50.000Z'
 ---
 **`Changes overlap` rescue has no live e2e repro** — the assertion routing/sanitization

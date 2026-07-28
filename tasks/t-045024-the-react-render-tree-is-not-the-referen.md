@@ -10,6 +10,15 @@ type: feat
 complexity: L
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-100043
+  - t-159797
+  - t-849286
+surface:
+  - ops
+  - plugins/react
+audience: external
+evidence: reported
 created: '2026-07-28T16:10:25.779Z'
 ---
 Two independent external reports, two amiro worktrees, same underlying gap: every existing op answers

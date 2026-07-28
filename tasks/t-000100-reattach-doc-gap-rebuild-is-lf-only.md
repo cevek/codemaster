@@ -6,6 +6,13 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000102
+  - t-000103
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:39.000Z'
 ---
 **reattach-doc gap rebuild is LF-only** — `reattachLeadingDoc` rebuilds the comment→decl gap with

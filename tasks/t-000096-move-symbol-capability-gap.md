@@ -6,6 +6,15 @@ priority: low
 type: feat
 complexity: M
 area: ts-refactor
+relates:
+  - t-000069
+  - t-000097
+  - t-642069
+surface:
+  - plugins/ts
+  - support
+audience: both
+evidence: repro
 created: '2026-07-08T00:01:35.000Z'
 ---
 **move_symbol capability gap — an edit targeting a gitignored-but-COMPILED file is refused, not

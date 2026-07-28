@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: L
 area: ts-refactor
+relates:
+  - t-000109
+surface:
+  - plugins/ts
+  - support
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:43.000Z'
 ---
 **move/extract/move_symbol: capture `line:col` over UNFORMATTED LS output** — the proof

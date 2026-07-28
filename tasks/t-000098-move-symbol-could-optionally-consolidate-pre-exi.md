@@ -6,6 +6,13 @@ priority: low
 type: feat
 complexity: S
 area: ts-refactor
+relates:
+  - t-000094
+  - t-000099
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:37.000Z'
 ---
 **move_symbol could optionally consolidate PRE-EXISTING dest duplicate imports** — deferred. The

@@ -7,6 +7,12 @@ type: bug
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000033
+surface:
+  - plugins/ts
+audience: both
+evidence: unverified
 created: '2026-07-08T11:43:18.716Z'
 ---
 From t-534369 (Case B). collapseOf detects a whole-symbol-type OR function-return collapse to any, but NOT a deep-member widen: a const typed { cb: () => void } → { cb: any } keeps an object symbol type, so cb(wrongArgs) downstream is masked and not flagged; same for an index signature { [k]: number } masking 'property doesn't exist'. Repro sketch: baseline export const api = { run: (n:number)=>n }; edit export const api = { run: JSON.parse('{}') } → api.run(wrongArgs) masked. fix-locus: src/plugins/ts/overlay-type.ts collapseOf (recurse into member/index-signature types).

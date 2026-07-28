@@ -6,6 +6,12 @@ priority: low
 type: infra
 complexity: S
 area: ts-refactor
+relates:
+  - t-000002
+surface:
+  - repo-root
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:40.000Z'
 ---
 **`fold-imports.ts` git-classified as BINARY** (same as `socket-path.ts`) — `git grep` without

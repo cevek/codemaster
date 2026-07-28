@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: M
 area: multi-program
+relates:
+  - t-000077
+  - t-000081
+  - t-000524
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:19.000Z'
 ---
 **`importers_of` residuals (safe direction)** — (a) a bare relative module arg

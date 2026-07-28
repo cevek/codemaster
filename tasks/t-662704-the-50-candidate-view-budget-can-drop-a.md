@@ -10,6 +10,14 @@ type: bug
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-009660
+  - t-233072
+  - t-726108
+surface:
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T08:49:08.507Z'
 ---
 `resolveByName` retains at most `NAME_CANDIDATE_LIMIT` (50) candidates before

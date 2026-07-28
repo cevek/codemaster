@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: M
 area: multi-program
+relates:
+  - t-000080
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:20.000Z'
 ---
 **`importers_of` SUBTREE mode: an unresolvable ALIAS spec under the tree is not flagged** — the

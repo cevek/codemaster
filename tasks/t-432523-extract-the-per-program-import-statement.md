@@ -11,6 +11,12 @@ type: imp
 complexity: M
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-000077
+surface:
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-15T21:13:36.835Z'
 ---
 **Duplication (copy-paste review, t-272300).** Three files in `plugins/ts/` run a byte-near-identical per-program import-statement scan scaffold:

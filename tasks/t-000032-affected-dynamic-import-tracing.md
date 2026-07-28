@@ -6,6 +6,14 @@ priority: low
 type: feat
 complexity: L
 area: impact-usages
+relates:
+  - t-000031
+  - t-509002
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:31.000Z'
 ---
 **affected: dynamic-import tracing** — `importersOf` follows only static import/export; a test that

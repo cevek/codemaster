@@ -6,6 +6,15 @@ priority: low
 type: bug
 complexity: M
 area: multi-program
+relates:
+  - t-000068
+  - t-000086
+  - t-000087
+  - t-986233
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:06.000Z'
 ---
 **Cross-program capture detection is PRIMARY-only (all symbol-anchored ops)** — capture

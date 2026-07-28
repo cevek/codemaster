@@ -6,6 +6,14 @@ priority: low
 type: imp
 complexity: S
 area: trace
+relates:
+  - t-000047
+surface:
+  - format
+  - ops
+  - plugins/react-query
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:47.000Z'
 ---
 **trace_invalidation: queryKey-label placement** — the queryKey node's `label` is minted by

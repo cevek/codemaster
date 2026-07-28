@@ -9,6 +9,13 @@ type: feat
 complexity: M
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-000032
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-15T11:33:11.800Z'
 ---
 In Vite/React repos, `import.meta.glob('/projects/*/*/*/**/*.html', {...})` is often the real entry point wiring a set of assets/modules into the app, but it's invisible to codemaster: find_usages/find_definition can't tell which files a glob resolves to, and construction_sites/impact don't see the glob as a consumer of matched paths.

@@ -6,6 +6,14 @@ priority: low
 type: imp
 complexity: S
 area: trace
+relates:
+  - t-000046
+  - t-000048
+surface:
+  - ops
+  - plugins/react-query
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:46.000Z'
 ---
 **trace_invalidation: certain/partial re-render breakdown** — `reRenderComponents` is a scalar

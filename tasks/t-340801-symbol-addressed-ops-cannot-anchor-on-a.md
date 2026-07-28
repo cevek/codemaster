@@ -10,6 +10,17 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-100043
+  - t-228385
+  - t-273743
+  - t-826059
+  - t-849286
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-28T12:08:36.771Z'
 ---
 Filed from /Users/cody/Dev/amiro by an EXTERNAL user of the tool (an agent doing product work, not editing

@@ -11,6 +11,18 @@ type: bug
 complexity: M
 area: multi-program
 source: dogfood-jul
+relates:
+  - t-071368
+  - t-100043
+  - t-155425
+  - t-228385
+  - t-248218
+  - t-826059
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T17:52:38.600Z'
 ---
 Measured by worker 98284777 on main=8caae9c, on the exact question its own track turned on: "I am adding a

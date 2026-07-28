@@ -6,6 +6,13 @@ priority: low
 type: perf
 complexity: M
 area: ts-refactor
+relates:
+  - t-000084
+  - t-904175
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:51.000Z'
 ---
 **Reverse import-capture does a full-AST walk over the program** — O(nodes), bounded (module

@@ -10,6 +10,11 @@ type: feat
 complexity: M
 area: multi-program
 source: dogfood-jul
+surface:
+  - daemon
+  - ops
+audience: external
+evidence: reported
 created: '2026-07-15T20:28:25.798Z'
 ---
 **Context.** `list {registry}` §3.6 inactive-registry disclosure (`src/ops/list-inactive-hint.ts`) now names ALL nested packages (dirs with their own `package.json`, via `ts.nestedPackageLabels()`) when no registry-owning plugin is active at the queried root. This is the honest-wider default (over-hint ≫ silent-miss). In a large monorepo where NO package uses the registry's framework (e.g. `list{components}` with no react anywhere), it can name several packages as candidate `root:<dir>` — noise, though bounded to MAX_NAMED=3 + "+N more".

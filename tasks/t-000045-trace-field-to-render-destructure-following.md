@@ -6,6 +6,14 @@ priority: medium
 type: feat
 complexity: M
 area: trace
+relates:
+  - t-000044
+  - t-610052
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:44.000Z'
 ---
 **trace_field_to_render: destructure-following** — `renderedBy` stops at `const {email}=u`

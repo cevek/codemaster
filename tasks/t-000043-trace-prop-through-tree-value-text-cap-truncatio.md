@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: trace
+relates:
+  - t-000042
+  - t-194771
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:42.000Z'
 ---
 **trace_prop_through_tree: VALUE_TEXT_CAP truncation note** — a `derived`-branch attr whose value

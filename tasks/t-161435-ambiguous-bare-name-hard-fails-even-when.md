@@ -10,6 +10,16 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-000095
+  - t-791164
+  - t-821130
+  - t-944489
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-28T08:23:56.250Z'
 ---
 Filed to the inbox by worker fa42a33c mid-track (2026-07-28 07:01), converted here.

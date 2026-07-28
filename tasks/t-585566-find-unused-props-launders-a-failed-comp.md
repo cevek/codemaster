@@ -11,6 +11,14 @@ type: bug
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-610052
+surface:
+  - ops
+  - plugins/react
+  - test
+audience: both
+evidence: repro
 created: '2026-07-28T11:43:40.965Z'
 ---
 `react.unusedProps` returns `{ok:false, message}` both when `pickComponent` finds no component and

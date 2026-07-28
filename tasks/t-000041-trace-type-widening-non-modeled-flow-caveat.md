@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: trace
+relates:
+  - t-000040
+  - t-647309
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:40.000Z'
 ---
 **trace_type_widening: non-modeled flow caveat** — forward-flow models 4 relations (var-init /

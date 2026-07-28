@@ -10,6 +10,14 @@ type: imp
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-312942
+  - t-709349
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-28T16:23:07.480Z'
 ---
 `find_usages {props:{…}, text:true}` runs the textual overlay off the symbol NAME (a scanner, not

@@ -6,6 +6,16 @@ priority: low
 type: bug
 complexity: M
 area: multi-program
+relates:
+  - t-000067
+  - t-000078
+  - t-000108
+  - t-986233
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:07.000Z'
 ---
 **Cross-program WRITE sites stay PRIMARY-only inside a `transaction`** — the rename /

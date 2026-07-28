@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: M
 area: multi-program
+relates:
+  - t-000071
+  - t-000072
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:09.000Z'
 ---
 **`mayContain` glob-ownership is a normalized approximation** — the write gate decides which

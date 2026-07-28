@@ -6,6 +6,14 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000006
+  - t-000011
+  - t-000079
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:04.000Z'
 ---
 **broken-tsconfig edit silently falls back to default options + glob-everything** —

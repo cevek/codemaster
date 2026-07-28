@@ -9,6 +9,14 @@ type: dx
 complexity: S
 area: ts-refactor
 source: dogfood-jul
+relates:
+  - t-000095
+  - t-161435
+  - t-821130
+surface:
+  - plugins/ts
+audience: both
+evidence: repro
 created: '2026-07-15T11:33:28.866Z'
 ---
 **Repro (current main, hermetic).** `src/x.ts`: `export interface Rule { specificity: number }` + `export function specificity(){…}`. `extract_symbol {name:'specificity'}` → FAIL "'specificity' is ambiguous (2 distinct declarations: src/x.ts:1:25 (property), src/x.ts:2:17 (function)) — pass file:line:col or a SymbolId".

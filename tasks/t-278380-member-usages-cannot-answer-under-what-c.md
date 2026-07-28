@@ -8,6 +8,17 @@ tags:
 type: feat
 complexity: S
 area: impact-usages
+relates:
+  - t-077593
+  - t-100043
+  - t-109609
+  - t-159797
+  - t-250147
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-28T07:24:22.951Z'
 ---
 `find_usages {conditions:true}` reports the enclosing conditional-branch chain per site (sql column

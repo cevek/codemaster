@@ -10,6 +10,16 @@ type: feat
 complexity: L
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-045024
+  - t-100043
+  - t-278380
+  - t-849286
+surface:
+  - ops
+  - plugins/ts
+audience: external
+evidence: reported
 created: '2026-07-28T08:27:58.675Z'
 ---
 Track: moving a popup's unsaved-changes reset from the submit EVENT to the actual commit. The entire risk

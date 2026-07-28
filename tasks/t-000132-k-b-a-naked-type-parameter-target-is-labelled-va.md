@@ -6,6 +6,10 @@ priority: low
 type: bug
 complexity: S
 area: impact-usages
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:02:11.000Z'
 ---
 **K-b — a naked type-parameter target is labelled `value`** — `construction_sites` at a bare

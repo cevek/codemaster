@@ -10,6 +10,12 @@ type: imp
 complexity: M
 area: ts-core
 source: dogfood-jul
+relates:
+  - t-323725
+surface:
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-14T16:10:40.338Z'
 ---
 ## Context

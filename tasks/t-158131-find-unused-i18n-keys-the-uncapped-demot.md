@@ -10,6 +10,13 @@ type: bug
 complexity: S
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-529726
+surface:
+  - ops
+  - plugins/i18n
+audience: external
+evidence: repro
 created: '2026-07-28T17:13:14.756Z'
 ---
 `degradedReason` names the demoted namespaces through `nameWithMore(reachedPrefixes, 3)` — it

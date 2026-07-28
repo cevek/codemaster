@@ -6,6 +6,12 @@ priority: low
 type: feat
 complexity: M
 area: ts-refactor
+relates:
+  - t-808789
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:46.000Z'
 ---
 **`move_symbols({names:[],dest})` bulk-move sugar (optional)** — dogfood ask: splitting a large

@@ -6,6 +6,15 @@ priority: low
 type: dx
 complexity: M
 area: ts-refactor
+relates:
+  - t-000104
+  - t-000105
+  - t-000106
+  - t-000111
+surface:
+  - test
+audience: internal
+evidence: unverified
 created: '2026-07-08T00:01:48.000Z'
 ---
 **move_symbol: no positive capture fixture** — the reconstruction/over-refusal guard is only

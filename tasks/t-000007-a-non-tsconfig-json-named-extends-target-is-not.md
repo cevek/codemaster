@@ -6,6 +6,15 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000076
+  - t-457010
+  - t-685078
+  - t-862899
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:06.000Z'
 ---
 **a non-`tsconfig*.json`-named `extends` target is not detected** — the structural trigger

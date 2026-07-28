@@ -10,6 +10,12 @@ tags:
 type: perf
 complexity: S
 area: impact-usages
+relates:
+  - t-077593
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-17T00:53:45.523Z'
 ---
 **find_usages `symbols:[…]`: a mid-loop timeout discards completed targets** — the

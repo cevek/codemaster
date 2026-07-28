@@ -6,6 +6,14 @@ priority: low
 type: dx
 complexity: S
 area: ts-refactor
+relates:
+  - t-000039
+  - t-000083
+  - t-000112
+surface:
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-08T00:01:23.000Z'
 ---
 **`capture/imports.ts` at the 300-line cap** (297 after the E-g overlay-aware resolver) — the

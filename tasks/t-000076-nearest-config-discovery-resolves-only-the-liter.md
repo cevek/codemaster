@@ -6,6 +6,15 @@ priority: low
 type: imp
 complexity: S
 area: multi-program
+relates:
+  - t-000007
+  - t-000075
+  - t-000524
+  - t-009660
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:15.000Z'
 ---
 **nearest-config discovery resolves only the literal `tsconfig.json` basename** — `ensureProgramFor`

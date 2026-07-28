@@ -6,6 +6,13 @@ priority: low
 type: bug
 complexity: S
 area: multi-program
+relates:
+  - t-000096
+  - t-642069
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:08.000Z'
 ---
 **Write-gate check scope misses a gitignored-but-sibling-compiled file** — the §2.8 fan-out

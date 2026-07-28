@@ -11,6 +11,18 @@ type: feat
 complexity: M
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-045024
+  - t-159797
+  - t-162650
+  - t-250147
+  - t-278380
+  - t-340801
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T17:29:50.314Z'
 ---
 A new honesty class, measured. Nothing lied; the disclosure worked; the reader is still misled.

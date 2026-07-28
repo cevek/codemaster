@@ -8,6 +8,14 @@ tags:
 type: perf
 complexity: S
 area: impact-usages
+relates:
+  - t-109609
+  - t-278380
+  - t-474525
+surface:
+  - plugins/ts
+audience: both
+evidence: measured
 created: '2026-07-28T07:24:37.744Z'
 ---
 `assembleView` (`src/plugins/ts/usages.ts`) calls `conditionChainAt` once per displayed usage, and in

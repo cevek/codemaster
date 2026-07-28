@@ -6,6 +6,12 @@ priority: low
 type: bug
 complexity: M
 area: impact-usages
+relates:
+  - t-000088
+surface:
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-08T00:00:33.000Z'
 ---
 **impact_type_error: editSiteDirty false-`!!` on line-shift** — if the edited declFile has a

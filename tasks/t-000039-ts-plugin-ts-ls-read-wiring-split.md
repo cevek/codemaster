@@ -6,6 +6,13 @@ priority: medium
 type: imp
 complexity: M
 area: ts-core
+relates:
+  - t-000083
+  - t-000084
+surface:
+  - plugins/ts
+audience: internal
+evidence: reported
 created: '2026-07-08T00:00:38.000Z'
 ---
 **`ts/plugin.ts` LS-read wiring split** — `plugin.ts` carries a temporary

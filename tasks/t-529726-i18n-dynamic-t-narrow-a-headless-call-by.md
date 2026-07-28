@@ -10,6 +10,14 @@ type: feat
 complexity: L
 area: impact-usages
 source: dogfood-jul
+relates:
+  - t-158131
+  - t-228385
+surface:
+  - plugins/i18n
+  - plugins/ts
+audience: external
+evidence: measured
 created: '2026-07-28T16:42:29.448Z'
 ---
 `find_unused_i18n_keys` bounds a dynamic `t()` call from the SOURCE TEXT of its argument

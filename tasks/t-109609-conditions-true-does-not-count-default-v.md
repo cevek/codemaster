@@ -8,6 +8,14 @@ tags:
 type: feat
 complexity: S
 area: impact-usages
+relates:
+  - t-077593
+  - t-278380
+surface:
+  - plugins/ts
+  - test
+audience: both
+evidence: repro
 created: '2026-07-28T07:46:54.381Z'
 ---
 A default value evaluates ONLY when the target is `undefined`, so a call site inside one is

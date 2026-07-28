@@ -10,6 +10,14 @@ tags:
 type: perf
 complexity: M
 area: impact-usages
+relates:
+  - t-000112
+  - t-039814
+surface:
+  - ops
+  - plugins/ts
+audience: both
+evidence: reported
 created: '2026-07-17T00:53:51.194Z'
 ---
 **importers_of / member_usages are not wall-clock bounded** — the cooperative

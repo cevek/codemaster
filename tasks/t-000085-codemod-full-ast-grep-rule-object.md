@@ -6,6 +6,13 @@ priority: medium
 type: feat
 complexity: M
 area: ts-refactor
+relates:
+  - t-000086
+  - t-000087
+surface:
+  - ops
+audience: both
+evidence: reported
 created: '2026-07-08T00:01:24.000Z'
 ---
 **codemod: full ast-grep RULE object** — [spec-codemod-ast-grep-rule.md](spec-codemod-ast-grep-rule.md).
