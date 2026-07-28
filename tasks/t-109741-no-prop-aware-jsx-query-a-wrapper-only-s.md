@@ -106,3 +106,14 @@ Note the recurring shape both reports share: **"audit every consumer of an escap
 arises whenever a codebase documents an opt-out or a design-system variant. Today the only honest answer
 is grep plus manual reading of every hit to spot dynamic values — and both times the manual step is where
 the count went wrong.
+
+## Precondition already shipped — read t-959904 as DONE when picking this up
+
+The reference above to t-959904 ("a refusal that does not name the working call") is a pointer to the
+defect CLASS, and that class is now closed: guard refusals name the call that answers on this repo, across
+four surfaces including `process-host::failAll` — the one an external agent actually sees.
+
+So the `member_usages {member:'…'}` → `bad_args` complaint quoted above has two halves with different
+status: the missing CAPABILITY (no prop-aware JSX query) is what this task tracks and is open; the
+"workable form is not discoverable from the message" half is satisfied infrastructure — a new refusal on
+this path should consume `ops/guard/navigate.ts` rather than write its own prose.
