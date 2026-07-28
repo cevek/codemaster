@@ -7,7 +7,9 @@ type: bug
 complexity: M
 area: render
 relates:
+  - t-000001
   - t-034392
+  - t-793745
 surface:
   - daemon
   - mcp

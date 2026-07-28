@@ -12,7 +12,11 @@ complexity: L
 area: correctness
 source: dogfood-jul
 relates:
+  - t-000010
+  - t-000011
+  - t-000041
   - t-561552
+  - t-610052
 surface:
   - ops
   - plugins/react
@@ -86,15 +90,24 @@ of a whole answer instead of one producer.
 Concrete ask when this epic is taken: the disclosure channel should carry the COUNT and the identity of
 active floors, not a boolean per producer.
 
-## Candidates for membership, pending repro — NOT members
+## Candidates — same shape, not members until reproduced
 
-Four further instances of the class, deliberately kept as `relates` rather than `parent`, because the five
-members above all carry live repros and admitting these would quietly lower the epic's evidentiary bar:
+Four tasks describe the same shape and are linked by `relates`, NOT by `parent`. The distinction is
+deliberate and is about the evidentiary bar, not about severity:
 
-- **t-000010** (`reported`) — a partially mistyped `pathInclude` silently under-scans.
-- **t-000011** (`reported`) — `find_unused_exports` reads `unused(0) / scanned 0 files` on a broken
-  program with no warning; the verdict an agent DELETES code on. Re-ranked to `high` for that reason.
-- **t-000041** (`reported`) — `0 widenings` reads as "widens nowhere".
-- **t-610052** (`repro`) — `found:1 renderedBy:0` for a non-property.
+- **t-000010** (`reported`) — `find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter.
+- **t-000011** (`reported`) — `find_unused_exports` false-clean on a broken program (no filter).
+- **t-000041** (`reported`) — `trace_type_widening` non-modeled flow caveat.
+- **t-610052** (`repro`) — `trace_field_to_render` answers `found:1 renderedBy:0` for a target that is not a
+  property.
 
-Promote any of them on a captured repro, not on resemblance.
+Each member above is a specific instance pinned to a named op, a named seam and an observed answer. These
+four are not yet at that bar: three are `reported` (a self-report not independently checked) and t-610052
+is reproduced but not yet tied to THIS invariant rather than to its own op's edge model. CONTRIBUTING
+requires a repro on current `main` before a hedged item is treated as a known defect, so admitting them as
+members would lower the evidentiary bar the epic's five instances establish — and the epic's force comes
+from every member being independently checkable.
+
+Promotion criterion, so this is decidable rather than a judgement call: reproduce the item on current
+`main` and show the answer reads as a PROVEN ABSENCE (a `0`/`found:0`/"not among" that an agent would act
+on) rather than as an ordinary miss or a modelling gap. That evidence turns `relates` into `parent`.

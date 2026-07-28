@@ -12,7 +12,9 @@ area: platform
 source: dogfood-jul
 relates:
   - t-137057
+  - t-159797
   - t-810757
+  - t-849286
 surface:
   - ops
   - support

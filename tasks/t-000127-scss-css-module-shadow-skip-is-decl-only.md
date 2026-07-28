@@ -22,3 +22,5 @@ unused; rare). A correct fix needs block-POSITION-aware shadowing. Do it when ob
 `bug`·`low`·`cx:M`
 
 **Related:** t-000128 (i18n by-identity scan) states the identical defect and the identical fix — a `const`/`let`/`var` rebind is not treated as a shadow, and a sound skip needs block-POSITION-aware shadowing. The two differ in blast radius: this side under-reports (safe), the i18n side FABRICATES a missing row.
+
+The asymmetry decides the order: this side is the SAFE one (an over-counted class use, never a false `certain`-unused), so it is the follower. The shared block-position-aware shadowing primitive is justified by t-000128, where the same gap fabricates a missing row — build it there, adopt it here.

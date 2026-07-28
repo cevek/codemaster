@@ -11,6 +11,7 @@ complexity: S
 area: render
 source: dogfood-jul
 relates:
+  - t-187018
   - t-245013
   - t-544207
   - t-633403

@@ -17,6 +17,7 @@ relates:
   - t-254076
   - t-735577
   - t-820448
+  - t-847874
   - t-980509
 surface:
   - ops/guard

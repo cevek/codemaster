@@ -9,6 +9,7 @@ area: docs
 source: dogfood-jul
 relates:
   - t-089408
+  - t-233427
   - t-691093
 surface:
   - docs

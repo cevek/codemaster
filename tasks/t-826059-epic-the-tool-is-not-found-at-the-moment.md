@@ -11,6 +11,9 @@ type: imp
 complexity: L
 area: render
 source: dogfood-jul
+relates:
+  - t-162650
+  - t-340801
 surface:
   - cli
   - daemon

@@ -28,3 +28,5 @@ scope check at all (no binding pool to anchor `extendShadow` against). Rare.
 `bug`·`fabrication`·`low`·`cx:M`
 
 **Related:** t-000127 (scss `scanCssModuleUsages`) states the identical defect and the identical fix — a `const`/`let`/`var` rebind is not treated as a shadow, and a sound skip needs block-POSITION-aware shadowing. One mechanism, two plugins; the shadowing primitive is the shared work.
+
+The asymmetry decides the order: this side FABRICATES (a `certain` missing row with a proof-span, for a key that is not an i18n usage), while t-000127 merely under-reports and is safe. So the shared primitive is justified by THIS task — build block-position-aware shadowing here, against the fabrication, and let the scss side adopt it after. Scheduling the safe side first buys nothing and leaves the lie standing.

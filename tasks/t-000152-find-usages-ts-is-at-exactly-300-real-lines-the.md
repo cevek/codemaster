@@ -8,6 +8,7 @@ complexity: S
 area: render
 relates:
   - t-000122
+  - t-000166
 surface:
   - ops
 audience: internal

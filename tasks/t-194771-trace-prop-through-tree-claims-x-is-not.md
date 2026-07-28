@@ -11,6 +11,9 @@ type: bug
 complexity: S
 area: render
 relates:
+  - t-000042
+  - t-000043
+  - t-288409
   - t-480164
   - t-803574
 surface:

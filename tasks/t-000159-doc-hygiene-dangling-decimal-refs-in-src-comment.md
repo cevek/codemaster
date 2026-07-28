@@ -6,6 +6,8 @@ priority: low
 type: dx
 complexity: S
 area: render
+relates:
+  - t-000173
 surface:
   - docs
 audience: internal
