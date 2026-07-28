@@ -197,6 +197,19 @@ bare-`json` payload — which a tail-cut would corrupt — is replaced whole wit
 (terse/normal/full/json/brief + sql) asserting the response stays under the cap. (Invariant + test
 matrix: task t-287999.)
 
+**The advertised schema is a contract, so it is pinned in BOTH directions.** An op's `tools/list`
+`inputSchema` is generated from its canonical zod `argsSchema` (`ops/tool-schema/input-schema.ts`)
+precisely so the advertised shape cannot drift from the validating one. Where an op adds
+`requiredOneOf` (the `one-of` that `required` cannot express, rendered as `anyOf`), the two
+directions are both checked in `test/e2e/tools-list-schema.test.ts`: every advertised branch must
+PARSE under the op's zod schema — advertising a branch the gate rejects is worse than the
+permissiveness it replaced, since the client is refused only after trusting us — and an object
+satisfying `required` while matching no branch must FAIL. Prefer deriving the branches from the
+same constant the `.refine` predicate is built from (`TS_TARGET_ONE_OF`, `CSS_TARGET_ONE_OF`), so
+they cannot disagree by construction rather than by a test someone must remember. The tool-list
+also carries a size ceiling assertion — §11 calls the per-session token tax deliberate, which means
+its magnitude is a decision, not a drift.
+
 ## Docs
 
 Describe the **present state**, never the path to it — git holds the history. No

@@ -18,7 +18,10 @@ Strategy, oracles, and the invariants that gate CI live in
   honesty, per-plugin `cold == warm`, edit safety, op-vs-oracle golden, plugin DAG honesty,
   and cross-op envelope-disclosure agreement (§16).
 - `unit/` — inline-VFS unit tests (the inner loop: `npm run test:light` = unit + golden).
-- `e2e/` — CLI + MCP end-to-end: daemon/bridge lifecycle, sql-over-ops, the response-size matrix.
+- `e2e/` — CLI + MCP end-to-end: daemon/bridge lifecycle, sql-over-ops, the response-size matrix,
+  and the advertised-contract pin (`tools-list-schema.test.ts`: every `tools/list` schema resolves
+  its own `$ref`s, `status {op}` returns byte-identical JSON, each advertised one-of branch parses
+  under the op's zod gate, and the tool-list stays under its size budget).
 - `golden/` — dense-output snapshots (never the only assertion for a correctness claim).
 
 Runner: `node:test` + `node:assert`. `npm test` runs all; `test:differential` and

@@ -139,37 +139,12 @@ export function splitReserved(args: Record<string, unknown>): SplitArgs {
   return { reserved, rest };
 }
 
-/** A handwritten tool descriptor (status/batch) — MCP fields only, as advertised. */
-interface StaticToolDescriptor {
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: unknown;
-}
-
-/** Advertise the LIVE op catalogue as the `enum` of `batch.requests[].name` (t-568278). Inside a
- *  batch the per-op tools' typed schemas don't apply, so a typo'd op name was a free-form string
- *  that only failed at dispatch — making an N-op batch statically WEAKER than N separate calls,
- *  the opposite of the guidance to prefer one batch. The enum is built from the same `ops` list
- *  that backs the per-op descriptors (never a second, drifting catalogue) and applied to a COPY —
- *  `TOOL_DESCRIPTORS` is a shared `as const` that `exampleCallFor` also reads. A shape that isn't
- *  the expected `{requests:{items:{properties:{name}}}}` is returned untouched rather than
- *  force-patched: advertising a half-built schema would be worse than advertising the plain one. */
-export function withBatchOpNames(
-  tool: StaticToolDescriptor,
-  opNames: readonly string[],
-): StaticToolDescriptor {
-  const schema = structuredClone(tool.inputSchema) as {
-    properties?: { requests?: { items?: { properties?: { name?: Record<string, unknown> } } } };
-  };
-  const nameProp = schema.properties?.requests?.items?.properties?.name;
-  if (nameProp === undefined || opNames.length === 0) return { ...tool };
-  nameProp['enum'] = [...opNames];
-  return { ...tool, inputSchema: schema };
-}
-
 /** The per-op tool description: summary + capability tags (mutating / required plugins) + the
- *  compact `argsHint` (which carries what JSON-Schema can't — the `one-of` target shape, enum
- *  semantics, defaults). Per-op `notes` stay in `status {op:"<name>"}` to bound the token tax. */
+ *  compact `argsHint` — the human-readable form of the constraints the schema now states
+ *  structurally (the one-of target shape, as `anyOf`) plus what it still can't (enum semantics,
+ *  defaults). It is not redundant with the schema: an SDK client does NOT validate arguments
+ *  against `inputSchema`, so for that caller the description is the only place the one-of appears.
+ *  Per-op `notes` stay in `status {op:"<name>"}` to bound the token tax. */
 function description(op: AnyOpDefinition): string {
   const tags: string[] = [];
   if (op.mutating) tags.push('mutating: dry-run unless apply:true');

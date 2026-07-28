@@ -44,8 +44,10 @@ type TargetFields = {
  *
  *  This is the SINGLE source for two surfaces (§11 anti-drift): the zod `.refine` predicate below
  *  IS built from it, and the advertised `inputSchema` renders it as `anyOf:[{required:…},…]`
- *  (`ops/tool-schema/input-schema.ts`). So the schema a harness gates on and the schema that
- *  actually validates cannot disagree — by construction, not by a test that must be remembered. */
+ *  (`ops/tool-schema/input-schema.ts`). So the CANONICAL shape a harness gates on and the shape
+ *  that actually validates cannot disagree — by construction, not by a test that must be
+ *  remembered. (The §7 intake accepts alias spellings on top of this; aliases are never advertised,
+ *  so the advertised form is the canonical one — see `OpDefinition.requiredOneOf`.) */
 export const TS_TARGET_ONE_OF: ReadonlyArray<ReadonlyArray<keyof typeof tsTargetShape>> = [
   ['symbolId'],
   ['name'],

@@ -3,12 +3,11 @@
 // filtered to ops whose required plugins are all present — an agent never sees an op it
 // can't call. Pure projection, split out of engine.ts to keep that file under the cap.
 
-import type { JsonValue } from '../core/json.ts';
 import type { Plugin, PluginRegistry } from '../core/plugin.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { WorkspaceStatusView } from '../format/render/render-status.ts';
 import type { FreshnessMode } from './freshness.ts';
-import { buildOpInputSchema } from '../ops/tool-schema/input-schema.ts';
+import { buildOpInputSchemaJson } from '../ops/tool-schema/input-schema.ts';
 
 export interface WorkspaceStatusInput {
   repoId: string;
@@ -50,7 +49,7 @@ export function buildWorkspaceStatus(i: WorkspaceStatusInput): WorkspaceStatusVi
         // from codemaster itself and any drift between the two surfaces is impossible, not merely
         // untested. Rendered only on the single-op path (§11: the terse/full catalogue must not
         // re-dump N schemas the tool-list already carries).
-        inputSchema: buildOpInputSchema(op) as unknown as JsonValue,
+        inputSchema: buildOpInputSchemaJson(op),
         ...(op.example !== undefined ? { example: op.example } : {}),
         ...(op.notes !== undefined ? { notes: op.notes } : {}),
         ...(op.table !== undefined

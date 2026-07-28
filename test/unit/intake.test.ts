@@ -273,11 +273,9 @@ test('unknown field — rejected with the clean canonical hint + did-you-mean, n
     assert.match(typo, /symbpl/, 'the offending key is named');
     // Ties are listed, not silently resolved by schema key order (t-175046): `symbpl` scores
     // identically against `symbolId` and `symbols`, and naming both beats picking one arbitrarily.
-    assert.match(
-      typo,
-      /did you mean 'symbolId'( or 'symbols')?\?/,
-      'a close canonical key is suggested',
-    );
+    // EVERY tied-best candidate is listed, not one picked by schema key order (t-175046): an
+    // optional group here would pass on the old single-best code too, testing nothing.
+    assert.match(typo, /did you mean 'symbolId' or 'symbols'\?/, 'tied candidates are BOTH named');
     assert.match(typo, /symbolId\?: 'ts:…'/, 'the clean canonical argsHint closes the message');
     assert.doesNotMatch(typo, /alias/, 'no alias annotation leaks into the reject');
 
@@ -340,6 +338,20 @@ test('class B2 — `path` NARROWS (→pathInclude), never excludes; importers_of
     assert.equal(dataJson(byPath), dataJson(canon), 'path form == pathInclude form');
     assert.ok(dataJson(byPath).includes('src/util.ts'), 'the narrowed-to folder is INCLUDED');
     assert.deepEqual(okResult(byPath).intake, ['path→pathInclude', 'pathInclude→[…]']);
+
+    // …including where the destination is NESTED. find_usages keeps its path filters under
+    // `filter`, so a top-level-only guard would skip the most-called op entirely — and skipping is
+    // a hard reject there, not a graceful fallback.
+    const nested = await p.op('find_usages', { name: 'getInitials', path: 'src' });
+    const nestedCanon = await p.op('find_usages', {
+      name: 'getInitials',
+      filter: { pathInclude: ['src'] },
+    });
+    assert.equal(dataJson(nested), dataJson(nestedCanon), 'path form == filter.pathInclude form');
+    assert.deepEqual(okResult(nested).intake, [
+      'path→filter.pathInclude',
+      'filter.pathInclude→[…]',
+    ]);
 
     // The per-op alias still wins where `path` addresses a MODULE — the global alias must not
     // shadow it (importers_of has no pathInclude anyway, but the ordering is the guarantee).

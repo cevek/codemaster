@@ -28,20 +28,58 @@ export interface GlobalAliasResult {
 }
 
 /** Apply the guarded global aliases to `args`, mutating it. `canonical` is this op's canonical
- *  top-level key set — the alias fires only when the target is a real field of the op. */
+ *  top-level key set; `nested` maps an object field to the array subfields it declares (derived
+ *  from the schema, `nestedArrayFieldsOf`) — the alias fires only when the target is a real field
+ *  of the op, at either level. */
 export function applyGlobalAliases(
   args: Record<string, unknown>,
   canonical: ReadonlySet<string>,
+  nested?: ReadonlyMap<string, ReadonlySet<string>>,
 ): GlobalAliasResult {
   const notes: string[] = [];
   for (const [from, to] of Object.entries(GLOBAL_ALIASES)) {
-    if (!(from in args)) continue;
-    // Only rewrite when `to` is a genuine field of this op, `from` is not itself canonical, and
-    // the canonical key is not already present (an explicit value wins).
-    if (!canonical.has(to) || canonical.has(from) || to in args) continue;
-    args[to] = args[from];
+    if (!(from in args) || canonical.has(from)) continue;
+    // Only rewrite when `to` is a genuine field of this op and is not already present (an explicit
+    // canonical value always wins).
+    if (canonical.has(to)) {
+      if (to in args) continue;
+      args[to] = args[from];
+      delete args[from];
+      notes.push(`${from}→${to}`);
+      continue;
+    }
+    // …or a field ONE LEVEL DOWN. `find_usages` keeps its path filters under `filter`, so a
+    // top-level-only guard silently skipped the very op the alias exists for — and skipping means a
+    // hard reject on the most-called op, not a graceful fallback. The destination is derived from
+    // the schema, never a per-op allowlist, so it can't miss another op that nests the same field.
+    const host = nestedHost(to, nested);
+    if (host === undefined) continue;
+    const existing = args[host];
+    const obj =
+      existing !== null && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : undefined;
+    // A non-object `filter` is the caller's own error — leave it for the gate to report honestly
+    // rather than overwriting it here.
+    if (existing !== undefined && obj === undefined) continue;
+    const target = obj ?? {};
+    if (to in target) continue;
+    target[to] = args[from];
     delete args[from];
-    notes.push(`${from}→${to}`);
+    args[host] = target;
+    notes.push(`${from}→${host}.${to}`);
   }
   return { notes };
+}
+
+/** The object field declaring `key` as an array subfield, if exactly one does. Ambiguity (two
+ *  hosts) yields `undefined`: guessing which one the caller meant would be the silent-wrong-filter
+ *  outcome this alias exists to prevent (§3). */
+function nestedHost(
+  key: string,
+  nested: ReadonlyMap<string, ReadonlySet<string>> | undefined,
+): string | undefined {
+  if (nested === undefined) return undefined;
+  const hosts = [...nested].filter(([, subs]) => subs.has(key)).map(([host]) => host);
+  return hosts.length === 1 ? hosts[0] : undefined;
 }

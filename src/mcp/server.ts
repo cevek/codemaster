@@ -27,16 +27,12 @@ import { capResponse } from './cap-seam.ts';
 import {
   SERVER_INSTRUCTIONS,
   TOOL_DESCRIPTORS,
+  batchToolDescriptor,
   batchToolSchema,
   exampleCallFor,
   statusToolSchema,
 } from './schema.ts';
-import {
-  buildOpToolDescriptors,
-  buildPerOpRequest,
-  opToolExample,
-  withBatchOpNames,
-} from './op-tools.ts';
+import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
 import { withCallTelemetry } from './call-telemetry.ts';
@@ -166,9 +162,10 @@ export async function serveMcp(
     // (it feeds badArgs); advertise only the MCP tool fields.
     tools: [
       ...opDescriptors,
-      ...TOOL_DESCRIPTORS.map(({ exampleCall: _exampleCall, ...tool }) =>
-        tool.name === 'batch' ? withBatchOpNames(tool, [...opNames]) : { ...tool },
+      ...TOOL_DESCRIPTORS.filter((d) => d.name !== 'batch').map(
+        ({ exampleCall: _exampleCall, ...tool }) => ({ ...tool }),
       ),
+      batchToolDescriptor([...opNames]),
     ],
   }));
 

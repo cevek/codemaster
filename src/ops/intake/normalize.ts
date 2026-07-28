@@ -79,7 +79,7 @@ export function normalizeArgs(op: AnyOpDefinition, rawArgs: unknown): Normalized
 
   notes.push(...applyAliases(args, intake?.aliases).notes);
   // Cross-op aliases (`max_results`→`limit`), guarded to ops that actually have the target field.
-  notes.push(...applyGlobalAliases(args, canonical).notes);
+  notes.push(...applyGlobalAliases(args, canonical, nestedArrayFieldsOf(op.argsSchema)).notes);
   // Array-fields are derived from the schema itself (a pure ZodArray field), not a per-op
   // allowlist (§7) — except the targetArray field, which `coerceTargetArray` owns (its
   // elements are target objects/strings, not bare scalars) so it is excluded to avoid a

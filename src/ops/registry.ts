@@ -156,7 +156,13 @@ export interface OpDefinition<A, D extends JsonValue> {
    *  ADVERTISING A BRANCH ZOD WOULD REJECT IS WORSE THAN THE PERMISSIVENESS IT REPLACES, so the
    *  ts-target ops derive theirs from the very predicate they refine on (`TS_TARGET_ONE_OF`) and
    *  the remaining hand-written ones are pinned BOTH ways by the anti-drift test: every branch must
-   *  PARSE, and an object satisfying `required` but no branch must FAIL. */
+   *  PARSE, and an object satisfying `required` but no branch must FAIL.
+   *
+   *  SCOPE: the branches describe the CANONICAL spellings — the §7 intake additionally accepts
+   *  aliases (`symbol`/`target`/`query` for a ts target), so a strict client that validates
+   *  `anyOf` before we ever see the call rejects an alias-ONLY target this engine would have
+   *  accepted. That is deliberate: an alias may never be advertised (§7), and the rejection names
+   *  the canonical keys, which is the shape we want the caller on anyway. */
   readonly requiredOneOf?: ReadonlyArray<readonly string[]>;
   /** Present when the op is list-shaped and usable under `batch + sql` (§3). */
   readonly table?: TableSpec<D>;

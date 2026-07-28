@@ -48,6 +48,16 @@ const cssCascadeTable: TableSpec<JsonValue> = {
   },
 };
 
+/** The two ways to address a cascade target, as key-sets. ONE source for two surfaces (§11): the
+ *  refine below is built from it, and it is what the op advertises as `anyOf` — so the schema the
+ *  harness gates on and the schema that validates cannot disagree, exactly as the ts-target family
+ *  derives both from `TS_TARGET_ONE_OF`. The refine adds the half JSON Schema can't state (not
+ *  BOTH); the advertised form carries the half it can (not NEITHER). */
+const CSS_TARGET_ONE_OF: ReadonlyArray<ReadonlyArray<'file' | 'class' | 'selector'>> = [
+  ['file', 'class'],
+  ['selector'],
+];
+
 const argsSchema = z
   .strictObject({
     file: z.string().optional(),
@@ -56,9 +66,11 @@ const argsSchema = z
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
   })
-  .refine((a) => (a.file !== undefined && a.class !== undefined) !== (a.selector !== undefined), {
-    message: 'pass EITHER {file, class} (a CSS-module class) OR {selector}, not both/neither',
-  });
+  .refine(
+    (a) =>
+      CSS_TARGET_ONE_OF.filter((branch) => branch.every((k) => a[k] !== undefined)).length === 1,
+    { message: 'pass EITHER {file, class} (a CSS-module class) OR {selector}, not both/neither' },
+  );
 
 export const cssCascadeOp = defineOp({
   name: 'css_cascade',
@@ -69,9 +81,7 @@ export const cssCascadeOp = defineOp({
   argsSchema,
   argsHint:
     '{ file+class: string, OR selector: string, pathInclude?: string[], pathExclude?: string[] }',
-  // The XOR's "not NEITHER" half, expressible in JSON Schema (the "not BOTH" half stays on the
-  // zod refine) — enough for the harness to reject a target-less `css_cascade {}` (t-527994).
-  requiredOneOf: [['file', 'class'], ['selector']],
+  requiredOneOf: CSS_TARGET_ONE_OF,
   example: { args: { file: 'src/button.module.scss', class: 'button' } },
   notes: [
     'a rule TARGETS the class when its rightmost compound (the subject) carries it — `.parent .foo` and `.foo[aria-x]` target `foo`; `.foo .bar` does NOT (foo is only an ancestor there).',

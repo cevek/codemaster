@@ -134,7 +134,15 @@ test('tools/list stays under the deliberate §11 token budget', async () => {
   try {
     const client = await wire(p);
     const { tools } = await client.listTools();
-    const bytes = JSON.stringify(tools).length;
+    const serialized = JSON.stringify(tools);
+    // A `maximum` of MAX_SAFE_INTEGER is the useless byproduct of `z.number().int().positive()` —
+    // it bounds nothing a caller could reach, and it was re-loaded into every session ~36 times.
+    assert.ok(
+      !serialized.includes(`"maximum":${Number.MAX_SAFE_INTEGER}`),
+      'no unbounded maximum is advertised',
+    );
+    assert.ok(serialized.includes('"maximum":2000'), 'a REAL cap is still advertised');
+    const bytes = serialized.length;
     assert.ok(
       bytes < TOOLS_LIST_MAX_BYTES,
       `tools/list is ${bytes} B — over the ${TOOLS_LIST_MAX_BYTES} B budget (${tools.length} tools)`,

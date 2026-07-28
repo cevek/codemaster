@@ -37,7 +37,8 @@ export const statusToolSchema = z.object({
   root: z.string().optional(),
   /** Render dials (spec-agent-surface-ergonomics §1, t-523883). The DEFAULT is TERSE — the per-repo
    *  frame + one-line-per-op catalogue + concepts (the per-op arg schemas are already in the tool
-   *  list, §11). `full` dumps every op's schema+notes; `op` renders one op's detail (precedence over
+   *  list, §11). `full` dumps every op's argsHint+notes; `op` renders one op's detail PLUS its
+   *  verbatim `tools/list` inputSchema — the one place that JSON is printed (precedence over
    *  `full`); `brief` is the back-compat alias of the terse default. */
   brief: z.boolean().optional(),
   full: z.boolean().optional(),
@@ -68,16 +69,20 @@ export const TOOL_DESCRIPTORS = [
     exampleCall: {},
     description:
       'First contact: active plugins, per-repo op catalogue (names+summaries) + concepts, freshness, debug topics. ' +
-      'Terse by default (per-op arg schemas are already in the tool list). Pass op:"<name>" for one op\'s full schema, or full:true for every op\'s schema+notes.',
+      'Terse by default (per-op arg schemas are already in the tool list). Pass op:"<name>" for one op\'s detail + its verbatim tools/list inputSchema, or full:true for every op\'s argsHint+notes.',
     inputSchema: {
       type: 'object',
       properties: {
         root: { type: 'string' },
-        op: { type: 'string', description: "Render only this one op's full detail on demand" },
+        op: {
+          type: 'string',
+          description:
+            "Render one op's detail PLUS its verbatim tools/list inputSchema (the only place that JSON is printed)",
+        },
         full: {
           type: 'boolean',
           description:
-            "Dump every op's full arg schema + notes + examples (the heavyweight catalogue)",
+            'Dump every op\'s argsHint + notes + examples (the heavyweight catalogue; the JSON inputSchema only via op:"<name>")',
         },
         brief: {
           type: 'boolean',
@@ -154,6 +159,36 @@ export const TOOL_DESCRIPTORS = [
     },
   },
 ] as const;
+
+/** A handwritten tool descriptor (status/batch) — the MCP fields only, as advertised. */
+export interface StaticToolDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: unknown;
+}
+
+/** The `batch` descriptor with `requests[].name` bound to the LIVE op catalogue as an `enum`
+ *  (t-568278). Inside a batch the per-op tools' typed schemas don't apply, so a typo'd op name was a
+ *  free-form string that only failed at dispatch — making an N-op batch statically WEAKER than N
+ *  separate calls, the opposite of the guidance to prefer one batch.
+ *
+ *  It lives HERE, beside the literal it patches: the path (`requests.items.properties.name`) is a
+ *  private detail of the descriptor above, so a rename that broke it would be a compile-visible edit
+ *  in this one file rather than a silent enum drop-out in a distant module. `opNames` comes from the
+ *  same `ops` list that backs the per-op descriptors AND the dispatcher (server.ts), never a second
+ *  catalogue; the patch is applied to a COPY because `TOOL_DESCRIPTORS` is shared with
+ *  `exampleCallFor` and re-read on every `tools/list`. */
+export function batchToolDescriptor(opNames: readonly string[]): StaticToolDescriptor {
+  const source = TOOL_DESCRIPTORS.find((d) => d.name === 'batch');
+  if (source === undefined) throw new Error('batch tool descriptor missing');
+  const { exampleCall: _exampleCall, ...tool } = source;
+  if (opNames.length === 0) return { ...tool };
+  const schema = structuredClone(tool.inputSchema) as {
+    properties: { requests: { items: { properties: { name: Record<string, unknown> } } } };
+  };
+  schema.properties.requests.items.properties.name['enum'] = [...opNames];
+  return { ...tool, inputSchema: schema };
+}
 
 /** The minimal valid arguments object for a tool, used to make a `bad args` error
  *  self-correcting (§1.2). `undefined` only for an unknown tool name. */
