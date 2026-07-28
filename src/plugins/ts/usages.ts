@@ -15,6 +15,7 @@ import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
 import { rollupGroups, type Ref } from './usages-rollup.ts';
 import { callResultShapeAt } from './call-result-shape.ts';
+import { conditionChainAt } from './call-condition-chain.ts';
 
 /** A reference site fed to `assembleView` — the cross-program ref shape plus, in
  *  `mergeDeclarations` mode, the indices of the merged declarations whose reference set
@@ -155,6 +156,9 @@ export function assembleView(
     ...(options.destructures === true && r.role === 'call'
       ? { destructures: callResultShapeAt(r.sourceFile, r.start) }
       : {}),
+    // t-933867: the enclosing conditional-branch chain of this site (opt-in, every role — a JSX or
+    // read site sits under a condition as often as a call does).
+    ...(options.conditions === true ? { condition: conditionChainAt(r.sourceFile, r.start) } : {}),
   }));
   return { ...base, usages };
 }

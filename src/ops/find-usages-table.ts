@@ -10,6 +10,7 @@
 // IS the reference site.
 
 import type { JsonValue } from '../core/json.ts';
+import { renderConditionChain } from '../common/condition/chain.ts';
 import type { GroupRow, SymbolView, UsageView } from '../plugins/ts/query-types.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
@@ -46,6 +47,7 @@ function sectionRows(s: Section): readonly Cell[][] {
       u.program ?? null, // surfacing program (multi-program only; NULL single-program)
       u.decls !== undefined ? u.decls.join(',') : null, // merged-decl indices (merge mode only)
       destructuresCell(u), // t-409060: consumed return-shape (call-role + opt-in only; NULL otherwise)
+      conditionCell(u), // t-933867: enclosing condition chain (opt-in only; '' = measured none)
     ]);
   }
   for (const g of s.enclosers ?? []) {
@@ -71,6 +73,7 @@ function sectionRows(s: Section): readonly Cell[][] {
       g.programs ?? null, // joined set of surfacing programs (multi-program only)
       g.decls ?? null, // joined set of merged-decl indices (merge mode only)
       null, // destructures — a grouped rollup row is not a per-call-site view (flat mode only)
+      null, // condition — likewise per-SITE only; a rollup has no single enclosing branch
     ]);
   }
   // Text-only rows: same text, identity unproven — no AST role/encloser to claim.
@@ -95,9 +98,20 @@ function sectionRows(s: Section): readonly Cell[][] {
       null, // program — a textual hit has no program provenance
       null, // decls
       null, // destructures — a textual hit is not a semantic call site
+      null, // condition — a textual hit has no proven AST position to place under a branch
     ]);
   }
   return rows;
+}
+
+/** The tabular cell for a site's enclosing condition chain: the rendered chain (`a && !(b)`, a
+ *  leading `…` when a branch above is unstated), `''` for the MEASURED "no enclosing branch", or
+ *  NULL when the annotation was not requested. The `'' vs NULL` split is load-bearing — an audit
+ *  asks `WHERE condition != ''` for "guarded only conditionally", which a collapsed NULL would
+ *  silently answer wrong (§3.4). */
+function conditionCell(u: UsageView): Cell {
+  const c = u.condition;
+  return c === undefined ? null : renderConditionChain(c);
 }
 
 /** The tabular cell for a call site's consumed return-shape: `whole`, a comma-joined prop list
@@ -169,6 +183,11 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     // comma-joined prop list (`*` = `...rest`/computed key), `''` = discarded result. NULL when the
     // flag is off, the row is not a call, or it is a grouped/text row.
     { name: 'destructures', type: 'text' },
+    // t-933867 (opt-in `conditions:true`): the enclosing conditional-BRANCH chain of a SITE, with
+    // polarity applied. `''` = measured "no enclosing branch" (NOT "always runs"); a leading `…` =
+    // a real branch whose condition is unstated. NULL when the flag is off, or the row is
+    // grouped/textual.
+    { name: 'condition', type: 'text' },
   ],
   rows(data) {
     return sectionsOf(data).flatMap(sectionRows);

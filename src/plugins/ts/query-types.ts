@@ -7,6 +7,7 @@ import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import type { Verbosity } from '../../core/result.ts';
+import type { ConditionChain } from '../../common/condition/chain.ts';
 import type { UsageRole } from './usage-roles.ts';
 
 /** A target that could not be resolved but whose stale handle DID rebind — carries the
@@ -63,6 +64,11 @@ export type UsageView = {
    *  or computed key (unknown extra props); `whole` marks a result bound/passed as a value (may use
    *  ANY property — conservative, never a silent gap). Return-shape blast-radius triage in one call. */
   destructures?: { props?: string[]; rest?: true; whole?: true };
+  /** Opt-in (`conditions:true`), flat mode (t-933867): the enclosing conditional-BRANCH chain this
+   *  site sits under — "where is X used, AND WHEN". PRESENT-but-empty is the MEASURED "no enclosing
+   *  branch condition"; ABSENT means not annotated. Never read an empty chain as "runs
+   *  unconditionally" (see the `ConditionChain` contract). */
+  condition?: ConditionChain;
 };
 
 /** One enclosing-declaration rollup row. `id` is a chainable ts: SymbolId of the
@@ -130,6 +136,9 @@ export type UsageOptions = {
   /** Opt-in (t-409060): annotate each `call`-role usage with the return-shape it consumes
    *  (`UsageView.destructures`). Flat mode only — a grouped rollup row is not a per-site view. */
   destructures?: boolean | undefined;
+  /** Opt-in (t-933867): annotate each usage with its enclosing conditional-branch chain
+   *  (`UsageView.condition`) — "where is X used, and WHEN". Flat mode only, same reason. */
+  conditions?: boolean | undefined;
 };
 
 export type UsagesView = {

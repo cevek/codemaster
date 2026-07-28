@@ -104,6 +104,68 @@ test('absence-audit: the one-member-per-file precondition is itself a query (a 2
   }
 });
 
+test('absence-audit, sharper: `condition` separates "calls F" from "calls F only under a branch"', async () => {
+  // The refinement the hand audit had to read 15 blocks for: a/c call the guard, but only c calls it
+  // unconditionally. `''` (measured: no enclosing branch) and NULL (not annotated) must survive the
+  // projection DISTINCTLY — `WHERE condition != ''` is the audit query, and a collapsed NULL would
+  // answer it silently wrong (§3.4).
+  const p = await project({
+    ...OPS_FAMILY,
+    'src/ops/a.ts': `import { defineOp, guardCheck } from '../reg';\nexport const aOp = defineOp({ run: (n: number) => (n > 1 ? guardCheck(1) : false) });\n`,
+  });
+  try {
+    const annotated = await p.request(
+      [
+        {
+          name: 'find_usages',
+          as: 'f',
+          args: { name: 'guardCheck', role: 'call', conditions: true },
+        },
+      ],
+      {
+        sql: "SELECT file, condition FROM f WHERE condition IS NOT NULL AND condition != '' ORDER BY file",
+      },
+    );
+    const conditional = okData(annotated[0] as OpResult).rows;
+    assert.deepEqual(
+      conditional,
+      [['src/ops/a.ts', 'n > 1']],
+      'only a.ts guards its guard-call behind a branch — with the branch text, not just the site',
+    );
+
+    // The same producer WITHOUT the flag must project NULL, so "not annotated" can never be read as
+    // the measured "no enclosing branch".
+    const bare = await p.request(
+      [{ name: 'find_usages', as: 'f', args: { name: 'guardCheck', role: 'call' } }],
+      { sql: 'SELECT COUNT(*) AS annotated FROM f WHERE condition IS NOT NULL' },
+    );
+    assert.equal(
+      okData(bare[0] as OpResult).rows[0]?.[0],
+      0,
+      'without conditions:true every row projects NULL — absence of a claim, not an empty claim',
+    );
+
+    // And the unconditional call sites really do project the empty-string MEASUREMENT.
+    const measured = await p.request(
+      [
+        {
+          name: 'find_usages',
+          as: 'f',
+          args: { name: 'guardCheck', role: 'call', conditions: true },
+        },
+      ],
+      { sql: "SELECT file FROM f WHERE condition = '' ORDER BY file" },
+    );
+    assert.deepEqual(
+      okData(measured[0] as OpResult).rows,
+      [['src/ops/c.ts'], ['src/ops/e-helper.ts']],
+      "c/e-helper call it with no enclosing branch — reported as '' , distinct from NULL",
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('absence-audit: the family producer is a semantic set, not a text match', async () => {
   // Why the recipe uses find_usages and not grep for the family: a call the text pattern
   // `defineOp({` misses (an aliased import, a non-adjacent brace) is still a member here. The

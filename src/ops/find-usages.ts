@@ -21,6 +21,7 @@ import { createJsScanner } from '../support/text-search/scan.ts';
 import { defineOp } from './registry.ts';
 import { withUndiscoveredHint } from './no-symbol-hint.ts';
 import { findUsagesTable } from './find-usages-table.ts';
+import { FIND_USAGES_NOTES } from './find-usages-notes.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
 import { memberFallback } from './find-usages-member-fallback.ts';
 import {
@@ -42,14 +43,26 @@ const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit
 const MERGE_DECLS_HINT =
   ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)';
 
-/** `destructures` is a per-call-site (flat-mode) annotation; groupBy rolls sites into enclosers, so
- *  the flag can't apply — disclosed, never silently swallowed (t-409060 / §3.6). */
+/** `destructures` / `conditions` are per-SITE (flat-mode) annotations; groupBy rolls sites into
+ *  enclosers, so neither flag can apply — disclosed per flag, never silently swallowed
+ *  (t-409060 / t-933867 / §3.6). */
 const DESTRUCTURES_GROUPBY_NOTE =
   'destructures ignored — a per-call-site return-shape is a flat-mode annotation; drop groupBy to see it';
-const destructuresIgnored = (args: {
+const CONDITIONS_GROUPBY_NOTE =
+  'conditions ignored — a per-site enclosing-condition chain is a flat-mode annotation; drop groupBy to see it';
+type FlatOnlyArgs = {
   destructures?: boolean | undefined;
+  conditions?: boolean | undefined;
   groupBy?: unknown;
-}): boolean => args.destructures === true && args.groupBy !== undefined;
+};
+/** The disclosure lines for every flat-only flag this call set under groupBy (empty when none). */
+function flatOnlyIgnored(args: FlatOnlyArgs): string[] {
+  if (args.groupBy === undefined) return [];
+  const notes: string[] = [];
+  if (args.destructures === true) notes.push(DESTRUCTURES_GROUPBY_NOTE);
+  if (args.conditions === true) notes.push(CONDITIONS_GROUPBY_NOTE);
+  return notes;
+}
 
 const argsSchema = z
   .strictObject({
@@ -73,6 +86,9 @@ const argsSchema = z
     /** Annotate each `call`-role usage with the return-shape it consumes (`destructures` per site) —
      *  return-shape blast-radius triage in one call. Flat mode only (§ groupBy is a rollup axis). */
     destructures: z.boolean().optional(),
+    /** Annotate each usage with the enclosing conditional-BRANCH chain it sits under (`condition`
+     *  per site) — "where is X used, AND WHEN". Flat mode only (§ groupBy is a rollup axis). */
+    conditions: z.boolean().optional(),
     groupBy: z.literal('enclosing').optional(),
     ...programsArgShape,
     filter: z
@@ -101,7 +117,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), conditions?: boolean (per-site enclosing-condition chain, flat mode), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
   intake: tsTargetIntake,
   example: {
     args: {
@@ -111,22 +127,7 @@ export const findUsagesOp = defineOp({
       filter: { pathExclude: ['**/ui/**', '**/*.test.*'] },
     },
   },
-  notes: [
-    'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm the type-checker (a repo-wide reference fan-out would OOM and can kill the daemon) and says WHY the repo was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
-    'role = what a ref syntactically IS: jsx (<X/> tags, closing deduped) · call · type · import · reexport (barrel `export {X} from` — never collapsed) · read · write · decl.',
-    'role:read/write is SYNTACTIC (is the identifier read vs assigned) — it does NOT resolve store-field access: a zustand `useStore(s => s.count)` or a `set(...)` call reads as a `call`, not a read/write of `count`. Use it for variable/binding reads-vs-writes, not store-field tracing.',
-    'collapseImports (default true): an import is hidden once its file also has a real usage (count returns as importsCollapsed); import-only files & re-exports always stay. collapseImports:false or role:import to list all. sql-mode keeps every import row.',
-    "groupBy:'enclosing' rolls refs up to the nearest enclosing declaration ('which components render <X>'), sorted by count; encloser ids chain into other ops.",
-    'filter {pathExclude/pathInclude globs, kind, exportedOnly}: dropped refs are reported as excludedByFilter — a filter never reads as completeness.',
-    'symbols:[…] answers several targets in one sectioned call (unresolvable names → unresolved). A role filter matching 0 still prints the full role distribution + the dominant role to try.',
-    "deleting a symbol? text:true adds comment/string/doc occurrences of the name, deduped against semantic refs and flagged 'text-only (identity NOT proven)' — role/path filters don't touch the text side.",
-    'multi-program (see concepts: cross-program-read): each usage carries the `program` that surfaced it (sql column `program`). HONEST ASYMMETRY — a sibling label (tsconfig.test.json) means present ONLY there; the primary label means present in primary, POSSIBLY elsewhere too. Emitted only when >1 program is loaded.',
-    'density (text/json, NOT sql): a column CONSTANT across the listed rows is hoisted to a header and dropped per-row — a single `role` filter → `role=<r>` (read effective role as `row.role ?? role`); the dominant program → `allProgram=<p>` (read `row.program ?? allProgram`). `listable` (collapsed-import count tie) appears ONLY when the rows are truncated. sql-mode keeps every value per row.',
-    "mergeDeclarations:true — for an AMBIGUOUS name (the interface-decl + host-decl + impl triplet), union the usages of ALL same-named declarations instead of failing. The merged decls are listed in `mergedDeclarations`; each usage's `decls` indexes into it (per-site provenance — unrelated same-named symbols are never silently conflated). The ambiguous hard-FAIL surfaces this flag.",
-    '{name, file} member fallback: when no TOP-LEVEL declaration of `name` lives in `file`, a class/type MEMBER, enum member, or re-exported binding of that name is resolved instead (the resolution is disclosed as a leading note); several such bindings → a pick-list + a member_usages redirect. So a method / type-member / re-export is not a dead-end.',
-    'auditing an ABSENCE — "which of these does NOT call F" (which ops lack a guard) — is a two-producer sql anti-join over THIS op, not a manual sweep: see `concepts: absence-audit` in status for the shape and its two limits.',
-    'destructures:true (flat mode only) — annotate each call site with the return-shape it consumes: `⇒{a,b}` destructured props (`const {a,b}=fn()`) or member-accessed (`fn().x`), a trailing `…` for a `...rest`/computed key (unknown extra props), `⇒whole` for a value bound/passed whole (may use ANY prop — conservative), `⇒{}` for a discarded result. Triages return-shape blast radius (which sites break if a return field changes) in ONE call; sql column `destructures`. Ignored under groupBy (disclosed).',
-  ],
+  notes: FIND_USAGES_NOTES,
   table: findUsagesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -153,6 +154,7 @@ export const findUsagesOp = defineOp({
       mergeDeclarations: args.mergeDeclarations,
       // Flat mode only: a groupBy rollup row is not a per-site view. Disclosed in the note below.
       destructures: args.destructures === true && args.groupBy === undefined,
+      conditions: args.conditions === true && args.groupBy === undefined,
       pathExclude: args.filter?.pathExclude,
       pathInclude: args.filter?.pathInclude,
       enclosingKind: args.filter?.kind,
@@ -249,10 +251,7 @@ export const findUsagesOp = defineOp({
             totalRows += tally.total;
           }
         }
-        const topNotes = [
-          ...lever.notes,
-          ...(destructuresIgnored(args) ? [DESTRUCTURES_GROUPBY_NOTE] : []),
-        ];
+        const topNotes = [...lever.notes, ...flatOnlyIgnored(args)];
         const data = {
           ...lever.fields,
           ...(topNotes.length > 0 ? { notes: topNotes } : {}),
@@ -318,7 +317,7 @@ export const findUsagesOp = defineOp({
           'mergeDeclarations ignored — a symbol/position target addresses ONE declaration; pass a `name` to union all same-named declarations',
         );
       }
-      if (destructuresIgnored(args)) notes.push(DESTRUCTURES_GROUPBY_NOTE);
+      notes.push(...flatOnlyIgnored(args));
       const hoisted = hoistView(view, args.role, sqlMode);
       if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
       // §3.4 floor (verdict-first): a non-empty undiscovered set makes the usages a LOWER BOUND.

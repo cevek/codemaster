@@ -2,6 +2,7 @@
 // not import plugins) — these are the small primitives the per-domain renderer files reuse.
 
 import type { JsonValue } from '../../../core/json.ts';
+import { renderConditionChain } from '../../../common/condition/chain.ts';
 
 export function isObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -49,7 +50,25 @@ export function usageDeco(v: Record<string, JsonValue>): string {
   if (decls !== undefined && Array.isArray(decls)) s += ` · decls[${decls.map(String).join(',')}]`;
   else if (typeof decls === 'string' && decls.length > 0) s += ` · decls[${decls}]`;
   s += destructuresDeco(v['destructures']);
+  s += conditionDeco(v['condition']);
   return s;
+}
+
+/** The per-site enclosing-condition annotation (t-933867): `⟨a && !(b)⟩` for a real chain,
+ *  `⟨no branch⟩` for the MEASURED empty chain (present-but-empty — a bare `⟨⟩` would read as a
+ *  render glitch, and dropping it would erase the measurement the agent asked for). The wording is
+ *  deliberately "no branch", NOT "unconditional": the claim is "no enclosing conditional branch in
+ *  this function", and an early `return` above the site or a conditionally-invoked caller would make
+ *  "always runs" a lie (§3). The chain text comes from the ONE shared renderer in
+ *  `common/condition` — the same string the sql `condition` column carries, so the two faces of the
+ *  fact cannot drift (§3.1). An ABSENT field renders nothing: not annotated is not a claim. */
+function conditionDeco(c: JsonValue | undefined): string {
+  if (!isObject(c)) return '';
+  const rendered = renderConditionChain({
+    conditions: asArray(c['conditions']).map(String),
+    ...(c['partial'] === true ? { partial: true as const } : {}),
+  });
+  return ` ⟨${rendered.length > 0 ? rendered : 'no branch'}⟩`;
 }
 
 /** The per-call-site return-shape annotation (t-409060): `⇒{a,b}` for destructured props, a trailing
