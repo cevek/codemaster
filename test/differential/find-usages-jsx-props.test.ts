@@ -274,6 +274,23 @@ test('a props-filtered 0 is not "nobody passes it": the jsx denominator survives
       d.roleBreakdown?.['jsx'],
       'every jsx site is accounted for: matched + excluded',
     );
+
+    // …and the identity survives a path filter: a path-excluded ref never reaches the props check,
+    // so it lands in excludedByFilter and drops out of the jsx denominator alike.
+    const filtered = dataOf(
+      await p.op('find_usages', {
+        name: 'Button',
+        file: 'src/button.tsx',
+        props: { variant: ['contained'] },
+        filter: { pathExclude: ['**/form-g.tsx'] },
+      }),
+    );
+    assert.equal(
+      filtered.total + (filtered.excludedByProps ?? 0),
+      filtered.roleBreakdown?.['jsx'],
+      'path-excluded sites are counted apart, and out of the denominator',
+    );
+    assert.ok((filtered.excludedByFilter ?? 0) > 0, 'the path exclusion is reported separately');
   } finally {
     await p.dispose();
   }
