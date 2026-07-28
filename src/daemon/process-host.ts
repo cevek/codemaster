@@ -162,10 +162,12 @@ export async function createProcessHost(
         // Per-request, not one shared string: a batch's requests ask different questions, and a
         // redirect computed for the first would be wrong for the rest.
         tool,
-        // Redirect BEFORE the cause here — the inverse of the guards' order, and deliberately. This
-        // function fails an ENTIRE batch at once, so N of these messages concatenate into one frame
-        // and the §12 seam cap trims the tail: whatever sits last is what the later requests lose.
-        // The cause is one clause and re-derivable; the redirect is the only actionable part.
+        // Redirect BEFORE the cause here — the inverse of the guards' order, and deliberately, but
+        // as READING order, not survival: this message renders into the envelope's `head`, which
+        // `assembleEnvelope` reserves against both budgets, and a batch is cut at whole-section
+        // boundaries with disclosure — so it is never tail-trimmed either way. The reason is §12
+        // verdict-first: on this path the op is already dead, so the cause explains a fact the agent
+        // has (it failed) while the redirect is the only part it can act on. That leads.
         // `'died'`: the engine is gone, so a redirect may only name calls that build no program —
         // re-addressing escapes the fan-out GUARD, never an exhausted heap (measured: a file-pinned
         // trace OOMs exactly as its bare-name form does).

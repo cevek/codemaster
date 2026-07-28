@@ -223,8 +223,10 @@ test('a died-engine failure redirects per request, verdict-scoped, redirect befo
   assert.match(msg(a), /find_usages cannot complete/);
   assert.match(msg(b), /impact cannot complete/);
 
-  // Redirect BEFORE cause — inverted vs the guards on purpose: this fails a WHOLE batch, so N
-  // messages concatenate and the §12 seam cap trims the tail. The redirect is the actionable part.
+  // Redirect BEFORE cause — inverted vs the guards on purpose. Not a survival argument (the message
+  // renders into the reserved envelope `head`, and a batch is cut at whole-section boundaries): §12
+  // verdict-first. The op is already dead, so the cause restates what the agent knows, while the
+  // redirect is the only part it can act on.
   for (const m of [msg(a), msg(b)]) {
     const redirect = Math.max(m.indexOf('RUN INSTEAD'), m.indexOf('NO cheaper in-tool path'));
     assert.ok(redirect > 0 && m.indexOf('Cause:') > redirect, `redirect must precede cause: ${m}`);
