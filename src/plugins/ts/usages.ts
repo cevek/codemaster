@@ -16,6 +16,8 @@ import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
 import { rollupGroups, type Ref } from './usages-rollup.ts';
 import { callResultShapeAt } from './call-result-shape.ts';
 import { conditionChainAt } from './call-condition-chain.ts';
+import { readJsxSiteAttrs } from './jsx-attr-values.ts';
+import { matchProps, type PropMatch } from './jsx-prop-filter.ts';
 
 /** A reference site fed to `assembleView` — the cross-program ref shape plus, in
  *  `mergeDeclarations` mode, the indices of the merged declarations whose reference set
@@ -65,6 +67,10 @@ export function assembleView(
   const refs: Ref[] = [];
   const breakdown = new Map<UsageRole, number>();
   let excluded = 0;
+  // The two `props`-filter uncertainties, counted apart (t-109741): "passed, value unreadable"
+  // and "may flow through a spread" are different questions with different next steps.
+  let propsDynamicValue = 0;
+  let propsSpreadMaybe = 0;
   const roleActive = options.role !== undefined;
 
   // Pass 1: classify every in-scope ref. Path filter applies here; the role filter does
@@ -90,6 +96,20 @@ export function assembleView(
       excluded++; // a question-matching ref dropped by YOUR path filter (§3.4)
       continue;
     }
+    // `props` filter (t-109741): applied HERE — before the limit and before the rollup — so a
+    // grouped sweep answers the filtered question. A non-matching site is `excluded`, never
+    // silently dropped; an unreadable one is KEPT at `dynamic` (see jsx-prop-filter).
+    let match: PropMatch | undefined;
+    if (options.props !== undefined) {
+      const site = readJsxSiteAttrs(sourceFile, ref.start);
+      match = site !== undefined ? matchProps(site, options.props) : undefined;
+      if (match === undefined) {
+        excluded++;
+        continue;
+      }
+      if (match.dynamicValue) propsDynamicValue++;
+      if (match.spreadMaybe) propsSpreadMaybe++;
+    }
     refs.push({
       rel,
       sourceFile,
@@ -97,6 +117,7 @@ export function assembleView(
       length: ref.length,
       role,
       program: ref.program,
+      ...(match !== undefined ? { confidence: match.confidence, propMatch: match } : {}),
       ...(ref.declIndices !== undefined ? { declIndices: ref.declIndices } : {}),
     });
   }
@@ -132,6 +153,9 @@ export function assembleView(
       : {}),
     total: refs.length, // counts everything matched — collapse is display-only (§2.2)
     excluded,
+    ...(options.props !== undefined
+      ? { propsUncertain: { dynamicValue: propsDynamicValue, spreadMaybe: propsSpreadMaybe } }
+      : {}),
     ...collapseField,
     ...breakdownField,
     ...undiscoveredField,
@@ -149,7 +173,13 @@ export function assembleView(
   const usages: UsageView[] = displayed.slice(0, options.limit).map((r) => ({
     span: spanFromRange(r.sourceFile, r.rel, r.start, r.start + r.length),
     role: r.role,
-    confidence: 'certain',
+    confidence: r.confidence ?? 'certain',
+    // t-109741: the requested props AT this site (value or expression source) + the spread flag —
+    // the proof the agent would otherwise open every file to read.
+    ...(r.propMatch !== undefined && r.propMatch.props.length > 0
+      ? { props: r.propMatch.props }
+      : {}),
+    ...(r.propMatch?.spread === true ? { spread: true as const } : {}),
     ...(multiProgram ? { program: r.program } : {}),
     ...(r.declIndices !== undefined ? { decls: r.declIndices } : {}),
     // t-409060: annotate each call site with the return-shape it consumes (opt-in, call-role only).

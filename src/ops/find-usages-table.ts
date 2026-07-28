@@ -48,6 +48,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       u.decls !== undefined ? u.decls.join(',') : null, // merged-decl indices (merge mode only)
       destructuresCell(u), // t-409060: consumed return-shape (call-role + opt-in only; NULL otherwise)
       conditionCell(u), // t-933867: enclosing condition chain (opt-in only; '' = measured none)
+      propsCell(u), // t-109741: matched JSX props, flattened (opt-in only)
+      u.props === undefined && u.spread === undefined ? null : u.spread === true ? 1 : 0,
     ]);
   }
   for (const g of s.enclosers ?? []) {
@@ -74,6 +76,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       g.decls ?? null, // joined set of merged-decl indices (merge mode only)
       null, // destructures — a grouped rollup row is not a per-call-site view (flat mode only)
       null, // condition — likewise per-SITE only; a rollup has no single enclosing branch
+      null, // props — per-SITE annotation; the FILTER still applied (before the rollup)
+      null, // prop_spread — likewise per-site
     ]);
   }
   // Text-only rows: same text, identity unproven — no AST role/encloser to claim.
@@ -99,6 +103,8 @@ function sectionRows(s: Section): readonly Cell[][] {
       null, // decls
       null, // destructures — a textual hit is not a semantic call site
       null, // condition — a textual hit has no proven AST position to place under a branch
+      null, // props — a textual hit has no JSX attributes to read
+      null, // prop_spread
     ]);
   }
   return rows;
@@ -123,6 +129,18 @@ function destructuresCell(u: UsageView): Cell {
   if (d.whole === true) return 'whole';
   const props = d.props ?? [];
   return `${props.join(',')}${d.rest === true ? (props.length > 0 ? ',*' : '*') : ''}`;
+}
+
+/** The tabular cell for the JSX props matched at a site (t-109741): `name=value` per entry,
+ *  semicolon-joined, a non-literal value rendered as `name={expr}` so a dynamic value is never
+ *  indistinguishable from a literal one in SQL. `''` = matched via a `{...spread}` only (no
+ *  requested prop is present at the site); NULL = no `props` filter ran. The `'' vs NULL` split is
+ *  load-bearing, exactly as `condition`'s is (§3.4). */
+function propsCell(u: UsageView): Cell {
+  if (u.props === undefined) return u.spread === undefined ? null : '';
+  return u.props
+    .map((p) => (p.kind === 'dynamic' ? `${p.name}={${p.value}}` : `${p.name}=${p.value}`))
+    .join(';');
 }
 
 /** The `!!` lower-bound disclosure(s) for a table projection: one per section (or one top-level)
@@ -211,6 +229,13 @@ export const findUsagesTable: TableSpec<JsonValue> = {
     // polarity applied. `''` = measured "no enclosing branch" (NOT "always runs"); a leading
     // `<unstated>` = the chain is a subset. NULL when the flag is off, or the row is grouped/textual.
     { name: 'condition', type: 'text' },
+    // t-109741 (opt-in `props:{…}`): the matched JSX props at a SITE, `name=value` semicolon-joined,
+    // a non-literal value as `name={expr}` (never confusable with a literal). `''` = the site matched
+    // only through a `{...spread}`. NULL when no props filter ran, or the row is grouped/textual.
+    { name: 'props', type: 'text' },
+    // 1 when the site carries a `{...spread}` (any prop may flow / be overridden through it) — the
+    // sql half of the per-site `dynamic` confidence. NULL for grouped/textual rows.
+    { name: 'prop_spread', type: 'int' },
   ],
   rows(data) {
     return sectionsOf(data).flatMap(sectionRows);

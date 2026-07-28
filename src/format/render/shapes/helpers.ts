@@ -51,6 +51,27 @@ export function usageDeco(v: Record<string, JsonValue>): string {
   else if (typeof decls === 'string' && decls.length > 0) s += ` · decls[${decls}]`;
   s += destructuresDeco(v['destructures']);
   s += conditionDeco(v['condition']);
+  s += propsDeco(v['props'], v['spread']);
+  return s;
+}
+
+/** The per-site JSX prop annotation (t-109741): `[variant="contained"]` for a literal, `{expr}`
+ *  for a non-literal value (the source text — the agent decides from it, and it is never dropped),
+ *  and a trailing `+{...spread}` when the site carries a spread (any prop may flow / be
+ *  overridden through it). Absent when the call ran no `props` filter. */
+function propsDeco(props: JsonValue | undefined, spread: JsonValue | undefined): string {
+  let s = '';
+  const list = asArray(props);
+  if (list.length > 0) {
+    const parts = list.map((p) => {
+      if (!isObject(p)) return String(p);
+      const name = String(p['name']);
+      const value = String(p['value'] ?? '');
+      return p['kind'] === 'dynamic' ? `${name}={${value}}` : `${name}="${value}"`;
+    });
+    s += ` [${parts.join(' ')}]`;
+  }
+  if (spread === true) s += ' +{...spread}';
   return s;
 }
 

@@ -19,6 +19,7 @@ import { findReferencesAcross } from './cross-program.ts';
 import { classifyRole } from './usage-roles.ts';
 import { nodeAt } from './ast-node.ts';
 import { spanFromRange } from './spans.ts';
+import { enclosingJsxOpening } from './jsx-element-at.ts';
 
 /** Hard cap on references inspected per target (§19 never-hang). `findReferencesAcross` is
  *  itself bounded/cancellable; this bounds the per-site attribute reads and the result size. */
@@ -137,16 +138,4 @@ function readJsxAttributes(
     names.push('children');
   }
   return { names, hasSpread };
-}
-
-/** Nearest enclosing JSX opening / self-closing element from a tag-name position; `undefined`
- *  past a statement boundary (a jsx ref is always inside its own element, so this terminates). */
-function enclosingJsxOpening(
-  node: ts.Node,
-): ts.JsxOpeningElement | ts.JsxSelfClosingElement | undefined {
-  for (let up: ts.Node | undefined = node; up !== undefined; up = up.parent) {
-    if (ts.isJsxOpeningElement(up) || ts.isJsxSelfClosingElement(up)) return up;
-    if (ts.isStatement(up)) return undefined;
-  }
-  return undefined;
 }

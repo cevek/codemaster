@@ -22,6 +22,14 @@ import { defineOp } from './registry.ts';
 import { withUndiscoveredHint } from './no-symbol-hint.ts';
 import { findUsagesTable } from './find-usages-table.ts';
 import { FIND_USAGES_NOTES } from './find-usages-notes.ts';
+import { flatOnlyIgnored } from './find-usages-flat-only.ts';
+import {
+  PROPS_ROLE_CONFLICT,
+  propFilterOf,
+  propsArgShape,
+  propsUncertainField,
+  propsUncertaintyNotes,
+} from './find-usages-props.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
 import { memberFallback } from './find-usages-member-fallback.ts';
 import {
@@ -43,26 +51,9 @@ const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit
 const MERGE_DECLS_HINT =
   ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)';
 
-/** `destructures` / `conditions` are per-SITE (flat-mode) annotations; groupBy rolls sites into
- *  enclosers, so neither flag can apply — disclosed per flag, never silently swallowed
- *  (t-409060 / t-933867 / §3.6). */
-const DESTRUCTURES_GROUPBY_NOTE =
-  'destructures ignored — a per-call-site return-shape is a flat-mode annotation; drop groupBy to see it';
-const CONDITIONS_GROUPBY_NOTE =
-  'conditions ignored — a per-site enclosing-condition chain is a flat-mode annotation; drop groupBy to see it';
-type FlatOnlyArgs = {
-  destructures?: boolean | undefined;
-  conditions?: boolean | undefined;
-  groupBy?: unknown;
-};
-/** The disclosure lines for every flat-only flag this call set under groupBy (empty when none). */
-function flatOnlyIgnored(args: FlatOnlyArgs): string[] {
-  if (args.groupBy === undefined) return [];
-  const notes: string[] = [];
-  if (args.destructures === true) notes.push(DESTRUCTURES_GROUPBY_NOTE);
-  if (args.conditions === true) notes.push(CONDITIONS_GROUPBY_NOTE);
-  return notes;
-}
+/** `destructures` / `conditions` / `props` are per-SITE (flat-mode) annotations; groupBy rolls
+ *  sites into enclosers, so the annotation cannot apply — disclosed per flag, never silently
+ *  swallowed (t-409060 / t-933867 / t-109741 / §3.6). */
 
 const argsSchema = z
   .strictObject({
@@ -89,6 +80,7 @@ const argsSchema = z
     /** Annotate each usage with the enclosing conditional-BRANCH chain it sits under (`condition`
      *  per site) — "where is X used, AND WHEN". Flat mode only (§ groupBy is a rollup axis). */
     conditions: z.boolean().optional(),
+    ...propsArgShape,
     groupBy: z.literal('enclosing').optional(),
     ...programsArgShape,
     filter: z
@@ -117,7 +109,7 @@ export const findUsagesOp = defineOp({
   mutating: false,
   requires: ['ts'],
   argsSchema,
-  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), conditions?: boolean (per-site enclosing-condition chain, flat mode), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
+  argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), conditions?: boolean (per-site enclosing-condition chain, flat mode), props?: {prop: true|value|values[]} (JSX sites passing this prop — true=any value; implies role:'jsx'; dynamic values / {...spread} kept at confidence=dynamic), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
   intake: tsTargetIntake,
   example: {
     args: {
@@ -141,6 +133,9 @@ export const findUsagesOp = defineOp({
     // SQLite table. Import collapse is forced OFF there — the table projects from the
     // UNCOLLAPSED ref set, so "files that import X but don't render it" (NOT IN over the
     // import rows) stays trustworthy (§2.2).
+    if (args.props !== undefined && args.role !== undefined && args.role !== 'jsx') {
+      return fail({ tool: 'bad_args', message: PROPS_ROLE_CONFLICT });
+    }
     const sqlMode = ctx.tableRowBound !== undefined;
     const verbosity = ctx.flags.verbosity ?? 'terse';
     const options: UsageOptions = {
@@ -148,7 +143,9 @@ export const findUsagesOp = defineOp({
       // SAME MAX_TABLE_ROWS it enforces, so the op caps exactly where the engine would —
       // and reports `truncated` below so the table is marked partial, never silently short.
       limit: ctx.tableRowBound ?? args.limit ?? 200,
-      role: args.role,
+      // `props` IS a JSX question — implied, and refused above if contradicted (§3.6).
+      role: args.props !== undefined ? 'jsx' : args.role,
+      props: propFilterOf(args.props),
       collapseImports: sqlMode ? false : (args.collapseImports ?? true),
       groupBy: args.groupBy,
       mergeDeclarations: args.mergeDeclarations,
@@ -200,8 +197,10 @@ export const findUsagesOp = defineOp({
           const { view } = outcome;
           shownRows += rowsShown(view);
           totalRows += rowsTotal(view);
-          const notes = usageNotes(view, args.role, verbosity);
-          const hoisted = hoistView(view, args.role, sqlMode);
+          const notes = usageNotes(view, options.role, verbosity);
+          if (view.propsUncertain !== undefined)
+            notes.push(...propsUncertaintyNotes(view.propsUncertain));
+          const hoisted = hoistView(view, options.role, sqlMode);
           if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
           // §3.4 floor: a non-empty undiscovered set makes this section a LOWER BOUND — the `!!`
           // note leads (verdict-first), the fields ride as early machine-readable keys below.
@@ -211,6 +210,7 @@ export const findUsagesOp = defineOp({
           targets.push({
             symbol: sym,
             ...floor.fields,
+            ...propsUncertainField(view), // verdict-first (§12): counts precede the row bulk
             ...(view.definition !== undefined ? { definition: view.definition.id } : {}),
             ...(view.mergedDeclarations !== undefined
               ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }
@@ -308,7 +308,9 @@ export const findUsagesOp = defineOp({
       const { view, rebind } = outcome;
       let shown = rowsShown(view);
       let total = rowsTotal(view);
-      const notes = usageNotes(view, args.role, verbosity);
+      const notes = usageNotes(view, options.role, verbosity);
+      if (view.propsUncertain !== undefined)
+        notes.push(...propsUncertaintyNotes(view.propsUncertain));
       // R1 — honest disclosure (§3.6): mergeDeclarations was requested but the target addresses ONE
       // declaration (a SymbolId/position), so it could not apply. Say so instead of silently dropping
       // the flag. (When it DID apply, `view.mergedDeclarations` is present and this never fires.)
@@ -318,7 +320,7 @@ export const findUsagesOp = defineOp({
         );
       }
       notes.push(...flatOnlyIgnored(args));
-      const hoisted = hoistView(view, args.role, sqlMode);
+      const hoisted = hoistView(view, options.role, sqlMode);
       if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
       // §3.4 floor (verdict-first): a non-empty undiscovered set makes the usages a LOWER BOUND.
       // `complete:false` + `undiscoveredPrograms` lead the data object so a count-only consumer
@@ -333,6 +335,7 @@ export const findUsagesOp = defineOp({
       const data: Record<string, JsonValue> = {
         ...lever.fields,
         ...floor.fields,
+        ...propsUncertainField(view), // verdict-first (§12): counts precede the row bulk
         ...(view.definition !== undefined ? { definition: tag('symbol', view.definition) } : {}),
         ...(view.mergedDeclarations !== undefined
           ? { mergedDeclarations: view.mergedDeclarations.map((m) => tag('symbol', m)) }

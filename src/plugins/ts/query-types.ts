@@ -9,6 +9,8 @@ import type { HandleRebind } from '../../core/ids.ts';
 import type { Verbosity } from '../../core/result.ts';
 import type { ConditionChain } from '../../common/condition/chain.ts';
 import type { UsageRole } from './usage-roles.ts';
+import type { JsxAttrValue } from './jsx-attr-values.ts';
+import type { PropFilter } from './jsx-prop-filter.ts';
 
 /** A target that could not be resolved but whose stale handle DID rebind — carries the
  *  structured `HandleRebind` (notably `{status:'gone'}`, §6) so the op surfaces it on the
@@ -70,6 +72,12 @@ export type UsageView = {
    *  or computed key (unknown extra props); `whole` marks a result bound/passed as a value (may use
    *  ANY property — conservative, never a silent gap). Return-shape blast-radius triage in one call. */
   destructures?: { props?: string[]; rest?: true; whole?: true };
+  /** `props` filter (t-109741), `jsx`-role sites: the REQUESTED props present at this site, each
+   *  carrying its normalized literal value or (for `kind:'dynamic'`) its expression source. A
+   *  site matched only through a `{...spread}` carries none — `spread` is then the whole story. */
+  props?: JsxAttrValue[];
+  /** The site carries a `{...spread}` — any prop may flow (or be overridden) through it (§3.3). */
+  spread?: true;
   /** Opt-in (`conditions:true`), flat mode (t-933867): the enclosing conditional-BRANCH chain this
    *  site sits under — "where is X used, AND WHEN". PRESENT-but-empty is the MEASURED "no enclosing
    *  branch condition"; ABSENT means not annotated. Never read an empty chain as "runs
@@ -145,6 +153,13 @@ export type UsageOptions = {
   /** Opt-in (t-933867): annotate each usage with its enclosing conditional-branch chain
    *  (`UsageView.condition`) — "where is X used, and WHEN". Flat mode only, same reason. */
   conditions?: boolean | undefined;
+  /** JSX prop filter (t-109741): keep only `<X …/>` sites passing these props (`true` = any
+   *  value; a value list = one of these literals). Applies BEFORE the limit and BEFORE the
+   *  groupBy rollup — so a grouped sweep answers the filtered question, not a filtered display
+   *  of an unfiltered rollup. Non-matching jsx refs land in `excluded` (never silent, §3.4);
+   *  statically-unknowable sites are KEPT at `confidence:'dynamic'` (§3.3). Requires the
+   *  `jsx` role (the op refuses any other role rather than silently rewriting it). */
+  props?: PropFilter | undefined;
 };
 
 export type UsagesView = {
@@ -173,6 +188,11 @@ export type UsagesView = {
    *  unfiltered answer looked like — "0" must never be indistinguishable from "none
    *  exist", which is a §3.4-class lie. */
   roleBreakdown?: Record<string, number>;
+  /** `props` filter (t-109741) — the TWO uncertainties, kept apart because their remedies are
+   *  different questions: `dynamicValue` sites pass the prop with an unreadable expression (read
+   *  the expression), `spreadMaybe` sites may receive/override it through a `{...spread}` (read
+   *  the spread). Present only when a `props` filter ran; `0` is a measured "none". */
+  propsUncertain?: { dynamicValue: number; spreadMaybe: number };
   /** §3.4 FLOOR: repo tsconfigs NOT loaded as programs (a nested-package config neither adjacent
    *  to the primary nor `references`d, and not loaded by the read-path nearest-config discovery) —
    *  a usage living ONLY under such a program is NOT searched, so this set being non-empty means
