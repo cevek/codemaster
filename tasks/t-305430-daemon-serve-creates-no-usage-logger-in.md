@@ -1,7 +1,7 @@
 ---
 id: t-305430
 title: "`daemon serve` creates no usage logger: in the DEFAULT (bridge+daemon) topology all telemetry is the bridge's, and daemon-side dispatch is unlogged"
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

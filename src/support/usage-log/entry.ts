@@ -20,7 +20,9 @@ export interface UsageLogEntry {
   ok: boolean;
   /** Client working directory the call resolved against. */
   cwd: string;
-  /** The raw tool arguments the agent sent (the request). */
+  /** The raw tool arguments the agent sent (the request). On an `origin:'daemon'` record this is
+   *  instead the WIRE request list (`[{name, args}]`) — the daemon never sees the flat tool args —
+   *  so a consumer parsing it as a single argument object must branch on `origin`. */
   args: JsonValue;
   /** The rendered response text the agent received (the answer). */
   response: string;
@@ -33,10 +35,15 @@ export interface UsageLogEntry {
    *  existing consumer's key-set is unchanged. */
   outcome?: 'crash' | 'abandoned';
   /** Which process's VIEW this is. Absent = the agent-facing serving process (bridge /
-   *  `--in-process` / fallback), which is the sole owner of call ACCOUNTING — every ordinary record
-   *  is one of these. `'daemon'` marks the singleton daemon's own in-flight breadcrumb, promoted
-   *  after the daemon died with the call running; the daemon never writes ordinary records, so this
-   *  never double-counts a call. Additive like `outcome` — absent on every pre-existing record. */
+   *  `--in-process` / fallback), the sole owner of call ACCOUNTING — every ordinary record is one of
+   *  these. `'daemon'` marks a record promoted from a breadcrumb the singleton daemon left in
+   *  flight: `outcome:'crash'` when its pid is gone, `'abandoned'` when it still answers.
+   *
+   *  COUNTING: the daemon writes no ordinary record, so there is never a second ACCOUNTING record —
+   *  but a fatal call still yields TWO lines in `fail.jsonl` (the agent-facing process's ordinary
+   *  `ok:false`, and this view of the same call). Count calls by filtering `origin === undefined`;
+   *  correlate the pair on `cwd` + `ops`. Additive like `outcome` — absent on every ordinary record,
+   *  so an existing consumer's key-set is unchanged. */
   origin?: 'daemon';
 }
 

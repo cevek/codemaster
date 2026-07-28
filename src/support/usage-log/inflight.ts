@@ -10,7 +10,8 @@
 // carrying the tool, the op names, the cwd and the args.
 //
 // One file PER CALL, not one per process: `tools/call`s are concurrent (the MCP layer does not
-// serialize them) and several processes share the one usage dir (bridge, `--in-process`, fallback),
+// serialize them) and several processes share the one usage dir (bridge, `--in-process`, fallback,
+// and the daemon — which stamps breadcrumbs for its OWN dispatch but writes no call record),
 // so a single overwritten file would drop a live sibling's breadcrumb. Cost is O(1) per call — one
 // small write + rename + unlink, never work that scales with the repo (§1).
 //
@@ -339,7 +340,7 @@ function isAlive(pid: number): boolean {
 }
 
 /** The recovered record. Key-set is the ordinary entry's (existing consumers keep working) plus the
- *  additive `outcome` discriminator. `tool` / `ops` keep their ordinary meaning — naming the op that
+ *  additive `outcome` and `origin` discriminators. `tool` / `ops` keep their ordinary meaning — naming the op that
  *  was in flight IS the point — and `durationMs` is `null`, not a fabricated 0: the moment the call
  *  stopped is unknown, so no duration can be honestly claimed. */
 function crashEntry(

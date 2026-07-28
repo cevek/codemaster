@@ -1,4 +1,5 @@
-// Default usage-logger wiring for the MCP serve path. On by default, writing to
+// Default usage-logger wiring for BOTH serving paths — `mcp` (the agent-facing process, which owns
+// call accounting) and `daemon serve` (which stamps only its own in-flight crash breadcrumbs). On by default, writing to
 // `~/.codemaster/usage/{success,fail}.jsonl`; opt out with `CODEMASTER_USAGE_LOG=0`
 // (also `off`/`false`/`no`). Override the directory with `CODEMASTER_USAGE_DIR`.
 

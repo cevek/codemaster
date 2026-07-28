@@ -24,6 +24,7 @@ import type { JsonValue } from '../core/json.ts';
 import { createIdleExit } from '../common/async/idle-exit.ts';
 import type { Transport, TransportConnection } from '../support/transport/seam.ts';
 import { writePidfile, removePidfile } from '../support/pidfile/write.ts';
+import { capOpNames } from '../common/truncate/cap-op-names.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
 import type { InflightCall, InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
 import type { ServingOrchestrator } from './orchestrator-api.ts';
@@ -78,6 +79,13 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     });
   }
 
+  const usage = deps.usage ?? noopUsageLogger;
+  /** Every breadcrumb currently on disk for a dispatch this daemon is running. A GRACEFUL exit
+   *  clears them all before `exit(0)` (see `shutdown`), which is what makes "a clean exit leaves no
+   *  breadcrumb" a structural fact rather than a timing accident — and therefore what makes a
+   *  promoted `origin:'daemon'` record mean a FATAL. */
+  const live = new Set<InflightHandle>();
+
   let shuttingDown = false;
   const idle = createIdleExit({
     clock: deps.clock,
@@ -89,6 +97,22 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     if (shuttingDown) return;
     shuttingDown = true;
     idle.stop();
+    // Clear every in-flight breadcrumb FIRST. `shutdown` does not (and must not) drain dispatches —
+    // an unbounded wait would make a wedged op block the exit forever, and `daemon stop` exists
+    // precisely to recover a wedged daemon (§1 never-hang). So the calls in flight really do die
+    // here; what must NOT happen is their breadcrumbs outliving a CLEAN exit and being promoted as
+    // fatals, which would make `origin:'daemon'` fire on every `codemaster daemon restart` — the
+    // command CONTRIBUTING tells agents to run after each edit. Those calls are not lost: the
+    // agent-facing process still writes its own record for each, which is exactly the ownership
+    // split. Bounded — one unlink per live call — and best-effort per handle.
+    for (const handle of live) {
+      try {
+        handle.clear();
+      } catch {
+        /* one failed unlink must not stop the teardown */
+      }
+    }
+    live.clear();
     // Close the listener FIRST (unlinks the socket) so a racing connect hits the recovery path,
     // then dispose the engines. Both wrapped — a teardown failure must not crash the exit (§3.6).
     await server
@@ -107,7 +131,7 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     // Release the breadcrumb sink's file handles, mirroring `serveMcp`'s shutdown. Wrapped:
     // telemetry teardown must never be what stops the daemon from exiting (§3.6).
     try {
-      deps.usage?.dispose();
+      usage.dispose();
     } catch {
       /* best-effort — the process is exiting anyway */
     }
@@ -143,13 +167,15 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
   async function withBreadcrumb<T>(call: InflightCall, run: () => Promise<T>): Promise<T> {
     let inflight: InflightHandle = NOOP_INFLIGHT;
     try {
-      inflight = (deps.usage ?? noopUsageLogger).begin(call);
+      inflight = usage.begin(call);
+      live.add(inflight);
     } catch {
       /* telemetry must never crash the daemon */
     }
     try {
       return await run();
     } finally {
+      live.delete(inflight);
       try {
         inflight.clear();
       } catch {
@@ -158,14 +184,35 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     }
   }
 
-  /** What the daemon can honestly say a request WAS. It never sees the MCP tool name (that stays in
-   *  the bridge), so `tool` is derived: a batch call carries `batch` on the wire, every other
-   *  dispatch is one per-op tool call. `cwd` is the CLIENT's, off the wire — never the detached
-   *  daemon's own `process.cwd()`, which would name the wrong repo in triage. */
+  /** What the daemon can honestly say a request WAS.
+   *
+   *  `ops` is EXACT — the wire carries the op names. `tool` is DERIVED and cannot be exact: the MCP
+   *  tool name never crosses the socket, and the wire's `batch` field is not the discriminator it
+   *  looks like (`mcp/server.ts` sends it only when the call carries `sql`, so a plain `batch` call
+   *  arrives without it and a per-op call WITH `sql` arrives with it). Deriving from it named the
+   *  wrong tool in BOTH directions, so the honest derivation is the request COUNT: >1 request can
+   *  only be a batch. The one case the wire cannot distinguish — a batch of exactly one request vs
+   *  a per-op call — reads as the op name; `ops` is unaffected either way, which is why triage and
+   *  the correlation recipe key on `cwd + ops`, not on `tool`.
+   *
+   *  `cwd` is the CLIENT's, off the wire — never the detached daemon's own `process.cwd()`, which
+   *  would name the wrong repo in triage. */
   function describe(req: Extract<WireRequest, { kind: 'request' | 'status' }>): InflightCall {
-    const ops = req.kind === 'status' ? [] : req.reqs.map((r) => r.name);
+    const ops =
+      req.kind === 'status'
+        ? []
+        : capOpNames(
+            req.reqs.map((r) => r.name),
+            req.reqs.length,
+          );
     const tool =
-      req.kind === 'status' ? 'status' : req.batch !== undefined ? 'batch' : (ops[0] ?? 'request');
+      req.kind === 'status'
+        ? 'status'
+        : req.reqs.length === 1
+          ? (ops[0] ?? 'request')
+          : req.reqs.length === 0
+            ? 'request'
+            : 'batch';
     return {
       ts: deps.clock.now(),
       tool,

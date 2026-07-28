@@ -38,15 +38,27 @@ export interface RemoteOrchestratorDeps {
   version: string;
 }
 
+/** STABLE MACHINE SENTINEL for a locally-synthesized "the link is gone" reply. `probeLiveness`
+ *  branches on this prefix, never on the prose after it: the message is agent-facing text and the
+ *  docs rule invites rewording it, which — compared whole — would silently disable
+ *  unresponsive-daemon detection. Keep the code even if every word after it changes. */
+const CLOSED_CODE = 'daemon-link-closed';
+
 /** What the bridge can honestly say when the link drops mid-call: the socket closed. It CANNOT say
- *  why — it outlived the daemon, and a fatal and a graceful exit look identical from here (the
- *  pidfile is a kill-target hint, never a liveness oracle, §3.5), so asserting a crash would be the
- *  fabricated-fatal lie `support/usage-log/inflight.ts` exists to prevent. Instead it names where
- *  the discriminator lives: the daemon stamps its own in-flight breadcrumb, so a daemon that died
- *  with this call running leaves an `outcome:'crash', origin:'daemon'` record naming the op
- *  (t-305430) — and its ABSENCE is what tells a reader the daemon exited cleanly. */
-const CLOSED_MESSAGE =
-  'daemon connection closed mid-call — cause not determinable from this side; check ~/.codemaster/usage/fail.jsonl for a daemon-side record with outcome:"crash" (origin:"daemon") for this call: present = the daemon died running it, absent = it exited cleanly';
+ *  why — it outlived the daemon, and from here a fatal and a clean exit look identical (the pidfile
+ *  is a kill-target hint, never a liveness oracle, §3.5), so asserting a crash would be the
+ *  fabricated-fatal lie `support/usage-log/inflight.ts` exists to prevent. It points at where the
+ *  discriminator lives instead — the daemon's own in-flight breadcrumb (t-305430) — and is explicit
+ *  that ABSENCE proves nothing: reconciliation only runs at a later codemaster start, so a real
+ *  fatal reads as absent until then. No path is quoted: the usage dir is relocatable
+ *  (`CODEMASTER_USAGE_DIR`), so a literal `~/.codemaster/...` would point some readers at the wrong
+ *  file. */
+const CLOSED_MESSAGE = `${CLOSED_CODE}: connection closed mid-call — this side cannot tell a fatal from a clean exit; a fatal surfaces in the usage log as outcome:"crash" origin:"daemon" once a later codemaster start reconciles it (absence is not proof of a clean exit)`;
+
+/** The link was ALREADY closed when the request was handed over, so nothing was ever sent — no
+ *  daemon-side breadcrumb can exist for it, and steering the reader to look for one would send them
+ *  after a record that provably cannot be written. */
+const NEVER_SENT_MESSAGE = `${CLOSED_CODE}: connection already closed — this request was never sent to the daemon; reconnect and retry`;
 const DEFAULT_PROBE_DEADLINE_MS = 5000;
 
 export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): OrchestratorApi {
@@ -91,7 +103,7 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
     if (closed)
       return Promise.resolve({
         kind: 'reply',
-        reply: { id, kind: 'error', message: CLOSED_MESSAGE },
+        reply: { id, kind: 'error', message: NEVER_SENT_MESSAGE },
       });
     return new Promise<AwaitOutcome>((resolve) => {
       let cancelTimer: CancelTimer = () => undefined;
@@ -117,7 +129,10 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
       deps.probeDeadlineMs ?? DEFAULT_PROBE_DEADLINE_MS,
     );
     if (out.kind === 'timeout') return 'unresponsive';
-    if (out.reply.kind === 'error' && out.reply.message === CLOSED_MESSAGE) return 'unresponsive';
+    // Prefix, not equality: any locally-synthesized closed-link reply means the front door is gone,
+    // and the branch must survive a reword of either message (see CLOSED_CODE).
+    if (out.reply.kind === 'error' && out.reply.message.startsWith(CLOSED_CODE))
+      return 'unresponsive';
     return 'alive';
   }
 

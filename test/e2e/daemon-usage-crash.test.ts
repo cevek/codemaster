@@ -100,28 +100,30 @@ async function start(mode: 'crash' | 'ok' | 'slow', idleMs?: number): Promise<Ha
   let stderr = '';
   child.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
 
-  const bound = await waitFor(() => existsSync(socket) || dead);
-  assert.ok(bound && !dead, `daemon child must bind ${socket}; stderr=${stderr}`);
-  const connection = await createUnixSocketTransport(socket).connect();
-  return {
-    usageDir,
-    socket,
-    child,
-    connection,
-    exited,
-    cleanup: () => {
-      // Kill ONLY this test's own child, by its own pid.
-      if (!dead && child.pid !== undefined) {
-        try {
-          process.kill(child.pid, 'SIGKILL');
-        } catch {
-          /* already gone */
-        }
+  const cleanup = (): void => {
+    // Kill ONLY this test's own child, by its own pid.
+    if (!dead && child.pid !== undefined) {
+      try {
+        process.kill(child.pid, 'SIGKILL');
+      } catch {
+        /* already gone */
       }
-      rmSync(usageDir, { recursive: true, force: true });
-      rmSync(sockDir, { recursive: true, force: true });
-    },
+    }
+    rmSync(usageDir, { recursive: true, force: true });
+    rmSync(sockDir, { recursive: true, force: true });
   };
+  // Everything after the spawn runs under `cleanup`: a failed bind (or a connect that rejects) must
+  // not strand the child plus two temp dirs — the caller's `finally` cannot help, it has no harness
+  // to clean up yet.
+  try {
+    const bound = await waitFor(() => existsSync(socket) || dead);
+    assert.ok(bound && !dead, `daemon child must bind ${socket}; stderr=${stderr}`);
+    const connection = await createUnixSocketTransport(socket).connect();
+    return { usageDir, socket, child, connection, exited, cleanup };
+  } catch (thrown) {
+    cleanup();
+    throw thrown;
+  }
 }
 
 /** Promote whatever breadcrumbs the child left, exactly as a next process start would, and return
@@ -230,11 +232,83 @@ test('client disconnects mid-dispatch with a tiny idle TTL → the daemon does N
     // Outlast the idle TTL AND the dispatch, so the daemon has every chance to exit early.
     await within(h.exited, 4_000);
 
+    // Without this the arm passes SILENTLY on a slow box: a child still running owns a LIVE pid, so
+    // its breadcrumb is never promotable and the assertion below holds vacuously.
+    assert.ok(
+      h.child.exitCode !== null || h.child.signalCode !== null,
+      'inconclusive: the child had not exited, so nothing was promotable either way',
+    );
     const promoted = promoteFrom(h.usageDir);
     assert.deepEqual(
       promoted.filter((e) => e.origin === 'daemon'),
       [],
       `an idle-exit must never race a live dispatch into a fabricated fatal, got ${JSON.stringify(promoted)}`,
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+// The strongest form of the graceful invariant, and the one a `codemaster daemon restart` hits every
+// time: a DELIBERATE shutdown while a sibling's op is still running. `shutdown` must not drain (an
+// unbounded wait would let a wedged op block the exit forever, and `daemon stop` exists to recover a
+// wedged daemon), so the call really does die — but its breadcrumb must not outlive the CLEAN exit
+// and be promoted as a fatal, or `origin:'daemon'` would fire on every dev-loop restart and the
+// crash signal would be worthless. The killed call is not lost: the agent-facing process still
+// writes its own record, which is exactly the ownership split.
+test('deliberate shutdown WHILE a dispatch is in flight → the clean exit leaves no breadcrumb, so no fatal is fabricated', async () => {
+  const h = await start('slow');
+  try {
+    h.connection.send(REQUEST as never);
+    // Let the 1.5 s dispatch get going, then stop the daemon through the production path.
+    await new Promise((r) => setTimeout(r, 300));
+    h.connection.send({ id: 2, kind: 'shutdown' } as never);
+    await within(h.exited, 10_000);
+    assert.ok(
+      h.child.exitCode !== null || h.child.signalCode !== null,
+      'inconclusive: the child had not exited',
+    );
+    assert.equal(h.child.exitCode, 0, 'this is the GRACEFUL path — a clean exit code');
+
+    const promoted = promoteFrom(h.usageDir);
+    assert.deepEqual(
+      promoted.filter((e) => e.origin === 'daemon'),
+      [],
+      `a clean shutdown must not promote the in-flight call as a fatal, got ${JSON.stringify(promoted)}`,
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+// `tool` is DERIVED daemon-side (the MCP tool name never crosses the socket) and the wire's `batch`
+// field is NOT the discriminator it looks like: `mcp/server.ts` sends it only when the call carries
+// `sql`, so deriving from it named the wrong tool in BOTH directions — 'find_usages' for a plain
+// `batch({requests:[…]})`, and 'batch' for a per-op `find_usages` call carrying `sql`. The honest
+// derivation is the request COUNT, and `ops` — which triage and the correlation recipe actually key
+// on — is exact either way.
+test('a multi-request dispatch is attributed to "batch", and every op it carried is named', async () => {
+  const h = await start('crash');
+  try {
+    h.connection.send({
+      id: 1,
+      kind: 'request',
+      cwd: REQUEST.cwd,
+      // No `batch` field on the wire — exactly the shape a plain `batch` tool call produces.
+      reqs: [
+        { name: 'find_definition', args: {} },
+        { name: 'impact', args: {} },
+      ],
+    } as never);
+    await within(h.exited);
+
+    const daemonSide = promoteFrom(h.usageDir).filter((e) => e.origin === 'daemon');
+    assert.equal(daemonSide.length, 1, 'one daemon-side fatal');
+    assert.equal(daemonSide[0]?.tool, 'batch', 'more than one request can only be a batch');
+    assert.deepEqual(
+      daemonSide[0]?.ops,
+      ['find_definition', 'impact'],
+      'ops is exact regardless of the tool derivation',
     );
   } finally {
     h.cleanup();

@@ -9,9 +9,8 @@
 // silently drifts the day a new spelling is accepted, attributing a fatal to a symbol name.
 // Purely defensive: unparseable arguments yield an empty list, never a throw and never a guess.
 
+import { capOpNames, MAX_BREADCRUMB_OPS } from '../common/truncate/cap-op-names.ts';
 import { normalizeBatchEnvelope } from './op-tools.ts';
-
-const MAX_OPS = 32;
 
 export function inflightOps(tool: string, rawArgs: unknown): string[] {
   if (tool !== 'batch') return tool === 'status' ? [] : [tool];
@@ -19,14 +18,14 @@ export function inflightOps(tool: string, rawArgs: unknown): string[] {
   const requests = (rawArgs as { requests?: unknown }).requests;
   if (!Array.isArray(requests)) return [];
   const names: string[] = [];
-  for (const request of requests.slice(0, MAX_OPS)) {
+  for (const request of requests.slice(0, MAX_BREADCRUMB_OPS)) {
     const canonical = normalizeBatchEnvelope(request);
     if (typeof canonical !== 'object' || canonical === null) continue;
     const name = (canonical as { name?: unknown }).name;
     if (typeof name === 'string') names.push(name);
   }
-  // §3.4: never a silently short list. A crash record whose `ops` was truncated must say so, or a
-  // 40-op batch killed by its last op reads as 32 innocent names and nothing else.
-  if (requests.length > MAX_OPS) names.push(`+${requests.length - MAX_OPS} more`);
-  return names;
+  // §3.4 (`capOpNames`, shared with the daemon's own span so the two producers of this record cannot
+  // drift): never a silently short list. The marker counts REQUESTS, not the names that survived
+  // parsing, so an unparseable envelope cannot mask the overflow.
+  return capOpNames(names, requests.length);
 }
