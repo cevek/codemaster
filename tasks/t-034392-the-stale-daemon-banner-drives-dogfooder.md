@@ -78,3 +78,22 @@ it is about. Two of that worker's questions were genuinely symbolic (who consume
 
 Which is the same conclusion as the two reports above, reached from a third direction: the banner is
 honest, the remedy is real, and both arrive after the point where they could change anything.
+
+## Why this is `urgent` — the basis is FREQUENCY and cost, not severity
+
+Stated explicitly because a cold reader taking tasks by priority would otherwise misread it: this is a
+one-line change to a banner. It is not a lie, not a crash, and nothing is at risk if it waits a day.
+
+It sits at `urgent` because it is the cheapest lever on the thing that limits everything else: **three
+independent workers, all editing the tool, each lost the one question that mattered** to a banner whose
+only named remedy is too expensive to take per-question. Fixing it costs a clause and plausibly changes
+whether the dogfood loop produces findings at all.
+
+For comparison, so the ordering is not read as a severity claim: **t-662704 is `high` and is about a
+MUTATION riding a silently-incomplete resolve** — strictly the graver defect. It sits lower because it was
+measured to write CORRECTLY (it renames the resolved symbol's references and leaves a same-named foreign
+symbol untouched), so its weight is "the agent leaves believing it renamed THE symbol", not corruption.
+
+Rule of thumb for anyone reordering this backlog: `urgent` here means "cheap and blocking other work",
+`high` means "real defect, ordered by how wrong the answer can be". Where the two conflict, say which one
+you meant in the task, as this note does.

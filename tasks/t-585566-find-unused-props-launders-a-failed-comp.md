@@ -3,6 +3,7 @@ id: t-585566
 title: find_unused_props launders a failed component lookup into ok{found:0} — and its own test pins that shape as correct
 status: backlog
 priority: high
+parent: t-647309
 tags:
   - agent-surface
   - dogfood

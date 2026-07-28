@@ -3,6 +3,7 @@ id: t-288409
 title: No op reaches string-literal config identity (env var names, config keys) — the last honest grep gap, and it decided a design because the negative question ("is OPENAI_BASE_URL referenced at all?") has no reliable answer
 status: backlog
 priority: high
+parent: t-647309
 tags:
   - agent-surface
   - dogfood

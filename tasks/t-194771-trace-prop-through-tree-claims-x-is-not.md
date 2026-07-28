@@ -2,7 +2,8 @@
 id: t-194771
 title: trace_prop_through_tree claims "'X' is not among the root's declared props" over a member set that may have been capped — the same proven-absence-over-an-unseen-set as find_unused_props' undetermined branch
 status: backlog
-priority: medium
+priority: high
+parent: t-647309
 tags:
   - dogfood
   - honesty

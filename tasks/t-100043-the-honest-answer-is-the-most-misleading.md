@@ -3,6 +3,7 @@ id: t-100043
 title: 'The honest answer is the most misleading one: `member_usages` returns sites=1 where 6 consumers exist, because the type edge is SEVERED at the ops→JsonValue seam — `complete:false` discloses the program floor and is silent about the larger hole'
 status: backlog
 priority: high
+parent: t-647309
 tags:
   - agent-surface
   - dogfood

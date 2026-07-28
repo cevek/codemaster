@@ -3,6 +3,7 @@ id: t-162650
 title: '`construction_sites` renders a SEMANTIC verdict over a program it never scanned: `files=0` proves the sibling program was skipped, yet the answer reads "no literal is assignable" and the remedy blames the caller''s scoping — while `find_usages` fans and discloses on the same question'
 status: backlog
 priority: urgent
+parent: t-647309
 tags:
   - agent-surface
   - dogfood
