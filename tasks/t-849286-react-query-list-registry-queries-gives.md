@@ -34,3 +34,21 @@ Instances found by hand in that repo, each fitting the pattern:
 
 Note the shape: all three are SILENT wrong-output bugs, not crashes — the class that survives review
 precisely because no query can enumerate it.
+
+## The `file:line` coordinates above are HISTORICAL — verify by name before using them
+
+They were recorded mid-track in a repo under active editing (amiro, ~3 days before this task was filed).
+Lines have almost certainly moved, and some instances may have been fixed by that very track or a later
+one. Treat them as *shape examples*, not as a repro list.
+
+Before building on this task: re-locate each by SYMBOL NAME against current HEAD and confirm the defect
+still exists. A worker that chases a moved line will either find nothing and conclude the task is bogus,
+or find unrelated code at that offset and "fix" it — both worse than starting from the name.
+
+What is durable here is the PATTERN, not the coordinates: a component whose rendered rows depend on N
+queries while the loading gate reads only one query's `isLoading`, with the second query's data reaching
+the render through a defaulting expression. That pattern is what the proposed `query_sites` + anti-join
+would enumerate, and it is re-derivable on any current checkout.
+
+Origin session (transcript readable via MCP; the agent is archived and its worktree is gone, so read the
+transcript rather than messaging it): `~-Dev-amiro/sessions/786b8171`.
