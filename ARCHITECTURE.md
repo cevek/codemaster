@@ -167,8 +167,10 @@ This is the section that the rest of the design serves.
    adapter plugin) — so an adapter-inferred relationship is never mistaken for a proven
    structural fact.
 
-4. **No silent truncation.** Capped result sets always report `{ shown, total, hint }`.
-   Truncation that looks like completeness is a form of lying.
+4. **No silent truncation.** Capped result sets always report
+   `{ shown, total, totalIsLowerBound?, hint }` — and when `total` is itself a floor the producer
+   could not finish counting, it says so and renders as `≥N` (§12). Truncation that looks like
+   completeness is a form of lying.
 
 5. **Freshness is verified on read, never assumed from the watcher.** The honesty
    guarantee does **not** ride on the file watcher — watchers miss events, and the
@@ -426,16 +428,21 @@ probing.
   resolve whose last retained item is already past the `exact` bucket has every exact-name candidate
   on the page and is complete however much fuzzy tail was cut; stamping that as truncated would be a
   false incompleteness (a common prefix refusing an unambiguous rename), the same lie inverted. The
-  bit is consumed three ways, three different guarantees: READS disclose `complete:false` +
-  a `!! LOWER BOUND` note (`searchCapFloor`, shaped like the undiscovered-program floor so a consumer
-  reads one incompleteness vocabulary whatever the cause); the §6 rebind does not claim `gone` for a
-  symbol it merely could not see; MUTATIONS refuse (§7). The ambiguity list a multi-declaration name
-  returns (`plugins/ts/ambiguity.ts`) collapses candidates by resolved DEFINITION (a barrel chain is
-  one symbol seen N times; within one definition a real declaration displaces the alias pointing at
-  it), ranks declaration-first, prints each candidate as a copy-pasteable `SymbolId` with an alias
-  disclosing the declaration it resolves to, and carries `{shown, total}` with the display cap
-  (`… N more`) and the search-budget truncation (`≥N`) as SEPARATE markers — different causes,
-  different remedies, so collapsing them into one "capped" would lose the remedy.
+  bit is consumed three ways, three different guarantees: `find_definition` / `find_usages` disclose
+  `complete:false` + a `!! LOWER BOUND` note (`searchCapFloor`, shaped like the undiscovered-program
+  floor so a consumer reads one incompleteness vocabulary whatever the cause); the §6 rebind does not
+  claim `gone` for a symbol it merely could not see; MUTATIONS refuse (§7). Coverage on the read side
+  is therefore PARTIAL — the bit is carried by the `findDefinition` / `findUsages` plugin API only,
+  so the other name-addressed reads (`source`, `impact`, `impact_type_error`,
+  `trace_field_to_render`) answer off a sliced page with no incompleteness signal (t-272074). The
+  ambiguity list a multi-declaration name returns (`plugins/ts/ambiguity.ts`) collapses candidates by
+  resolved DEFINITION (a barrel chain is one symbol seen N times; within one definition a real
+  declaration displaces the alias pointing at it), ranks declaration-first, prints each candidate as
+  a copy-pasteable `SymbolId` with an alias disclosing the declaration it resolves to, and carries
+  `{shown, total}` with the display cap (`N more not shown`) and the search-budget truncation
+  (a `≥` on the count) as SEPARATE markers — different causes, different remedies, so collapsing
+  them into one "capped" would lose the remedy. Both are the message's own markers, assembled there;
+  the `Truncation` envelope's `totalIsLowerBound` (§12) is `search_symbol`'s.
   **`importers_of` MODULE-mode resolution honesty (§3.6).** The result carries `resolved`: a module
   spec that does NOT resolve to a file under the project's own resolution (a typo'd / out-of-project
   path) reads as a LOUD `module unresolved: X` — distinct from an honest resolved-0 (a real module
@@ -856,7 +863,9 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 - **Symbol-anchored** (`rename_symbol`, `move_file`, `extract_symbol`, `move_symbol`,
   `change_signature`): the `ts` plugin resolves the symbol through its LS, then computes
   the semantic reference sites; the op rewrites only those. Never fired from a
-  textual/shape match. **A mutation may not ride a gate that did not run:** all four resolve through
+  textual/shape match. **A mutation may not ride a gate that did not run:** the four
+  symbol-RESOLVING ones (`rename_symbol`, `extract_symbol`, `move_symbol`, `change_signature` —
+  `move_file` addresses a source and a dest path, so it resolves no symbol) go through
   `resolveForWrite`, which REFUSES a bare `{name}` whose candidate search hit the LS's page cap
   (`searchTruncated`, §5-L2) — the "a bare name must match exactly one declaration" check was then
   verified only against the candidates we could SEE, so the same call would refuse without the flood
@@ -1318,7 +1327,8 @@ richly, but compactly (debug output spends tokens too).
   expands.
 
 - **Sinks, in priority order:** (1) a **rotating, size-capped** greppable log at
-  `~/.codemaster/<repoId>/debug.log` — the primary surface the dev agent greps;
+  `~/.codemaster/<basename(root)>-<hash8(repoId)>/debug.log` — the primary surface the dev agent
+  greps, and the directory a process-mode child's relayed stderr sits in beside it;
   (2) **stderr** for CLI runs. **Never stdout** — stdout is the agent-facing payload;
   mixing corrupts MCP. (3) An **opt-in, off-by-default** per-call `debug` flag returns
   that call's trace inline in a delimited trailer — off by default because it spends the
@@ -1343,10 +1353,11 @@ disk/serialize error never touches the request path.
 call that never returns — the in-process OOM that kills the serving process — with zero trace, so
 `fail.jsonl` would read as if the tool's worst outcome were a polite `bad_args` (§3.4 by omission).
 So a **breadcrumb** file is stamped under `<usage-dir>/inflight/` BEFORE dispatch (the
-`UsageLogger.begin` seam) and cleared only AFTER the record is written, so a death between the two
-reports the call once, never zero times. A leftover breadcrumb means the owner died with that call
-in flight; the next file-backed logger start **promotes** it into `fail.jsonl` carrying the real
-`tool` / op names / cwd / args. `outcome:'crash'` when the owner pid is gone;
+`UsageLogger.begin` seam) and cleared when the call returns — on the accounting span, only AFTER the
+record is written, so a death between the two reports the call once, never zero times. A leftover
+breadcrumb means the owner died with that call in flight; the next file-backed logger start
+**promotes** it into `fail.jsonl` carrying the `tool` / op names / cwd / args it observed.
+`outcome:'crash'` when the owner pid is gone;
 `outcome:'abandoned'` when it still answers but the call has been in flight over 6h — death
 unproven, and claiming it would be the same lie inverted. `durationMs` is `null`, never a
 fabricated `0`: the moment the call stopped is unknown. Writes are atomic (temp + rename), a
@@ -1766,8 +1777,7 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   daemon dies in the child instead (t-167395), and the daemon settles the pending request as an
   honest `ToolFailure` (oom-hinted on a SIGABRT/134 signature) and respawns on the next request.
   The child's `stdio[2]` is PIPED, not inherited, and relayed line-by-line into the repo's own
-  `child-stderr.log` (§13) — an inherited V8 fatal dump lands ahead of the honest `FAIL tool=oom` and
-  reads as a codemaster crash.
+  `child-stderr.log` (§13).
   Orphan-child reaping is `process.on('disconnect')` in the child: a `SIGKILL`ed orchestrator drops
   the IPC channel → the child self-exits, so a warm LS never squats. (§2, §9)
 - **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
