@@ -16,6 +16,7 @@ import type { Transport, TransportConnection } from '../support/transport/seam.t
 import type { DaemonInfo } from './orchestrator-api.ts';
 import { connectOrSpawnDaemon, tryConnect } from './connect-or-spawn.ts';
 import { forceRecoverDaemon, type ForceRecoverResult } from './force-recover.ts';
+import { SHUTTING_DOWN_CODE } from './protocol.ts';
 import {
   awaitClose,
   awaitReply,
@@ -93,6 +94,14 @@ async function daemonStatus(deps: DaemonManageDeps): Promise<ManageResult> {
           `daemon running but UNRESPONSIVE (no reply in ${replyMs(deps)}ms) — socket: ${deps.socketPath}`,
           // Match a legacy bare-`daemon` process too (the unresponsive case is often a pre-edit daemon).
           `find the pid: pgrep -f 'codemaster.*daemon'`,
+        ],
+      };
+    if (info.kind === 'shutting-down')
+      return {
+        code: 0,
+        lines: [
+          `daemon is shutting down (it answered, then began teardown) — socket: ${deps.socketPath}`,
+          'the next request spawns a fresh one; re-run `codemaster daemon status` to see it',
         ],
       };
     if (info.kind === 'unsupported')
@@ -256,10 +265,14 @@ const RECONNECT_NOTE = 'any connected MCP clients must reconnect (the shared dae
 type InfoOutcome =
   | { kind: 'ok'; info: DaemonInfo; sourceStale: boolean }
   | { kind: 'timeout' }
+  | { kind: 'shutting-down' }
   | { kind: 'unsupported'; message: string };
 
 /** Send one `daemon-info` request and await its reply, deadline-bounded. An error reply (an old
- *  daemon that doesn't know the kind) maps to `unsupported`, never a throw. */
+ *  daemon that doesn't know the kind) maps to `unsupported`, never a throw — EXCEPT the one error a
+ *  current daemon deliberately sends: a connect that lands after teardown began is answered with the
+ *  `SHUTTING_DOWN_CODE` refusal, and reading that as "old code" would print a confident, wrong
+ *  diagnosis (§3.6). Branch on the code, never the prose. */
 async function fetchInfo(conn: TransportConnection, deps: DaemonManageDeps): Promise<InfoOutcome> {
   const id = 1;
   const outcome = await awaitReply(conn, deps.clock, daemonInfoEnvelope(id), id, replyMs(deps));
@@ -267,13 +280,18 @@ async function fetchInfo(conn: TransportConnection, deps: DaemonManageDeps): Pro
   const reply = outcome.reply;
   if (reply.kind === 'daemon-info')
     return { kind: 'ok', info: reply.info, sourceStale: reply.sourceStale };
-  if (reply.kind === 'error') return { kind: 'unsupported', message: reply.message };
+  if (reply.kind === 'error') {
+    if (reply.message.startsWith(SHUTTING_DOWN_CODE)) return { kind: 'shutting-down' };
+    return { kind: 'unsupported', message: reply.message };
+  }
   return { kind: 'unsupported', message: `unexpected reply kind ${reply.kind}` };
 }
 
 const describe = (o: InfoOutcome): string =>
   o.kind === 'timeout'
     ? 'unresponsive'
-    : o.kind === 'unsupported'
-      ? 'speaks an older protocol'
-      : 'ok';
+    : o.kind === 'shutting-down'
+      ? 'shutting down'
+      : o.kind === 'unsupported'
+        ? 'speaks an older protocol'
+        : 'ok';

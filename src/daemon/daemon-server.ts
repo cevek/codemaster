@@ -28,7 +28,12 @@ import { capOpNames } from '../common/truncate/cap-op-names.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
 import type { InflightCall, InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
 import type { ServingOrchestrator } from './orchestrator-api.ts';
-import { parseWireRequest, type WireRequest, type WireReply } from './protocol.ts';
+import {
+  parseWireRequest,
+  SHUTTING_DOWN_CODE,
+  type WireRequest,
+  type WireReply,
+} from './protocol.ts';
 
 export interface DaemonServerDeps {
   orchestrator: ServingOrchestrator;
@@ -247,7 +252,11 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     // which no production client sends today: this gate is what makes the guarantee structural
     // instead of resting on `TransportServer.close()` happening to destroy links synchronously.
     if (shuttingDown) {
-      send(connection, { id: idOf(raw), kind: 'error', message: 'daemon is shutting down' });
+      send(connection, {
+        id: idOf(raw),
+        kind: 'error',
+        message: `${SHUTTING_DOWN_CODE}: this daemon is tearing down — reconnect (a fresh daemon spawns on the next request)`,
+      });
       return;
     }
     const parsed = parseWireRequest(raw);

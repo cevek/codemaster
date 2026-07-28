@@ -42,6 +42,12 @@ interface ShutdownEnvelope {
 }
 export type WireRequest = RequestEnvelope | StatusEnvelope | DaemonInfoEnvelope | ShutdownEnvelope;
 
+/** STABLE MACHINE SENTINEL prefixing the daemon's "I am already tearing down" refusal. A client must
+ *  branch on this code, never on the prose after it: the message is human/agent-facing text the docs
+ *  rule invites rewording, and a whole-string comparison would silently misclassify a shutting-down
+ *  daemon. Same idiom as the bridge's `daemon-link-closed` (`remote-orchestrator.ts`). */
+export const SHUTTING_DOWN_CODE = 'daemon-shutting-down';
+
 type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
 
 export type WireReply =

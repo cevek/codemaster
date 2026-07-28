@@ -366,7 +366,7 @@ function crashEntry(
   // an uncertainty that lives only in a comment is not disclosed at all (§3.3).
   const view =
     record.origin === 'daemon'
-      ? " This is the DAEMON's view of the call, not an agent-facing call record: the process that issued it writes its own record separately. Correlate on cwd + ops (bridge ts <= this ts) — NOT on tool, which is derived here: the invoking tool name never crosses the socket, so a batch of one request is indistinguishable from a per-op call. ops beyond 32 are capped with a `+N more` marker on this view only, so join on its prefix."
+      ? " This is the DAEMON's view of the call, not an agent-facing call record: the process that issued it writes its own record separately. Correlate on cwd + ops (bridge ts <= this ts) — NOT on tool, which is derived here: the invoking tool name never crosses the socket, so a batch of one request is indistinguishable from a per-op call. ops beyond 32 are capped with a `+N more` marker, which the surviving process's own record does not carry — join on the prefix."
       : '';
   return {
     ts: record.ts,
