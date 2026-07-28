@@ -25,11 +25,18 @@ test('oracle 1 (fixture): every site carries the chain it was written under, pol
     const expected = expectedByLine();
     // Guard the guard (the runtime oracle's lesson applied here): if the case filter stops matching —
     // a renamed `F`, a new call shape, a reference in type position — the loop below becomes empty and
-    // this test passes having asserted NOTHING. The floor is what makes that a failure instead.
-    assert.ok(
-      expected.size >= 45,
-      `case table shrank to ${expected.size} — the oracle went silent`,
-    );
+    // this test passes having asserted NOTHING.
+    //
+    // A size floor alone is not enough: set at the count that existed BEFORE the type-position cases
+    // were admitted, it tolerates exactly the regression it was written for. So the shapes whose ONLY
+    // pin is this table are named outright.
+    assert.ok(expected.size > 0, 'the case table went silent — the filter matches nothing');
+    for (const marker of ['typeof F', '(o.m?.g).call', 'o.m?.g!.call', 'o.m?.g?.(']) {
+      assert.ok(
+        [...expected.values()].some((c) => c.code.includes(marker)),
+        `'${marker}' dropped out of the oracle — it is the ONLY pin for its rule`,
+      );
+    }
     for (const [line, c] of expected) {
       const row = rows.find((x) => x.line === line);
       assert.ok(row !== undefined, `no usage reported on line ${line}: ${c.code}`);

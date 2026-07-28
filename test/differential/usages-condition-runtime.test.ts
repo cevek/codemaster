@@ -129,7 +129,7 @@ test('runtime oracle: a site fires EXACTLY when its reported condition chain is 
       view.usages.filter((u) => u.span.file === MOUNTED).map((u) => [u.span.line, u.condition]),
     );
     const lines = siteLines();
-    assert.ok(lines.size >= 18, `fixture must expose every site id, got ${lines.size}`);
+    assert.ok(lines.size >= 20, `fixture must expose every site id, got ${lines.size}`);
 
     // Sanity: the analysis really saw every executable site — otherwise a missing annotation would
     // make the loop below vacuous for that site (a test that passes on a bug).

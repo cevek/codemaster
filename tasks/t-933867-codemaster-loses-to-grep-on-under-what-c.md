@@ -102,19 +102,23 @@ Residuals filed: t-278380 (member_usages has no `conditions`), t-109609 (default
 short-circuits, disclosed not measured), t-077593 (per-row climb cost + `⟨no branch⟩` density),
 t-974740 / t-309134 (the mirrored-renderer pattern this avoided), t-213394, t-730980.
 
-## The defect class this feature kept re-creating — read this before touching the chain
+## The defect class this annotation attracts — read this before touching the chain
 
 **An empty chain claiming "no enclosing branch" where a branch exists.** Not incompleteness — a
 FALSE FACT about the code, the same class as an inverted then/else polarity: an audit reads `''` as
-"calls F unconditionally" and the hole disappears. Three separate rounds landed on it:
+"calls F unconditionally" and the hole disappears. It has three shapes, each of which looks correct
+in isolation:
 
-1. `?.` was not treated as a branch at all — `logger?.info(fmt(x))` reported `⟨no branch⟩` though the
-   argument is never evaluated when `logger` is nullish.
-2. `||=` / `&&=` / `??=` likewise (`cache ||= build()` read as an unconditional call).
-3. Then the FIX for (1) re-created the class one level down: a multi-link chain reported only the
-   LEFTMOST link, e.g. `a?.b?.(F())` → `a != null`. True whenever `a` exists — so the chain reads as
-   complete while the site is skipped because `a.b` is nullish. A true-but-insufficient SUBSET
-   presented as the whole guard, with no `partial` to say so.
+1. A short-circuit not recognised as a branch at all — `logger?.info(fmt(x))` reads `⟨no branch⟩`
+   though the argument is never evaluated when `logger` is nullish. Same for `||=`/`&&=`/`??=`
+   (`cache ||= build()` reading as an unconditional call).
+2. A branch recognised but UNDER-stated: a multi-link chain reporting only the LEFTMOST link, e.g.
+   `a?.b?.(F())` → `a != null`. True whenever `a` exists — so the chain reads as complete while the
+   site is skipped because `a.b` is nullish. A true-but-insufficient SUBSET presented as the whole
+   guard, with no `partial` to say so. This is the shape a well-meaning simplification produces.
+3. A branch recognised but INVENTED where none exists — stepping the chain walk through
+   parentheses, so `(a?.b).c(F())` reports `a != null` although that expression throws rather than
+   short-circuiting. The mirror image, and equally a lie.
 
 **The rule, and why one term is enough** (this is the part a reader will otherwise "fix" back into
 the insufficient subset): report the NEAREST (rightmost) optional link's LHS, because its own SOURCE
@@ -131,30 +135,23 @@ THROUGH (the assertion is erased at run time, so the short-circuit still happens
 PARENTHESISED chain is deliberately not (`(a?.b).c` throws rather than short-circuits, so a guard
 there would be invented). Both directions are mutation-pinned.
 
-**Every rule is mutation-pinned, with one asymmetry stated:** reverting to the leftmost link, dropping
-the `!` step-through, dropping the argument-position narrowing, or stepping through parentheses each
-fails at least one oracle (verified by running the mutations). The optional-chain rules are pinned by
-EXECUTION; the `!` step-through only by the fixture table and the descent oracle, because a runtime
-site exercising it throws and would abort the fixture run — an honest limit, not a covered case.
+**Every rule is mutation-pinned, and each pin is named because they are not equally strong.**
+Reverting to the leftmost link, dropping the `!` step-through, dropping the argument-position
+narrowing, or stepping through parentheses each fails at least one oracle:
 
-### Correction to the pinning claim above
-
-The weakest pin is NOT the `!` step-through. Two rounds of re-verify found the pinning claim
-overstated twice, so the accurate state is:
-
-- **leftmost-vs-nearest link** — pinned by all three oracles, including EXECUTION.
-- **`!` step-through** — fixture table + descent oracle. A runtime site exercising it throws, so
-  execution cannot host it.
+- **leftmost-vs-nearest link** — all three oracles, EXECUTION included.
+- **`!` step-through** — fixture table + descent oracle. A runtime site exercising it throws and would
+  abort the fixture run, so execution cannot host it.
 - **parenthesis-terminates-the-chain** — fixture table (one case: `(o.m?.g).call(null, F())`) +
-  descent. Same reason.
+  descent, same reason.
 - **argument-position narrowing** (a TYPE argument gets no runtime guard) — fixture table + descent.
-  It was pinned by the descent oracle ALONE until the fixture's own case filter was fixed: it matched
-  the literal `F()`, so the two `<typeof F>` cases written to pin this rule were silently dropped from
-  the oracle while the suite stayed green. The filter now matches a word-boundary `F`, and both
-  oracle-1 and the runtime oracle assert a SIZE floor so a filter that stops matching fails loudly
-  instead of asserting nothing.
 
-The general lesson, which cost three rounds: **a test that reads as protection can be decoration.**
-Every guard here now has a second assertion that the guard itself is still live — a size floor beside
-each derived count — because "the suite is green" was true in all three cases where a rule was
-unchecked.
+Three of the four therefore rest on the fixture table, so that table must not be able to go quiet.
+Its case filter matches a word-boundary `F` (an `F()`-only filter silently dropped the `<typeof F>`
+cases that are the sole pin for the last rule), and oracle 1 asserts by NAME that each such shape is
+still in the table — a size floor alone tolerates exactly the drift it is meant to catch.
+
+**A test that reads as protection can be decoration** — the lesson this feature paid for three times
+over. Every derived count here carries a second assertion that the guard itself is still live (the
+runtime oracle checks matrix BREADTH beside its completeness equality; oracle 1 names the shapes it
+uniquely pins), because "the suite is green" was true in each case where a rule turned out unchecked.
