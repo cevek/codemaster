@@ -44,3 +44,23 @@ scalar-typed field untouched), and the `source` ≤20 cap evaluated only AFTER c
 **Поправка к списку выше:** строка `{"pathInclude":"[\"src/features/…/ChartItemPanel\"]"}` — это `find_missing_i18n_keys` (ts=1784926879048), не `list_endpoints`. Разница существенная: у `find_missing_i18n_keys` аргументов нет вообще (`expected {}`), поэтому коэрция строки его не спасёт — там отдельный пробел в возможностях (оп не умеет сужаться по путям, хотя все соседние i18n-опы умеют). Отдельная строка `list_endpoints {"pathInclude":"/bi/v1/charts"}` (ts=1784925079444) упала по другой причине — плагин `schema` не активен.
 
 Смежное того же класса (естественный вызов, которого оп не принимает): `find_unused_scss_classes {"file":"…/MemberGeneralTab.module.scss"}` (ts=1785094222962) — оп принимает только `pathInclude[]`, а «проверь вот этот файл» самая ожидаемая форма; просится алиас `file`→`pathInclude:[file]`.
+
+## Sibling case: `source` should accept a bare array of SymbolId STRINGS, not only objects
+
+External report, `/Users/cody/Dev/task-manager`: `source {symbols:["ts:…@file:line:col~hash", …]}` →
+`bad_args` (expects `targets:[{symbolId}]`).
+
+Two things push the caller to exactly this wrong shape, so it is not carelessness:
+1. the SymbolId that `search_symbol` hands back IS a flat string, so passing an array of them is the
+   natural next move;
+2. the op catalogue line reads "bodies of N symbols at once → source" — the word *symbols* steers straight
+   at the wrong field name.
+
+The error message itself is good (it shows the expected shape). The ask is a trivial intake normalization
+on top of this task's coercion work: accept `targets: ["ts:…", …]` as sugar for
+`targets: [{symbolId:"ts:…"}, …]`, disclosing the rewrite via `Result.intake` per §7 like every other
+alias. Same principle as the JSON-string coercion above — the canonical schema stays the sole gate, the
+normalizer just recognizes a shape the tool's own output invites.
+
+Worth doing together: both are "the caller passed the thing our own output gave them, in the obvious
+container, and we refused".
