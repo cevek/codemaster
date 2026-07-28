@@ -28,3 +28,11 @@ Affects BOTH front doors — the MCP `batch` tool and the CLI `batch` command sh
 the fix is one `.strict()` plus a did-you-mean over the known keys (`requests`, `root`, `sql`,
 `return`, `format`, `verbosity`). Check `normalizeBatchArguments` first: it passes unknown keys
 through, so strictness must land after normalization, not before.
+
+## Второе расхождение в том же `batchToolSchema`: потеря `min(1)`
+
+zod объявляет `requests: z.array(opRequestSchema).min(1)`; руками написанный `inputSchema` (`src/mcp/schema.ts:99`) — `{"type":"array","items":{…}}` без `minItems`. Пустой `requests` проходит гейт харнеса и падает только на zod.
+
+Общий с этой задачей корень: `status` и `batch` — единственные два тула, чьи `inputSchema` написаны РУКАМИ, а не сгенерированы из того же zod, что валидирует. У per-op тулов расхождение невозможно по построению; у этих двух его ничто не ловит. Лечится либо генерацией из zod, либо анти-дрейф-тестом на пару схема↔zod.
+
+Связано: [[t-568278]] (типизация `requests[].args` / `name` в том же дескрипторе), [[t-000016]] (в `status` тем же способом потерян `format`).

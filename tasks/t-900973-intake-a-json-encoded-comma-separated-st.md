@@ -34,3 +34,13 @@ the element type; else, if it contains a comma, split+trim. Disclose the rewrite
 
 Done: oracle-backed unit test per form (json-string, comma-string, already-array untouched, a genuinely
 scalar-typed field untouched), and the `source` ≤20 cap evaluated only AFTER coercion.
+
+## Пересчёт по fail.jsonl на 2026-07-28 + одна поправка
+
+Класс подтверждён и вырос: **7 записей из 42** (17%) — самый частый единичный класс отказов в логе. Из них **6 — один оп `source`** с одной и той же ошибкой (ts=1784671829625, 1784886507304, 1784923128656, 1785149187507, 1785149187577, 1785250734941).
+
+Видно и различие в диагнозе, полезное при починке: при `symbols` ответ «targets: expected array, received string» (алиас применился, тип не подошёл), при `names` — «unrecognized 'names'» (коллапс `{names:[…]}` не сработал вовсе, потому что значение не массив). То есть чинить надо ДО применения алиасов, а не после.
+
+**Поправка к списку выше:** строка `{"pathInclude":"[\"src/features/…/ChartItemPanel\"]"}` — это `find_missing_i18n_keys` (ts=1784926879048), не `list_endpoints`. Разница существенная: у `find_missing_i18n_keys` аргументов нет вообще (`expected {}`), поэтому коэрция строки его не спасёт — там отдельный пробел в возможностях (оп не умеет сужаться по путям, хотя все соседние i18n-опы умеют). Отдельная строка `list_endpoints {"pathInclude":"/bi/v1/charts"}` (ts=1784925079444) упала по другой причине — плагин `schema` не активен.
+
+Смежное того же класса (естественный вызов, которого оп не принимает): `find_unused_scss_classes {"file":"…/MemberGeneralTab.module.scss"}` (ts=1785094222962) — оп принимает только `pathInclude[]`, а «проверь вот этот файл» самая ожидаемая форма; просится алиас `file`→`pathInclude:[file]`.

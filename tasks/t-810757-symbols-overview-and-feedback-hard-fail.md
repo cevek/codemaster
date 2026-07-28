@@ -36,3 +36,30 @@ the normal path's own precondition.
 
 Related: t-324342 (non-git freshness degradation), t-408918 (unmeasurable size), and the earlier inbox
 wish for JVM/non-TS repos — a non-TS repo today gets neither an answer nor a channel to say so.
+
+## Репро на текущем main + уточнение скоупа (dogfood, 2026-07-28)
+
+Оба пункта воспроизведены; заодно сузился скоуп.
+
+**Не-git корень.** Падает НЕ только `symbols_overview` — те же грабли у `search_symbol {syntactic:true}`, второго OOM-safe пути. Это делает промах системным: обе альтернативы, которые size-guard предлагает в своём же отказе, недоступны на не-git корне.
+
+```
+cd /tmp && mkdir cm-nongit && cd cm-nongit          # БЕЗ git init
+echo '{"compilerOptions":{"strict":true}}' > tsconfig.json && echo 'export const foo = 1;' > a.ts
+node src/bin.ts op symbols_overview '{"summary":true}'              → FAIL tool=git
+node src/bin.ts op search_symbol '{"query":"foo","syntactic":true}' → FAIL tool=git
+```
+
+В той же директории РАБОТАЮТ: `status` (печатает `freshness=mtime-walk` — то есть non-git fallback уже существует и включён), `search_symbol` (default), `find_definition`, `find_unused_exports`. Значит чинить нужно точечно `surfaceSources` + его фингерпринт, а не freshness-слой.
+
+Гигиена попутно: stderr гита утекает сырьём — `fatal: not a git repository` печатается три раза до самого FAIL, мимо debug-подсистемы (CONTRIBUTING это запрещает; на MCP-транспорте это ещё и шум в канал).
+
+**`feedback` на не-TS репо** — воспроизведено:
+
+```
+cd /tmp && mkdir cm-nots && cd cm-nots && git init -q . && echo 'public class A {}' > A.java
+node src/bin.ts op feedback '{"kind":"wish","title":"probe","detail":"probe"}'
+→ no TS project at /private/tmp/cm-nots — no tsconfig.json and no tracked .ts/.tsx files (…)
+```
+
+Цена промаха измерима: в `~/.codemaster/usage/fail.jsonl` лежит потерянная запись (ts=1785177088031, cwd=/Users/cody/Dev/control-plane) — агент на Spring Boot репо (924 `.java`, ~108k LOC) написал развёрнутый wish на JVM-поддержку с разбором пяти задач, ложащихся 1:1 на существующие опы (`find_usages{groupBy:'enclosing'}` для Lombok `.builder()`, `impact` для `@Entity`, `impact_type_error` для nullability при миграции на Kotlin). Текст уцелел только в `fail.jsonl`, до inbox не дошёл — то есть отказ систематически смещает inbox в сторону репо, где всё и так работает.
