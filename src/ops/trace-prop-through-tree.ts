@@ -65,19 +65,29 @@ export const tracePropThroughTreeOp = defineOp({
       if (refusal !== undefined) return fail(refusal);
     }
     try {
-      const root = react.classify(targetOf(args));
+      // Resolve for the FAILURE DETAIL before classifying. `classify` collapses every way a target
+      // can fail into one constant ("target did not resolve to a declaration"), which is honest but
+      // unactionable: an ambiguity loses its candidate list, and a dead held SymbolId loses its §6
+      // `gone` handle — the agent is told it failed but not what to do or that its handle died.
+      // Resolving here costs one extra definition lookup and buys the resolver's own message.
+      const def = ts.findDefinition(targetOf(args));
       // The target did NOT resolve — a "couldn't", which must reach the agent as one (§3.6). An
       // `ok{found:0}` here is the same shape as "this prop is forwarded nowhere", so an agent
       // cannot tell a failed lookup from a proven absence and may act on the second. The
       // classification arms below are different: there the target DID resolve and `found:0` states
       // a fact the op established (it is a hook / not a component).
+      if (typeof def === 'string') return fail({ tool: 'ts-ls', message: def });
+      if (!('views' in def)) {
+        return fail({ tool: 'ts-ls', message: def.unresolved }, { handle: def.rebind });
+      }
+      const root = react.classify(targetOf(args));
       if (typeof root === 'string') return fail({ tool: 'ts-ls', message: root });
       if (root.kind !== 'component') {
         return ok({
           prop: args.prop,
           found: 0,
           notes: [
-            `'${root.name}' is a ${root.kind}, not a component — address the component that receives the prop`,
+            `'${root.name}' is ${/^[aeiou]/i.test(root.kind) ? 'an' : 'a'} ${root.kind}, not a component — address the component that receives the prop`,
           ],
           hops: [],
         });

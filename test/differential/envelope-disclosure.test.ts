@@ -179,6 +179,9 @@ test('an op that forwards nothing and takes its own arg shape still inherits —
     );
 
     const traced = await p.op('trace_field_to_render', { field: 'Email' });
+    // Pin `ok`: the claim is stamped on BOTH envelope arms, so without this the flagship inheritance
+    // arm would pass on a FAILING op — green while proving nothing about an answer.
+    assert.ok('result' in traced && traced.result.ok, JSON.stringify(traced));
     assert.deepEqual(
       disclosuresOf(traced).map((d) => d.unsafe),
       ['target-is-the-only-symbol-of-this-name'],

@@ -44,7 +44,8 @@ export const traceFieldToRenderOp = defineOp({
   example: { args: { field: 'src/types.ts:1:25' } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the member reference scan fans across every program and would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
-    'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous). A target that does NOT resolve (absent, ambiguous, or not a property) is a FAIL naming why — never an ok{found:0}, which would be indistinguishable from a field that resolved and is rendered nowhere. found:0 means the trace ran and proved no render.',
+    'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous). A target that does NOT resolve (absent, or ambiguous) is a FAIL naming why — never an ok-shaped empty answer, which would be indistinguishable from a field that resolved and is rendered nowhere. renderedBy:0 on a resolved target means the trace RAN and found no render.',
+    'a target that resolves but is NOT a property (a const, a type, a component) is NOT rejected: it answers found:1 + renderedBy:0, which reads like a property nothing renders. Check you addressed a property — a kind gate is not in place yet.',
     'renderedBy counts the components that render the field in a HOST element (`<span>{u.email}</span>`). A read inside a VALUE element (`<Avatar email={u.email}/>`) is passed-to (partial) — the child decides the render, so it is NOT counted; follow it with trace_prop_through_tree.',
     'every hop carries per-hop confidence + provenance (rendered-in = type/LS member ref; passed-to/destructured = syntactic). A destructure binding, a host-attribute bind, or a wrapped/indirect component is flagged on its hop, never silently treated as a clean render.',
     'renderedBy is a lower bound — destructured/dynamic/spread reads are invisible to member-level references and are floored (an honest standing note), never counted as a proven render.',
@@ -106,7 +107,11 @@ export const traceFieldToRenderOp = defineOp({
         notes,
         hops: walked.hops.map((h) => tag('trace-hop', h)),
       };
-      return ok(data);
+      // §6: the held handle's symbol moved, so this answer is about a DIFFERENT position than the
+      // one addressed. Stating the move is the whole point of the rebind protocol — the failure arms
+      // above already carry it, and an ok answer that silently retargets is the misidentification the
+      // protocol exists to prevent.
+      return ok(data, sitesOut.rebind !== undefined ? { handle: sitesOut.rebind } : undefined);
     } catch (thrown) {
       return failFromThrown('ts', thrown);
     }

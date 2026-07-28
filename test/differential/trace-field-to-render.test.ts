@@ -133,7 +133,7 @@ test('field→render: an unresolved/ambiguous field FAILS — a miss never wears
     assert.ok('result' in r && !r.result.ok, `an unresolved field must FAIL: ${JSON.stringify(r)}`);
     assert.match(
       r.result.failure.message,
-      /ambiguous|email/,
+      /ambiguous/,
       `and the failure names why it could not resolve: ${r.result.failure.message}`,
     );
   } finally {
