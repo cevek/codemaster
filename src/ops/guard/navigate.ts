@@ -265,8 +265,9 @@ export function cheapCallsFor(
 export function navigationFor(op: string, args: unknown, outOfReach: OutOfReach): string {
   const { calls, substitute } = cheapCallsFor(op, args, outOfReach);
   const body = calls.map((c) => `${c.call} → ${c.gives}`).join(' · ');
-  // The lead carries NO cost claim: under `guard` some of these calls do build a program (a file pin
-  // escapes the guard without being free), so a blanket "no program build" would be false. What each
+  // The lead carries NO cost claim: under `'this-call'` some of these calls do build a program (a
+  // file pin escapes the guard without being free), so a blanket "no program build" would be false.
+  // What each
   // call costs and covers lives in its own `gives`, which is per-call and cannot over-generalise.
   // Nor can the lead take the refused op as its implied subject — under `'any-program-build'` that
   // op is already gone, so "still runs here" would be a claim about the corpse.
