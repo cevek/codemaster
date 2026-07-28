@@ -315,6 +315,11 @@ function readRecord(file: string): InflightRecord | undefined {
     cwd: typeof r['cwd'] === 'string' ? r['cwd'] : '',
     args: (r['args'] ?? null) as JsonValue,
     pid: r['pid'],
+    // This reader reconstructs field-by-field, so anything not named here is DROPPED. `origin` is
+    // read back explicitly (a lost one would silently re-merge the daemon's view into the
+    // agent-facing accounting stream). Only the one known value is accepted — a foreign string is
+    // treated as absent rather than propagated as a fact we cannot vouch for.
+    ...(r['origin'] === 'daemon' ? { origin: 'daemon' as const } : {}),
   };
 }
 
@@ -354,6 +359,13 @@ function crashEntry(
     reclaimed === undefined
       ? ''
       : ` Recovered from an abandoned claim by pid ${reclaimed}, which may already have written a record for this same call.`;
+  // A daemon-side breadcrumb is the daemon's VIEW of a call the agent-facing process also recorded
+  // (that one is the accounting record). Said in the prose too, so a human reading one line knows
+  // not to count it as a separate call.
+  const view =
+    record.origin === 'daemon'
+      ? " This is the DAEMON's view of the call, not an agent-facing call record: the bridge that issued it writes its own record separately (correlate on cwd + tool + ops, bridge ts ≤ this ts)."
+      : '';
   return {
     ts: record.ts,
     durationMs: null,
@@ -362,8 +374,9 @@ function crashEntry(
     ok: false,
     cwd: record.cwd,
     args: record.args,
-    response: `!! no response — ${cause}. Recovered from an in-flight breadcrumb at ${now}; durationMs is null because the moment the call stopped is unknown.${dup}`,
+    response: `!! no response — ${cause}. Recovered from an in-flight breadcrumb at ${now}; durationMs is null because the moment the call stopped is unknown.${dup}${view}`,
     isError: true,
     outcome,
+    ...(record.origin !== undefined ? { origin: record.origin } : {}),
   };
 }

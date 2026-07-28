@@ -38,7 +38,15 @@ export interface RemoteOrchestratorDeps {
   version: string;
 }
 
-const CLOSED_MESSAGE = 'daemon connection closed';
+/** What the bridge can honestly say when the link drops mid-call: the socket closed. It CANNOT say
+ *  why — it outlived the daemon, and a fatal and a graceful exit look identical from here (the
+ *  pidfile is a kill-target hint, never a liveness oracle, §3.5), so asserting a crash would be the
+ *  fabricated-fatal lie `support/usage-log/inflight.ts` exists to prevent. Instead it names where
+ *  the discriminator lives: the daemon stamps its own in-flight breadcrumb, so a daemon that died
+ *  with this call running leaves an `outcome:'crash', origin:'daemon'` record naming the op
+ *  (t-305430) — and its ABSENCE is what tells a reader the daemon exited cleanly. */
+const CLOSED_MESSAGE =
+  'daemon connection closed mid-call — cause not determinable from this side; check ~/.codemaster/usage/fail.jsonl for a daemon-side record with outcome:"crash" (origin:"daemon") for this call: present = the daemon died running it, absent = it exited cleanly';
 const DEFAULT_PROBE_DEADLINE_MS = 5000;
 
 export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): OrchestratorApi {

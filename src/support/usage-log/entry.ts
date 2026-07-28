@@ -32,6 +32,12 @@ export interface UsageLogEntry {
    *  flight far too long (a wedge, or a recycled pid). Absent on every ordinary record, so an
    *  existing consumer's key-set is unchanged. */
   outcome?: 'crash' | 'abandoned';
+  /** Which process's VIEW this is. Absent = the agent-facing serving process (bridge /
+   *  `--in-process` / fallback), which is the sole owner of call ACCOUNTING — every ordinary record
+   *  is one of these. `'daemon'` marks the singleton daemon's own in-flight breadcrumb, promoted
+   *  after the daemon died with the call running; the daemon never writes ordinary records, so this
+   *  never double-counts a call. Additive like `outcome` — absent on every pre-existing record. */
+  origin?: 'daemon';
 }
 
 /** The pre-dispatch breadcrumb: what a call was, stamped to disk BEFORE it runs so a fatal
@@ -47,6 +53,9 @@ export interface InflightCall {
   cwd: string;
   /** The raw tool arguments the agent sent. */
   args: JsonValue;
+  /** Whose view this breadcrumb is — see `UsageLogEntry.origin`. Carried through the promotion so
+   *  the recovered record says which process observed the call. */
+  origin?: 'daemon';
 }
 
 /** Handle returned by `begin`: `clear()` removes the breadcrumb once the call has been recorded. */

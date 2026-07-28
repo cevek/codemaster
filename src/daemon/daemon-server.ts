@@ -24,8 +24,10 @@ import type { JsonValue } from '../core/json.ts';
 import { createIdleExit } from '../common/async/idle-exit.ts';
 import type { Transport, TransportConnection } from '../support/transport/seam.ts';
 import { writePidfile, removePidfile } from '../support/pidfile/write.ts';
+import { noopUsageLogger } from '../support/usage-log/create.ts';
+import type { InflightCall, InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
 import type { ServingOrchestrator } from './orchestrator-api.ts';
-import { parseWireRequest, type WireReply } from './protocol.ts';
+import { parseWireRequest, type WireRequest, type WireReply } from './protocol.ts';
 
 export interface DaemonServerDeps {
   orchestrator: ServingOrchestrator;
@@ -37,6 +39,13 @@ export interface DaemonServerDeps {
    *  Written after a successful bind, removed on graceful shutdown. Omitted by tests that don't
    *  exercise recovery (no file is touched). */
   pidfile?: { path: string; socket: string; version: string };
+  /** Crash-breadcrumb sink for the daemon's OWN dispatch (§13). The daemon is NOT the owner of call
+   *  accounting — the agent-facing process (bridge / `--in-process` / fallback) writes the one
+   *  record per call, and this logger's `record` is never called for a request — so wiring it adds
+   *  no second count. It exists for the one thing that process cannot produce: a daemon fatal
+   *  attributed to the op that was running (see `withBreadcrumb`). Library default is a no-op, so
+   *  tests touch no disk; the composition root (bin.ts `daemon serve`) injects the real one. */
+  usage?: UsageLogger;
   /** Injected for tests (assert the exit code without killing the runner). */
   exit?: (code: number) => void;
   /** Optional trace sink (the `daemon` debug ns); default no-op. */
@@ -49,6 +58,8 @@ export interface DaemonHandle {
    *  idle timer and every signal route through it. */
   shutdown(): Promise<void>;
 }
+
+const NOOP_INFLIGHT: InflightHandle = { clear: () => undefined };
 
 export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle> {
   const trace = deps.trace ?? ((): void => undefined);
@@ -93,6 +104,13 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
       .catch((thrown: unknown) =>
         trace('dispose failed', () => ({ error: messageOfThrown(thrown) })),
       );
+    // Release the breadcrumb sink's file handles, mirroring `serveMcp`'s shutdown. Wrapped:
+    // telemetry teardown must never be what stops the daemon from exiting (§3.6).
+    try {
+      deps.usage?.dispose();
+    } catch {
+      /* best-effort — the process is exiting anyway */
+    }
     exit(0);
   }
 
@@ -111,7 +129,70 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     connection.onMessage((raw) => void handle(connection, raw));
   });
 
+  /** Stamp the daemon's own crash breadcrumb around ONE dispatched request and clear it when the
+   *  dispatch returns — `begin`/`clear` only, never `record` (see the `usage` dep).
+   *
+   *  Why the daemon needs this at all: when the daemon dies mid-call the BRIDGE survives, so it
+   *  writes an ordinary `ok:false` / "daemon connection closed" record — a fatal that reads like a
+   *  transport hiccup, invisible to triage filtering on `outcome:'crash'`. A breadcrumb left here is
+   *  promoted at the next logger start as `outcome:'crash', origin:'daemon'`, naming the op that was
+   *  actually running. That is PROOF (the daemon's pid is gone AND the call was in flight), not the
+   *  pidfile inference §3.5 forbids.
+   *
+   *  Wrapped end to end: telemetry must never surface on the request path (§3.6). */
+  async function withBreadcrumb<T>(call: InflightCall, run: () => Promise<T>): Promise<T> {
+    let inflight: InflightHandle = NOOP_INFLIGHT;
+    try {
+      inflight = (deps.usage ?? noopUsageLogger).begin(call);
+    } catch {
+      /* telemetry must never crash the daemon */
+    }
+    try {
+      return await run();
+    } finally {
+      try {
+        inflight.clear();
+      } catch {
+        /* a stale breadcrumb is reconciled at the next start; never a throw here */
+      }
+    }
+  }
+
+  /** What the daemon can honestly say a request WAS. It never sees the MCP tool name (that stays in
+   *  the bridge), so `tool` is derived: a batch call carries `batch` on the wire, every other
+   *  dispatch is one per-op tool call. `cwd` is the CLIENT's, off the wire — never the detached
+   *  daemon's own `process.cwd()`, which would name the wrong repo in triage. */
+  function describe(req: Extract<WireRequest, { kind: 'request' | 'status' }>): InflightCall {
+    const ops = req.kind === 'status' ? [] : req.reqs.map((r) => r.name);
+    const tool =
+      req.kind === 'status' ? 'status' : req.batch !== undefined ? 'batch' : (ops[0] ?? 'request');
+    return {
+      ts: deps.clock.now(),
+      tool,
+      ops,
+      cwd: req.cwd,
+      args: req.kind === 'status' ? null : (req.reqs as unknown as JsonValue),
+      origin: 'daemon',
+    };
+  }
+
   async function handle(connection: TransportConnection, raw: JsonValue): Promise<void> {
+    // A dispatch in flight is a HOLD on the idle deadline. The connection-level hold above is
+    // released the instant the client disconnects, but this handler is detached from the
+    // connection's lifetime (`onMessage` is fire-and-forget) — so without this bracket a client
+    // dropping mid-call re-arms the deadline and the daemon can idle-exit with the op still running.
+    // That kills a live call, AND it would leave a breadcrumb behind a GRACEFUL exit, making the
+    // crash discriminator above fabricate a fatal. Bracketing here makes "an idle-exit cannot happen
+    // with a request in flight" structural rather than a timing accident.
+    idle.enter();
+    try {
+      await dispatch(connection, raw);
+    } finally {
+      idle.leave();
+    }
+  }
+
+  async function dispatch(connection: TransportConnection, raw: JsonValue): Promise<void> {
     const parsed = parseWireRequest(raw);
     if (!parsed.ok) {
       send(connection, {
@@ -137,10 +218,14 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
           info: deps.orchestrator.daemonInfo(),
         });
       } else if (req.kind === 'status') {
-        const view = await deps.orchestrator.status(req.cwd, req.root);
+        const view = await withBreadcrumb(describe(req), () =>
+          deps.orchestrator.status(req.cwd, req.root),
+        );
         send(connection, { id: req.id, kind: 'status', sourceStale, view });
       } else {
-        const outcome = await deps.orchestrator.request(req.cwd, req.root, req.reqs, req.batch);
+        const outcome = await withBreadcrumb(describe(req), () =>
+          deps.orchestrator.request(req.cwd, req.root, req.reqs, req.batch),
+        );
         send(connection, { id: req.id, kind: 'request', sourceStale, outcome });
       }
     } catch (thrown) {

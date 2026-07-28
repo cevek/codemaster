@@ -162,6 +162,12 @@ async function main(): Promise<number> {
             transport,
             clock: systemClock,
             idleMs: mcpIdleMs(process.cwd()),
+            // Crash breadcrumbs for the daemon's OWN dispatch (t-305430). NOT a second call log:
+            // the agent-facing process (the bridge below) owns call accounting and writes the one
+            // record per call, so this never double-counts. It exists so a daemon fatal is
+            // attributable to the op that was running — the bridge outlives its daemon and can only
+            // report a closed socket.
+            usage: defaultUsageLogger(),
             // Kill-target-hint pidfile (t-000051) for the management-verb wedge recovery.
             pidfile: { path: pidfilePathFor(socket), socket, version: VERSION },
           });
