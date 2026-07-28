@@ -31,3 +31,31 @@ either the breadcrumb should not be overwritten by a span that STARTED after the
 test must pin the ordering it depends on instead of racing it.
 
 Reproduce by running the file under load (e.g. alongside another full suite).
+
+## Reproduction data (4 full-suite runs on this branch)
+
+| run | commit | result |
+| --- | --- | --- |
+| 1 | 6d1c351 | green |
+| 2 | dce82a7 | **fail** (`actual: 'freshness'`) |
+| 3 | fb40cf5 | green |
+| 4 | 6d8b4c0 | **fail** (same assertion, same `actual`) |
+
+Runs 2 and 4 differ from 1 and 3 by test-only commits, and none of the four commits touches
+`src/daemon/**`, `src/support/watchdog/**`, or the test itself — so this is not a regression from any
+of them. Narrowing:
+
+- the file alone: `node --test test/e2e/watchdog-smoke.test.ts` → 3/3, twice.
+- the whole e2e group under the machine lock: `npm run test:e2e` → 345 tests, 0 fail.
+- only the FULL suite (1269 tests, files running in parallel) reproduces it, ~50% of the time.
+
+So the trigger is parallel load inside one full run, not another agent's process (runs 3 and 4 were
+both uncontended). Worth stating plainly: the branch adds three condition-oracle test files, one of
+which evaluates ~11k site×input pairs, so it raises the parallel CPU load that tips this race — it
+does not cause the race, but it makes an existing one more likely to surface, including in CI.
+
+The failure mode remains the one that matters (§13): the watchdog reads the beacon breadcrumb and
+gets `freshness` — a cheap span that started AFTER the wedge — instead of the op that actually
+wedged. A real stall record would name the wrong op, which is a diagnostic confidently pointing the
+wrong way. Fix candidates: do not let a later span overwrite a breadcrumb whose owner has not
+completed, or have the test pin the ordering instead of racing it.
