@@ -50,3 +50,25 @@ Directions worth weighing (none obviously right):
 
 Related: t-933867 (the same agent-population failure, measured on a different track), t-631032 (the
 codemaster-editing worker cannot use the MCP path at all).
+
+## The asymmetry, named from the position of having built the second front door (worker cdc7d789)
+
+The two surfaces have now equalized in CAPABILITY (t-631032) and remain far apart in DISCOVERABILITY —
+and the gap is mirror-shaped:
+
+- **MCP** pushes every op's `inputSchema` into the tool list every session, so the catalogue is STANDING
+  context the agent cannot avoid seeing. But it is stale-by-construction for anyone editing the tool.
+- **CLI** is always fresh, but the catalogue must be PULLED (`status --op <name>`), and nothing surfaces
+  at the moment a question forms. The worker wrote `find_usages {name, role, filter:{pathInclude}}` by
+  copy-pasting from a task body — not from the tool.
+
+So the population editing the tool gets **fresh + blind**; the external population gets **stale +
+discoverable**. Neither gets both, and each is missing the half that matters for its own failure mode.
+
+Its judgement, which reorders this against t-631032: **discoverability is the bigger half.** Composition
+is what you reach for already knowing it exists; discoverability is what makes you reach at all. A worker
+who does not remember the op never notices that it does not compose.
+
+Concrete direction this suggests for the CLI side: the catalogue must PUSH, not wait to be pulled — e.g.
+surface the two or three ops relevant to what just failed / just ran, at the moment of the call, rather
+than requiring a separate `status` round-trip that an agent mid-task will not spend.
