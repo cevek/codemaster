@@ -180,13 +180,20 @@ export interface StaticToolDescriptor {
  *  `exampleCallFor` and re-read on every `tools/list`. */
 export function batchToolDescriptor(opNames: readonly string[]): StaticToolDescriptor {
   const source = TOOL_DESCRIPTORS.find((d) => d.name === 'batch');
-  if (source === undefined) throw new Error('batch tool descriptor missing');
+  // A missing/reshaped descriptor degrades to the plain schema — the enum is an ADVERTISING
+  // improvement, and letting it throw would take the whole `tools/list` handler (and with it every
+  // capability) down over a cosmetic one (§3 never-crash). The compile-time path below is the
+  // primary defence; this is the runtime backstop for the shapes a cast cannot catch.
+  if (source === undefined)
+    return { name: 'batch', description: '', inputSchema: { type: 'object' } };
   const { exampleCall: _exampleCall, ...tool } = source;
   if (opNames.length === 0) return { ...tool };
   const schema = structuredClone(tool.inputSchema) as {
-    properties: { requests: { items: { properties: { name: Record<string, unknown> } } } };
+    properties?: { requests?: { items?: { properties?: { name?: Record<string, unknown> } } } };
   };
-  schema.properties.requests.items.properties.name['enum'] = [...opNames];
+  const nameProp = schema.properties?.requests?.items?.properties?.name;
+  if (nameProp === undefined) return { ...tool };
+  nameProp['enum'] = [...opNames];
   return { ...tool, inputSchema: schema };
 }
 

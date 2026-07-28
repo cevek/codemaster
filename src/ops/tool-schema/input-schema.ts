@@ -144,12 +144,16 @@ const FLAG_SCHEMAS = {
 const GATED = {
   mutating: ['apply', 'summaryOnly'],
   table: ['sql', 'return'],
-} as const;
+} as const satisfies Record<string, readonly FlagKey[]>;
+
+type FlagKey = keyof typeof FLAG_SCHEMAS;
 
 function flagProperties(op: AnyOpDefinition): Record<string, unknown> {
   const gated = new Set<string>([...GATED.mutating, ...GATED.table]);
-  const keys = Object.keys(FLAG_SCHEMAS).filter((k) => !gated.has(k));
+  // Keyed by `FlagKey`, so a gate naming a flag that no longer exists is a compile error rather
+  // than an `undefined` value that `JSON.stringify` drops — i.e. a flag silently un-advertised.
+  const keys = (Object.keys(FLAG_SCHEMAS) as FlagKey[]).filter((k) => !gated.has(k));
   if (op.mutating) keys.push(...GATED.mutating);
   if (op.table !== undefined) keys.push(...GATED.table);
-  return Object.fromEntries(keys.map((k) => [k, FLAG_SCHEMAS[k as keyof typeof FLAG_SCHEMAS]]));
+  return Object.fromEntries(keys.map((k) => [k, FLAG_SCHEMAS[k]]));
 }
