@@ -15,11 +15,18 @@ export const PKG = JSON.stringify({ dependencies: { react: '18' } });
 /** Cold-Program oracle: a component's declared vs passed prop names, derived independently.
  *  `external` re-derives each declared prop's DECLARATION file from this program's own symbols
  *  (absolute `fileName`), which is the independent ground truth for the repo-declared narrowing —
- *  the plugin decides it from a `RepoRelPath` span through a different predicate. */
+ *  the plugin decides it from a `RepoRelPath` span through a different predicate.
+ *  `order` is the checker's OWN member order — the ground truth the uncapped view must preserve. */
 export function oracle(
   root: string,
   componentName: string,
-): { declared: Set<string>; passed: Set<string>; unused: Set<string>; external: Set<string> } {
+): {
+  declared: Set<string>;
+  passed: Set<string>;
+  unused: Set<string>;
+  external: Set<string>;
+  order: string[];
+} {
   const cfgPath = path.join(root, 'tsconfig.json');
   const raw = ts.parseConfigFileTextToJson(cfgPath, readFileSync(cfgPath, 'utf8'));
   const parsed = ts.parseJsonConfigFileContent(raw.config as object, ts.sys, root);
@@ -50,10 +57,12 @@ export function oracle(
 
   const declared = new Set<string>();
   const external = new Set<string>();
+  const order: string[] = [];
   if (firstParam !== undefined) {
     const type = checker.getApparentType(checker.getTypeAtLocation(firstParam));
     for (const prop of type.getProperties()) {
       declared.add(prop.getName());
+      order.push(prop.getName());
       const declFile = prop.declarations?.[0]?.getSourceFile().fileName ?? '';
       const inRepo = declFile.startsWith(`${root}/`) && !declFile.includes('/node_modules/');
       if (!inRepo) external.add(prop.getName());
@@ -91,7 +100,7 @@ export function oracle(
   }
 
   const unused = new Set([...declared].filter((d) => !passed.has(d)));
-  return { declared, passed, unused, external };
+  return { declared, passed, unused, external, order };
 }
 
 export function data(r: OpResult): Record<string, JsonValue> {

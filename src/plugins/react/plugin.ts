@@ -42,8 +42,12 @@ export interface ReactPluginApi extends Plugin {
    *  `file`). The read-model over the `ts` plugin's `firstParamTypeMembers` + `jsxCallSites`
    *  seams; verdicts demote to `partial` when a spread / opaque reference / capped site set makes
    *  the passed props unreadable. An honest message when the component isn't found / is ambiguous.
-   *  `options` narrows the DECLARED-member view only (external provenance / an explicit name
-   *  list) — the site-derived demotion is unaffected by it. */
+   *
+   *  By DEFAULT — with no `options` at all — the view is narrowed to the props the repo's OWN
+   *  source declares: a member declared under `node_modules` / outside the root is omitted from
+   *  `view.unused` and counted in `view.hiddenExternal`. `options.includeExternal` turns that
+   *  narrowing off; `options.prop` answers per name and overrides it. Both are member-level only,
+   *  so the site-derived demotion is unaffected either way. */
   unusedProps(component: string, file?: string, options?: UnusedPropsOptions): UnusedPropsResult;
   /** Classify the declaration a `target` resolves to (component / hook / other) by the react
    *  conventions — the generic decl-routing seam trace ops walk a declaration chain through. A

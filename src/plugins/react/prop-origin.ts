@@ -9,12 +9,20 @@
 // Input is a `RepoRelPath` (the ts seam's spans go through `host.relOf`), NOT the absolute
 // `ts.SourceFile.fileName` the `/node_modules/` filters elsewhere in the tree test — hence the
 // leading-segment arm: an in-root dependency file is `node_modules/…`, with no leading slash.
+// It is deliberately NOT `support/fs/ignored-paths`: that predicate answers "project junk"
+// (`dist`/`build`/`.claude`), a different question with a different answer set.
+//
+// The out-of-root arm rests on `relOf`'s root-prefix compare (`plugins/ts/ls-host.ts`), not on
+// the §19 minting chokepoint: a root-spelling mismatch would read an in-root file as external —
+// omitted from the DEFAULT view but COUNTED in `hiddenExternal` with its escape hatch named, so
+// the failure mode is a disclosed narrowing, never a silent drop.
 
 import type { Span } from '../../core/span.ts';
 
 /** True when the declaration provably sits outside the repo's own source — under a
  *  `node_modules` segment, or outside the repo root (`relOf` passes such a path through
- *  absolute; codemaster's bundled `lib.*.d.ts` lands there, §5-L1).
+ *  absolute — any file the program pulls in from outside: codemaster's bundled `lib.*.d.ts`
+ *  (§5-L1), a sibling package resolved above the root, a global type root).
  *
  *  A member with NO declaration span (a synthesized member) is NOT external: ownership is
  *  undetermined, and hiding what we cannot prove foreign is the silent-omission lie (§3.4). */

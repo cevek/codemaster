@@ -1,7 +1,7 @@
 ---
 id: t-175046
 title: "did-you-mean выбирает худшего кандидата: path → 'pathExclude' в search_symbol (в find_unused_exports тот же path → 'pathInclude')"
-status: backlog
+status: done
 priority: medium
 tags:
   - intake

@@ -131,19 +131,30 @@ function resolveByLine(
   const decls = name === undefined ? all : all.filter((d) => d.name === name);
   const sole = decls[0];
   if (sole === undefined) {
-    // Never advise the addressing the call ALREADY uses: with `name` given, the useful remedy is
-    // the column plus what is actually declared there (the name is what missed).
-    if (name !== undefined) {
-      const there =
-        all.length > 0
-          ? ` (declared there: ${nameWithMore(
-              all.map((d) => `${d.name} at col ${d.col}`),
-              LINE_DECL_PREVIEW,
-            )})`
-          : '';
+    // A line that declares NOTHING is a dead end for the column too — say that, rather than name
+    // a remedy no argument value can satisfy (CONTRIBUTING: a refusal names a call that works).
+    if (all.length === 0) {
+      // With `name`, dropping `line` is the live remedy (a name+file resolves file-wide); without
+      // it, the other addressings are. Neither is "pass a column".
+      const instead =
+        name !== undefined
+          ? `drop 'line' (name+file resolves file-wide)`
+          : `address by a 'name' or a SymbolId`;
       return {
         ok: false,
-        message: `no declaration named '${name}' on ${file}:${line}${there} — pass file:line:col (the column)`,
+        message: `no declaration on ${file}:${line} — the line declares nothing, so NO column resolves there; check the line number, or ${instead}`,
+      };
+    }
+    // Never advise the addressing the call ALREADY uses: with `name` given, the useful remedy is
+    // the column plus what is actually declared there (the name is what missed).
+    const there = nameWithMore(
+      all.map((d) => `${d.name} at col ${d.col}`),
+      LINE_DECL_PREVIEW,
+    );
+    if (name !== undefined) {
+      return {
+        ok: false,
+        message: `no declaration named '${name}' on ${file}:${line} (declared there: ${there}) — pass file:line:col (the column)`,
       };
     }
     return {
@@ -152,12 +163,16 @@ function resolveByLine(
     };
   }
   if (decls.length > 1) {
+    // Here the list IS the remedy (the agent picks a column out of it), so a cut leaves the tail
+    // unpickable — name the second filter that reaches them instead of a bare `+N more`.
+    const labels = decls.map((d) => `${d.name} at col ${d.col} (${d.kind})`);
+    const overflow = labels.length > LINE_DECL_PREVIEW ? ", or add 'name' to filter the line" : '';
     return {
       ok: false,
       message: `${file}:${line} has ${decls.length} declarations (${nameWithMore(
-        decls.map((d) => `${d.name} at col ${d.col} (${d.kind})`),
+        labels,
         LINE_DECL_PREVIEW,
-      )}) — pass file:line:col to pick one`,
+      )}) — pass file:line:col to pick one${overflow}`,
     };
   }
   return { ok: true, abs, offset: sole.offset };

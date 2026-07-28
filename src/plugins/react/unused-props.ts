@@ -13,7 +13,8 @@
 // the MEMBER set below.
 //
 // VIEW NARROWING (t-997783). Two independent filters over the declared members — never over the
-// sites, so no honesty channel is touched:
+// sites, so the site-derived demotion / confidence channel above is untouched; the omission itself
+// gets a channel of its own (`hiddenExternal`):
 //   · default — props declared OUTSIDE the repo's own source (`prop-origin.ts`) are omitted and
 //     COUNTED (`hiddenExternal`), because a wrapper over `React.ComponentProps<'button'>` buries
 //     its one own prop under ~290 DOM/aria members the repo can neither read nor delete.
@@ -195,6 +196,15 @@ export function computeUnusedProps(
   if (jsx.truncated !== undefined) {
     reasons.push(
       `JSX call-sites capped at ${jsx.truncated.shown}/${jsx.truncated.total} — unseen sites may pass a prop`,
+    );
+  }
+  if (declared.truncated !== undefined) {
+    // The DECLARED set was sliced upstream of every filter below, so this answer cannot be a
+    // complete verdict about the component's props — including the "0 dead props" reading of an
+    // empty `unused`. The `prop:` branch refuses to claim absence under exactly this condition
+    // (`undetermined`); the set-level verdict must not claim completeness under it either.
+    reasons.push(
+      `declared-member set capped at ${declared.truncated.shown}/${declared.truncated.total}, upstream of the view filters — an unseen member is neither listed nor counted (and no argument recovers it): every count here is a floor`,
     );
   }
   const demoted = reasons.length > 0;

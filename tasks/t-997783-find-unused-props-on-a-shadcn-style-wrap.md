@@ -1,7 +1,7 @@
 ---
 id: t-997783
 title: find_unused_props on a shadcn-style wrapper drowns one declared prop in ~290 inherited DOM/aria props and trips OUTPUT CAPPED — the sql projection answers correctly, the default view does not
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface

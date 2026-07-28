@@ -103,7 +103,17 @@ test('a miss never advises the addressing already used: no "or a name" when name
     // The bare col-less form (no `name` passed) still offers `name` — that state is NOT the
     // caller's, so the advice is live there.
     const bare = failMsg(await p.op('find_usages', { file: 'src/m.ts', line: 4 }));
-    assert.match(bare, /or a 'name'/, "the advice survives where the caller hasn't used it");
+    assert.match(bare, /'name'/, "the advice survives where the caller hasn't used it");
+
+    // A line that declares NOTHING: the column is a dead end whatever value it takes, so the
+    // refusal must not name it as the remedy (it names one that works instead).
+    assert.match(bare, /declares nothing/, 'says why, not just that it failed');
+    assert.ok(!/pass file:line:col/.test(bare), `no dead-end remedy: ${bare}`);
+    const namedEmpty = failMsg(
+      await p.op('find_usages', { name: 'zzz', file: 'src/m.ts', line: 4 }),
+    );
+    assert.ok(!/pass file:line:col/.test(namedEmpty), `no dead-end remedy: ${namedEmpty}`);
+    assert.match(namedEmpty, /drop 'line'/, 'names the addressing that DOES reach the symbol');
   } finally {
     await p.dispose();
   }

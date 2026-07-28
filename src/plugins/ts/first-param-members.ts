@@ -9,6 +9,7 @@
 // requirement a union/intersection-dispatching `expand_type` cannot meet (it would return arm type
 // strings, not the merged member set). Each member carries its declaration-name span (proof, §3.1).
 
+import * as path from 'node:path';
 import ts from 'typescript';
 import type { Span } from '../../core/span.ts';
 import { elideType } from '../../common/truncate/elide-type.ts';
@@ -62,13 +63,44 @@ export function firstParamTypeMembers(
   const props = checker.getApparentType(type).getProperties();
   const ownDecls = new Set(type.getSymbol()?.declarations ?? []);
   const total = props.length;
-  const shown = total > MEMBER_CAP ? props.slice(0, MEMBER_CAP) : props;
+  const shown = total > MEMBER_CAP ? projectOwnFirst(host, props) : props;
   const members = shown.map((prop) => buildMember(host, checker, prop, param, ownDecls));
   return {
     members,
     noParam: false,
     ...(total > MEMBER_CAP ? { truncated: { shown: MEMBER_CAP, total } } : {}),
   };
+}
+
+/** Under an ACTIVE cap, take the project's OWN members ahead of dependency-declared ones — a
+ *  consumer that narrows to repo-declared members (`find_unused_props`) would otherwise lose the
+ *  very members it is about behind a DOM/aria surface it can neither read nor delete, with no
+ *  argument able to recover them. Applied ONLY when the cap bites: an uncapped set keeps the
+ *  checker's own member order byte-for-byte (pinned by a test), and the sort is stable, so order
+ *  within each origin is the checker's too.
+ *
+ *  This is a PRIORITIZATION, never a gate: the provenance test here (the tree's absolute-path
+ *  `/node_modules/` idiom + an outside-the-root check) is deliberately local, and a drift from the
+ *  react plugin's rel-path predicate (`plugins/react/prop-origin.ts`) can cost order only, never a
+ *  verdict. A shared home becomes necessary if a THIRD consumer appears or this ever gates rather
+ *  than orders — t-480164. */
+function projectOwnFirst(host: TsProjectHost, props: readonly ts.Symbol[]): ts.Symbol[] {
+  const ranked = props.map((prop, index) => ({
+    prop,
+    index,
+    rank: isDependencyDeclared(host, prop) ? 1 : 0,
+  }));
+  ranked.sort((a, b) => a.rank - b.rank || a.index - b.index);
+  return ranked.slice(0, MEMBER_CAP).map((r) => r.prop);
+}
+
+/** The member's declaration sits under a `node_modules` segment, or outside the repo root
+ *  (`relOf` passes such a path through absolute). A member with no declaration is not claimed
+ *  foreign. */
+function isDependencyDeclared(host: TsProjectHost, prop: ts.Symbol): boolean {
+  const file = prop.declarations?.[0]?.getSourceFile().fileName;
+  if (file === undefined) return false;
+  return file.includes('/node_modules/') || path.isAbsolute(host.relOf(file));
 }
 
 /** The first parameter of the function-like declaration enclosing (or initialized by) `node`.

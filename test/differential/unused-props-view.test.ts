@@ -136,12 +136,15 @@ test('a workspace package reached THROUGH a node_modules symlink stays repo-decl
       'export const Widget = (props: UiProps & { ownDead?: boolean }) =>\n' +
       '  <div>{props.uiUsed}</div>;\n',
     'src/App.tsx':
-      "import { Widget } from './Widget';\n" +
-      'export const App = () => <Widget uiUsed={1}/>;\n',
+      "import { Widget } from './Widget';\n" + 'export const App = () => <Widget uiUsed={1}/>;\n',
   });
   try {
     mkdirSync(path.join(p.root, 'node_modules', '@repo'), { recursive: true });
-    symlinkSync(path.join(p.root, 'packages', 'ui'), path.join(p.root, 'node_modules', '@repo', 'ui'), 'dir');
+    symlinkSync(
+      path.join(p.root, 'packages', 'ui'),
+      path.join(p.root, 'node_modules', '@repo', 'ui'),
+      'dir',
+    );
 
     const o = oracle(p.root, 'Widget');
     assert.equal(o.external.size, 0, 'oracle: every prop is declared inside the repo');
