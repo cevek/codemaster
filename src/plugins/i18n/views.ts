@@ -67,15 +67,20 @@ export type I18nUnusedView = {
    *  (the scan proves nothing dead; this scope has no dead-claim to prove). */
   globalDemote: boolean;
   /** Static namespace heads that scoped the demotion (e.g. `errors.codes.`) — keys under these
-   *  are `partial`, the rest `certain`. Empty when `globalDemote` (the whole scan is partial). */
+   *  are `partial`, the rest `certain`. Empty when `globalDemote` (the whole scan is partial).
+   *  A WHOLE-SCAN set, unfiltered by the report scope: a head here may cover no reported key —
+   *  `degradedReason` names only the heads that actually reach one. */
   demotedPrefixes: readonly string[];
-  /** Proof spans over the dynamic `t()` calls whose bound reaches a REPORTED key — the sites that
-   *  must change for those keys to become provable, so the caller can find the blocker instead of
-   *  re-narrowing (t-949045). Ordered by `file:line:col`. Empty when the cause is not a call (a
-   *  parse failure / an unresolved module) or when nothing is reported. */
+  /** Proof spans over the dynamic `t()` calls a caller must change for the keys in the reported
+   *  UNUSED set to become provable (t-949045) — so the blocker is findable instead of re-narrowed.
+   *  Ordered by `file:line:col`. The CAUSAL set: under `globalDemote` only headless calls (a headed
+   *  one is subsumed), and EMPTY when the cause is not a call (a parse failure / an unresolved
+   *  module) or nothing is reported. Necessary, never sufficient — a hidden cause named in
+   *  `degradedReason` outlives every fix here. */
   blockers: readonly Span[];
-  /** The single global reason for the demotion (set iff degraded). Stated ONCE here, never
-   *  stamped per row — every row would carry the identical string (a 1-per-key repeat). */
+  /** The single ANSWER-LEVEL reason for the demotion (set iff `degraded`). Stated ONCE here, never
+   *  stamped per row — every row would carry the identical string (a 1-per-key repeat). Scope-
+   *  dependent like `degraded`, unlike the whole-scan `globalDemote` beside it. */
   degradedReason?: string;
   scannedKeys: number;
   scannedUsages: number;

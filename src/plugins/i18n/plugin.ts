@@ -16,6 +16,7 @@ import { walkFiles } from '../../support/fs/walk.ts';
 import { fileExists } from '../../support/fs/exists.ts';
 import { readTextOrAbsent } from '../../support/fs/read-or-absent.ts';
 import { matchesAnyGlob } from '../../common/glob/match.ts';
+import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
@@ -228,8 +229,9 @@ export function createI18nPlugin(
 
     unusedKeys(filter) {
       const all = warm();
-      // Scope which keys we REPORT. `degraded`/`used` below are computed over the WHOLE usage
-      // scan regardless, so scoping never turns a globally-demoted key into a false certain dead.
+      // Scope which keys we REPORT. Each key's own confidence — and `used` — below is computed over
+      // the WHOLE usage scan regardless, so scoping never turns a demoted key into a false certain
+      // dead; only the SUMMARY verdict follows the scope (see `degraded`, further down).
       const inc = filter?.pathInclude ?? [];
       const exc = filter?.pathExclude ?? [];
       // A locale file passes the path globs if it matches pathInclude (when set) and not pathExclude.
@@ -317,7 +319,10 @@ export function createI18nPlugin(
         ? undefined
         : unprovableCauses.length > 0
           ? `cannot prove any key dead — ${unprovableCauses.join(' and ')}`
-          : `a dynamic t(\`…\`) demotes namespace(s) ${reachedPrefixes.join(', ')} — unrelated keys stay certain`;
+          : // Named, not dumped: a repo with many `t(`ns.${x}`)` calls has as many heads, and this
+            // string renders AHEAD of the rows (§12 verdict-before-bulk) — the full set stays on
+            // `demotedPrefixes` for a consumer that wants it.
+            `a dynamic t(\`…\`) demotes namespace(s) ${nameWithMore([...reachedPrefixes], 3)} — unrelated keys stay certain`;
 
       return {
         unused,
@@ -325,8 +330,9 @@ export function createI18nPlugin(
         globalDemote,
         demotedPrefixes,
         blockers: blockingCalls(
-          demote.bounds,
+          demote,
           unused.map((u) => u.key),
+          globalDemote,
         ),
         ...(degradedReason !== undefined ? { degradedReason } : {}),
         scannedKeys,

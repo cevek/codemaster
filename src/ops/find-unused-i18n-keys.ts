@@ -43,18 +43,23 @@ function partialHint(
   view: I18nUnusedView,
   prefix: string | undefined,
   reached: readonly string[],
+  anyCertain: boolean,
 ): string {
   const sites = view.blockers.map(locOf);
   const at = sites.length > 0 ? ` — blocking dynamic call: ${nameWithMore(sites, 1)}` : '';
   const list = 'partials:"list" to see them';
   if (view.globalDemote)
     return `narrowing does not lift this demote: no key anywhere is provable${at}. ${list}`;
-  const demoted = reached.join(', ');
+  // Named, not dumped — the same set is already on `demoted` beside this line.
+  const demoted = nameWithMore([...reached], 3);
   // A prefix ALREADY inside a demoted namespace cannot be narrowed out of it — every sub-namespace
   // is demoted too. A BROADER prefix (or none) still has provable siblings to narrow to.
   if (prefix !== undefined && reached.some((h) => `${prefix}.`.startsWith(h)))
     return `narrowing further does not lift this demote: prefix="${prefix}" is inside the demoted namespace(s) ${demoted}${at}. ${list}`;
-  return `these keys are under the demoted namespace(s) ${demoted}${at} — a prefix= outside them returns certain results, or ${list}`;
+  // Only promise the narrowing remedy when this very answer PROVES a provable key exists outside
+  // the demoted heads — with every reported key demoted, "a prefix outside them" may not exist.
+  const remedy = anyCertain ? 'a prefix= outside them returns certain results, or ' : '';
+  return `these keys are under the demoted namespace(s) ${demoted}${at} — ${remedy}${list}`;
 }
 
 const findUnusedI18nKeysTable: TableSpec<JsonValue> = {
@@ -98,11 +103,11 @@ export const findUnusedI18nKeysOp = defineOp({
   example: { args: { prefix: 'errors.codes' } },
   notes: [
     'a dynamic t() call demotes unused-claims to partial. A TEMPLATE with a static prefix (t(`errors.codes.${x}`)) demotes ONLY the errors.codes.* namespace — unrelated keys stay certain; a HEADLESS dynamic call (t(k) / t(`${x}`)), a locale parse failure, or an unresolved i18n module demotes EVERY claim. Never reported as definitely-unused when demoted.',
-    "partials (default 'summary'): the certain-dead keys are always listed; 'summary' collapses the demoted (partial) keys to a count + reason + a remedy hint (so one dynamic key never buries the dead tail in 1000+ rows), 'list' lists every partial key, 'hide' drops them entirely. The partial summary names the demoted namespaces, and the hint is computed from THIS call's args — it never proposes narrowing to a call that already narrowed, and says outright when narrowing cannot lift the demote.",
-    'blocking (set iff a dynamic call demoted a reported key): the call sites whose bound reaches the reported keys — proof spans of WHICH t() cost the verdict, capped with `more`. Empty when the cause is not a call (a locale parse failure / an unresolved module — see degradedReason + parseFailures).',
+    "partials (default 'summary'): the certain-dead keys are always listed; 'summary' collapses the demoted (partial) keys to a count + reason + a remedy hint (so one dynamic key never buries the dead tail in 1000+ rows), 'list' lists every partial key, 'hide' drops them entirely. The partial summary names the demoted namespaces, and the hint is computed from THIS call's args — it never proposes the narrowing the caller has ALREADY applied, and says outright when narrowing cannot lift the demote.",
+    'blocking: the dynamic call sites a caller must change for the reported keys to become provable — proof spans of WHICH t() cost the verdict, capped with `more`. The CAUSAL set, not every reaching call: under a global demote only the headless calls are named (a headed one is subsumed), and a demote caused by a locale parse failure / an unresolved module names NO call (empty). Necessary, never sufficient — when degradedReason also names a parse failure, fixing the t() alone does not lift the demote.',
     'i18n.module identity match-model: see i18n_lookup. With it, a same-named t from another module no longer keeps a key alive and a renamed-destructure / namespace-alias usage is no longer mis-reported as unused; without it, the by-name model (alias-aware).',
     'BOUNDARY (identity mode): a key reached ONLY through a COMPUTED-index call (`i18n[expr]()`), a t passed as a value, or a multi-hop re-export chain is not counted, so it MAY be reported unused (under-report, never a fabricated usage). Within-file shadowing of a bound name is the syntactic bound (no scope check).',
-    'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED; scanned.keys reflects the scope. Each key\'s own confidence still reflects the WHOLE usage scan, so scoping never invents a certain-dead key; only the summary degraded/degradedReason follow the scope — a prefix whose every row is provable is NOT stamped degraded by a dynamic call confined to another namespace (globalDemote stays the whole-scan fact).',
+    'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED; scanned.keys reflects the scope. Each key\'s own confidence still reflects the WHOLE usage scan, so scoping never invents a certain-dead key; only the summary degraded/degradedReason follow the scope — a prefix whose every row is provable is NOT stamped degraded by a dynamic call confined to another namespace (globalDemote stays the whole-scan fact). A locale parse failure / an unresolved i18n module stay WHOLE-SCAN: they HIDE keys, so even an all-provable scope — including an EMPTY one — reads degraded, never clean.',
   ],
   table: findUnusedI18nKeysTable,
   async run(ctx, args) {
@@ -178,7 +183,7 @@ export const findUnusedI18nKeysOp = defineOp({
                       // Only the namespaces that actually cover a REPORTED partial key — a
                       // whole-scan prefix with no in-scope partials would mislabel the summary.
                       demoted: view.globalDemote ? 'global' : reached,
-                      hint: partialHint(view, args.prefix, reached),
+                      hint: partialHint(view, args.prefix, reached, certain.length > 0),
                     },
             }
           : {}),

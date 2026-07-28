@@ -1,8 +1,8 @@
 // Prefix-scoped dynamic demotion (backlog I-a, §3.6). The §16 oracle is a hand-built scenario:
 // several locale namespaces + a SINGLE dynamic `t(`errors.codes.${x}`)`. That template can only
 // ever resolve under `errors.codes.` — so it demotes THAT namespace to `partial`, while the
-// genuinely-dead keys in unrelated namespaces must stay PROVABLE (`certain`) and visible. The old
-// behaviour buried the whole scan in `partial`; the win is the dead tail surviving one dynamic key.
+// genuinely-dead keys in unrelated namespaces must stay PROVABLE (`certain`) and visible: one
+// dynamic key never buries the provable dead tail in `partial`.
 //
 // Invariant 3 (cold == warm) rides along: a warm-reindexed answer over the full key×confidence set
 // (partials:'list') must equal a cold boot over the identical tree — a drift in WHICH keys are

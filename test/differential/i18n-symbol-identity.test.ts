@@ -171,7 +171,7 @@ test('identity: a dynamic key with a scoped head leaves unrelated keys certain (
       1,
       'ghost is the one key the head can produce — the proof the call was seen',
     );
-    assert.equal(data['globalDemote'], false, 'a scoped head (x.) does not degrade the whole scan');
+    assert.equal(data['globalDemote'], false, 'a scoped head (gh) does not degrade the whole scan');
     assert.match(String(data['degradedReason']), /dynamic/i);
     for (const u of (data['unused'] as Unused[]) ?? [])
       assert.equal(u.confidence, 'certain', 'unrelated dead keys stay certain under a scoped head');

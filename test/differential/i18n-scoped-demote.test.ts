@@ -139,11 +139,11 @@ test('blocking call: named with file:line:col, and the hint never proposes the s
     // Not yet narrowed → narrowing IS the real remedy (a prefix outside the demoted head returns
     // certain results), so the hint may propose it.
     const wide = okView(await p.op('find_unused_i18n_keys', {}));
-    assert.match(
-      wide.partial?.hint ?? '',
-      /prefix=/,
-      'an un-narrowed call is told narrowing works',
-    );
+    const wideHint = wide.partial?.hint ?? '';
+    assert.match(wideHint, /prefix=/, 'an un-narrowed call is told narrowing works');
+    // The negative half: without it this arm passes on branch 2's text too (which also contains
+    // "prefix="), so an inverted branch condition would go undetected.
+    assert.doesNotMatch(wideHint, /does not lift/, 'narrowing DOES lift it for this caller');
   } finally {
     await p.dispose();
   }
@@ -211,9 +211,59 @@ test('scoping never hides a cause that HIDES keys: an unreadable locale degrades
     assert.deepEqual(v.unused, [], 'the only recovered key is used → nothing reported');
     assert.equal(v.degraded, true, 'an unreadable locale keeps even an EMPTY answer incomplete');
     assert.match(v.degradedReason ?? '', /failed to parse/);
-    assert.equal(v.blocking, undefined, 'the cause is not a call — no call is blamed for it');
   } finally {
     await p.dispose();
+  }
+});
+
+test('blame only the CAUSAL call: a parse failure blames no t(), and a global demote blames the headless one', async () => {
+  // Both arms would pass on a "list every call whose bound reaches a reported key" implementation,
+  // which is why they exist: naming a site whose repair leaves the verdict identical is a false
+  // remedy (§3.6) and a false proof of the verdict (§3.2).
+  //
+  // ARM 1 — a dynamic call EXISTS and its head covers the reported keys, but the demote's cause is
+  // an unreadable locale. Fixing that t() would change nothing, so no call may be blamed.
+  const parseFail = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts': CONFIG,
+    'locales/en.json': '{ "errors": { "codes": { "e1": "X" } }, }', // trailing comma → failure
+    'src/use.ts':
+      'const t = (k: string) => k;\n' +
+      "const x = 'e1';\n" +
+      'export const b = t(`errors.codes.${x}`);\n',
+  });
+  try {
+    const v = okView(await parseFail.op('find_unused_i18n_keys', { partials: 'list' }));
+    assert.equal(v.globalDemote, true, 'an unreadable locale demotes globally');
+    assert.ok(v.unused.length > 0, 'the recovered key IS reported (as partial)');
+    assert.match(v.degradedReason ?? '', /failed to parse/);
+    assert.equal(v.blocking, undefined, 'the cause is not a call — no call is blamed for it');
+  } finally {
+    await parseFail.dispose();
+  }
+
+  // ARM 2 — a headless call (the real cause) plus two headed ones that sort BEFORE it. Only the
+  // headless call is causal: removing it is what lifts the global demote. Naming a headed site
+  // first — as file-order alone would — points the caller at a repair that changes nothing.
+  const mixed = await project({
+    'tsconfig.json': TSCONFIG,
+    'codemaster.config.ts': CONFIG,
+    'locales/en.json': LOCALE,
+    'src/a.ts': "const t = (k: string) => k;\nexport const a = t(`errors.codes.${'e1'}`);\n",
+    'src/b.ts': "const t = (k: string) => k;\nexport const b = t(`ui.${'ok'}`);\n",
+    'src/z.ts': 'const t = (k: string) => k;\nexport const z = (k: string) => t(k);\n',
+  });
+  try {
+    const v = okView(await mixed.op('find_unused_i18n_keys', {}));
+    assert.equal(v.globalDemote, true, 'the headless t(k) demotes globally');
+    assert.deepEqual(
+      v.blocking?.sites.map(loc),
+      ['src/z.ts:2:35'],
+      'ONLY the headless call is named — the two headed calls are subsumed, not blockers',
+    );
+    assert.match(v.partial?.hint ?? '', /src\/z\.ts:2:35/, 'the hint names the causal site');
+  } finally {
+    await mixed.dispose();
   }
 });
 
