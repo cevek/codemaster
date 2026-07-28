@@ -90,3 +90,25 @@ cannot write a config into the repo they are working in without evicting every o
 feedback therefore over-serves the internal population, which is prompted to report and knows the
 vocabulary. Their findings — t-959904, t-089408, t-109741, t-849286, t-159797 — are the external half, and
 they are about the tool being unusable rather than inconvenient.
+
+## Measured limit of this fix: it removed ONE fork, not the cause (from the worker who shipped it)
+
+After `batch --sql` was working on the always-fresh CLI — ~40 minutes into its own track — the same worker
+still asked **zero** symbol questions of the tool. So "freshness OR composability" was not the whole
+mechanism. Three causes, in its order of bite:
+
+1. **Latency ratio where the grep risk is genuinely LOW.** For "what does this relative specifier resolve
+   to", the specifier IS literal text; the silent-miss failure mode barely applies, and an honest cost
+   calculation picks grep. The rule "symbol questions go to the tool" is right on average and wrong on
+   this instance — and agents evaluate instances.
+2. **Location is not the edit.** codemaster returns `file:line`; the agent then opens the file anyway.
+   `grep -n` returns the line WITH its surroundings, which is the actual input to an edit.
+   `verbosity:'full'` does not close this — it returns the span, not the neighbourhood.
+3. **Zero salience at the point of need** (t-089408).
+
+Cause 2 is the one nobody had named: for a question that ENDS in an edit, a precise location is a
+partial answer and a fuzzy neighbourhood is a complete one.
+
+So this task's value stands — the CLI is no longer a reduced surface — but it should not be recorded as
+having fixed the grep-fallback pattern. See t-089408 (salience) and the discoverability asymmetry filed
+alongside it.
