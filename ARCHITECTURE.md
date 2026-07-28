@@ -402,7 +402,8 @@ gets its own subfolder; same "one operation per file" rule as `common/`.
   `common/` for the same reason the debug `req#N` ALS does: `common/` is pure logic over `core/`
   types, and per-request mutable state is not that.
 - The remaining seams follow the same rule, one folder per tool — `debug/`, `config-load/`,
-  `watch/`, `sql/`, `text-search/`, `transport/`, `usage-log/`, `watchdog/` (§15 lists them all).
+  `watch/`, `sql/`, `text-search/`, `transport/`, `framework-detect/`, `pidfile/`, `usage-log/`,
+  `watchdog/` (§15 lists the tree).
 
 > **Every tool that interprets the project runs the project's _own_ version** —
 > `typescript` (inside `plugins/ts`) and `tsconfig` are resolved from the inspected repo's
@@ -481,13 +482,15 @@ probing.
   resolve whose last retained item is already past the `exact` bucket has every exact-name candidate
   on the page and is complete however much fuzzy tail was cut; stamping that as truncated would be a
   false incompleteness (a common prefix refusing an unambiguous rename), the same lie inverted. The
-  bit is consumed three ways, three different guarantees: `find_definition` / `find_usages` disclose
+  bit is consumed four ways, four different guarantees: `find_definition` / `find_usages` disclose
   `complete:false` + a `!! LOWER BOUND` note (`searchCapFloor`, shaped like the undiscovered-program
   floor so a consumer reads one incompleteness vocabulary whatever the cause); the §6 rebind does not
-  claim `gone` for a symbol it merely could not see; MUTATIONS refuse (§7). Coverage on the read side
-  is therefore PARTIAL — the bit is carried by the `findDefinition` / `findUsages` plugin API only,
-  so the other name-addressed reads (`source`, `impact`, `impact_type_error`,
-  `trace_field_to_render`) answer off a sliced page with no incompleteness signal (t-272074). The
+  claim `gone` for a symbol it merely could not see; MUTATIONS refuse (§7); and the RESOLUTION-level
+  doubt it implies — this may not be the only symbol of that name — leaves the plugin API entirely
+  and rides the envelope as a `Disclosure` (§3.4/§3.6), so every name-addressed read (`source`,
+  `impact`, `impact_type_error`, the `trace_*` family) carries it by being dispatched. The two are
+  distinct signals with distinct scopes: the plugin-API bit qualifies the LISTED SET of one op that
+  reads it, the disclosure qualifies the TARGET every op answered about. The
   ambiguity list a multi-declaration name returns (`plugins/ts/ambiguity.ts`) collapses candidates by
   resolved DEFINITION (a barrel chain is one symbol seen N times; within one definition a real
   declaration displaces the alias pointing at it), ranks declaration-first, prints each candidate as
@@ -1560,7 +1563,7 @@ codemaster/
     codemaster.config.example.ts
   src/
     README.md                # module map & dependency contract (imports flow downward)
-    bin.ts                   # CLI / entry → daemon or MCP
+    bin.ts                   # process entry / composition root → cli, daemon or MCP
     index.ts                 # public re-export barrel (programmatic API, defineConfig)
     core/                    # L0 — leaf, types only
       brands.ts              # branded primitives: RepoRelPath, Glob, RepoId, FileVersion
@@ -1604,6 +1607,9 @@ codemaster/
       watchdog/              # never-hang backstops (§1): beacon (SAB breadcrumb) + worker (wedge reaper, SIGKILL) + orphan-poll + stall-dir + install
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
+      transport/             # Transport seam: unix socket + NDJSON — the daemon's wire (§19)
+      framework-detect/      # per-package manifest deps (find_phantom_deps)
+      pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
       ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition + declaration-first; disclose-resolution.ts: the resolve-time §3.4 envelope disclosure)
       scss/                  # SCSS classes & usages (postcss-scss CST)
