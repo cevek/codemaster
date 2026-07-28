@@ -42,7 +42,9 @@ export function matchProps(site: JsxSiteAttrs, filter: PropFilter): PropMatch | 
   let dynamicValue = false;
   let spreadMaybe = false;
   for (const [name, want] of Object.entries(filter)) {
-    const attr = site.attrs.find((a) => a.name === name);
+    // `findLast`, not `find`: JSX takes the LAST writer, so a duplicated attribute resolves to the
+    // later one (the same rule the spread-order check below applies).
+    const attr = site.attrs.findLast((a) => a.name === name);
     if (attr === undefined) {
       // Absent: only a spread can still deliver it. Without one this is a definite non-match.
       if (!site.hasSpread) return undefined;
