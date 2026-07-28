@@ -53,3 +53,23 @@ all — and the mechanism is doing by hand what one field would do by constructi
 
 So the ask sharpens: stamp the agent/session id, and treat it as the reply address for the finding.
 Correlation with the usage log (t-137057) then comes for free on the same key.
+
+## Also stamp the repo's HEAD — a `file:line` filed from a moving tree decays immediately
+
+The envelope records `repo=` but not what the repo WAS. Findings are filed mid-track, from a worktree the
+reporting agent is actively editing, so every `file:line` in a feedback entry is a coordinate into a tree
+that no longer exists — sometimes within hours.
+
+This already bit two tasks from this drain (t-849286, t-159797), both of which had to be annotated
+"coordinates are historical, re-derive by name". In the second case the decay is worse than drift: that
+track's whole purpose was changing the contract its examples were classified against, so the examples may
+have been resolved by the work that surfaced them. A reader who takes them literally audits code that no
+longer has the property.
+
+Fix: stamp `rev=<git HEAD>` (plus a dirty flag) alongside `repo=` at filing time. Then a reader can
+`git show <rev>:<path>` the exact state the claim was made against, or at minimum know how far the tree has
+moved. Cheap — the fingerprint machinery already computes HEAD on every request for the §3.5 freshness
+check, so this is reading a value that is already in hand.
+
+Ranked against the session-id ask above: the id gives you the REASONING behind a finding, the rev gives
+you the CODE it was true of. Both are needed to reproduce; neither substitutes for the other.
