@@ -46,3 +46,9 @@ So the fix needs `estimateSearchPeak` to expose both figures (or a sibling acces
 ## Threshold calibration data
 
 Cold `find_usages` on backoffice2 at the default 4096 MB child heap OOMs in ~31 s for **every** target tried (three symbols, including one with a near-empty reference set) — the cost is the multi-program build, so a single repo-level peak number is the right gate shape. Single-program ops on the same repo (`expand_type`, file-pinned) answer in ~11 s and fit even a 1024 MB child heap, so a peak threshold must not be set so low that it catches them.
+
+### Nuance for whoever sets the threshold
+
+Σ over **all** programs (18299) is an upper bound, not the per-call build set: a fan-out resolves against `programsContaining(target)`, which for a file in `apps/emr` is primary + that package's two configs (6103 + 1736 + 1736 ≈ 9575), and for `apps/kalendarik` ≈ 7759. Both OOM at a 4096 MB child heap in practice.
+
+The guard runs **pre-warm**, before any target is resolved, so the containing set is not knowable to it — a repo-level Σ is the only figure available at that point, and it is conservative in the safe direction. Worth stating explicitly in the refusal so the number quoted is not read as "this call would build 18299 files".
