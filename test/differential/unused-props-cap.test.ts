@@ -89,6 +89,40 @@ test('cap BITES + includeExternal: nothing was hidden, so no floor marker is cla
   }
 });
 
+test('cap BITES with NOTHING hidden: zero is still reported, and still marked a floor', async () => {
+  // The inverse shape of the test above: the repo declares more members than the cap, so the
+  // slice is all repo-declared and the provenance filter hides nothing. A `hiddenExternal` gated
+  // on `> 0` alone would drop BOTH the field and its floor marker here, and the answer would read
+  // as "nothing hidden" when members past the cut were simply never classified.
+  const own = Array.from({ length: 600 }, (_, i) => `o${i}?: string`).join('; ');
+  const p = await project({
+    'package.json': PKG,
+    'tsconfig.json': TSCONFIG,
+    'node_modules/dep/package.json': '{"name":"dep","version":"1.0.0","types":"index.d.ts"}',
+    'node_modules/dep/index.d.ts': depWith(5),
+    'src/Widget.tsx':
+      "import type { DepProps } from 'dep';\n" +
+      `export const Widget = (props: DepProps & { ${own} }) => <div/>;\n`,
+    'src/App.tsx': "import { Widget } from './Widget';\n" + 'export const App = () => <Widget/>;\n',
+  });
+  try {
+    const o = oracle(p.root, 'Widget');
+    assert.equal(o.declared.size, 605, 'oracle: past the 500 cap');
+    assert.equal(o.external.size, 5, 'oracle: five dependency-declared members exist');
+
+    const d = data(await p.op('find_unused_props', { component: 'Widget' }));
+    assert.equal(d['hiddenExternal'], 0, 'the count is reported even at zero under a cap');
+    assert.equal(d['hiddenExternalIsLowerBound'], true, 'because unseen members were never judged');
+    assert.equal(d['demoted'], true);
+    assert.ok(
+      !(d['notes'] as string[]).some((n) => n.includes('includeExternal:true lists them')),
+      'and no remedy is named that would list nothing',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('cap NOT bitten: member order is the checker’s own (the ordering is cap-only)', async () => {
   const p = await project(capFixture(4));
   try {

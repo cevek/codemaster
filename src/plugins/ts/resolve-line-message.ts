@@ -4,6 +4,7 @@
 
 import type ts from 'typescript';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
+import { topLevelDeclarationsNamed } from './declarations-on-line.ts';
 
 /** Declarations named in a miss / pick-list message before `+N more` (§3.4) — a generated or
  *  minified line can hold hundreds. */
@@ -31,11 +32,16 @@ export function lineMissMessage(
   // one. The bound is used for the branch, not quoted as a fact.
   const outside = line < 1 || line > sourceFile.getLineStarts().length;
   const head = `no declaration${name !== undefined ? ` named '${name}'` : ''} on ${file}:${line}`;
+  // The line-independent alternative, offered on EVERY arm (an out-of-range line is exactly where
+  // the caller most needs it) — and only when it can actually reach the target: `name`+`file`
+  // walks top-level statements, so for a name this file does not declare there, the honest thing
+  // is the FACT, not the call.
+  const alt = altAddressing(sourceFile, file, name);
   if (outside) {
     // "outside", not "past the end": the same branch guards a non-positive line (unreachable
     // through the op boundary, which validates a positive int, but this is a plugin-level entry
     // too), and it matches the wording the col-carrying path already uses for the same fact.
-    return `${head} — line ${line} is outside ${file}, so NO column resolves there: check the line number`;
+    return `${head} — line ${line} is outside ${file}, so NO column resolves there: check the line number${alt}`;
   }
   const there =
     all.length > 0
@@ -43,10 +49,20 @@ export function lineMissMessage(
           all.map((d) => `${d.name} at col ${d.col}`),
           LINE_DECL_PREVIEW,
         )})`
-      : ' (the line anchors no declaration — a column still resolves a symbol USED there, if the line holds one)';
-  const alt =
-    name !== undefined
-      ? `, or drop 'line' (name+file resolves the file's TOP-LEVEL declaration of that name)`
-      : ` or a 'name'`;
+      : ' (the line anchors no declaration — a column still resolves a symbol USED there, if the' +
+        ' line holds one; else check the line number)';
   return `${head}${there} — pass file:line:col (the column)${alt}`;
+}
+
+/** The remedy that does not depend on the line at all. With no `name`, that IS `name` (the
+ *  addressing the caller has not spent). With one, it is `name`+`file` WITHOUT `line` — a
+ *  DIFFERENT addressing from the bare `name` t-175046 bans re-offering — but only where that
+ *  path can land: it walks top-level statements, so for a nested / undeclared name it would be a
+ *  wasted round-trip. There the message states the fact instead of naming a call. */
+function altAddressing(sourceFile: ts.SourceFile, file: string, name: string | undefined): string {
+  if (name === undefined) return ` or a 'name'`;
+  if (topLevelDeclarationsNamed(sourceFile, name).length > 0) {
+    return `, or drop 'line' (name+file resolves the file's TOP-LEVEL declaration of that name)`;
+  }
+  return ` (${file} declares no top-level '${name}' either — check the name, or search it repo-wide)`;
 }

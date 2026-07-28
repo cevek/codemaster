@@ -168,6 +168,21 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     assert.ok(!/or a 'name'/.test(wrongLine), 'but never the bare name the caller already used');
     const viaNameFile = defId(await p.op('find_usages', { name: 'sum', file: 'src/d.ts' }));
     assert.match(viaNameFile, /sum@src\/d\.ts:3:/, 'the advised call resolves the symbol');
+
+    // The line-independent remedy is offered on the OUT-OF-RANGE arm too — that is precisely
+    // where a caller with a `name` needs it, and it is pinned by running it (above).
+    const nameOutside = failMsg(
+      await p.op('find_usages', { name: 'sum', file: 'src/d.ts', line: 99 }),
+    );
+    assert.match(nameOutside, /drop 'line'/, 'the reaching remedy survives the out-of-range arm');
+
+    // …and it is NOT offered for a name this file does not declare top-level: the message states
+    // that fact instead of naming a call that would only fail again.
+    const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
+    assert.ok(!/drop 'line'/.test(noSuch), `no remedy that cannot land: ${noSuch}`);
+    assert.match(noSuch, /declares no top-level 'zzz'/, 'states the fact the agent needs instead');
+    const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
+    assert.match(proof, /no top-level declaration named 'zzz'/, 'and that fact is true');
   } finally {
     await p.dispose();
   }

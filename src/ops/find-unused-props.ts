@@ -130,9 +130,13 @@ export const findUnusedPropsOp = defineOp({
       if (view.hiddenExternal !== undefined) {
         // The omission the default view performs — stated with its own remedy, never silent
         // (§3.4). Under a capped member set the count is a floor, and `includeExternal` recovers
-        // only what THIS filter hid — never what the cap cut (nothing does).
+        // only what THIS filter hid — never what the cap cut (nothing does). At ZERO (reachable
+        // only under a bitten cap) the flag would list nothing, so it is not named: a remedy that
+        // provably returns the same answer is the "already spent" advice, not a remedy.
         notes.push(
-          `${capped !== undefined ? '≥' : ''}${view.hiddenExternal} unused prop(s) hidden by this view — declared outside the repo's own source (node_modules / outside the root); includeExternal:true lists them${capped !== undefined ? ' (it does NOT recover the capped members above)' : ''}`,
+          view.hiddenExternal > 0
+            ? `${capped !== undefined ? '≥' : ''}${view.hiddenExternal} unused prop(s) hidden by this view — declared outside the repo's own source (node_modules / outside the root); includeExternal:true lists them${capped !== undefined ? ' (it does NOT recover the capped members above)' : ''}`
+            : `0 unused props hidden by this view (every member the cap left is repo-declared) — but members past the cap were never classified, so this zero is a floor and includeExternal:true would add nothing`,
         );
       }
       if (view.undetermined !== undefined) {
