@@ -17,13 +17,17 @@ export function defId(r: OpResult): string {
   return id;
 }
 
-/** No wording may assert that the symbol is ABSENT, anywhere or on a line — this resolver anchors
- *  bare-identifier declarations only, so a miss is a capability limit (t-561552).
+/** Rejects the KNOWN SHAPES of an absence claim — this resolver anchors bare-identifier
+ *  declarations only, so a miss is a capability limit (t-561552) and no wording may present it as
+ *  proof that the symbol does not exist.
  *
- *  A blacklist of exact sentences is what a reworded lie walks straight through, so the shapes
- *  here are deliberately generic: any "no … <name> …" clause CLOSED by a scope word (exists /
- *  anywhere / in the file / on that line / any column) is rejected whatever verb carries it, and
- *  so is any claim about columns, which the caller may be about to use. */
+ *  HONEST SCOPE, because overstating a guard is the same class of lie it guards against: this is a
+ *  blacklist, not a proof. It catches the phrasings that actually occurred plus near neighbours,
+ *  and a name-free rewording ("nothing named that is declared here", "'X' is absent from this
+ *  file") walks through it — verified, not assumed. The load-bearing pins are the POSITIVE,
+ *  execution-anchored assertions at the call sites (run the call the message names; establish the
+ *  ground truth by resolving the symbol, then require the message not to contradict it). Treat a
+ *  pass here as "no known lie shape", never as "this message is honest". */
 export function assertNoAbsenceClaim(msg: string, name: string): void {
   const SCOPE = `(exist|anywhere|in (the|this) (file|repo|project)|on (that|this) line|any column)`;
   const claims = [
@@ -36,9 +40,9 @@ export function assertNoAbsenceClaim(msg: string, name: string): void {
     new RegExp(`\\bno(thing|ne)?\\b[^.;)]{0,40}${SCOPE}[^.;)]{0,40}'?${name}'?`, 'i'),
     /does not exist/i,
     /\bnot declared\b/i,
-    // A claim about columns is an absence claim about the one addressing that still works.
-    /\bno (other )?column\b/i,
-    /\bno column (on|in)\b/i,
+    // NO generic "no column" ban here: on an OUT-OF-RANGE line "so NO column resolves there" is
+    // TRUE and load-bearing (it is what stops the agent hunting columns). The column claim is
+    // banned at the call sites where a column provably reaches — where the ground truth is run.
   ];
   for (const c of claims) {
     assert.ok(!c.test(msg), `an absence this resolver cannot prove (${String(c)}): ${msg}`);

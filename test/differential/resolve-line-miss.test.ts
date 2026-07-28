@@ -104,6 +104,10 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // a property (any such claim, however worded), not as one banned string.
     assertNoAbsenceClaim(pattern, 'a');
     assertNoPromise(pattern);
+    // Here — and only here, where the column above provably reaches `a` — a claim about columns
+    // is a claim against a verified fact. (On an out-of-range line the same words are true, which
+    // is why this ban lives at the call site and not in the shared helper.)
+    assert.ok(!/\bno (other )?column\b/i.test(pattern), `denies a column that works: ${pattern}`);
     assert.match(pattern, /anchorable declarations there/, 'the list is scoped to what it anchors');
     assert.match(pattern, /no anchorable declaration named 'a'/, 'and so is the head negation');
 
@@ -115,8 +119,7 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     assertNoPromise(noSuch);
 
     // …and the op it points at fails HONESTLY when it cannot land: for a name the file declares
-    // through a binding pattern, that message may not claim the declaration does not exist — nor
-    // name any name-based call as a discriminator, since navto is blind to the same forms.
+    // through a binding pattern, that message may not claim the declaration does not exist.
     const landed = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts' }));
     assertNoAbsenceClaim(landed, 'a');
     // …and it may not name ANY op as the call that settles absent-vs-unanchorable. Ground truth
