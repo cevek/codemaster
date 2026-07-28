@@ -58,3 +58,23 @@ The fix as both reporters state it: add a second line naming the CLI one-shot
 current — but it is not in the tool list, so nothing makes an agent reach for it at the moment the banner
 appears. Pair with t-631032 (the CLI now carries composition too, so the redirect is no longer to a
 reduced surface).
+
+## Third confirmation, and a live instance of the trap in this very session
+
+Worker 271587aa, working ON the MCP surface itself, recorded a self-demonstrating case: `ToolSearch` in
+that session pulled the `feedback` tool schema carrying `"example": {"$ref":"#/$defs/__schema0"}` with no
+`$defs` — i.e. the warm daemon was advertising exactly the dangling-`$ref` bug (t-029489) that the track
+was in the middle of fixing.
+
+That sharpens the timing argument beyond "the remedy is expensive":
+
+> любой MCP-вызов исполняет до-правочную поверхность, а баннер «перезапусти демон» приходит ПОСЛЕ вызова,
+> тогда как решение звать/не звать принимается ДО.
+
+So for anyone working on the tool's own surface the staleness is not a caveat on the answer — it is a
+property of the surface they are testing, and the warning is structurally too late to inform the decision
+it is about. Two of that worker's questions were genuinely symbolic (who consumes `buildWorkspaceStatus` /
+`renderStatus`) and went to grep for exactly this reason, with `tsc` as the verifier instead.
+
+Which is the same conclusion as the two reports above, reached from a third direction: the banner is
+honest, the remedy is real, and both arrive after the point where they could change anything.
