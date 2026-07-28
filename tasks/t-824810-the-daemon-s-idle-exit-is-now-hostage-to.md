@@ -22,3 +22,15 @@ In practice every known path settles: ops carry the 120 s cooperative `Deadline`
 - Or track dispatch holds separately from connection holds and let the idle path force-exit past a hard ceiling, clearing live breadcrumbs the way `shutdown()` now does.
 
 Whichever is chosen, the invariant to keep is the one the crash discriminator rests on: a CLEAN exit must leave no breadcrumb, so a promoted `origin:'daemon'` record always means a fatal.
+
+## What still backstops this — read before assuming §1 never-hang regressed
+
+The headline reads worse than the reality. Three layers still cover the realistic cases, and the trade bought the removal of a REAL bug (the daemon exiting in the middle of another client's live call):
+
+- **A cooperatively-cancellable op settles on its own.** Every op carries the wall-clock `Deadline` (`daemon.opDeadlineSeconds`, default 120 s): the LS polls it inside `findReferences`/navto and multi-call ops poll it at loop boundaries, so the dispatch promise settles with a `timeout` / `partial` and the hold is released. The idle path is untouched.
+- **In `process` mode the parent reaps regardless.** `process-host.ts` bounds every request; on overrun it SIGKILLs the child, and `markDead` settles EVERY pending request. So an engine that cannot be cancelled cooperatively still settles the daemon-side promise.
+- **A true synchronous wedge was never covered by idle-exit anyway.** Timers do not run on a blocked event loop, so `createIdleExit` could not have fired before this change either. That case has always belonged to the EXTERNAL path — the kill-target-hint pidfile and `daemon stop|restart`'s SIGTERM→SIGKILL escalation (§2/§19).
+
+**The genuinely new hole** is narrower than the title: an ASYNC promise that never settles on a still-responsive loop, in `in-process` mode, where no kill-on-deadline exists. No current path produces one (the two above cover the known shapes), which is exactly why this is filed as "every path happens to settle" rather than a structural guarantee — a future op that awaits something un-deadlined would land here, and nothing would catch it.
+
+So: not a §1 regression to be panicked about, but a guarantee that is now upheld by the callers rather than by construction. That is the thing worth restoring, and the reason the fix directions above all end at the same invariant — a CLEAN exit must leave no breadcrumb.
