@@ -2,7 +2,7 @@
 id: t-109741
 title: No prop-aware JSX query — a wrapper-only sweep shipped an analysis claiming a 3-file surface when the real one was 11; the miss was caught by a screenshot, not by the tool
 status: backlog
-priority: high
+priority: urgent
 tags:
   - agent-surface
   - dogfood
@@ -73,3 +73,36 @@ fan-out price).
 The session also wrote itself a memory note (`emr-button-style-duality.md`) recording that EMR expresses
 button styling two structurally different ways — the agent learned by shipping the bug what a prop query
 would have told it in one call.
+
+## Second INDEPENDENT report, different repo, different agent, different framing — raising to urgent
+
+`/Users/cody/Dev/worktrees/amiro/save-only-rule-to-docs`, 2026-07-28. Task: audit every call site of an
+escape-hatch React prop (`dirtyGuard={false}` on Dialog/Sheet, `marksDirty={false}` on
+Switch/Select/Checkbox) to replace an enumerated doc with a criterion.
+
+**The doc claimed 7 sites. Reality was ~21, plus one dynamic `dirtyGuard={!isView}`.** So this gap has now
+put a wrong count into a shipped artifact TWICE, in two repos, for two different reasons — the first was a
+style sweep that shipped 3-of-11 (above), this one a doc that under-counted 7-of-21.
+
+Why each existing op fails, per the reporter — useful because it maps the gap precisely:
+- `find_usages {name:'dirtyGuard'}` — a JSX attribute is not a referenced symbol at the call site;
+- `member_usages {member:'dirtyGuard'}` needs a TYPE target, but the props type is an inline literal on the
+  component (`function Sheet({dirtyGuard = true, …})`), so there is no named type to address. Called with
+  only `{member}` it fails `bad_args` — fair, but the workable form is not discoverable from the message
+  (see t-959904: a refusal that does not name the working call);
+- `find_unused_props` answers the INVERSE (props nobody passes), not "who passes it, and with what".
+
+And the fallback is exactly the case the honesty contract warns about: the attribute is literal text, but
+the COMPONENT it sits on can be aliased or re-exported, and value-side expressions (`{!isView}`,
+`{someFlag}`) are invisible to a `={false}` text search. The reporter found the dynamic one only because it
+happened to share the prop name in the same grep — i.e. by luck.
+
+Requested shape, compatible with the one above:
+`prop_usages {component:'Sheet', prop:'dirtyGuard', value?: 'false'|'any'}` — resolve JSX attribute sites
+through the checker (so aliased imports count), classify the passed value as literal /
+dynamic-expression / spread-opaque, and demote to `partial` on spread.
+
+Note the recurring shape both reports share: **"audit every consumer of an escape-hatch / variant prop"**
+arises whenever a codebase documents an opt-out or a design-system variant. Today the only honest answer
+is grep plus manual reading of every hit to spot dynamic values — and both times the manual step is where
+the count went wrong.
