@@ -50,6 +50,23 @@ fields:
     values:
       - dogfood-jul
     required: false
+  relates:
+    type: reflist
+  surface:
+    type: list
+  audience:
+    type: enum
+    values:
+      - internal
+      - external
+      - both
+  evidence:
+    type: enum
+    values:
+      - measured
+      - repro
+      - reported
+      - unverified
 web:
   host: 127.0.0.1
   port: 57345
