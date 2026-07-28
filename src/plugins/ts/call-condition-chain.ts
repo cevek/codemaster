@@ -142,7 +142,11 @@ function stepCondition(
     return { text: positive(parent.expression, sf) };
   if (ts.isForStatement(parent) && parent.statement === child && parent.condition !== undefined)
     return { text: positive(parent.condition, sf) };
-  if (ts.isCaseClause(parent)) return caseCondition(parent, sf);
+  // A site in the clause's own EXPRESSION (`switch (k) { case F(): … }`) evaluates whenever the
+  // switch does — it is not under `k === F()`. Same rule as the `if`-condition case above; claiming
+  // otherwise would report a site as guarded by the comparison it is part of.
+  if (ts.isCaseClause(parent))
+    return parent.expression === child ? undefined : caseCondition(parent, sf);
   // `default:` is the complement of the whole case set, and a `catch` block runs only if the try
   // threw — both are real branches whose condition we do not state. Disclosed, never dropped.
   if (ts.isDefaultClause(parent)) return { unstated: true };
@@ -151,24 +155,33 @@ function stepCondition(
 }
 
 /** The enclosing conditional-branch chain of the site at `offset` — always a `ConditionChain`
- *  (a site we cannot place returns the honest empty chain, never a guessed condition). */
+ *  (a site we cannot place returns the honest empty chain, never a guessed condition).
+ *
+ *  A throw anywhere in the climb (`getText` on a node without real backing text, an unexpected AST
+ *  shape) degrades THIS ONE site to the chain gathered so far + `partial` — never an exception that
+ *  fails the whole find_usages answer over one annotation, and never a chain silently presented as
+ *  complete (§3.4 / CONTRIBUTING "never crash"). */
 export function conditionChainAt(sourceFile: ts.SourceFile, offset: number): ConditionChain {
-  const node = nodeAt(sourceFile, offset);
-  if (node === undefined) return { conditions: [] };
   const inner: string[] = []; // innermost → outermost while climbing; reversed at the end
   let partial: true | undefined;
-  let child: ts.Node = node;
-  for (let step = 0; step < MAX_STEPS; step++) {
-    const parent: ts.Node | undefined = child.parent;
-    if (parent === undefined || isFunctionBoundary(parent)) break;
-    const found = stepCondition(parent, child, sourceFile);
-    if (found?.unstated === true) partial = true;
-    else if (found?.text !== undefined) {
-      if (inner.length < MAX_CONDITIONS) inner.push(found.text);
-      else partial = true; // over the cap: the outer conditions exist but are not listed
-      if (found.partial === true) partial = true;
+  try {
+    const node = nodeAt(sourceFile, offset);
+    if (node === undefined) return { conditions: [] };
+    let child: ts.Node = node;
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const parent: ts.Node | undefined = child.parent;
+      if (parent === undefined || isFunctionBoundary(parent)) break;
+      const found = stepCondition(parent, child, sourceFile);
+      if (found?.unstated === true) partial = true;
+      else if (found?.text !== undefined) {
+        if (inner.length < MAX_CONDITIONS) inner.push(found.text);
+        else partial = true; // over the cap: the outer conditions exist but are not listed
+        if (found.partial === true) partial = true;
+      }
+      child = parent;
     }
-    child = parent;
+  } catch {
+    partial = true; // what we gathered stands; the rest is disclosed as unstated, not claimed
   }
   return { conditions: inner.reverse(), ...(partial !== undefined ? { partial } : {}) };
 }

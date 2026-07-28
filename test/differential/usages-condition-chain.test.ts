@@ -52,6 +52,10 @@ const CASES: Case[] = [
   },
   { code: '  switch (k) { case "a": return; case "b": F(); break; }', conditions: ['k === "b"'] },
   { code: '  switch (k) { default: F(); }', conditions: [], partial: true },
+  // A site in the case EXPRESSION evaluates whenever the switch does — never "guarded" by the
+  // comparison it is part of.
+  { code: '  switch (F()) { case true: break; }', conditions: [] },
+  { code: '  switch (x) { case F(): break; }', conditions: [] },
   { code: '  try { void 0; } catch { F(); }', conditions: [], partial: true },
   { code: '  F();', conditions: [] }, // measured: no enclosing branch
   { code: '  if (x) { const cb = (): void => { F(); }; cb(); }', conditions: [] }, // closure boundary
@@ -254,6 +258,7 @@ function pushed(parent: ts.Node, child: ts.Node, sf: ts.SourceFile): string | nu
   if (ts.isForStatement(parent) && parent.statement === child)
     return parent.condition === undefined ? null : txt(parent.condition);
   if (ts.isCaseClause(parent)) {
+    if (parent.expression === child) return null; // the case expression itself always evaluates
     const clauses = parent.parent.clauses;
     const scrutinee = txt(parent.parent.parent.expression);
     const exprs = [txt(parent.expression)];
