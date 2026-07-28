@@ -14,6 +14,8 @@ relates:
   - t-120055
   - t-701638
   - t-826059
+surface:
+  - docs
 audience: internal
 evidence: measured
 created: '2026-07-28T21:24:04.300Z'

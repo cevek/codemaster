@@ -13,6 +13,7 @@ area: render
 source: dogfood-jul
 relates:
   - t-162650
+  - t-326222
   - t-340801
 surface:
   - cli
