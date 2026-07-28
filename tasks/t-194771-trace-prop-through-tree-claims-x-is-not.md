@@ -36,3 +36,15 @@ unsupported for a prop declared by a dependency's type.
 Fix: read `out.view.truncated` in `checkPropDeclared` and degrade the note (and the `boolean`
 return, which currently collapses "absent" and "unseen" into `false`) to an explicit
 could-not-determine.
+
+## How it was found — the cheapest way to catch this class
+
+Not by auditing this op. It surfaced while fixing the SAME honesty hole in a NEIGHBOUR that reads
+the SAME seam: `find_unused_props` and `trace_prop_through_tree` both consume
+`ts.firstParamTypeMembers`, both ask "is X a declared prop", and both meet the same
+`MEMBER_CAP` — but after t-997783 one of them refuses to claim absence over a capped set
+(`undetermined`) and the other still says "'X' is not among the root's declared props".
+
+One seam, two consumers, two different answers to the same question is the signal. So when a
+honesty defect is fixed in one consumer of a seam, check the seam's other consumers in the same
+pass — that is where the next instance of the class already is, at no search cost.
