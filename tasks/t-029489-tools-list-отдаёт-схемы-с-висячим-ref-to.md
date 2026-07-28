@@ -1,7 +1,7 @@
 ---
 id: t-029489
 title: tools/list отдаёт схемы с висячим $ref — toInputSchema выбрасывает $defs
-status: backlog
+status: done
 priority: medium
 tags:
   - mcp

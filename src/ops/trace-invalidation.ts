@@ -11,6 +11,7 @@
 // counts the subscriber hosts/consumers, NEVER the mount locations (stated in the notes below).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
@@ -30,7 +31,7 @@ export const traceInvalidationOp = defineOp({
   argsSchema: z.strictObject({
     mutation: z.string(),
     /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   }),
   argsHint: '{ mutation: string, force?: boolean }',
   example: { args: { mutation: 'useCreateTodo' } },

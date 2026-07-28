@@ -2,6 +2,7 @@
 // camelCase-initials, NOT arbitrary-subsequence fuzzy — see the op note).
 
 import { z } from 'zod';
+import { forceFlagOverridesPreWarm } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { DeadlineExceededError } from '../common/async/deadline.ts';
@@ -64,7 +65,7 @@ const argsSchema = z.strictObject({
   /** Override the pre-warm size guard (t-333163): on a very large repo the default (navto) path
    *  refuses to warm the LS (OOM / memory-squat risk) and redirects; `force:true` warms anyway.
    *  Ignored on the `syntactic` path (already no-warm). Default OFF. */
-  force: z.boolean().optional(),
+  force: forceFlagOverridesPreWarm(),
 });
 
 /** The pre-warm size guard's refuse message (§1 never-crash / resource-respect): honest about WHY

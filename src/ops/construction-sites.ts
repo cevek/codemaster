@@ -14,6 +14,7 @@ import type { TsPluginApi, ConstructionSite, ConstructionTarget } from '../plugi
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 
 const argsSchema = z
   .strictObject({
@@ -86,6 +87,7 @@ export const constructionSitesOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} (the TYPE) — plus { pathInclude?: string[], pathExclude?: string[], limit?: number }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'User' } },
   notes: [
     'the complement to find_usages: find_usages finds who REFERENCES a symbol; construction_sites finds object literals that BUILD a type T (anywhere the checker proves assignability) — answer to "I added a required field to T, which construction sites break?".',

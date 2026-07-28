@@ -39,8 +39,12 @@ export function badArgsMessage(op: AnyOpDefinition, issues: readonly ArgIssue[])
     const where = issue.path.map((p) => String(p)).join('.') || '<args>';
     if (issue.code === 'unrecognized_keys' && issue.keys !== undefined) {
       const suggestions = issue.keys.map((key) => {
-        const guess = closestName(key, canonical);
-        return `'${key}'${guess !== undefined ? ` — did you mean '${guess}'?` : ''}`;
+        const guesses = closestNames(key, canonical);
+        const hint =
+          guesses.length === 0
+            ? ''
+            : ` — did you mean ${guesses.map((g) => `'${g}'`).join(' or ')}?`;
+        return `'${key}'${hint}`;
       });
       return `unrecognized ${suggestions.join(', ')}`;
     }
@@ -51,14 +55,29 @@ export function badArgsMessage(op: AnyOpDefinition, issues: readonly ArgIssue[])
 
 /** Cheap edit-distance-free guess: shared-prefix length, good enough for typos. */
 function closestName(name: string, candidates: readonly string[]): string | undefined {
-  let best: { name: string; score: number } | undefined;
+  return closestNames(name, candidates)[0];
+}
+
+/** EVERY best-scoring candidate, not an arbitrary one (t-175046). A tie is common on this metric
+ *  (`path` scores 4 against BOTH `pathInclude` and `pathExclude`) and picking the first by schema
+ *  key order made the hint depend on declaration order — which for that pair means suggesting the
+ *  OPPOSITE semantics half the time, so the agent narrows with an exclusion and reads a plausible
+ *  empty. Naming all the tied candidates hands the choice back to the caller, who knows the intent.
+ *  Capped at 3 so a pathological tie can't produce a wall of text. */
+function closestNames(name: string, candidates: readonly string[]): readonly string[] {
+  let bestScore = 0;
+  let best: string[] = [];
   for (const candidate of candidates) {
     let score = 0;
     const cap = Math.min(name.length, candidate.length);
     while (score < cap && name[score] === candidate[score]) score++;
-    if (score > 2 && (best === undefined || score > best.score)) {
-      best = { name: candidate, score };
+    if (score <= 2) continue;
+    if (score > bestScore) {
+      bestScore = score;
+      best = [candidate];
+    } else if (score === bestScore) {
+      best.push(candidate);
     }
   }
-  return best?.name;
+  return best.slice(0, 3);
 }

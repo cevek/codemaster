@@ -6,6 +6,7 @@
 // member + identity-gated (by construction) reference scan live in the ts plugin (§5-L2).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
@@ -16,6 +17,7 @@ import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 
 const argsSchema = z
   .strictObject({
@@ -23,7 +25,7 @@ const argsSchema = z
     /** The member (property / method / field) name whose access sites to trace. */
     member: z.string().min(1),
     /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
     /** Display cap on the emitted site list (dispositions/total still count every matched site). */
@@ -90,6 +92,7 @@ export const memberUsagesOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} (the TYPE) + { member: string, pathInclude?: string[], pathExclude?: string[], limit?: number }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'Config', member: 'timeout' } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm the type-checker (the member reference scan fans across every program and would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',

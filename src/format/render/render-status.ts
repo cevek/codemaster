@@ -3,6 +3,7 @@
 // honest state of the machinery (watcher degraded? freshness mode? zero plugins?).
 // `StatusView` is the render contract; the daemon builds it, this module formats it.
 
+import type { JsonValue } from '../../core/json.ts';
 import type { OpExample } from '../../core/op-example.ts';
 import { CONCEPTS_LINES } from './concepts.ts';
 
@@ -38,6 +39,11 @@ export interface OpStatusView {
   /** Short per-op usage notes — `status` is the documentation, so these ride on the op
    *  and render under it (spec-status-as-the-doc §2). */
   notes?: readonly string[];
+  /** The op's advertised `tools/list` `inputSchema`, verbatim (t-981812). Typed as `JsonValue`
+   *  because `format/` may not import `ops/` (layering); rendered as parseable JSON on the
+   *  SINGLE-op path only — the terse/full catalogue must not re-dump N schemas the tool-list
+   *  already carries every session (§11). */
+  inputSchema?: JsonValue;
 }
 
 export interface WorkspaceStatusView {
@@ -185,7 +191,7 @@ function renderSingleOp(view: StatusView, name: string): string[] {
     const names = ws.ops.map((o) => o.name).join(', ');
     return [`op '${name}' not in this repo's catalogue (${ws.ops.length} ops): ${names}`];
   }
-  return renderOps([op]);
+  return renderOps([op], { schema: true });
 }
 
 function renderWatcher(watcher: WorkspaceStatusView['watcher']): string {
@@ -208,7 +214,7 @@ function renderPlugins(plugins: readonly PluginStatusView[]): string[] {
   return lines;
 }
 
-function renderOps(ops: readonly OpStatusView[]): string[] {
+function renderOps(ops: readonly OpStatusView[], options?: { schema: boolean }): string[] {
   if (ops.length === 0) {
     return ['ops: none (no plugins active; op catalogue grows with each plugin)'];
   }
@@ -218,6 +224,13 @@ function renderOps(ops: readonly OpStatusView[]): string[] {
     for (const note of op.notes ?? []) lines.push(`    · ${note}`);
     if (op.columns !== undefined) lines.push(`    columns: ${op.columns}`);
     if (op.example !== undefined) lines.push(`    e.g. ${renderExample(op.name, op.example)}`);
+    // Emitted as PARSEABLE JSON, not a prettified re-description: the value of this block is that
+    // it IS the tools/list contract (a consumer can diff it), so a condensed rendering would
+    // degrade the anti-drift pin to eyeballing (t-981812).
+    if (options?.schema === true && op.inputSchema !== undefined) {
+      lines.push(`    inputSchema (verbatim, as advertised in tools/list):`);
+      lines.push(`    ${JSON.stringify(op.inputSchema)}`);
+    }
   }
   return lines;
 }

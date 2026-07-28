@@ -8,6 +8,7 @@
 // Caps and filters are explicit (`total`/`excluded`/truncation) — never silent (§3.4).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, ToolFailure } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
@@ -42,6 +43,7 @@ import {
   usagesFloors,
 } from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
 
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
@@ -59,7 +61,7 @@ const argsSchema = z
   .strictObject({
     ...tsTargetShape,
     /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
     /** Several targets by exact name, answered as one sectioned result. */
     symbols: z.array(z.string().min(1)).min(1).max(20).optional(),
     limit: z.number().int().positive().max(2000).optional(),
@@ -111,6 +113,7 @@ export const findUsagesOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} | { symbols: string[] } — plus { limit?, role?: 'jsx'|'call'|'type'|'import'|'reexport'|'read'|'write'|'decl', collapseImports?: boolean (default true), text?: boolean, mergeDeclarations?: boolean, destructures?: boolean (per-call-site return-shape, flat mode), conditions?: boolean (per-site enclosing-condition chain, flat mode), props?: {prop: true|value|values[]} (JSX sites passing this prop — true=any value; implies role:'jsx'; dynamic values / {...spread} kept at confidence=dynamic), groupBy?: 'enclosing', filter?: {pathExclude?, pathInclude?, kind?, exportedOnly?}, programs?: string[] (extra tsconfig paths to load, to find usages under an undiscovered nested config) }`,
   intake: tsTargetIntake,
+  requiredOneOf: [...TS_TARGET_ONE_OF, ['symbols']],
   example: {
     args: {
       symbols: ['DialogContent', 'SheetContent'],

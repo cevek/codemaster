@@ -11,6 +11,7 @@ import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 
 const changeArgsSchema = z
@@ -35,6 +36,7 @@ export const changeSignatureOp = defineOp<ChangeArgs, JsonValue>({
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, removeParam?: number | reorder?: number[], dirtyOk?: boolean }",
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'greet', removeParam: 1 } },
   notes: [
     'positional params only; pass removeParam (0-based index) OR reorder (a full permutation of param indices). Renaming a param is rename_symbol, not this.',

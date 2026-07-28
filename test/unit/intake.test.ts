@@ -271,7 +271,13 @@ test('unknown field — rejected with the clean canonical hint + did-you-mean, n
   try {
     const typo = badArgs(await p.op('find_usages', { symbpl: 'getInitials' }));
     assert.match(typo, /symbpl/, 'the offending key is named');
-    assert.match(typo, /did you mean 'symbolId'\?/, 'a close canonical key is suggested');
+    // Ties are listed, not silently resolved by schema key order (t-175046): `symbpl` scores
+    // identically against `symbolId` and `symbols`, and naming both beats picking one arbitrarily.
+    assert.match(
+      typo,
+      /did you mean 'symbolId'( or 'symbols')?\?/,
+      'a close canonical key is suggested',
+    );
     assert.match(typo, /symbolId\?: 'ts:…'/, 'the clean canonical argsHint closes the message');
     assert.doesNotMatch(typo, /alias/, 'no alias annotation leaks into the reject');
 
@@ -317,6 +323,29 @@ test('ANTI-LEAK — no op argsHint carries an alias annotation; status hides int
     const status = await p.status({ full: true });
     assert.doesNotMatch(status, ALIAS_LEAK, 'status leaks an arg alias (paren or bare)');
     assert.doesNotMatch(status, /\bintake\b/, 'status leaks the internal intake metadata');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('class B2 — `path` NARROWS (→pathInclude), never excludes; importers_of keeps path→module', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    // The damaging shape from the fail log: `path` is an unknown key whose did-you-mean tied
+    // between pathInclude and pathExclude, so the agent could be steered into filtering OUT the
+    // very folder it meant to search — a plausible EMPTY with no error (t-175046). As an alias it
+    // means the narrowing one, and a bare directory still matches the subtree beneath it.
+    const byPath = await p.op('search_symbol', { query: 'getInitials', path: 'src' });
+    const canon = await p.op('search_symbol', { query: 'getInitials', pathInclude: ['src'] });
+    assert.equal(dataJson(byPath), dataJson(canon), 'path form == pathInclude form');
+    assert.ok(dataJson(byPath).includes('src/util.ts'), 'the narrowed-to folder is INCLUDED');
+    assert.deepEqual(okResult(byPath).intake, ['path→pathInclude', 'pathInclude→[…]']);
+
+    // The per-op alias still wins where `path` addresses a MODULE — the global alias must not
+    // shadow it (importers_of has no pathInclude anyway, but the ordering is the guarantee).
+    assert.deepEqual(okResult(await p.op('importers_of', { path: 'src/util.ts' })).intake, [
+      'path→module',
+    ]);
   } finally {
     await p.dispose();
   }

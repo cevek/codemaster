@@ -147,6 +147,17 @@ export interface OpDefinition<A, D extends JsonValue> {
   readonly notes?: readonly string[];
   /** Liberal-intake rewrites for this op (§7 Postel) — INTERNAL, never shown in `status`. */
   readonly intake?: OpIntake;
+  /** The op's `at least one of` arg constraints, as key-sets — the shape a zod `.refine` enforces
+   *  but `required` (a flat projection of zod-required) cannot express. Rendered into the
+   *  advertised `inputSchema` as `anyOf:[{required:[…]},…]` (§11), so the harness rejects a
+   *  target-less call BEFORE it costs a round-trip — for a mutating op the schema is the last cheap
+   *  gate before an `apply:true` write (t-527994).
+   *
+   *  ADVERTISING A BRANCH ZOD WOULD REJECT IS WORSE THAN THE PERMISSIVENESS IT REPLACES, so the
+   *  ts-target ops derive theirs from the very predicate they refine on (`TS_TARGET_ONE_OF`) and
+   *  the remaining hand-written ones are pinned BOTH ways by the anti-drift test: every branch must
+   *  PARSE, and an object satisfying `required` but no branch must FAIL. */
+  readonly requiredOneOf?: ReadonlyArray<readonly string[]>;
   /** Present when the op is list-shaped and usable under `batch + sql` (§3). */
   readonly table?: TableSpec<D>;
   run(ctx: OpContext, args: A): Promise<Result<D>>;

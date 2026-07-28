@@ -7,6 +7,7 @@
 // that no active plugin owns returns the honest available-list, never a guess (§3.6).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Plugin } from '../core/plugin.ts';
 import type { ListEntry, ListView } from '../core/list.ts';
@@ -215,7 +216,7 @@ const argsSchema = z.strictObject({
   /** Cap the entry set; the cap is reported as truncation, never silent (§3.4). */
   limit: z.number().int().positive().optional(),
   /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
-  force: z.boolean().optional(),
+  force: forceFlagGuardNotOverridable(),
 });
 
 /** Discover every registry the active plugins own → a `registry → owner` map (first-wins;

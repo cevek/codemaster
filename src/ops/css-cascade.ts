@@ -69,6 +69,9 @@ export const cssCascadeOp = defineOp({
   argsSchema,
   argsHint:
     '{ file+class: string, OR selector: string, pathInclude?: string[], pathExclude?: string[] }',
+  // The XOR's "not NEITHER" half, expressible in JSON Schema (the "not BOTH" half stays on the
+  // zod refine) — enough for the harness to reject a target-less `css_cascade {}` (t-527994).
+  requiredOneOf: [['file', 'class'], ['selector']],
   example: { args: { file: 'src/button.module.scss', class: 'button' } },
   notes: [
     'a rule TARGETS the class when its rightmost compound (the subject) carries it — `.parent .foo` and `.foo[aria-x]` target `foo`; `.foo .bar` does NOT (foo is only an ancestor there).',

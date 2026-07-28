@@ -17,6 +17,7 @@ import type {
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 
 const argsSchema = z
   .strictObject({
@@ -101,6 +102,7 @@ export const discriminationSitesOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} (the union TYPE) — plus { pathInclude?: string[], pathExclude?: string[], limit?: number }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'FieldType' } },
   notes: [
     'the exhaustiveness complement to find_usages: find_usages on a union NAME finds annotation sites but structurally MISSES `switch (spec.type.kind)` where spec.type: T (the identifier T never appears at the switch) and if/else-if chains — this op resolves the scrutinee TYPE, so it finds them.',

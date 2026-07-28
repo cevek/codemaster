@@ -18,6 +18,7 @@ import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 import { applyCssCoExtract, type CssCoExtractReport } from './extract-css-coextract.ts';
 
@@ -43,6 +44,7 @@ export const extractSymbolOp = defineOp<ExtractArgs, JsonValue>({
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, dest: RepoRelPath, dirtyOk?: boolean, css?: 'copy-safe' }",
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'Helper', dest: 'src/lib/helper.ts' } },
   notes: [
     'dest is the full new file path; .ts is coerced to .tsx when the body has JSX. The source keeps importing the extracted symbol from its new home.',

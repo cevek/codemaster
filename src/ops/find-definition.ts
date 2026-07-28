@@ -2,12 +2,14 @@
 // surfaces on `Result.handle`, never silently (§6).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { isBareNameTarget, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { withUndiscoveredHint, definitionFloor, searchCapFloor } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { isFanCapableTarget } from './guard/fan-capable.ts';
 
@@ -16,7 +18,7 @@ import { isFanCapableTarget } from './guard/fan-capable.ts';
 // size-guarded like the reference-fanout ops — `force:true` does NOT override it (t-693742). The symbolId/position/name+file
 // paths are single-program-exact and never guarded, so the extra field is inert for them.
 const argsSchema = z
-  .strictObject({ ...tsTargetShape, force: z.boolean().optional() })
+  .strictObject({ ...tsTargetShape, force: forceFlagGuardNotOverridable() })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
 export const findDefinitionOp = defineOp({
@@ -27,6 +29,7 @@ export const findDefinitionOp = defineOp({
   argsSchema,
   argsHint: TS_TARGET_HINT,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { file: 'src/app.ts', line: 12, col: 8 } },
   notes: [
     'verbosity: terse = location only · normal = + the declaration header · full = + the whole body (signature+body, not an echo of the name).',

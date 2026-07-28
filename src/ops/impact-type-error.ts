@@ -29,6 +29,7 @@
 //       errors the diff already catches (self-revealing, never masking).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import type { Result } from '../core/result.ts';
@@ -42,6 +43,7 @@ import type { UsageOptions } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 import { outcomeFromView } from './impact-expand.ts';
 import { buildTypecheckField, gateCoverageNotes } from './mutation-support.ts';
@@ -76,7 +78,7 @@ const argsSchema = z
     /** Counts + verdict only — omit the per-file broken/clean listing. */
     summary: z.boolean().optional(),
     /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
@@ -178,6 +180,7 @@ export const impactTypeErrorOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — plus { edit: { replace: '<new decl source>' } | { remove: true }, depth?: 1-${MAX_DEPTH} (default ${DEFAULT_DEPTH}), nodes?: 1-${MAX_NODES} (default ${DEFAULT_NODES}), summary?: boolean }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'createEngine', edit: { remove: true } } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its closure×find_usages fan-out + cross-program typecheck would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',

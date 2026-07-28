@@ -48,7 +48,16 @@ const listEndpointsTable: TableSpec<JsonValue> = {
 };
 
 const argsSchema = z.strictObject({
-  pathInclude: z.string().optional(),
+  // NAME COLLISION, stated in the schema (t-837168): every other op's `pathInclude` is an ARRAY of
+  // repo-path GLOBS; here it is a single SUBSTRING matched against the endpoint URL. An agent
+  // carrying `["**/api/**"]` over from find_usages gets an honest type error — but the reverse
+  // direction is silent, so the semantics must be readable from the schema itself.
+  pathInclude: z
+    .string()
+    .optional()
+    .describe(
+      'SUBSTRING of the endpoint URL path (e.g. "/users") — NOT a repo-path glob like the pathInclude of other ops',
+    ),
   method: z.enum(HTTP_METHODS).optional(),
 });
 

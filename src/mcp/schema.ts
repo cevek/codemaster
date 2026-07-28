@@ -98,15 +98,27 @@ export const TOOL_DESCRIPTORS = [
       properties: {
         requests: {
           type: 'array',
+          // The zod gate is `.min(1)` — an empty batch is a no-op the schema must reject too.
+          minItems: 1,
           items: {
             type: 'object',
             properties: {
-              name: { type: 'string' },
-              args: { type: 'object' },
+              // `enum` is INJECTED at tool-list assembly from the live op catalogue (server.ts):
+              // a typo'd op name is then rejected at the boundary instead of costing a round-trip
+              // (t-568278). `args` deliberately stays an open object — typing it as an anyOf over
+              // all N op schemas would roughly double the whole tool-list for a check the dispatch
+              // gate already performs with a better message (§11: the token tax is deliberate).
+              name: { type: 'string', description: 'Op name (see the tool list / status)' },
+              args: { type: 'object', description: "The op's own args (its per-op tool schema)" },
               apply: { type: 'boolean' },
               summaryOnly: { type: 'boolean' },
               verbosity: { type: 'string', enum: ['terse', 'normal', 'full'] },
-              format: { type: 'string', enum: ['text', 'json'] },
+              format: {
+                type: 'string',
+                enum: ['text', 'json'],
+                description:
+                  "This PRODUCER's render format (the top-level one is the SQL result's)",
+              },
               as: {
                 type: 'string',
                 description: 'SQL table alias for this request (default t/t0..tN)',

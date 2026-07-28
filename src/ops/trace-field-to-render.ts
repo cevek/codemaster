@@ -11,6 +11,7 @@
 //    member-level references and are flagged / floored, never counted as a proven render.
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { makeNode } from '../common/trace/hop.ts';
@@ -31,7 +32,7 @@ const FLOOR_NOTE =
 const argsSchema = z.strictObject({
   field: z.string(),
   /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-  force: z.boolean().optional(),
+  force: forceFlagGuardNotOverridable(),
 });
 
 export const traceFieldToRenderOp = defineOp({

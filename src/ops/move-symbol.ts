@@ -16,6 +16,7 @@ import { failTimeoutOr } from './refactor-timeout.ts';
 import type { TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 
 const moveSymbolArgsSchema = z
@@ -40,6 +41,7 @@ export const moveSymbolOp = defineOp<MoveSymbolArgs, JsonValue>({
   // §7 `to`→`dest` alias for the destination path (the intuitive spelling; there is no `source`
   // path here — the target IS the symbol, so `from` does not apply).
   intake: { ...tsTargetIntake, aliases: { ...tsTargetIntake.aliases, to: 'dest' } },
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'helper', dest: 'src/lib/util.ts' } },
   notes: [
     'dest must be an EXISTING file in the project — the moved symbol is merged into it (the LS folds its imports into dest’s where it can, every importer repointed, the source keeps a back-import if it still uses the symbol). To move into a NEW file use extract_symbol; to relocate MANY symbols into one module atomically, chain extract_symbol + move_symbol steps in a single `transaction` (one gate, all-or-nothing).',

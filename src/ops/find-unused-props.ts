@@ -6,6 +6,7 @@
 // demotes the WHOLE set to `partial` — never a false `certain` (a live prop called dead).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
@@ -54,7 +55,7 @@ export const findUnusedPropsOp = defineOp({
     component: z.string(),
     file: z.string().optional(),
     /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   }),
   argsHint: '{ component: string, file?: string, force?: boolean }',
   example: { args: { component: 'Button' } },

@@ -3,23 +3,17 @@
 // codemaster can do) and each op's args are a typed, visible schema that structurally kills
 // arg-shape mistakes. The token cost of N schemas is the deliberate price of that visibility.
 //
-// The `inputSchema` is GENERATED from the op's canonical zod `argsSchema` via `z.toJSONSchema`
-// — single source of truth = the dispatch gate, so the advertised schema can NEVER drift from
-// what actually validates — then enriched with the output-shape flags (apply/verbosity/…). The
-// canonical `argsSchema` stays the SOLE validator at dispatch (§7); this module only advertises.
+// The `inputSchema` is GENERATED from the op's canonical zod `argsSchema` — single source of truth
+// = the dispatch gate, so the advertised schema can NEVER drift from what actually validates. The
+// generator lives in `ops/tool-schema/input-schema.ts` because `status {op}` advertises the SAME
+// object (t-981812). The canonical `argsSchema` stays the SOLE validator at dispatch (§7); this
+// module only advertises.
 
-import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import type { OpRequest } from '../ops/contracts.ts';
+import { buildOpInputSchema, type JsonSchemaObject } from '../ops/tool-schema/input-schema.ts';
 import { opToolSchema } from './schema.ts';
-
-/** A JSON-Schema object as advertised in `tools/list` (MCP `Tool.inputSchema`). */
-interface JsonSchemaObject {
-  type: 'object';
-  properties?: Record<string, unknown>;
-  required?: readonly string[];
-}
 
 export interface McpToolDescriptor {
   name: string;
@@ -145,66 +139,32 @@ export function splitReserved(args: Record<string, unknown>): SplitArgs {
   return { reserved, rest };
 }
 
-/** The output-shape flags advertised on a per-op tool, gated to applicability: every op gets the
- *  density/format/debug/root knobs; mutating ops add apply/summaryOnly; table-bearing ops add the
- *  single-op sql sugar. Advertising sql only where there's a table is capability-honesty (§3.6). */
-function flagProperties(op: AnyOpDefinition): Record<string, unknown> {
-  const props: Record<string, unknown> = {
-    verbosity: { type: 'string', enum: ['terse', 'normal', 'full'], description: 'Output density' },
-    format: {
-      type: 'string',
-      enum: ['text', 'json'],
-      description: 'Output mode (json for machine composition)',
-    },
-    debug: { type: 'boolean', description: 'Inline per-call debug trace' },
-    root: { type: 'string', description: 'Target a sibling repo (default: cwd repo)' },
-  };
-  if (op.mutating) {
-    props['apply'] = {
-      type: 'boolean',
-      description: 'Actually write the edit (default: dry-run preview)',
-    };
-    props['summaryOnly'] = {
-      type: 'boolean',
-      description: 'Verdict + merged per-file touched list, omit the unified diff',
-    };
-  }
-  if (op.table !== undefined) {
-    props['sql'] = {
-      type: 'string',
-      description:
-        "Read-only SELECT over this op's table (aliased `t`); only the SQL result returns",
-    };
-    props['return'] = {
-      type: 'string',
-      enum: ['sql', 'all'],
-      description: "With sql: 'sql' (default) returns only the SELECT, 'all' adds the op result",
-    };
-  }
-  return props;
+/** A handwritten tool descriptor (status/batch) — MCP fields only, as advertised. */
+interface StaticToolDescriptor {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: unknown;
 }
 
-/** Build the advertised `inputSchema`: the op's canonical arg shape (from zod) plus the flags.
- *  `z.toJSONSchema` is wrapped so an unrepresentable/cyclic schema degrades to flags-only rather
- *  than crashing the facade (§3 never-crash) — the canonical gate still validates either way. */
-function toInputSchema(op: AnyOpDefinition): JsonSchemaObject {
-  let gen: unknown;
-  try {
-    gen = z.toJSONSchema(op.argsSchema, { unrepresentable: 'any', io: 'input' });
-  } catch {
-    gen = undefined;
-  }
-  const g = gen !== null && typeof gen === 'object' ? (gen as Record<string, unknown>) : {};
-  const genProps =
-    g['properties'] !== null && typeof g['properties'] === 'object'
-      ? (g['properties'] as Record<string, unknown>)
-      : {};
-  const required = Array.isArray(g['required']) ? (g['required'] as string[]) : undefined;
-  return {
-    type: 'object',
-    properties: { ...genProps, ...flagProperties(op) },
-    ...(required !== undefined ? { required } : {}),
+/** Advertise the LIVE op catalogue as the `enum` of `batch.requests[].name` (t-568278). Inside a
+ *  batch the per-op tools' typed schemas don't apply, so a typo'd op name was a free-form string
+ *  that only failed at dispatch — making an N-op batch statically WEAKER than N separate calls,
+ *  the opposite of the guidance to prefer one batch. The enum is built from the same `ops` list
+ *  that backs the per-op descriptors (never a second, drifting catalogue) and applied to a COPY —
+ *  `TOOL_DESCRIPTORS` is a shared `as const` that `exampleCallFor` also reads. A shape that isn't
+ *  the expected `{requests:{items:{properties:{name}}}}` is returned untouched rather than
+ *  force-patched: advertising a half-built schema would be worse than advertising the plain one. */
+export function withBatchOpNames(
+  tool: StaticToolDescriptor,
+  opNames: readonly string[],
+): StaticToolDescriptor {
+  const schema = structuredClone(tool.inputSchema) as {
+    properties?: { requests?: { items?: { properties?: { name?: Record<string, unknown> } } } };
   };
+  const nameProp = schema.properties?.requests?.items?.properties?.name;
+  if (nameProp === undefined || opNames.length === 0) return { ...tool };
+  nameProp['enum'] = [...opNames];
+  return { ...tool, inputSchema: schema };
 }
 
 /** The per-op tool description: summary + capability tags (mutating / required plugins) + the
@@ -219,7 +179,7 @@ function description(op: AnyOpDefinition): string {
 }
 
 export function buildOpToolDescriptor(op: AnyOpDefinition): McpToolDescriptor {
-  return { name: op.name, description: description(op), inputSchema: toInputSchema(op) };
+  return { name: op.name, description: description(op), inputSchema: buildOpInputSchema(op) };
 }
 
 export function buildOpToolDescriptors(ops: readonly AnyOpDefinition[]): McpToolDescriptor[] {

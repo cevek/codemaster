@@ -7,6 +7,7 @@ import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import { tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { MemberView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
@@ -42,6 +43,7 @@ export const expandTypeOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-3 (default 1), memberLimit?: number (default 40; uncapped at verbosity:full) }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: {
     args: { symbolId: 'ts:Engine@src/daemon/engine.ts:70:7' },
     flags: { verbosity: 'full' },

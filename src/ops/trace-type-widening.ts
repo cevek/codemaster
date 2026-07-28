@@ -10,6 +10,7 @@
 // at that step, never silently bridged. Bounded (depth/visited/node caps), truncation reported.
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import {
@@ -19,6 +20,7 @@ import {
   targetOf,
   TS_TARGET_HINT,
 } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
@@ -30,7 +32,7 @@ const argsSchema = z
   .strictObject({
     ...tsTargetShape,
     /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
@@ -43,6 +45,7 @@ export const traceTypeWideningOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — a VALUE (variable / parameter) whose precision to follow forward`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'color', file: 'src/paint.ts' } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), naming why it was not auto-escalated into a killable child (`force:true` does NOT override). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.',

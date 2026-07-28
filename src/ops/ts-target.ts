@@ -37,14 +37,24 @@ type TargetFields = {
   name?: string | undefined;
 };
 
+/** The accepted target ADDRESSINGS, as key-sets: satisfy ALL keys of ANY one branch.
+ *  `file+line` is enough — the column is OPTIONAL: with it, an exact position; without it, the
+ *  resolver takes the declaration on that line (or lists them). `name` alone, or `name+file`
+ *  (file-scoped), also resolve. The resolver (resolve-target.ts) is the one place these dispatch.
+ *
+ *  This is the SINGLE source for two surfaces (§11 anti-drift): the zod `.refine` predicate below
+ *  IS built from it, and the advertised `inputSchema` renders it as `anyOf:[{required:…},…]`
+ *  (`ops/tool-schema/input-schema.ts`). So the schema a harness gates on and the schema that
+ *  actually validates cannot disagree — by construction, not by a test that must be remembered. */
+export const TS_TARGET_ONE_OF: ReadonlyArray<ReadonlyArray<keyof typeof tsTargetShape>> = [
+  ['symbolId'],
+  ['name'],
+  ['file', 'line'],
+];
+
 export const requireTarget = {
-  // `file+line` is enough — the column is OPTIONAL: with it, an exact position; without it, the
-  // resolver takes the declaration on that line (or lists them). `name` alone, or `name+file`
-  // (file-scoped), also resolve. The resolver (resolve-target.ts) is the one place these dispatch.
   predicate: (t: TargetFields): boolean =>
-    t.symbolId !== undefined ||
-    t.name !== undefined ||
-    (t.file !== undefined && t.line !== undefined),
+    TS_TARGET_ONE_OF.some((branch) => branch.every((key) => t[key] !== undefined)),
   message: "pass 'symbolId' (a ts: SymbolId), or 'name', or file+line (col optional)",
 };
 

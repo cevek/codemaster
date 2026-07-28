@@ -12,6 +12,7 @@ import { failTimeoutOr } from './refactor-timeout.ts';
 import { findReExportAliasSites, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { tsTargetShape, requireTarget, targetOf, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { applyMutation } from './refactor-apply.ts';
 import { buildOldNameSurvives, touchedSet } from './rename-survivors.ts';
 
@@ -35,6 +36,7 @@ export const renameSymbolOp = defineOp<RenameArgs, JsonValue>({
   argsHint:
     "{ symbolId?: 'ts:…' | name?: string | file+line+col, newName: string, dirtyOk?: boolean }",
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { file: 'src/app.ts', line: 12, col: 8, newName: 'renamed' } },
   notes: [
     'a name collision surfaces as a duplicate-identifier diagnostic, never a silent clobber.',

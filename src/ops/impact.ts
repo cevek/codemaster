@@ -13,6 +13,7 @@
 // traversal invariants live in ./impact-closure.ts (pure, independently tested).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts';
@@ -24,6 +25,7 @@ import type { GroupRow, UsageOptions } from '../plugins/ts/query-types.ts';
 import { omitGroupSite } from '../plugins/ts/group-row.ts';
 import { defineOp } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 import { outcomeFromView } from './impact-expand.ts';
 
@@ -55,7 +57,7 @@ const argsSchema = z
     /** Counts-per-depth only — gauge the blast radius without the node list. */
     summary: z.boolean().optional(),
     /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   })
   .refine(requireTarget.predicate, { message: requireTarget.message });
 
@@ -196,6 +198,7 @@ export const impactOp = defineOp({
   argsSchema,
   argsHint: `${TS_TARGET_HINT} — plus { depth?: 1-${MAX_DEPTH} (default ${DEFAULT_DEPTH}), nodes?: 1-${MAX_NODES} (default ${DEFAULT_NODES}), kind?, exportedOnly?, pathInclude?, pathExclude?, summary?: boolean }`,
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'createEngine', depth: 2 } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its nodes×find_usages fan-out would OOM and can kill the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',

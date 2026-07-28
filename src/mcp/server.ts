@@ -31,7 +31,12 @@ import {
   exampleCallFor,
   statusToolSchema,
 } from './schema.ts';
-import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
+import {
+  buildOpToolDescriptors,
+  buildPerOpRequest,
+  opToolExample,
+  withBatchOpNames,
+} from './op-tools.ts';
 import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
 import { withCallTelemetry } from './call-telemetry.ts';
@@ -161,7 +166,9 @@ export async function serveMcp(
     // (it feeds badArgs); advertise only the MCP tool fields.
     tools: [
       ...opDescriptors,
-      ...TOOL_DESCRIPTORS.map(({ exampleCall: _exampleCall, ...tool }) => ({ ...tool })),
+      ...TOOL_DESCRIPTORS.map(({ exampleCall: _exampleCall, ...tool }) =>
+        tool.name === 'batch' ? withBatchOpNames(tool, [...opNames]) : { ...tool },
+      ),
     ],
   }));
 

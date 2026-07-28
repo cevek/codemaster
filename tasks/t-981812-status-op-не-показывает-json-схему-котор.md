@@ -1,7 +1,7 @@
 ---
 id: t-981812
 title: status {op} не показывает JSON-схему, которую видит харнес в tools/list
-status: backlog
+status: done
 priority: low
 tags:
   - mcp

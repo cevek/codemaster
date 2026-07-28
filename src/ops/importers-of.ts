@@ -3,6 +3,7 @@
 // resolve through the project's own tsconfig paths).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { Result, Truncation } from '../core/result.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
@@ -212,7 +213,7 @@ const argsSchema = z.strictObject({
   /** Max importer rows to list (default 200); overflow is reported as truncation, never silent. */
   limit: z.number().int().positive().optional(),
   /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
-  force: z.boolean().optional(),
+  force: forceFlagGuardNotOverridable(),
   ...programsArgShape,
 });
 

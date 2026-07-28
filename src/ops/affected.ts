@@ -14,6 +14,7 @@
 // test-file heuristic is a path-glob convention, STATED in the output, never proven.
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import type { Result } from '../core/result.ts';
@@ -75,7 +76,7 @@ const argsSchema = z.strictObject({
   /** Override the test-file path globs (the stated heuristic). */
   testGlobs: z.array(z.string().min(1)).optional(),
   /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-  force: z.boolean().optional(),
+  force: forceFlagGuardNotOverridable(),
 });
 
 type AffectedArgs = z.infer<typeof argsSchema>;

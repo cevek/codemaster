@@ -12,12 +12,14 @@
 // `truncated`).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { ReactPluginApi } from '../plugins/react/plugin.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { requireTarget, targetOf, tsTargetIntake, tsTargetShape } from './ts-target.ts';
+import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { isFanCapableTarget } from './guard/fan-capable.ts';
 import { traceHopTable } from './trace-hop-table.ts';
@@ -35,12 +37,13 @@ export const tracePropThroughTreeOp = defineOp({
       prop: z.string().min(1),
       depth: z.number().int().positive().max(50).optional(),
       /** Bypass the in-process semantic-fanout size guard (t-411303) and warm anyway. */
-      force: z.boolean().optional(),
+      force: forceFlagGuardNotOverridable(),
     })
     .refine(requireTarget.predicate, { message: requireTarget.message }),
   argsHint:
     '{ name|symbolId|file+line (the component), prop: string, depth?: number, force?: boolean }',
   intake: tsTargetIntake,
+  requiredOneOf: TS_TARGET_ONE_OF,
   example: { args: { name: 'App', prop: 'userId' } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000), a BARE-`name` / `symbolId` target resolves via a repo-wide navto fan and this op REFUSES to warm (would OOM-kill the daemon), naming why it was not auto-escalated into a killable child (`force:true` does NOT override). A file+line[:col] / name+file target is single-program-exact and is never guarded. No refusal in process-mode.',

@@ -4,6 +4,7 @@
 // `partial` (§3.3: dynamic is flagged, never bridged).
 
 import { z } from 'zod';
+import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
@@ -65,7 +66,7 @@ export const findUnusedScssClassesOp = defineOp({
     pathInclude: z.array(z.string()).optional(),
     pathExclude: z.array(z.string()).optional(),
     /** Bypass the in-process semantic-fanout size guard (t-679091) and warm anyway. */
-    force: z.boolean().optional(),
+    force: forceFlagGuardNotOverridable(),
   }),
   argsHint: '{ pathInclude?: string[], pathExclude?: string[] }',
   example: { args: { pathInclude: ['src/features/**'] } },

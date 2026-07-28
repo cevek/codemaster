@@ -13,6 +13,14 @@
 const GLOBAL_ALIASES: Readonly<Record<string, string>> = {
   max_results: 'limit',
   maxResults: 'limit',
+  // `path` means "restrict to this folder" — the NARROWING intent (two hits in 42 dogfood fail
+  // records). Without the alias it reached the gate as an unknown key whose did-you-mean tied
+  // between `pathInclude` and `pathExclude` and could steer the agent to the OPPOSITE semantics: a
+  // filter that removes exactly the folder they meant to search, returning a plausible EMPTY with
+  // no error (t-175046). A bare directory is safe here — the shared path-filter expands a
+  // wildcard-less entry to `<entry>/**` (common/glob/expand-dir.ts), so `path:'src/x'` matches the
+  // subtree rather than only the literal path.
+  path: 'pathInclude',
 };
 
 export interface GlobalAliasResult {
