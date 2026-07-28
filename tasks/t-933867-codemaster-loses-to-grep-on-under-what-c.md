@@ -1,7 +1,7 @@
 ---
 id: t-933867
 title: codemaster loses to grep on "under WHAT CONDITION is F called" — find_usages answers with sites, not guards; and ABSENCE of a call (which ops lack F) is unanswerable without an sql-joinable op-registry × call-sites producer
-status: in-progress
+status: done
 priority: high
 tags:
   - agent-surface
@@ -49,3 +49,55 @@ which is the property an audit needs and a capped list cannot give.
 
 This is the highest-leverage item from the wave's dogfood: it turns the class of bug that caused the
 incident (an op silently missing a guard) from a recurring manual sweep into a query.
+
+## Resolution — the second half of this task's premise was WRONG
+
+**"Absence is structurally unanswerable" is false: it needs no new op.** The anti-join runs today over
+two `find_usages` producers, because the FAMILY is itself a call-site set — every op is exactly one
+`defineOp(…)` call:
+
+```
+batch requests: {as:"fam", find_usages {name:"defineOp", role:"call", filter:{pathInclude:["src/ops/**"]}}}
+                {as:"f",   find_usages {name:"semanticFanoutRefusal", role:"call", conditions:true}}
+sql:            SELECT fam.file FROM fam WHERE fam.file NOT IN (SELECT file FROM f)
+```
+
+Measured on this repo: the `fam` producer returns 37 files in `src/ops/**` — SET-IDENTICAL to the 37
+entries of `builtinOps()`, not merely equal in count (a text search for `defineOp({` finds only 29:
+the generic and line-broken call forms are invisible to it). 15 files call the guard; the holes
+include `find-unused-i18n-keys.ts` and `find-missing-i18n-keys.ts` — reproducing the wave's hand
+audit (t-004414) exactly.
+
+So the two producers this task asked for are NOT built, and `list` gains no `ops` registry (the op
+catalogue is engine state; `ctx.daemon.opNames` carries names only, and enriching it means editing
+`daemon/**` for a capability that already exists). Anyone re-reading this task should not file them
+again. What was actually missing was DISCOVERABILITY and the CONDITION.
+
+**Shipped instead:**
+
+1. `concepts: absence-audit` — the recipe in the terse default `status` render (first contact; the
+   reason the reporting worker never reached for it is that nothing named it), with its limits and
+   completeness floors in `find_usages`' notes. Behaviour-tested, not prose-tested
+   (`test/e2e/sql-absence-audit.test.ts`): the exact hole set, the one-member-per-file precondition
+   catching the case it exists for, and an aliased/line-broken member a text producer would miss.
+   The residual error direction is stated: with both producers complete the answer is an UPPER bound
+   (a false alarm costs one read; a missed hole is the bug being audited for).
+2. `find_usages {conditions:true}` — item 1 of this task. The enclosing conditional-BRANCH chain per
+   site, rendered `⟨a && !(b)⟩`, sql column `condition`. It answers the coverage question the wave
+   opened 15 blocks for: `list`'s `⟨owner.id === 'ts' || owner.deps.includes('ts')⟩` and the traces'
+   `⟨isFanCapableTarget(args)⟩`, in one call.
+3. An honesty gap found on the way: the undiscovered-program LOWER-BOUND floor was never projected
+   into a sql answer at all (sql returns `{columns, rows}` + `TableSpec.notes` only), so an
+   anti-join over an incomplete reference set read as a clean set — the one direction an absence
+   audit must never take. `findUsagesTable.notes` now emits it.
+
+**Why the annotation is trustworthy:** three oracles, each with its limits stated. The fixture table;
+a top-down descent (catches mechanics, NOT a wrong rule — it shared the case-expression hole and
+stayed green); and EXECUTION — an executable fixture run over every input combination, asserting a
+site fires ⟺ its reported chain evaluates true. Every rule is mutation-pinned. Empty-vs-absent is
+load-bearing end to end: `''` = measured "no enclosing branch" (never "always runs"), NULL = not
+annotated, leading `<unstated>` = the chain is a subset.
+
+Residuals filed: t-278380 (member_usages has no `conditions`), t-109609 (default-value
+short-circuits, disclosed not measured), t-077593 (per-row climb cost + `⟨no branch⟩` density),
+t-974740 / t-309134 (the mirrored-renderer pattern this avoided), t-213394, t-730980.

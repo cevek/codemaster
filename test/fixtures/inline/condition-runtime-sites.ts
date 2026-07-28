@@ -22,6 +22,9 @@ export type Bag = {
   w?: boolean;
   z?: boolean;
   f?: (b: boolean) => boolean;
+  /** For the MULTI-LINK optional-chain sites: each link is independently absent-able, which is what
+   *  makes "nearest link" vs "leftmost link" observable at run time. */
+  m?: { g?: (b: boolean) => boolean };
 };
 
 export function sites(x: boolean, y: boolean, k: string, o: Bag): void {
@@ -63,5 +66,7 @@ export function sites(x: boolean, y: boolean, k: string, o: Bag): void {
     break;
   }
   F(18);
+  o.m?.g?.(F(19));
+  o.m?.g?.call(null, F(20));
   void [a, b, c, d, e];
 }

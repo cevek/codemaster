@@ -29,7 +29,8 @@ export const CASES: Case[] = [
   {
     code:
       'export function b(o: { n?: number; b?: () => boolean; c?: { d: (v: boolean) => boolean }; ' +
-      'e?: Record<string, (v: boolean) => boolean>; f?: boolean[]; g?: boolean; h?: boolean }, ' +
+      'e?: Record<string, (v: boolean) => boolean>; f?: boolean[]; g?: boolean; h?: boolean; ' +
+      'm?: { g?: (v: boolean) => boolean; h?: boolean[] } }, ' +
       'k: string, x: boolean, arr: boolean[]): void {',
     conditions: [],
   },
@@ -61,6 +62,21 @@ export const CASES: Case[] = [
   { code: '  o.e?.[k](F());', conditions: ['o.e != null'] },
   { code: '  void o.f?.[F() ? 0 : 1];', conditions: ['o.f != null'] },
   { code: '  void arr[F()];', conditions: [] }, // a plain index is not a branch
+  // MULTI-LINK chains: the guard is the NEAREST link's LHS, whose own text carries the earlier `?.`s
+  // — naming only the leftmost (`o.m != null`) would be a true-but-insufficient subset.
+  { code: '  o.m?.g?.(F());', conditions: ['o.m?.g != null'] },
+  { code: '  o.m?.g?.call(null, F());', conditions: ['o.m?.g != null'] },
+  { code: '  void o.m?.h?.[F() ? 0 : 1];', conditions: ['o.m?.h != null'] },
+  // `!` is erased at run time, so the short-circuit still happens: the walk must step THROUGH a `!`
+  // that sits between the argument and the nearest optional link, or the guard vanishes entirely.
+  { code: '  o.m!.g?.(F());', conditions: ['o.m!.g != null'] },
+  { code: '  o.m?.g!.call(null, F());', conditions: ['o.m != null'] },
+  // Parenthesising ENDS the chain inside it, but a `?.` AFTER the group starts a new one — so the
+  // nearest link here is `?.name`, and its LHS is the whole parenthesised group.
+  { code: '  (o.m?.g)?.name.padEnd(F() ? 1 : 2);', conditions: ['(o.m?.g) != null'] },
+  // …whereas a NON-optional access on a parenthesised chain short-circuits nothing: it THROWS when
+  // the inner chain yields undefined, so there is no guard to report (reporting one would invent it).
+  { code: '  void [(o.m?.g).length, F()];', conditions: [] },
   // Logical assignment short-circuits like its non-assigning twin.
   { code: '  o.g ||= F();', conditions: ['!(o.g)'] },
   { code: '  o.g &&= F();', conditions: ['o.g'] },

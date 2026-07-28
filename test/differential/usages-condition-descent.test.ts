@@ -3,7 +3,8 @@
 // the site. Different traversal, different mechanics (no cap, no reversal), same claim.
 //
 // What it discriminates, stated honestly: mechanics — a lost level, a bad reversal, a missed site, a
-// blanket-empty degradation. What it does NOT: a wrong RULE, since it is written from the same rules
+// blanket-empty degradation. What it does NOT: a wrong RULE — the optional-chain nearest-link rule is
+// transliterated here as literally as the rest, and a transliteration cannot audit its own source —
 // (the case-expression hole lived in both and this stayed green). That is what the RUNTIME oracle in
 // usages-condition-runtime.test.ts is for. Consequently the two implementations must stay separate —
 // refactoring them onto a shared helper would turn this file into a tautology (§16).
@@ -61,17 +62,23 @@ function pushed(parent: ts.Node, child: ts.Node, sf: ts.SourceFile): string | nu
     return null;
   }
   if (
-    (ts.isCallExpression(parent) || ts.isElementAccessExpression(parent)) &&
-    parent.expression !== child
+    (ts.isCallExpression(parent) && parent.arguments.some((arg) => arg === child)) ||
+    (ts.isElementAccessExpression(parent) && parent.argumentExpression === child)
   ) {
     let cur: ts.Node = parent;
     let root: ts.Expression | undefined;
-    while (
-      ts.isPropertyAccessExpression(cur) ||
-      ts.isElementAccessExpression(cur) ||
-      ts.isCallExpression(cur)
-    ) {
-      if (cur.questionDotToken !== undefined) root = cur.expression;
+    for (;;) {
+      if (ts.isNonNullExpression(cur)) {
+        cur = cur.expression;
+        continue;
+      }
+      if (
+        !ts.isPropertyAccessExpression(cur) &&
+        !ts.isElementAccessExpression(cur) &&
+        !ts.isCallExpression(cur)
+      )
+        break;
+      if (cur.questionDotToken !== undefined && root === undefined) root = cur.expression;
       cur = cur.expression;
     }
     if (root !== undefined) return `${txt(root)} != null`;

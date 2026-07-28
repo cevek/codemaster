@@ -46,6 +46,14 @@ function siteLines(): Map<number, number> {
 
 type Combo = { x: boolean; y: boolean; k: string; o: () => Bag };
 
+/** The nested-bag states a multi-link chain discriminates: link absent · link present but its own
+ *  member absent · both present. Exactly the distinction "nearest vs leftmost link" turns on. */
+const NESTED: readonly (Bag['m'] | undefined)[] = [
+  undefined,
+  {},
+  { g: (b: boolean): boolean => b },
+];
+
 /** Every input combination the fixture's conditions can discriminate. `o` is a FACTORY: the run
  *  mutates it (`||=` / `&&=`), so the evaluation pass must get an untouched copy. */
 function combos(): Combo[] {
@@ -57,17 +65,20 @@ function combos(): Combo[] {
           for (const w of [undefined, true] as const) {
             for (const z of [undefined, true] as const) {
               for (const hasF of [false, true]) {
-                out.push({
-                  x,
-                  y,
-                  k,
-                  o: () => ({
-                    ...(v !== undefined ? { v } : {}),
-                    ...(w !== undefined ? { w } : {}),
-                    ...(z !== undefined ? { z } : {}),
-                    ...(hasF ? { f: (b: boolean): boolean => b } : {}),
-                  }),
-                });
+                for (const m of NESTED) {
+                  out.push({
+                    x,
+                    y,
+                    k,
+                    o: () => ({
+                      ...(v !== undefined ? { v } : {}),
+                      ...(w !== undefined ? { w } : {}),
+                      ...(z !== undefined ? { z } : {}),
+                      ...(hasF ? { f: (b: boolean): boolean => b } : {}),
+                      ...(m !== undefined ? { m: { ...m } } : {}),
+                    }),
+                  });
+                }
               }
             }
           }
@@ -145,9 +156,14 @@ test('runtime oracle: a site fires EXACTLY when its reported condition chain is 
         checked++;
       }
     }
-    // Guard the guard: a fixture/analysis mismatch that silently emptied the matrix would otherwise
-    // pass as green.
-    assert.ok(checked > 3000, `expected a broad matrix, only checked ${checked} site×input pairs`);
+    // Guard the guard, DERIVED not guessed: every site × every input must have been checked. A magic
+    // threshold left slack for a couple of sites to degrade into `partial` (which this loop skips) and
+    // still pass — silently retiring the very rule under test.
+    assert.equal(
+      checked,
+      lines.size * combos().length,
+      'every site × input pair must be checked — a site that degraded to `partial` retires its rule',
+    );
   } finally {
     await p.dispose();
   }

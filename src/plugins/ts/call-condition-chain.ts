@@ -107,20 +107,35 @@ function caseCondition(clause: ts.CaseClause, sf: ts.SourceFile): { text: string
   return { text, ...(partial !== undefined ? { partial } : {}) };
 }
 
-/** The LHS of the LEFTMOST optional link in an access/call spine (`a?.b.c(…)` → `a`), or `undefined`
- *  when the spine holds no `?.`. Walking left and keeping the last hit yields the leftmost link,
- *  which is the one that actually guards everything to its right — a nearer link would understate
- *  the guard (`a?.b.c()` throws rather than short-circuits when only `a.b.c` is nullish). */
+/** The LHS of the NEAREST (rightmost) optional link in an access/call spine, or `undefined` when the
+ *  spine holds no `?.`. That LHS is the whole guard on its own, because its own SOURCE TEXT carries
+ *  every earlier `?.`: for `a?.b?.(F())` it is `a?.b`, and `a?.b != null` is false both when `a` is
+ *  nullish and when `a.b` is — exactly the conjunction, in one term the caller can evaluate.
+ *
+ *  Reporting the LEFTMOST link instead would name only `a != null`, a true-but-insufficient SUBSET of
+ *  the real guard, so the chain would read as complete while the site is skipped (the §3 lie this
+ *  annotation exists to prevent). So: keep the FIRST hit while walking left, never overwrite it.
+ *
+ *  `x!` is stepped THROUGH (the assertion is erased at run time, so the short-circuit still happens),
+ *  but `(a?.b).c` is NOT — parenthesising ENDS an optional chain (it throws rather than
+ *  short-circuits), and treating it as a link would invent a guard that does not exist.
+ *
+ *  A spine longer than the step bound means the site is at least that deep in ancestors too, so the
+ *  outer climb's own cap already discloses `partial` — no separate signal is needed here. */
 function optionalGuardRoot(spine: ts.Node): ts.Expression | undefined {
   let cur: ts.Node = spine;
   let found: ts.Expression | undefined;
   for (let step = 0; step < MAX_STEPS; step++) {
+    if (ts.isNonNullExpression(cur)) {
+      cur = cur.expression;
+      continue;
+    }
     if (
       ts.isPropertyAccessExpression(cur) ||
       ts.isElementAccessExpression(cur) ||
       ts.isCallExpression(cur)
     ) {
-      if (cur.questionDotToken !== undefined) found = cur.expression;
+      if (cur.questionDotToken !== undefined && found === undefined) found = cur.expression;
       cur = cur.expression;
       continue;
     }
@@ -168,9 +183,11 @@ function stepCondition(
   // An OPTIONAL-CHAIN argument (`logger?.info(fmt(x))`, `a?.[k(x)]`): the whole chain short-circuits
   // when the optional link's LHS is nullish, so the argument is not evaluated at all. Far commoner
   // than any other shape here — leaving it out read as "called unconditionally".
+  // ARGUMENT positions only: a TYPE argument (`a?.b<typeof F>(…)`) is erased before run time, so a
+  // runtime guard on it would be a fabricated fact about a compile-time reference.
   if (
-    (ts.isCallExpression(parent) || ts.isElementAccessExpression(parent)) &&
-    parent.expression !== child
+    (ts.isCallExpression(parent) && parent.arguments.some((arg) => arg === child)) ||
+    (ts.isElementAccessExpression(parent) && parent.argumentExpression === child)
   ) {
     const root = optionalGuardRoot(parent);
     return root === undefined ? undefined : { text: `${flatText(root, sf)} != null` };
@@ -210,9 +227,9 @@ export function conditionChainAt(sourceFile: ts.SourceFile, offset: number): Con
     // A position we cannot place is NOT a measurement of "no branch" — say subset, not empty (§3.4).
     if (node === undefined) return { conditions: [], partial: true };
     let child: ts.Node = node;
-    // `reachedTop` distinguishes a climb that ENDED at the function boundary (the chain is whole)
-    // from one the step cap cut short (branches above are unexamined → subset, like every other cap
-    // in this file).
+    // `reachedTop` distinguishes a climb that RAN OUT of enclosing branches — the function boundary,
+    // or (defensively) a node with no parent — in which case the chain is whole, from one the step cap
+    // cut short, where branches above are unexamined → subset, like every other cap in this file.
     let reachedTop = false;
     for (let step = 0; step < MAX_STEPS; step++) {
       const parent: ts.Node | undefined = child.parent;
