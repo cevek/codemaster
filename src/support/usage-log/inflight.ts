@@ -361,11 +361,12 @@ function crashEntry(
       ? ''
       : ` Recovered from an abandoned claim by pid ${reclaimed}, which may already have written a record for this same call.`;
   // A daemon-side breadcrumb is the daemon's VIEW of a call the agent-facing process also recorded
-  // (that one is the accounting record). Said in the prose too, so a human reading one line knows
-  // not to count it as a separate call.
+  // (that one is the accounting record). Carried in the RECORD, not just a code comment: the two
+  // fields a reader would naturally join on are exactly the two this view cannot state exactly, and
+  // an uncertainty that lives only in a comment is not disclosed at all (§3.3).
   const view =
     record.origin === 'daemon'
-      ? " This is the DAEMON's view of the call, not an agent-facing call record: the bridge that issued it writes its own record separately (correlate on cwd + tool + ops, bridge ts ≤ this ts)."
+      ? " This is the DAEMON's view of the call, not an agent-facing call record: the process that issued it writes its own record separately. Correlate on cwd + ops (bridge ts <= this ts) — NOT on tool, which is derived here: the invoking tool name never crosses the socket, so a batch of one request is indistinguishable from a per-op call. ops beyond 32 are capped with a `+N more` marker on this view only, so join on its prefix."
       : '';
   return {
     ts: record.ts,

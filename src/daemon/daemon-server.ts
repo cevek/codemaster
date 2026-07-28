@@ -240,6 +240,16 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
   }
 
   async function dispatch(connection: TransportConnection, raw: JsonValue): Promise<void> {
+    // Refuse anything arriving after teardown began. `shutdown()` clears the live breadcrumbs
+    // synchronously and then exits, so a request accepted after that point would stamp a NEW
+    // breadcrumb nothing will ever clear — a fatal fabricated behind a clean exit. Reachable when
+    // one socket read carries `shutdown` and a request together (they coalesce into a single chunk),
+    // which no production client sends today: this gate is what makes the guarantee structural
+    // instead of resting on `TransportServer.close()` happening to destroy links synchronously.
+    if (shuttingDown) {
+      send(connection, { id: idOf(raw), kind: 'error', message: 'daemon is shutting down' });
+      return;
+    }
     const parsed = parseWireRequest(raw);
     if (!parsed.ok) {
       send(connection, {

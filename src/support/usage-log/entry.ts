@@ -11,7 +11,10 @@ export interface UsageLogEntry {
    *  process died with the call in flight, so the moment of death is unknown and any number here
    *  would be fabricated. */
   durationMs: number | null;
-  /** Which MCP tool was invoked (an op name / `status` / `batch`, or a verbatim unknown name). */
+  /** Which MCP tool was invoked (an op name / `status` / `batch`, or a verbatim unknown name). On an
+   *  `origin:'daemon'` record this is DERIVED, not observed — the invoking tool name never crosses
+   *  the socket — so a `batch` of exactly one request reads as that op's name. `ops` is exact on
+   *  both views; correlate on it. */
   tool: string;
   /** The op name(s) involved: the op name for a per-op call, the batch's names for `batch`, empty for `status`. */
   ops: string[];
@@ -42,8 +45,10 @@ export interface UsageLogEntry {
    *  COUNTING: the daemon writes no ordinary record, so there is never a second ACCOUNTING record —
    *  but a fatal call still yields TWO lines in `fail.jsonl` (the agent-facing process's ordinary
    *  `ok:false`, and this view of the same call). Count calls by filtering `origin === undefined`;
-   *  correlate the pair on `cwd` + `ops`. Additive like `outcome` — absent on every ordinary record,
-   *  so an existing consumer's key-set is unchanged. */
+   *  correlate the pair on `cwd` + `ops` — NOT on `tool`, which is derived on a daemon-origin record
+   *  (see `tool`). Beyond 32 ops the daemon's view is capped with a `+N more` marker the
+   *  agent-facing record does not carry, so join on the prefix. Additive like `outcome` — absent on
+   *  every ordinary record, so an existing consumer's key-set is unchanged. */
   origin?: 'daemon';
 }
 

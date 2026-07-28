@@ -315,6 +315,62 @@ test('a multi-request dispatch is attributed to "batch", and every op it carried
   }
 });
 
+// The OTHER direction of the same defect, and the one the suite was silently green on: a per-op
+// call carrying `sql` is sugar for "a batch of one aliased request", so `mcp/server.ts` DOES attach
+// the wire's `batch` field to it. Deriving the tool from that field named it 'batch' — a tool the
+// agent never invoked. Only the request count can tell these apart.
+test('a single-request dispatch that carries batch options (the per-op `sql` shape) is still attributed to its op, not to "batch"', async () => {
+  const h = await start('crash');
+  try {
+    h.connection.send({
+      id: 1,
+      kind: 'request',
+      cwd: REQUEST.cwd,
+      reqs: [{ name: 'find_definition', args: {}, as: 't' }],
+      // Exactly what a per-op call with `sql` puts on the wire — batch options present, ONE request.
+      batch: { sql: 'select * from t' },
+    } as never);
+    await within(h.exited);
+
+    const daemonSide = promoteFrom(h.usageDir).filter((e) => e.origin === 'daemon');
+    assert.equal(daemonSide.length, 1, 'one daemon-side fatal');
+    assert.equal(
+      daemonSide[0]?.tool,
+      'find_definition',
+      'batch options on the wire do NOT make this a batch call — one request means one op',
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+// A request delivered in the SAME socket read as `shutdown` reaches the handler after teardown has
+// already cleared the live breadcrumbs. Without a gate it stamps a fresh one that nothing will ever
+// clear, and the next start promotes a fatal behind an exit code of 0.
+test('a request arriving in the same read as `shutdown` is refused, so a clean exit still leaves no breadcrumb', async () => {
+  const h = await start('slow');
+  try {
+    // One write → one chunk → both envelopes surface in a single read.
+    h.connection.send({ id: 1, kind: 'shutdown' } as never);
+    h.connection.send(REQUEST as never);
+    await within(h.exited, 10_000);
+    assert.ok(
+      h.child.exitCode !== null || h.child.signalCode !== null,
+      'inconclusive: the child had not exited',
+    );
+    assert.equal(h.child.exitCode, 0, 'the GRACEFUL path');
+
+    const promoted = promoteFrom(h.usageDir);
+    assert.deepEqual(
+      promoted.filter((e) => e.origin === 'daemon'),
+      [],
+      `a post-teardown request must not leave a breadcrumb behind a clean exit, got ${JSON.stringify(promoted)}`,
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('origin survives the promotion round-trip (readRecord reconstructs field-by-field and would otherwise drop it)', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-origin-'));
   try {
