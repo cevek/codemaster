@@ -234,10 +234,10 @@ test('the subject is found wherever the op keeps it', () => {
   }
 });
 
-// The sharpest form of this task's defect, and one this table shipped: on the `died` path the engine
+// The sharpest form of this task's defect, and one this table shipped: under `'any-program-build'` the engine
 // OOM'd running the op, so re-addressing buys nothing — a file-pinned trace OOMs exactly as its
 // bare-name form does (measured on a 6k-file repo). Offering the re-pin there handed the agent back
-// the very call that had just failed. Under `died`, only calls that build no program may be named.
+// the very call that had just failed. Under either engine-death claim, only calls that build no program may be named.
 test('a died-engine redirect never names a call that builds a program', () => {
   const everyOp = [...new Set([...OPS.map((o) => o.op), 'search_symbol'])];
   for (const op of everyOp) {

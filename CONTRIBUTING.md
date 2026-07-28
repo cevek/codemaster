@@ -77,6 +77,14 @@ A refusal names a call the agent can run **here** (`ops/guard/navigate.ts`, §9)
 different args, not a config edit or a daemon restart it may have no access to. Where no cheaper
 in-tool path exists, say that outright; never present an invented near-equivalent as the answer.
 
+Assemble it through `ops/guard/refusal.ts` — `opRefusal(ctx, …)` inside an op (the refusing name
+comes from `ctx.opName`, never a parameter), `wireRefusal(requestName, …)` on the daemon's wire path
+— never by hand. The failure states what it puts beyond reach (`ToolFailure.outOfReach`:
+`'this-call'` when it declined before doing any work, `'any-program-build'` when the engine
+exhausted its heap doing it, `'unproven-program-build'` when the engine died without establishing
+why), and the redirect is rendered FROM that claim — so a refusal can never print the caller the very
+call its own claim says is gone, and can never assert an impossibility it has not established.
+
 ## Resilience — never crash, never hang
 
 Every call to an external tool — the TS LanguageService, git, ast-grep, prettier, the

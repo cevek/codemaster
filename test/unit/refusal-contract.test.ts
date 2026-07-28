@@ -25,25 +25,33 @@ import { semanticFanoutRefusal } from '../../src/ops/guard/semantic-fanout-guard
 const OVER: Result<number> = ok(5000);
 const ts = { estimateSourceFileCount: () => OVER, searchWarmMaxFiles: 4000 };
 
+/** Every claim there is. Written so a member ADDED to the union is a compile error here rather than
+ *  a silent hole — the failure mode this file exists to catch is precisely a claim nobody checks. */
+const EVERY_CLAIM = ['this-call', 'any-program-build', 'unproven-program-build'] as const;
+const _exhaustive: readonly OutOfReach[] = EVERY_CLAIM satisfies readonly OutOfReach[];
+type _Covered = Exclude<OutOfReach, (typeof EVERY_CLAIM)[number]> extends never ? true : never;
+const _covered: _Covered = true;
+
 /** Does this message name a call that would build a TS program? Answered from the table's own
- *  per-call `buildsProgram`, so the check never re-derives what it is verifying. */
+ *  per-call `buildsProgram` under EVERY claim, so the check never re-derives what it is verifying
+ *  and cannot miss a candidate that only one claim would have surfaced. */
 function namesAProgramBuild(op: string, args: unknown, message: string): boolean {
-  const everyReach: OutOfReach[] = ['this-call', 'any-program-build'];
-  return everyReach
-    .flatMap((r) => cheapCallsFor(op, args, r).calls)
-    .some((c) => c.buildsProgram === true && message.includes(c.call));
+  return EVERY_CLAIM.flatMap((r) => cheapCallsFor(op, args, r).calls).some(
+    (c) => c.buildsProgram === true && message.includes(c.call),
+  );
 }
 
-/** The invariant both producers must satisfy: a failure may name a program-building call exactly
- *  when its own claim says one is still within reach. */
+/** The invariant every producer must satisfy. Stated NEGATIVELY — a program build may be named only
+ *  under the one claim that licenses it — because that form is exhaustive by construction: a claim
+ *  added to the union inherits the conservative check instead of falling out of coverage, which is
+ *  how `'unproven-program-build'` would otherwise have arrived unchecked. */
 function assertAgrees(f: ToolFailure, op: string, args: unknown): void {
   assert.ok(f.outOfReach !== undefined, `${op}: a navigational refusal must state its claim`);
-  const named = namesAProgramBuild(op, args, f.message);
-  if (f.outOfReach === 'any-program-build') {
+  if (f.outOfReach !== 'this-call') {
     assert.equal(
-      named,
+      namesAProgramBuild(op, args, f.message),
       false,
-      `${op}: claims no program build is reachable, then names one:\n${f.message}`,
+      `${op}: claims '${String(f.outOfReach)}', then names a program-building call:\n${f.message}`,
     );
   }
 }
@@ -89,6 +97,23 @@ test('a dead engine claims every program build is out of reach — and then name
     !died.message.includes('trace_prop_through_tree {'),
     `the dead-engine refusal echoed back the call that died:\n${died.message}`,
   );
+
+  // Every claim that is NOT the licensing one gets the same treatment — asserted over the union
+  // rather than over the two members that happened to exist when this was written, since a claim
+  // arriving unchecked is the hole this file is for.
+  for (const claim of EVERY_CLAIM.filter((c) => c !== 'this-call')) {
+    assertAgrees(
+      wireRefusal('trace_prop_through_tree', {
+        tool: 'engine-process',
+        outOfReach: claim,
+        args,
+        head: 'trace_prop_through_tree did not complete.',
+        tail: 'Cause: the engine exited.',
+      }),
+      'trace_prop_through_tree',
+      args,
+    );
+  }
 });
 
 // The field is the input to the prose, not a label beside it: flipping the claim must move the

@@ -101,23 +101,45 @@ export type UnsafeClaim =
  *  is valid after one is a dead end after the other. So the distinction is a field, not prose to
  *  be re-inferred per consumer.
  *
- *  Each member must be TRUE of every failure that sets it. That is why neither names a REMEDY:
- *  the escape from a declined call is sometimes a re-address, sometimes a different mode
+ *  Each member must be TRUE of every failure that sets it. That is why none names a REMEDY: the
+ *  escape from a declined call is sometimes a re-address, sometimes a different mode
  *  (`syntactic:true`), sometimes asking for less — one word for all three would over-claim on two
  *  of them. What they share is the reach, and only that. The remedy belongs in `message`, in
  *  prose, where it can be specific.
  *
+ *  It is also why "we cannot tell" is a member rather than an omission. A consumer derives ONE
+ *  bit from this — may a redirect name a call that builds a TS program — and two different true
+ *  claims ("no, proven" and "unknown") yield the same conservative answer. Collapsing them into
+ *  the proven one would state impossibility we have not established, which is the same lie the
+ *  field exists to prevent, merely pointing the other way.
+ *
  *  Closed so a consumer switches exhaustively rather than parsing prose. */
 export type OutOfReach =
-  /** Only THIS call, as issued, is out of reach. The engine is intact: a call that builds a TS
-   *  program still succeeds on this repo, so a redirect may name one. How to get the answer
-   *  anyway is the failure's own `message`. */
+  /** Only THIS call, as issued, is out of reach. Nothing was consumed producing this failure — the
+   *  op DECLINED before doing the work, or a cooperative deadline cancelled it (§19) and the engine
+   *  kept running — so whatever this repo could serve a moment ago, it can still serve.
+   *
+   *  That is what licenses a redirect to name a call that builds a TS program, and it is all it
+   *  licenses: the claim is about the ENGINE's state, not about any particular build being
+   *  affordable. A file pin is exact, not free — and one setter of this claim (`search_symbol`'s
+   *  pre-warm size guard) declines precisely BECAUSE a build here is large. Which calls are sound
+   *  to name for a given op stays the redirect table's judgement, per op (`ops/guard/navigate.ts`).
+   *  How to get the answer anyway is the failure's own `message`. */
   | 'this-call'
-  /** EVERY call that builds a TS program is out of reach here, whatever its target — the engine
-   *  ran out of memory (or was killed) doing this work, and addressing has no bearing on that. A
-   *  redirect may name only calls that build no program; offering a re-addressed one hands the
-   *  caller back the very call that just died. */
-  | 'any-program-build';
+  /** EVERY call that builds a TS program is out of reach here, whatever its target: the engine
+   *  exhausted its heap doing this work, and a retry does the same thing again. Addressing has no
+   *  bearing on it — a file-pinned trace OOMs exactly as its bare-name form does. A redirect may
+   *  name only calls that build no program; offering a re-addressed one hands the caller back the
+   *  very call that just died. */
+  | 'any-program-build'
+  /** Whether a program-building call is out of reach is UNPROVEN: the engine died running this
+   *  work without establishing why — killed on a deadline, or a non-OOM exit. That says what
+   *  happened to THIS call and nothing about the next one, so it may be read neither as
+   *  `'any-program-build'` (impossibility we have not shown) nor as `'this-call'` (capability we
+   *  have not shown). A consumer treats it as the conservative case — a redirect names only calls
+   *  that build no program — because handing back a call we cannot vouch for is the failure this
+   *  vocabulary exists to prevent. */
+  | 'unproven-program-build';
 
 /** Set when the op could not be completed because an internal tool failed — the
  *  TS LS, git, ast-grep, prettier, the filesystem. We surface the failure verbatim and
@@ -132,7 +154,14 @@ export interface ToolFailure {
   partial?: boolean;
   /** What this failure leaves out of reach (above). Absent = it claims nothing about the next
    *  call — the honest default for an ordinary git / fs / LS failure, and never to be read as
-   *  "everything still works". */
+   *  "everything still works". Distinct from `'unproven-program-build'`, which IS a claim: that
+   *  one says reach was put in doubt and we could not resolve it; absence says reach was never
+   *  the subject.
+   *
+   *  That a NAVIGATIONAL refusal always states it is guaranteed structurally, not by convention:
+   *  `ops/guard/refusal.ts` is the single place one is assembled and its `RefusalText.outOfReach`
+   *  is required, so the field can go missing only by not going through that module — which also
+   *  means not getting a redirect. */
   outOfReach?: OutOfReach;
 }
 

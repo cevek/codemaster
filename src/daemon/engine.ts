@@ -273,12 +273,12 @@ class Engine implements WorkspaceEngine {
       return { name: req.name, error: { kind: 'bad_args', message: resolved.message } };
     }
 
-    const opTrace = this.deps.debug.ns(`op:${req.name}`);
+    const opTrace = this.deps.debug.ns(`op:${op.name}`);
     const started = this.deps.clock.now();
     try {
       // Breadcrumb the op so the watchdog worker (§1) can name what wedged the main loop — the
       // op + a bounded args preview. A no-op passthrough unless a watchdog is installed.
-      const result = await beacon.measure(`op:${req.name}`, req.args, () =>
+      const result = await beacon.measure(`op:${op.name}`, req.args, () =>
         this.deps.debug.runWithRequest(
           { capture: req.debug === true, route: this.repoId },
           async () => {

@@ -12,7 +12,7 @@ import type { EngineChildHandle } from '../../src/daemon/fork-engine.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { RepoId } from '../../src/core/brands.ts';
 import { manualClock } from '../helpers/project.ts';
-import { navigationFor } from '../../src/ops/guard/navigate.ts';
+import { cheapCallsFor, navigationFor } from '../../src/ops/guard/navigate.ts';
 
 interface FakeChild {
   handle: EngineChildHandle;
@@ -203,6 +203,50 @@ test('oom hint: a SIGABRT/134 exit is labelled oom, not a bare crash', async () 
   );
 });
 
+// t-615758. The three ways a child dies are NOT one claim. `tool` and the verdict clause already
+// discriminate them — only an exhausted heap proves the repo cannot answer — and the envelope's
+// machine-readable claim has to say the same thing, or a consumer switching on it is told an
+// impossibility we never established. The oracle is the reason itself: each is driven through the
+// real host and the claim read off the envelope, so a single unconditional value fails two arms.
+test('each way the child dies gets the claim it actually supports', async () => {
+  const claimAfter = async (
+    die: (fc: FakeChild, clock: ReturnType<typeof manualClock>) => void,
+  ) => {
+    const fc = fakeChild();
+    const clock = manualClock();
+    const host = await armedHost(fc, clock, () => undefined, { requestDeadlineMs: 10 });
+    const reqP = host.request([{ name: 'find_usages', args: { name: 'Button' } as never }]);
+    die(fc, clock);
+    const [r] = await reqP;
+    assert.ok(r !== undefined && 'result' in r && r.result.ok === false);
+    return r.result.failure.outOfReach;
+  };
+
+  // An exhausted heap: a retry does the same thing again, so no program build is within reach.
+  assert.equal(await claimAfter((fc) => fc.exit(134, null)), 'any-program-build');
+  // Killed on the deadline, and a bare non-zero exit: both say what happened to THIS call and
+  // nothing about the next one. Claiming impossibility off either would be an unearned verdict.
+  assert.equal(
+    await claimAfter((fc, clock) => {
+      clock.advance(10);
+      fc.exit(null, 'SIGKILL');
+    }),
+    'unproven-program-build',
+  );
+  assert.equal(await claimAfter((fc) => fc.exit(1, null)), 'unproven-program-build');
+});
+
+// …and the caution does NOT vary with the claim: `unproven` is treated exactly as conservatively
+// as the proven case, because a call we cannot vouch for is as bad to name as one we know is gone.
+test('an unproven claim still names no program-building call', () => {
+  const args = { name: 'Button', prop: 'size', file: 'src/Button.tsx' };
+  for (const op of ['trace_prop_through_tree', 'trace_type_widening', 'find_definition']) {
+    for (const c of cheapCallsFor(op, args, 'unproven-program-build').calls) {
+      assert.notEqual(c.buildsProgram, true, `${op} offers a program build on an unproven claim`);
+    }
+  }
+});
+
 // t-959904. This is the message an agent on an oversized repo actually reads: such a repo is
 // auto-escalated at spawn, so the in-process fan-out guard never fires there. Three properties, none
 // of which the guards' own tests can pin, because this path composes them differently.
@@ -253,17 +297,18 @@ test('a timeout says the call did not complete, never that the repo cannot answe
     'a timeout is not proof of impossibility',
   );
   // t-615758: the failure STATES what it leaves out of reach rather than leaving each consumer to
-  // re-infer it. The engine was killed, so no program build is within reach here whatever the
-  // target — and the message is pinned byte-exact around the shared redirect, so a drift in the
-  // verdict clause or the cause clause is a diff rather than something the loose matches above
-  // would still pass.
+  // re-infer it — and it states it with the SAME discrimination the verdict above uses. A killed
+  // child proves nothing about program-build capability, so the claim is `unproven`, not the
+  // proven impossibility. The message is pinned byte-exact around the shared redirect, so a drift
+  // in the verdict clause or the cause clause is a diff rather than something the loose matches
+  // above would still pass.
   assert.equal(
     r !== undefined && 'result' in r && r.result.ok === false
       ? r.result.failure.outOfReach
       : undefined,
-    'any-program-build',
+    'unproven-program-build',
   );
-  const redirect = navigationFor('find_usages', { name: 'Button' }, 'any-program-build');
+  const redirect = navigationFor('find_usages', { name: 'Button' }, 'unproven-program-build');
   assert.equal(
     msg,
     `find_usages did not complete. ${redirect} Cause: isolated engine did not reply in 10ms — killed it.`,

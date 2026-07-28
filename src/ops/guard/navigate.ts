@@ -33,9 +33,9 @@ import { classifyTargetString } from '../intake/smart-string.ts';
 export type CheapCall = {
   readonly call: string;
   readonly gives: string;
-  /** True when running this call builds a TS program and warms the checker. Such a call is fine
-   *  after a `'this-call'` failure (the engine is intact) and is NOT after an `'any-program-build'`
-   *  one — see `OutOfReach` in `core/result.ts`. */
+  /** True when running this call builds a TS program and warms the checker. Naming such a call is
+   *  honest only under a `'this-call'` claim, the one that states a program build is still within
+   *  reach — see `OutOfReach` in `core/result.ts`. */
   readonly buildsProgram?: true;
 };
 
@@ -250,11 +250,13 @@ export function cheapCallsFor(
   outOfReach: OutOfReach,
 ): { readonly calls: readonly CheapCall[]; readonly substitute: boolean } {
   const nav = readArgs(args);
-  // The failure's own claim decides this — it is not re-derived here. Where every program build is
-  // out of reach, drop each call that would build one and let what remains (or nothing) decide
-  // whether a substitute can honestly be claimed.
+  // The failure's own claim decides this — it is not re-derived here. A program-building call may
+  // be named ONLY under the claim that states one is still within reach; both of the others (proven
+  // out of reach, and unproven after the engine died) get the conservative treatment, since naming
+  // a call we cannot vouch for is the same defect as naming one we know is gone. What remains (or
+  // nothing) then decides whether a substitute can honestly be claimed.
   const specific = (BY_OP.get(op)?.(nav) ?? []).filter(
-    (c) => outOfReach !== 'any-program-build' || c.buildsProgram !== true,
+    (c) => outOfReach === 'this-call' || c.buildsProgram !== true,
   );
   if (specific.length > 0) return { calls: specific, substitute: true };
   return { calls: orientation(nav.name), substitute: false };
@@ -269,8 +271,8 @@ export function navigationFor(op: string, args: unknown, outOfReach: OutOfReach)
   // file pin escapes the guard without being free), so a blanket "no program build" would be false.
   // What each
   // call costs and covers lives in its own `gives`, which is per-call and cannot over-generalise.
-  // Nor can the lead take the refused op as its implied subject — under `'any-program-build'` that
-  // op is already gone, so "still runs here" would be a claim about the corpse.
+  // Nor can the lead take the refused op as its implied subject — under either engine-death claim
+  // that op is already gone, so "still runs here" would be a claim about the corpse.
   const lead = substitute
     ? 'RUN INSTEAD'
     : `NO cheaper in-tool path to this question (${op} is what answers it). What still answers here`;

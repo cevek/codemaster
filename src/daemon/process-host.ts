@@ -17,6 +17,7 @@ import type { ProjectHost } from './host.ts';
 import type { EngineChildHandle } from './fork-engine.ts';
 import { parseEngineFrame, type EngineReply, type EngineRequest } from './engine-protocol.ts';
 import { wireRefusal } from '../ops/guard/refusal.ts';
+import type { OutOfReach } from '../core/result.ts';
 
 export interface ProcessHostDeps {
   repoId: RepoId;
@@ -156,6 +157,15 @@ export async function createProcessHost(
     // — those say what happened to THIS call and nothing about the next one.
     const verdict = (name: string) =>
       s.reason === 'oom' ? `${name} cannot complete on this repo` : `${name} did not complete`;
+    // The machine-readable half of that very sentence, and it must be discriminated the same way.
+    // Only the OOM establishes that a program build is out of reach on this repo; a deadline
+    // overrun or a bare non-zero exit leaves it UNPROVEN, and claiming impossibility off them
+    // would be the unearned claim the `verdict` above refuses to make — stated in a field a
+    // consumer switches on, where it is worse. Both non-OOM reasons still get the conservative
+    // redirect (no program-building call named), which is what "unproven" means to a consumer:
+    // the claim differs, the caution does not.
+    const outOfReach: OutOfReach =
+      s.reason === 'oom' ? 'any-program-build' : 'unproven-program-build';
     return reqs.map((r) => ({
       name: r.name,
       // Per-request, not one shared failure: a batch's requests ask different questions, and a
@@ -170,13 +180,13 @@ export async function createProcessHost(
       // verdict-first: on this path the op is already dead, so the cause explains a fact the agent
       // has (it failed) while the redirect is the only part it can act on. That leads.
       //
-      // `'any-program-build'`: the engine is gone, so a redirect may only name calls that build no
-      // program — re-addressing escapes the fan-out GUARD, never an exhausted heap (measured: a
-      // file-pinned trace OOMs exactly as its bare-name form does).
+      // Either way the redirect may only name calls that build no program: re-addressing escapes
+      // the fan-out GUARD, never an exhausted heap (measured: a file-pinned trace OOMs exactly as
+      // its bare-name form does) — and after a kill we cannot show it would escape anything.
       result: fail<JsonValue>(
         wireRefusal(r.name, {
           tool,
-          outOfReach: 'any-program-build',
+          outOfReach,
           args: r.args,
           head: `${verdict(r.name)}.`,
           tail: `Cause: ${cause}.`,

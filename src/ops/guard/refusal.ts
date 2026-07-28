@@ -10,8 +10,10 @@
 // Message shape is fixed: `<head> <redirect> <tail>`. `head` is the verdict (§12 verdict-first),
 // the redirect is the only part the agent can act on, and `tail` is the producer's own remaining
 // clause — the CAUSE (needs access the caller may not have) or the one escape specific to that
-// producer ("narrow the query", "force:true"). The redirect never carries a producer's remedy: it
-// names calls, and only calls (navigate.ts).
+// producer ("narrow the query", "force:true"). The split follows what each side can KNOW: the
+// table names calls it can vouch for structurally, and a producer names escapes only it knows
+// (a per-op flag the table cannot model). So a remedy in a `tail` is not a leak — a remedy in the
+// redirect would be.
 //
 // Two entry points, because there are two authorities for "which op is refusing", and neither may
 // be a parameter the other could fill wrongly (t-166631):
