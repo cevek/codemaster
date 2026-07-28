@@ -67,3 +67,26 @@ track was fixing.
 Related, each a facet of the same loop rather than a separate cause: t-089408 (the symbol question has no
 salience amid legitimate greps), t-034392 (the stale banner names only the expensive remedy),
 t-933867 (the same population failure measured on another track).
+
+## Scope caveat: this serves ONE of two populations — do not generalize the remedy
+
+codemaster has two distinct user populations, and every finding in the inbox belongs to one of them:
+
+- **Internal** — agents editing codemaster itself. The MCP path is stale-by-construction for them, so the
+  loop pushes them onto the CLI. That is the causal chain above, and this task is their fix.
+- **External** — agents working in OTHER repos (backoffice2, amiro, task-manager) who merely use the tool.
+  Their daemon is fresh, MCP is the correct and richer surface (warm LS, `status`, per-op schemas standing
+  in the tool list), and they have no reason to be on the CLI at all.
+
+So the outcome of this task is **parity, not a recommendation**: the CLI stops being a reduced surface, so
+whoever is on it by necessity no longer loses composition. It must NOT be phrased anywhere — messages,
+notes, docs — as "prefer the CLI". For an external agent that advice is a downgrade: a one-shot pays cold
+start on every call to solve a staleness problem they do not have.
+
+Why this distinction matters beyond wording: the external population operates under STRICTER constraints
+and reports less often. They cannot restart the daemon (it is machine-global, other agents' warm state),
+cannot write a config into the repo they are working in without evicting every other client of it
+(t-187018), and have no access to the tool's source to diagnose anything. Prioritizing by volume of
+feedback therefore over-serves the internal population, which is prompted to report and knows the
+vocabulary. Their findings — t-959904, t-089408, t-109741, t-849286, t-159797 — are the external half, and
+they are about the tool being unusable rather than inconvenient.
