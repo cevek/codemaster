@@ -30,3 +30,29 @@ test('the concepts sql worked-example references a real op and column', () => {
     'the role/groupBy used in the example must validate',
   );
 });
+
+test('the absence-audit worked example validates against the live find_usages schema + columns', () => {
+  const example = CONCEPTS_LINES.find((l) => l.includes('as:"fam"'));
+  assert.ok(example !== undefined, 'the absence-audit example must be present');
+
+  const findUsages = builtinOps().find((o) => o.name === 'find_usages');
+  assert.ok(findUsages !== undefined, 'the recipe names find_usages — it must exist');
+  // The anti-join keys on `file` — a renamed column would make the documented SELECT lie.
+  assert.ok(
+    findUsages.table?.columns.some((c) => c.name === 'file'),
+    'absence-audit joins on `file` — find_usages must project that column',
+  );
+  // Both producer arg shapes, exactly as shown.
+  assert.ok(
+    findUsages.argsSchema.safeParse({
+      name: 'defineOp',
+      role: 'call',
+      filter: { pathInclude: ['src/ops/**'] },
+    }).success,
+    'the family producer args must validate',
+  );
+  assert.ok(
+    findUsages.argsSchema.safeParse({ name: 'semanticFanoutRefusal', role: 'call' }).success,
+    'the F producer args must validate',
+  );
+});
