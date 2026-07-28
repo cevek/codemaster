@@ -6,9 +6,6 @@ priority: low
 type: feat
 complexity: S
 area: framework
-relates:
-  - t-000021
-  - t-000133
 surface:
   - plugins/react-query
   - plugins/ts

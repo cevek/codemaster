@@ -7,7 +7,6 @@ type: feat
 complexity: M
 area: framework
 relates:
-  - t-000020
   - t-000021
 surface:
   - plugins/ts

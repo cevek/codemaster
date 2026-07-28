@@ -7,7 +7,6 @@ type: feat
 complexity: S
 area: framework
 relates:
-  - t-000020
   - t-000133
 surface:
   - plugins/react-query

@@ -6,9 +6,6 @@ priority: low
 type: bug
 complexity: S
 area: framework
-relates:
-  - t-000134
-  - t-000136
 surface:
   - plugins/react
   - plugins/ts

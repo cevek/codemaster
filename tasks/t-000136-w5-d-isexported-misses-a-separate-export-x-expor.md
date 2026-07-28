@@ -7,7 +7,6 @@ type: bug
 complexity: M
 area: framework
 relates:
-  - t-000036
   - t-000134
   - t-000135
 surface:
