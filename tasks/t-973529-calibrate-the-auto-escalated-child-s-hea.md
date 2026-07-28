@@ -1,7 +1,7 @@
 ---
 id: t-973529
 title: Calibrate the auto-escalated child's heap ceiling — an oversized fan-out grinds ~6.6 min before OOM instead of failing fast
-status: backlog
+status: done
 priority: urgent
 parent: t-754922
 tags:
@@ -11,21 +11,29 @@ complexity: M
 area: platform
 created: '2026-07-27T22:59:24.484Z'
 ---
-Auto-escalation (t-754922) converts the crash: on backoffice2 (no codemaster.config, ~6.1k files) a file-pinned `find_usages {role:'jsx', groupBy:'enclosing'}` returns `FAIL tool=oom — isolated engine process ran out of memory (code=null signal=SIGABRT)` with the daemon alive. Measured live.
+**Closed as NOT REPRODUCING.** The premise — an auto-escalated child grinding ~6 min 40 s before OOM — does not hold. The honest failure already lands in ~31 s, inside the §1 5–60 s budget, so there is nothing to calibrate. The heap ceiling stays at its 4096 MB default.
 
-The residual is UX, not safety: an auto-escalated repo has no config, so the child inherits the DEFAULT heap (~4 GB) and grinds for ~6 min 40 s before the OOM. The honest pre-warm refusal it replaced answered in ~9 s. An agent now waits minutes for a failure it could have been told about immediately.
+## What was measured
 
-Measures to weigh (a calibration decision, deliberately left out of t-754922):
-- give an AUTO-escalated child a lower default `--max-old-space-size` than the ~4 GB inherit, so it reaches memory sooner than a multi-minute grind;
-- and/or keep a pre-warm advisory inside the escalated child — no longer a crash guard there, but a fast "this fan-out will not fit" answer.
+backoffice2 (6101 git-tracked `.ts/.tsx`, no `codemaster.config` → auto-escalated), cold, one-shot `node src/bin.ts op … --root …`, default child heap 4096 MB:
 
-Neither may re-introduce false refusal: a repo whose fan-out DOES fit must still answer.
+| op | result |
+| --- | --- |
+| `find_usages {name:'SubmitButton', file:'apps/emr/src/layouts/Form/components/SubmitButton/SubmitButton.tsx', role:'jsx', groupBy:'enclosing'}` — the exact repro | **31.3 s → `FAIL tool=oom`** |
+| same shape, `Text @ apps/patient-care/src/components/Text/Text.tsx` | 33.5 s → `oom` |
+| same shape, tiny fan-out, `BookingDoctorSelect @ apps/kalendarik/…` | 28.5 s → `oom` |
+| `expand_type {name:'UserRole', file:'packages/common/entities/user/types.ts', line:24, col:14}` | 11.3 s → **OK** (also OK at 2048 MB and at 1024 MB) |
 
-## Measured anchor for the calibration
+## Why ~6.6 min could not have happened
 
-Two live data points on backoffice2 (~6.1k files), same repo, same file-pinned `find_usages {role:'jsx', groupBy:'enclosing'}`:
+- **The tool's own telemetry contradicts it.** Across `~/.codemaster/usage/{fail,success}.jsonl` + `archive/*.jsonl`, no record of any op exceeds 47 s. This exact repro is recorded at 36122 ms (default 4 GB heap) and at 9103 / 6774 ms (a 1024 MB config sandbox under `/private/tmp/w1gate`). There are no `outcome:'crash'` / `'abandoned'` breadcrumb promotions, so no fatal call went unrecorded.
+- **It is structurally unreachable through the daemon path.** `BRIDGE_REPLY_DEADLINE_MS = 150_000` (`src/bin.ts`) is the process host's `requestDeadlineMs`: at 150 s the parent SIGKILLs the child and every pending request settles as `tool=timeout`. A 400 s `tool=oom` cannot occur.
+- The ~6.6 min was therefore a wall-clock impression by the observing agent — most plausibly several consecutive attempts read as one — not a measurement.
 
-- child heap ~4 GB (the inherit an auto-escalated repo gets, no config): OOM at **~6 min 40 s**, `FAIL tool=oom … signal=SIGABRT`.
-- child heap 1024 MB (explicitly configured, measured on the sibling gate experiment): OOM at **~9–10 s**, same structural failure.
+## The finding worth keeping
 
-So the cost curve between them is steep, and 1024 MB is a measured lower anchor that still produces the honest `oom` category rather than a deadline kill. What is NOT measured is the false-refusal side: a heap that low may also kill fan-outs that WOULD have fitted at 4 GB. The calibration therefore needs a repo whose fan-out succeeds, to find a ceiling that keeps success while cutting the grind — a middle value (e.g. 2048 MB) measured both ways, not 1024 adopted blind.
+Cold cross-program `find_usages` on backoffice2 OOMs at 4 GB **regardless of the target** (31.3 / 33.5 / 28.5 s across three different symbols, including one with a tiny reference set). The cost is the multi-program build, not the size of the reference set — so a guard for this class must be repo-level, not per-target. Conversely `expand_type` (single program) answers in ~11 s and survives even a 1024 MB ceiling.
+
+That kills lever A (a lower default child heap): the ceiling is shared by the whole child, so it would be paid by the ops that DO work on such a repo, in exchange for ~20 s on a path that fails either way.
+
+The residual — refusing that fan-out class fast instead of after ~31 s — is a different claim and is tracked separately (see the process-mode fan-out guard task, which depends on t-396905 for the correct memory model).

@@ -28,3 +28,21 @@ Move the semantic-fanout guard onto the same `estimateSearchPeak` model t-399909
 - find_usages backoffice2: Σ=18311 > 8000 → refuse ✓ (more accurate than the current surface-undercount)
 
 Collapses the two thresholds (searchWarmMaxFiles + the new searchWarmPeakMaxFiles from t-399909) back into one peak-based knob, and fixes the semantic guard's undercount. Update the shared `semantic-fanout-guard.ts` + `test/differential/semantic-fanout-guard.test.ts` in one owner pass (both prerequisite tracks merged → no concurrent editing). doc-sync the config semantics.
+
+## Implementation constraint: `estimateSearchPeak` cannot be reused as-is
+
+The existing API is reachable from the guard with no new plugin surface, but it returns the **post-prune** figure, which is the wrong one for a non-prunable op. Measured on backoffice2:
+
+```
+estimateSourceFileCount     6101
+estimateSearchPeak          { peakFiles: 6103, pruned: true }
+programs 26,  Σ fileNames   18299
+```
+
+`pruned:true` collapses the answer to the primary (6103), and the un-pruned Σ (18299) is never returned. Pointing the fan-out guard at `estimateSearchPeak()` therefore refuses nothing on the repo that motivates this task — confirmed end-to-end: `search_symbol {query:'SubmitButton'}` clears the peak guard and answers in 15.7 s there, while `find_usages` on the same repo OOMs at ~31 s.
+
+So the fix needs `estimateSearchPeak` to expose both figures (or a sibling accessor for the un-pruned Σ), and the guard must select the un-pruned one. Consumer blocked on this: t-544207.
+
+## Threshold calibration data
+
+Cold `find_usages` on backoffice2 at the default 4096 MB child heap OOMs in ~31 s for **every** target tried (three symbols, including one with a near-empty reference set) — the cost is the multi-program build, so a single repo-level peak number is the right gate shape. Single-program ops on the same repo (`expand_type`, file-pinned) answer in ~11 s and fit even a 1024 MB child heap, so a peak threshold must not be set so low that it catches them.
