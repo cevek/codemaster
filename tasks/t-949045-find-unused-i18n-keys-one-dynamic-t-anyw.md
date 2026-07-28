@@ -1,7 +1,7 @@
 ---
 id: t-949045
 title: 'find_unused_i18n_keys: ONE dynamic t() anywhere demotes every key globally, so `prefix=` narrowing changes nothing — and the hint recommends the exact remedy the caller already applied'
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
@@ -41,3 +41,25 @@ Naming the blocking call is the actionable half: today the caller cannot even fi
 
 Same family as t-959904 (a refusal must name a step the caller can actually take) — this is its i18n
 instance, with the extra sting that the proposed step is the one already taken.
+
+## Resolution
+
+The verdict and the hint are now scoped to what a call REPORTS, and the blocking call sites are
+named (`blocking`: proof spans in `file:line:col` order, capped with its own inline `more`). Per-key
+confidence is untouched — it stays the whole-scan fact, so the false-certain-dead surface did not
+move. The two causes that HIDE keys rather than demote them (a locale parse failure, an unresolved
+i18n module) stay whole-scan, so an empty answer over an unreadable locale still reads incomplete.
+`globalDemote` stays the whole-scan fact, distinct from `degraded`.
+
+**Measured, so the next reader does not re-open it: the "narrow the demote where the dynamic call
+provably cannot reach the queried prefix" direction is not what fixes the reported repo.** In amiro
+the dynamic `t()` population is **68 headless calls** (`t(row.labelKey)`, `t(kindLabelKey(kind))`,
+`t(key)`) and **0** leading-substitution templates. A suffix bound (`` t(`${x}.title`) `` ⇒ the key
+provably ends with `.title`) is implementable and sound, but fires on **0/68** there — so it was NOT
+built: it would rewrite `isKeyDemoted`, the single predicate between the tool and a deleted
+production string, for zero measured benefit. The second, provable instance of the same defect —
+`{prefix:'ui'}` stamped `degraded` by a call confined to `errors.codes.*` — is what was fixed instead,
+and it needs no new inference at all.
+
+The only path that would lift the demote on those 68 calls is the checker's argument type
+(literal unions) — a `plugins/ts` surface, filed as **t-529726**.
