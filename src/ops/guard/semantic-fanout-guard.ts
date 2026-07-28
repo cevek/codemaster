@@ -21,6 +21,7 @@ import type { ToolFailure } from '../../core/result.ts';
 import type { TsPluginApi } from '../../plugins/ts/plugin.ts';
 import type { DaemonInfo } from '../registry.ts';
 import type { IsolationReason } from '../../core/isolation.ts';
+import { navigationFor } from './navigate.ts';
 
 /** Refuse a heavy semantic fan-out when the in-process daemon would OOM on it — else `undefined`
  *  (warm as normal). Called at the TOP of a guarded op's `run()`, BEFORE any resolve/warm (a
@@ -32,6 +33,10 @@ export function semanticFanoutRefusal(
   ctx: { daemon?: Pick<DaemonInfo, 'isolation' | 'isolationReason'> | undefined },
   ts: Pick<TsPluginApi, 'estimateSourceFileCount' | 'searchWarmMaxFiles'>,
   force: boolean | undefined,
+  // t-959904: which op is refusing, and what it was asked — the refusal names the call that answers
+  // the SAME question here (navigate.ts). REQUIRED, so tsc catches a call site that would otherwise
+  // silently emit a redirect for the wrong op.
+  nav: { op: string; args: unknown },
 ): ToolFailure | undefined {
   // Only in-process: a forked child (process-mode) has its own killable heap → the t-000052
   // mechanism turns the OOM into an honest ToolFailure without touching the daemon. `undefined`
@@ -52,75 +57,55 @@ export function semanticFanoutRefusal(
       ts.searchWarmMaxFiles,
       ctx.daemon.isolationReason,
       force === true,
+      nav,
     ),
   };
 }
 
+/** Ordering IS the contract here (§12 verdict-first, t-959904). What the agent can run RIGHT NOW
+ *  comes before why the heavy path is unavailable, because the reader of this message is usually an
+ *  agent inside someone else's repo: it can make another call, and it cannot restart a machine-wide
+ *  daemon or edit that repo's config. The cause+remedy still ships — one clause, explicitly labelled
+ *  as needing access the caller may not have — so the operator who CAN act is not left guessing. */
 function fanoutRefusalMessage(
   count: number,
   threshold: number,
   reason: IsolationReason | undefined,
   forced: boolean,
+  nav: { op: string; args: unknown },
 ): string {
   const forcedNote = forced
-    ? ' `force:true` does NOT override this refusal — forcing the warm here killed the daemon in production (t-693742).'
+    ? ' (`force:true` does NOT override this — forcing the warm here killed the daemon in production, t-693742.)'
     : '';
   return (
-    `repo is large (${count} source files > threshold ${threshold}) and this engine runs IN-PROCESS — ` +
-    `this op warms the type-checker and fans references across every program, and an OOM in the ` +
-    `daemon's own heap is uncatchable (it kills the daemon, taking every workspace with it). ` +
-    `${remedyFor(reason)}${forcedNote}`
+    `${nav.op} declines: repo ${count} src files > threshold ${threshold}, engine IN-PROCESS — its ` +
+    `cross-program reference fan-out can OOM the daemon uncatchably, killing every workspace on it. ` +
+    `${navigationFor(nav.op, nav.args)} ` +
+    `Cause (needs config/daemon access): ${remedyFor(reason)}${forcedNote}`
   );
 }
 
-/** Name the ACTUAL cause and its remedy. Exhaustive over the union, so a new cause cannot fall
- *  through to a plausible-but-wrong sentence; an absent cause says exactly that (§3.6). */
+/** Name the ACTUAL cause and its remedy, one clause each. Exhaustive over the union, so a new cause
+ *  cannot fall through to a plausible-but-wrong sentence; an absent cause says exactly that (§3.6). */
 function remedyFor(reason: IsolationReason | undefined): string {
   switch (reason) {
     case 'auto-escalated':
       // Structurally unreachable (an escalated engine IS the child, and the child never reaches
       // this guard) — stated, not silently defaulted, so the union stays exhaustive.
-      return 'This workspace was auto-escalated into a child engine, yet this op ran in-process — report this inconsistency via the `feedback` op.';
+      return 'this workspace was auto-escalated into a child engine yet ran in-process — inconsistent; report it via the `feedback` op.';
     case 'auto-escalate-disabled':
-      return (
-        'Auto-escalation is switched OFF for this workspace (`daemon.autoEscalate: false`), so the ' +
-        'oversized repo was NOT raised into a killable child — remove that setting (the default) so ' +
-        'this op runs in an isolated child, where a fan-out too big for the heap comes back as an ' +
-        'honest failure instead of killing the daemon (the op may still exceed that heap).'
-      );
+      return '`daemon.autoEscalate: false` switched escalation off, so the oversized repo was never raised into a killable child.';
     case 'configured':
-      return (
-        "This workspace pins `daemon.isolation: 'in-process'` in codemaster.config — remove it (an " +
-        'oversized repo then auto-escalates into a killable child) or set it to `process`.'
-      );
+      return "codemaster.config pins `daemon.isolation: 'in-process'` — `process` (or removing it) runs this in a killable child instead.";
     case 'escalation-failed':
-      return (
-        'This repo WAS auto-escalated, but forking the isolated child engine failed, so it fell back ' +
-        'to in-process (the cheap no-warm ops still work) — check the daemon debug log for the fork ' +
-        'error, then restart the daemon (`codemaster daemon restart`) or wait for idle eviction — a ' +
-        'retry alone reuses this same in-process engine. Escalation buys crash-SAFETY, not ' +
-        'capability: the fan-out may still exceed the child heap, honestly.'
-      );
+      return 'escalation was attempted but forking the isolated child engine failed (see the daemon debug log); a retry reuses this same in-process engine.';
     case 'no-process-host':
-      return (
-        'This build provides no process-host factory, so the repo could not be escalated into a ' +
-        'child — run codemaster through its normal entry point (`codemaster mcp` / `codemaster daemon`), ' +
-        'which does.'
-      );
+      return 'this build ships no process-host factory; the normal entry point (`codemaster mcp` / `codemaster daemon`) provides one.';
     case 'within-budget':
-      return (
-        'The engine was spawned when the repo still measured within budget, so it was not escalated — ' +
-        'restart the daemon (`codemaster daemon restart`) to re-decide against the current size.'
-      );
+      return 'the repo measured within budget when this engine spawned and has grown since; `codemaster daemon restart` re-decides.';
     case 'estimate-failed':
-      return (
-        'The repo size could not be measured at spawn (git listing failed), so escalation was not ' +
-        "attempted — fix the git state, or set `daemon.isolation: 'process'` explicitly."
-      );
+      return "the repo size could not be measured at spawn (git listing failed), so escalation was never attempted; `daemon.isolation: 'process'` sets it explicitly.";
     case undefined:
-      return (
-        'Why this workspace was not escalated into a killable child is not recorded on this path — ' +
-        "check `daemon.autoEscalate` / `daemon.isolation` in codemaster.config, or set `isolation: 'process'`."
-      );
+      return 'not recorded on this path — check `daemon.autoEscalate` / `daemon.isolation` in codemaster.config.';
   }
 }

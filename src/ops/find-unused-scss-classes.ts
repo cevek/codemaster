@@ -86,7 +86,10 @@ export const findUnusedScssClassesOp = defineOp({
     // `list`). Stated lifetime: this call goes away (or is re-derived) once the auto-escalate-
     // oversized-repo-to-process-mode path lands and the guard's "refuse in-process" semantics become
     // "route to a killable child".
-    const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force);
+    const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force, {
+      op: 'find_unused_scss_classes',
+      args,
+    });
     if (refusal !== undefined) return fail(refusal);
     try {
       const view = scss.unusedClasses({

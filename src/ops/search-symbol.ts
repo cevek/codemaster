@@ -11,6 +11,7 @@ import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
 import { fileModuleHint } from './search-file-hint.ts';
+import { navigationFor } from './guard/navigate.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
 /** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
@@ -68,15 +69,26 @@ const argsSchema = z.strictObject({
 
 /** The pre-warm size guard's refuse message (§1 never-crash / resource-respect): honest about WHY
  *  (OOM + throwaway memory) and actionable (the three no-warm / opt-in escapes). */
-function sizeGuardRefusal(peakFiles: number, threshold: number, pruned: boolean): string {
+/** t-959904: the redirect names only paths that are cheap BY CONSTRUCTION on the very repo that
+ *  tripped this guard (navigate.ts). It must never name `find_usages` — wherever the peak threshold
+ *  is exceeded, a repo-wide reference fan-out is exactly what cannot run, so pointing there sends
+ *  the agent from one refusal into the next. `force:true` is advertised HERE and only here: it does
+ *  override this particular guard (the warm is a memory risk, not an uncatchable in-process OOM),
+ *  unlike the fan-out guard, where forcing killed the daemon in production (t-693742). */
+function sizeGuardRefusal(
+  peakFiles: number,
+  threshold: number,
+  pruned: boolean,
+  args: unknown,
+): string {
   const shape = pruned
     ? `even after discovery-pruning to the primary program, its ${peakFiles} files would build`
     : `warming would build ${peakFiles} files across its programs`;
   return (
-    `repo is large (${shape}, over the peak threshold ${threshold}) — this navto search risks OOM ` +
-    `(can kill the daemon) and holds large type-checker memory for a throwaway discovery query. ` +
-    `Browse via symbols_overview, then find_definition / find_usages on the specific symbol; or ` +
-    `search_symbol {syntactic:true} for an OOM-safe fuzzy search; or pass force:true to warm anyway.`
+    `search_symbol declines to warm: repo is large (${shape}, over the peak threshold ${threshold}) — ` +
+    `the navto search risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
+    `throwaway discovery query. ${navigationFor('search_symbol', args)} ` +
+    `Or pass force:true to warm anyway.`
   );
 }
 
@@ -156,9 +168,12 @@ export const searchSymbolOp = defineOp({
     // (what will actually build — a single pruned primary on a loose-root monorepo, else the summed
     // fan-out) and REFUSES to warm the LS above a configurable threshold (config
     // `ts.searchWarmPeakMaxFiles`, default 9000) — warming a peak that big risks OOM and squats memory
-    // for a throwaway query. The refusal redirects to symbols_overview / `syntactic:true`;
-    // `force:true` warms anyway.
-    'on a repo whose post-pruning peak exceeds `ts.searchWarmPeakMaxFiles` (default 9000 files that would build) the default path REFUSES to warm (OOM/memory-squat risk) and redirects to symbols_overview or `syntactic:true`; pass `force:true` to warm regardless.',
+    // for a throwaway query.
+    // This note documents the ARG only. Which calls to run instead is the REFUSAL's job (navigate.ts)
+    // — it is emitted at the moment it applies, with this call's own query interpolated. Restating
+    // the redirect here would give one claim two homes, and a signal an agent meets twice is a signal
+    // it learns to skim (t-034392).
+    'on a repo whose post-pruning peak exceeds `ts.searchWarmPeakMaxFiles` (default 9000 files that would build) the default path REFUSES to warm (OOM/memory-squat risk) and says what to run instead; `force:true` warms regardless, `syntactic:true` never needs it.',
   ],
   table: searchSymbolTable,
   async run(ctx, args) {
@@ -207,6 +222,7 @@ export const searchSymbolOp = defineOp({
               estimate.data.peakFiles,
               ts.searchWarmPeakMaxFiles,
               estimate.data.pruned,
+              args,
             ),
           });
         }

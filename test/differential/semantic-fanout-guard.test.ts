@@ -53,10 +53,19 @@ test('over threshold, in-process: find_usages / impact / importers_of REFUSE + r
         // The harness wires no process-host factory, so THAT is the honest cause here (t-754922) —
         // the refusal must name it, not a generic "one of three reasons" menu.
         assert.match(msg, /process-host factory/, `${req.name} names the actual cause`);
-        assert.match(
-          msg,
-          /\d+ source files > threshold 1/,
-          `${req.name} states count vs threshold`,
+        assert.match(msg, /\d+ src files > threshold 1/, `${req.name} states count vs threshold`);
+        // t-959904: the refusal must hand back a call the caller can run HERE, ahead of a cause it
+        // may have no access to fix — and never point at an op that would refuse in turn.
+        // Two honest leads: a real substitute (`RUN INSTEAD`), or none — `impact` / `importers_of`
+        // have no cheaper in-tool path, and the message must SAY so rather than dress the
+        // orientation calls as the answer (§3.6). Either way it precedes the access-gated cause.
+        const instead = Math.max(msg.indexOf('RUN INSTEAD'), msg.indexOf('NO cheaper in-tool path'));
+        const cause = msg.indexOf('Cause (needs config/daemon access)');
+        assert.ok(instead > 0 && cause > instead, `${req.name} leads with what the caller can run`);
+        assert.doesNotMatch(
+          msg.slice(instead, cause),
+          new RegExp(`\\b${req.name} \\{`),
+          `${req.name} must not redirect into itself`,
         );
       }
     }

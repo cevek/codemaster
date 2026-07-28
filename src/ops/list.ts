@@ -298,7 +298,10 @@ export const listOp = defineOp({
       // call goes away (or is re-derived) once the auto-escalate-oversized-repo-to-process-mode path
       // lands and the guard's "refuse in-process" semantics become "route to a killable child".
       if (owner.id === 'ts' || owner.deps.includes('ts')) {
-        const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force);
+        const refusal = semanticFanoutRefusal(ctx, ctx.plugins.get<TsPluginApi>('ts'), args.force, {
+          op: 'list',
+          args,
+        });
         if (refusal !== undefined) return fail(refusal);
       }
       const view: ListView = owner.list(args.registry);

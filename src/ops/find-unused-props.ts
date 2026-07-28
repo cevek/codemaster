@@ -76,7 +76,7 @@ export const findUnusedPropsOp = defineOp({
     // daemon (§1). Refuse BEFORE any resolve/warm, naming why the repo was not auto-escalated (the `ts` plugin is a
     // dep of `react`, so its estimate seam is available). `force` does NOT override it (t-693742).
     const ts = ctx.plugins.get<TsPluginApi>('ts');
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'find_unused_props', args });
     if (refusal !== undefined) return fail(refusal);
     try {
       const result = react.unusedProps(args.component, args.file);

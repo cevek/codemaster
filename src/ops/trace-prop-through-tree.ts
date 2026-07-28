@@ -61,7 +61,10 @@ export const tracePropThroughTreeOp = defineOp({
     // body-local (jsxChildSites) + per-child findDefinition, so it does not fan; a file+line[:col] /
     // name+file target is single-program-exact and is NEVER guarded. `force` does NOT override it (t-693742).
     if (isFanCapableTarget(args)) {
-      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force, {
+        op: 'trace_prop_through_tree',
+        args,
+      });
       if (refusal !== undefined) return fail(refusal);
     }
     try {

@@ -16,6 +16,7 @@ import { fail } from '../common/result/construct.ts';
 import type { ProjectHost } from './host.ts';
 import type { EngineChildHandle } from './fork-engine.ts';
 import { parseEngineFrame, type EngineReply, type EngineRequest } from './engine-protocol.ts';
+import { navigationFor } from '../ops/guard/navigate.ts';
 
 export interface ProcessHostDeps {
   repoId: RepoId;
@@ -138,15 +139,27 @@ export async function createProcessHost(
     });
   }
 
+  // t-959904: an oversized repo is auto-escalated at spawn, so on exactly the repos where the heavy
+  // ops die THIS is the message the agent reads — the in-process fan-out guard is unreachable there.
+  // A bare "fall back" makes a repo where most ops still answer look like a repo where the tool does
+  // not work. The op cannot annotate this itself (it died with the child), so the redirect is
+  // rendered here, from the shared table (`ops/guard/navigate.ts`) every other refusal uses — L4
+  // importing L3 is downward, and the table stays the single home of the claim.
   function failAll(reqs: readonly OpRequest[], s: Extract<Settled, { ok: false }>): OpResult[] {
     const tool = s.reason === 'timeout' ? 'timeout' : s.reason === 'oom' ? 'oom' : 'engine-process';
-    const message =
+    const cause =
       s.reason === 'timeout'
-        ? `isolated engine did not reply in ${deps.requestDeadlineMs}ms — killed it; fall back`
-        : `isolated engine process ${s.reason === 'oom' ? 'ran out of memory' : 'exited'} (${s.detail}) — fall back`;
+        ? `isolated engine did not reply in ${deps.requestDeadlineMs}ms — killed it`
+        : `isolated engine process ${s.reason === 'oom' ? 'ran out of memory' : 'exited'} (${s.detail})`;
     return reqs.map((r) => ({
       name: r.name,
-      result: fail<JsonValue>({ tool, message, partial: true }),
+      result: fail<JsonValue>({
+        // Per-request, not one shared string: a batch's requests ask different questions, and a
+        // redirect computed for the first would be wrong for the rest.
+        tool,
+        message: `${cause}; ${r.name} cannot complete on this repo. ${navigationFor(r.name, r.args)}`,
+        partial: true,
+      }),
     }));
   }
 

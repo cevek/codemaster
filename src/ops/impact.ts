@@ -208,7 +208,7 @@ export const impactOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     // Pre-warm guard (t-679091): impact's transitive fan-out is `nodes × find_usages` across every
     // program — the heaviest OOM surface. Refuse on an oversized in-process repo before warming.
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'impact', args });
     if (refusal !== undefined) return fail(refusal);
     const maxDepth = args.depth ?? DEFAULT_DEPTH;
     const maxNodes = args.nodes ?? DEFAULT_NODES;

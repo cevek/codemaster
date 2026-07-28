@@ -57,7 +57,10 @@ export const traceFieldToRenderOp = defineOp({
     // Pre-warm guard (t-411303): `fieldRenderSites` rides `findReferencesAcross`, fanning member
     // references across every program — on an oversized in-process repo that OOMs and kills the
     // daemon (§1). Refuse BEFORE any resolve/warm, naming why the repo was not auto-escalated. `force` does NOT override it (t-693742).
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, {
+      op: 'trace_field_to_render',
+      args,
+    });
     if (refusal !== undefined) return fail(refusal);
     try {
       const target = targetFields(classifyTargetString(args.field)) as TsTargetInput;

@@ -44,7 +44,7 @@ export const findDefinitionOp = defineOp({
     // A file+line+col / name+file / file+line target is single-program-exact (no `searchSymbols`)
     // and is NEVER guarded. `force` does NOT override it (t-693742); process-mode + an estimate failure fall through.
     if (isFanCapableTarget(args)) {
-      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'find_definition', args });
       if (refusal !== undefined) return fail(refusal);
     }
     try {

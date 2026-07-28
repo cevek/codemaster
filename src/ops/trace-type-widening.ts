@@ -61,7 +61,10 @@ export const traceTypeWideningOp = defineOp({
     // program), so a file+line[:col] / name+file target is single-program-exact and NEVER guarded.
     // `force` does NOT override it (t-693742).
     if (isFanCapableTarget(args)) {
-      const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+      const refusal = semanticFanoutRefusal(ctx, ts, args.force, {
+        op: 'trace_type_widening',
+        args,
+      });
       if (refusal !== undefined) return fail(refusal);
     }
     try {

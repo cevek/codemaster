@@ -242,7 +242,7 @@ export const importersOfOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     // Pre-warm guard (t-679091): importersOf fans import resolution across every program — refuse on
     // an oversized in-process repo before warming (would OOM-kill the daemon, §1).
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force);
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'importers_of', args });
     if (refusal !== undefined) return fail(refusal);
     try {
       // Widen the search first (t-228533) — a `programs:`-loaded config joins the fan-out + drops from
