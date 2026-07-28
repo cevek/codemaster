@@ -60,3 +60,26 @@ Note the asymmetry to preserve when fixing: a workspace name search DOES find an
 alias and a top-level binding pattern; it misses `export * as ns` and an object-literal property.
 So "navto is blind to these forms" is true of some and false of others — any message or fix must
 be scoped per form, not stated as a universal (that overclaim was itself a defect once).
+
+## Why this is filed as a capability, not a wording task
+
+Eight consecutive review rounds each found a new defect in the ONE error message that describes
+this blind spot, twice because the fix applied on a reviewer's recommendation was itself false:
+
+- a round concluded "a column on a declaration-less line is a dead end"; written as advised, the
+  next round proved BY EXECUTION that a column resolves a symbol USED there;
+- a round said "name `search_symbol` as the discriminator"; the next proved navto is blind to
+  `export * as ns`; removing it and writing "no name-based call can prove absence" was false in
+  the other direction — a bare name DOES resolve an `import * as` alias and a binding pattern.
+
+The prose cannot become true while the resolver's behaviour stays as it is: every short sentence
+about "what can find this symbol" is either false for some shape or an overclaim. Whoever picks
+this up should fix the WALK and then simplify the message, rather than the reverse.
+
+Two rules earned here, worth more than the finding:
+
+1. A reviewer's claim about BEHAVIOUR carries no more authority than a manager's hypothesis — it
+   is read-and-reason, the same position that was wrong twice above. Verify by execution before
+   acting on it; a test that RUNS the call a message names is the cheap check.
+2. When consecutive review rounds keep finding defects in the same prose, the defect is in the
+   capability that prose describes. Stop polishing and file the capability.
