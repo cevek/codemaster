@@ -2,7 +2,7 @@
 id: t-162650
 title: '`construction_sites` renders a SEMANTIC verdict over a program it never scanned: `files=0` proves the sibling program was skipped, yet the answer reads "no literal is assignable" and the remedy blames the caller''s scoping — while `find_usages` fans and discloses on the same question'
 status: backlog
-priority: high
+priority: urgent
 tags:
   - agent-surface
   - dogfood
@@ -58,3 +58,37 @@ Footnote worth keeping: the worker first measured this blast radius with GREP an
 "one synthetic ctx", reality 3 files. Inline object literals typed structurally contain no `OpContext`
 token at all. So grep fails this question by construction, the right op under-answers, and the op that
 answers is not discoverable from the question.
+
+## Second, INDEPENDENT instance — external repo, different mechanism, same false verdict
+
+`/Users/cody/Dev/claude-ui` (pnpm monorepo, per-package tsconfig), filed by an external agent:
+
+```
+construction_sites {name:'CreateQueryOptions'}                        → sites (0), scanned: literals=7 files=4
+construction_sites {…, pathInclude:['apps/server/**']}                → sites (0), scanned: literals=0 files=0
+```
+
+The real — and essentially only — construction site is a CALL-ARGUMENT literal at
+`apps/server/src/session.ts:941`: `provider.createQuery({ prompt, cwd, env, canUseTool, mcpServers,
+...(this.model ? { model: this.model } : {}) })`, where `provider: AgentProvider` and
+`createQuery(opts: CreateQueryOptions)`. Every required field is present and tsc accepts it — the repo
+typechecks clean.
+
+Two candidate triggers the reporter names, both worth checking: the literal carries **conditional spread**
+elements (`...(cond ? {k:v} : {})`), and the target sits in **call-argument position reached through an
+interface method** rather than an initializer or return.
+
+So this is now TWO independent reports of the same op returning a confident `0`:
+- the first (internal, `OpContext`) was a scope failure — `files=0` proved the sibling program was never
+  scanned;
+- this one reports `literals=7 files=4` unscoped, i.e. it DID scan and still found nothing, and then
+  `literals=0 files=0` when scoped — the same misleading "widen your pathInclude" remedy on a path where
+  widening cannot help.
+
+Raising to urgent: the op's entire purpose is the blast-radius question ("what builds type T"), and it
+answers `0` while the answer exists, in two different repos, for two different reasons. A `0` from this op
+is currently not evidence of anything, and nothing in the output says so.
+
+Note the overlap with t-228385 (no query for "which call sites pass `{…}` to a factory") — that task asks
+for a capability, this one shows the op that already claims that capability failing on exactly the shape.
+Whoever picks either should read both.
