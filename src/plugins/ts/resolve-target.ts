@@ -8,7 +8,12 @@ import { searchSymbols } from './search.ts';
 import { declarationsOnLine, topLevelDeclarationsNamed } from './declarations-on-line.ts';
 import { ambiguityMessage, distinctDeclarations } from './ambiguity.ts';
 import { resolveSymbolId } from './rebind-symbol-id.ts';
+import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { NAME_CANDIDATE_LIMIT, type ResolvedTarget } from './resolve-contract.ts';
+
+/** Declarations named per line in a pick-list / miss message before `+N more` (§3.4) — a
+ *  minified or generated line can hold hundreds. */
+const LINE_DECL_PREVIEW = 8;
 
 export type { ResolvedTarget };
 import type { SymbolView } from './query-types.ts';
@@ -126,18 +131,33 @@ function resolveByLine(
   const decls = name === undefined ? all : all.filter((d) => d.name === name);
   const sole = decls[0];
   if (sole === undefined) {
-    const named = name !== undefined ? ` named '${name}'` : '';
+    // Never advise the addressing the call ALREADY uses: with `name` given, the useful remedy is
+    // the column plus what is actually declared there (the name is what missed).
+    if (name !== undefined) {
+      const there =
+        all.length > 0
+          ? ` (declared there: ${nameWithMore(
+              all.map((d) => `${d.name} at col ${d.col}`),
+              LINE_DECL_PREVIEW,
+            )})`
+          : '';
+      return {
+        ok: false,
+        message: `no declaration named '${name}' on ${file}:${line}${there} — pass file:line:col (the column)`,
+      };
+    }
     return {
       ok: false,
-      message: `no declaration${named} on ${file}:${line} — pass file:line:col (the column) or a 'name'`,
+      message: `no declaration on ${file}:${line} — pass file:line:col (the column) or a 'name'`,
     };
   }
   if (decls.length > 1) {
     return {
       ok: false,
-      message: `${file}:${line} has ${decls.length} declarations (${decls
-        .map((d) => `${d.name} at col ${d.col} (${d.kind})`)
-        .join(', ')}) — pass file:line:col to pick one`,
+      message: `${file}:${line} has ${decls.length} declarations (${nameWithMore(
+        decls.map((d) => `${d.name} at col ${d.col} (${d.kind})`),
+        LINE_DECL_PREVIEW,
+      )}) — pass file:line:col to pick one`,
     };
   }
   return { ok: true, abs, offset: sole.offset };

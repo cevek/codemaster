@@ -85,6 +85,30 @@ test('file+line (no col) on a line with NO declaration fails honestly (not a fab
   }
 });
 
+test('a miss never advises the addressing already used: no "or a name" when name IS given', async () => {
+  const p: TestProject = await project(M);
+  try {
+    // The name is what missed (line 2 declares beta/gamma, not `employees`) — advising a `name`
+    // suggests the state the call is already in; the actionable remedies are the column and what
+    // is really declared there (t-175046).
+    const msg = failMsg(
+      await p.op('find_usages', { name: 'employees', file: 'src/m.ts', line: 2 }),
+    );
+    assert.ok(!/or a 'name'/.test(msg), `must not re-suggest 'name': ${msg}`);
+    assert.match(msg, /no declaration named 'employees' on src\/m\.ts:2/, 'names what missed');
+    assert.match(msg, /file:line:col/, 'keeps the column remedy');
+    assert.match(msg, /beta at col 14/, 'names what IS declared on that line');
+    assert.match(msg, /gamma at col 24/);
+
+    // The bare col-less form (no `name` passed) still offers `name` — that state is NOT the
+    // caller's, so the advice is live there.
+    const bare = failMsg(await p.op('find_usages', { file: 'src/m.ts', line: 4 }));
+    assert.match(bare, /or a 'name'/, "the advice survives where the caller hasn't used it");
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('name+file+line scopes the line to that name (line-scoped, not a workspace search)', async () => {
   const p: TestProject = await project(M);
   try {
