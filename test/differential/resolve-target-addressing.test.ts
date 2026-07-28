@@ -180,9 +180,16 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // that fact instead of naming a call that would only fail again.
     const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
     assert.ok(!/drop 'line'/.test(noSuch), `no remedy that cannot land: ${noSuch}`);
-    assert.match(noSuch, /declares no top-level 'zzz'/, 'states the fact the agent needs instead');
+    assert.match(noSuch, /does not reach it either/, 'states what the resolver cannot do instead');
     const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
-    assert.match(proof, /no top-level declaration named 'zzz'/, 'and that fact is true');
+    assert.match(proof, /no top-level declaration named 'zzz'/, 'and that claim is true');
+
+    // The claim is about THIS RESOLVER, never about the source: `a` IS declared top-level here
+    // (a binding pattern), which the top-level walk skips — so the message must not say the file
+    // declares no top-level 'a'. The column, which does reach it, is still offered.
+    const pattern = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts', line: 1 }));
+    assert.ok(!/declares no top-level/.test(pattern), `no false claim about source: ${pattern}`);
+    assert.match(pattern, /pass file:line:col/, 'and the addressing that does reach it is named');
   } finally {
     await p.dispose();
   }

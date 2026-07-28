@@ -57,12 +57,17 @@ export function lineMissMessage(
 /** The remedy that does not depend on the line at all. With no `name`, that IS `name` (the
  *  addressing the caller has not spent). With one, it is `name`+`file` WITHOUT `line` — a
  *  DIFFERENT addressing from the bare `name` t-175046 bans re-offering — but only where that
- *  path can land: it walks top-level statements, so for a nested / undeclared name it would be a
- *  wasted round-trip. There the message states the fact instead of naming a call. */
+ *  path can land: it is probed with the SAME walk `resolveNameInFile` uses, so the offer is made
+ *  exactly when the advised call would resolve, and never as a wasted round-trip.
+ *
+ *  The negative arm says what the RESOLVER cannot reach, never what the file declares: that walk
+ *  skips a top-level binding pattern (`export const { a } = obj`), so "the file declares no
+ *  top-level 'a'" would be false about source that plainly declares it — the same lie shape this
+ *  message family already had to unlearn once. */
 function altAddressing(sourceFile: ts.SourceFile, file: string, name: string | undefined): string {
   if (name === undefined) return ` or a 'name'`;
   if (topLevelDeclarationsNamed(sourceFile, name).length > 0) {
     return `, or drop 'line' (name+file resolves the file's TOP-LEVEL declaration of that name)`;
   }
-  return ` (${file} declares no top-level '${name}' either — check the name, or search it repo-wide)`;
+  return ` (name+file does not reach it either — no anchorable top-level '${name}' in ${file}; check the name, or search it repo-wide)`;
 }
