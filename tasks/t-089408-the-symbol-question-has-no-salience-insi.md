@@ -72,3 +72,32 @@ who does not remember the op never notices that it does not compose.
 Concrete direction this suggests for the CLI side: the catalogue must PUSH, not wait to be pulled — e.g.
 surface the two or three ops relevant to what just failed / just ran, at the moment of the call, rather
 than requiring a separate `status` round-trip that an agent mid-task will not spend.
+
+## Two refinements that change what "fix" means here (worker a42c3d8e, second doc track)
+
+**1. Most of the pattern is NOT a missed opportunity — 4 of 5 question types genuinely do not belong to
+the tool.** "Does this folder exist" is `ls`; "what does this module header say" is reading a file; "does
+this sentence appear in the prose" is grep. Notably `ls` is what caught an omission in the worker's OWN
+enumeration of `support/` — the right tool won on its merits.
+
+So the honest denominator is much smaller than "every question a doc track asks". Optimizing as if agents
+were skipping the tool constantly will over-fire and make the nudge noise (the very failure recorded
+above). Exactly ONE question in the track was codemaster-shaped: "which surfaces render `navigationFor`".
+
+**2. Why even that one went to grep — an economic reason, not a quality one.** It rode along inside a bash
+call the worker was already making for `ls`. Marginal cost ≈ zero, versus a separate MCP round-trip for the
+tool. Nothing about the answer's quality entered the decision.
+
+That reframes the target: the competitor is not "grep's output" but "a call I am making anyway". A tool
+invocation that costs a dedicated round-trip loses to a free rider even when it is strictly better — which
+is also why t-631032 (composition on the one-shot CLI) did not change behaviour.
+
+**3. Structural point about this whole class:** doc-sync is verified by PARAGRAPH, not by declaration, so
+after any location-shaped answer the file gets opened anyway. The class is reading by construction — the
+same shape as the "location is not the edit" finding recorded in t-631032, arriving independently from a
+different track.
+
+**4. Timing correction to the nudge direction proposed above.** The hook fires AFTER the bash call, when
+the answer is already on screen — post-hoc by construction, so it cannot redirect the question it is
+about. If a nudge is to work it must intercept the grep whose pattern is a BARE IDENTIFIER, before or
+instead of the call, not comment on it afterwards.
