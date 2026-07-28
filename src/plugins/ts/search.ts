@@ -11,7 +11,7 @@ import { coversInRootSurface } from './discovery-prune.ts';
 import { spanFromRange } from './spans.ts';
 import { mintSymbolId } from './symbol-id.ts';
 import { declarationNodeOf } from './declaration.ts';
-import type { SymbolView } from './query-types.ts';
+import { ALIAS_KIND, type SymbolView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
 export type SearchView = {
@@ -27,6 +27,14 @@ export type SearchView = {
    *  nothing → note fires) from a genuine no-such-symbol (this is 0 → honest absence). Like `total`
    *  it is a navto-budget-bounded FLOOR (navto runs before the path filter), never over-reported. */
   filteredOutByPath?: number;
+  /** The LS's OWN result cap bit — some program returned a full `limit * 4` page, so navto sorted
+   *  and SLICED before we ever saw the rest. This is the truncation our own filters cannot see: TS
+   *  ranks by matchKind + name with no case tie-break, so a case-insensitive near-match (`span` for
+   *  `Span`) sits in the same `exact` bucket and can push real declarations off the page BEFORE
+   *  `nameExact` runs. A consumer that reports a count or an emptiness MUST treat its answer as a
+   *  lower bound / an honest "couldn't" when this is set — `total === matches.length` proves
+   *  nothing here (§3.4/§3.6). */
+  searchTruncated: boolean;
 };
 
 export type SearchFilter = {
@@ -34,6 +42,23 @@ export type SearchFilter = {
   exportedOnly?: boolean | undefined;
   pathInclude?: readonly string[] | undefined;
   pathExclude?: readonly string[] | undefined;
+};
+
+/** The extra contract of a name→DECLARATION RESOLVE (`resolveByName` / the §6 rebind), as opposed to
+ *  a browse (`search_symbol`). Deliberately NOT part of `SearchFilter`: that type is the public
+ *  browse filter (re-exported from `src/index.ts`, and shared with the syntactic search, which
+ *  implements none of this) — advertising a field one implementor silently ignores is the §3.6 lie.
+ *  `nameExact` is REQUIRED, so ranking can never be requested without the narrowing that bounds what
+ *  the ranking retains. */
+export type ResolveNarrowing = {
+  /** Keep ONLY candidates whose name is exactly this (navto's matcher is fuzzy — prefix / substring
+   *  / camelCase). Applied INSIDE the loop, before the view cap and before `total`, so the budget is
+   *  spent on the name that was asked for and `total` is the honest count of its declarations — a
+   *  post-filter over a fuzzy-capped page silently drops exact matches and miscounts the rest (§3.4). */
+  nameExact: string;
+  /** Spend the view budget on real declarations before alias (re-export / import) specifiers, so a
+   *  barrel chain longer than the budget cannot crowd the declaration out of the answer. */
+  preferDeclarations?: boolean | undefined;
 };
 
 export function searchSymbols(
@@ -51,6 +76,8 @@ export function searchSymbols(
   // list-shaped answers (terse/normal) stay byte-identical, and the extra AST walk is only paid when
   // the agent opted into `full`.
   includeDecl = false,
+  /** Present only on a RESOLVE path; a browse leaves navto's own matcher and ranking untouched. */
+  narrow?: ResolveNarrowing,
 ): SearchView {
   // Across ALL loaded programs (spec Task G): a symbol DECLARED only in a sibling-program file (a
   // `test/**` helper under `tsconfig.test.json`) is invisible to the primary navto — so a name-
@@ -66,9 +93,12 @@ export function searchSymbols(
   const exclude = filter?.pathExclude;
   const pathFiltered = include !== undefined || exclude !== undefined;
   const views: SymbolView[] = [];
+  const prefer = narrow?.preferDeclarations === true;
+  const eligible: { program: ts.Program; item: ts.NavigateToItem }[] = [];
   const seen = new Set<string>(); // `fileName|textSpan.start` — one declaration counted once
   let total = 0;
   let filteredOutByPath = 0;
+  let searchTruncated = false;
   // Discovery pruning (t-167395): when the PRIMARY program already covers the in-root git source
   // surface, every sibling/member program's declarations are a subset (declarations are
   // resolution-independent; dedup below drops the rest anyway) — so navto over the primary alone
@@ -84,13 +114,30 @@ export function searchSymbols(
     primary !== undefined && programs.length > 1 && coversInRootSurface(programs, host, root)
       ? [primary]
       : programs;
+  const navtoBudget = limit * 4;
   for (const p of active) {
     const program = p.getProgram();
     if (program === undefined) continue;
-    for (const item of p.service.getNavigateToItems(query, limit * 4, undefined, true)) {
+    // Ask for ONE more than we will use: a page of exactly `navtoBudget` is then provably complete,
+    // while `budget + 1` proves the LS had more and sliced. Testing `>= budget` instead would stamp
+    // an exactly-full page as truncated — a false incompleteness, which is the same class of lie
+    // inverted (§3.4/§3.6).
+    const items = p.service.getNavigateToItems(query, navtoBudget + 1, undefined, true);
+    const kept = items.slice(0, navtoBudget);
+    // A cut page only matters for the class of candidate the CALLER asked about. navto sorts by
+    // matchKind ascending (exact → prefix → substring → camelCase), so when the last RETAINED item
+    // is already past `exact`, every exact-name candidate is on the page and a narrowed resolve is
+    // complete no matter how much fuzzy tail was sliced. Reporting that as truncated made a common
+    // prefix (200 `SpannerThing`s beside one `Spanner`) refuse an unambiguous rename — a false
+    // incompleteness (§3.6), the same lie inverted. A browse has no such class: any cut is a cut.
+    if (items.length > navtoBudget && (narrow === undefined || lastIsExact(kept))) {
+      searchTruncated = true;
+    }
+    for (const item of kept) {
       if (item.fileName.includes('/node_modules/')) continue;
       const key = `${item.fileName}|${item.textSpan.start}`;
       if (seen.has(key)) continue;
+      if (narrow !== undefined && item.name !== narrow.nameExact) continue;
       if (filter?.kind !== undefined && item.kind !== filter.kind) continue;
       if (filter?.exportedOnly === true && !item.kindModifiers.split(',').includes('export')) {
         continue;
@@ -106,12 +153,44 @@ export function searchSymbols(
         continue;
       }
       total++;
-      if (views.length >= limit) continue; // keep counting — a silent cutoff is a lie
-      const view = navigateToView(host, program, item, includeDecl);
-      if (view !== undefined) views.push(view);
+      // Retained in navto order; the view (spans, SymbolId) is built later for the kept slice only,
+      // so a large budget costs list-keeping, not AST work. Without re-ranking, retention order IS
+      // the spend order — so stop retaining at `limit` and keep only counting (the list never grows
+      // with the repo, §1). Re-ranking needs the whole eligible set (a declaration may sit last),
+      // which stays bounded by the exact-name filter above and navto's own per-program budget.
+      if (prefer || eligible.length < limit) eligible.push({ program, item });
     }
   }
-  return { matches: views, total, ...(pathFiltered ? { filteredOutByPath } : {}) };
+  for (const { program, item } of order(eligible, prefer)) {
+    if (views.length >= limit) break; // `total` above keeps counting — a silent cutoff is a lie
+    const view = navigateToView(host, program, item, includeDecl);
+    if (view !== undefined) views.push(view);
+  }
+  return { matches: views, total, searchTruncated, ...(pathFiltered ? { filteredOutByPath } : {}) };
+}
+
+/** Which eligible candidates the view budget is spent on. Default: navto's own order, unchanged.
+ *  With `preferDeclarations`, real declarations are taken BEFORE alias specifiers — a name whose
+ *  barrel chain out-numbers the budget would otherwise return an all-alias page with the one
+ *  declaration the caller means dropped off the end (unpickable, §3.4). Stable within each group,
+ *  so the answer stays deterministic (cold == warm). */
+function order<T extends { item: ts.NavigateToItem }>(
+  eligible: readonly T[],
+  prefer: boolean,
+): readonly T[] {
+  if (!prefer) return eligible;
+  return [...eligible].sort((a, b) => Number(isAliasItem(a.item)) - Number(isAliasItem(b.item)));
+}
+
+/** Did the retained page still end inside navto's `exact` bucket? Then the slice may have hidden
+ *  exact-name candidates. `matchKind` is navto's own ranking label — the LS sorted by it, so reading
+ *  the last item decides the whole page. */
+function lastIsExact(kept: readonly ts.NavigateToItem[]): boolean {
+  return kept[kept.length - 1]?.matchKind === 'exact';
+}
+
+function isAliasItem(item: ts.NavigateToItem): boolean {
+  return item.kind === ALIAS_KIND;
 }
 
 function navigateToView(

@@ -6,6 +6,7 @@
 import type { JsonValue } from '../core/json.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
+import { searchCapFloor } from './no-symbol-hint.ts';
 import { lowerBoundNote } from './lower-bound-note.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
 
@@ -139,6 +140,23 @@ export function usagesFloor(view: UsagesView): {
   return {
     fields: { complete: false, undiscoveredPrograms: u },
     note: lowerBoundNote(u, { subject: 'usages', noun: 'usage', negation: 'of deadness' }),
+  };
+}
+
+/** Both §3.4 floors a usages answer can carry, composed once: the undiscovered-program cause
+ *  (`usagesFloor`) and the LS-page-cap cause (`searchCapFloor`). They are independent — either
+ *  alone makes the answer a LOWER BOUND — and share one verdict vocabulary, so a consumer reads
+ *  `complete:false` without caring which cause fired. Notes come back verdict-first (§12), ready to
+ *  lead the note list; both empty on a complete answer, leaving the result byte-identical. */
+export function usagesFloors(
+  view: UsagesView,
+  searchTruncated: boolean,
+): { fields: Record<string, JsonValue>; notes: string[] } {
+  const floor = usagesFloor(view);
+  const cap = searchCapFloor(searchTruncated);
+  return {
+    fields: { ...cap.fields, ...floor.fields },
+    notes: [cap.note, floor.note].filter((n): n is string => n !== undefined),
   };
 }
 

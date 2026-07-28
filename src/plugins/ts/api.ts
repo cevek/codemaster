@@ -119,7 +119,10 @@ export interface TsPluginApi extends Plugin {
   estimateSourceFileCount(): Result<number>;
   findDefinition(
     target: TsTargetInput,
-  ): { views: SymbolView[]; rebind?: HandleRebind } | UnresolvedTarget | string;
+  ):
+    | { views: SymbolView[]; rebind?: HandleRebind; searchTruncated?: boolean }
+    | UnresolvedTarget
+    | string;
   /** `deadline` (§1 never-hang), when set, bounds the underlying `findReferences` fan-out: on
    *  overrun the LS throws and this raises a `DeadlineExceededError` (the op → `timeout` failure)
    *  rather than spinning on a 10k-importer symbol. Omitted → unbounded (impact's own per-node
@@ -128,7 +131,10 @@ export interface TsPluginApi extends Plugin {
     target: TsTargetInput,
     options: UsageOptions,
     deadline?: Deadline,
-  ): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string;
+  ):
+    | { view: UsagesView; rebind?: HandleRebind; searchTruncated?: boolean }
+    | UnresolvedTarget
+    | string;
   /** The distinct same-named declarations a bare `name` resolves to — the merge candidates
    *  `mergeDeclarations` would union. `find_usages` reads the count to append the merge hint to the
    *  ambiguous hard-FAIL (>1 distinct declaration), so the discoverability check is shape-based

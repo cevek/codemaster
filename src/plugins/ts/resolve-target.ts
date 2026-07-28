@@ -1,18 +1,17 @@
 // Resolve a `ts:` SymbolId to a concrete position, with a proof-carrying rebind (§6) when
 // the handle's file has changed. Split out of `plugin.ts` (300-line cap); pure over the host.
 
-import { decodeSymbolId } from '../../common/ids/codec.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
-import type { HandleRebind, SymbolId } from '../../core/ids.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
 import { searchSymbols } from './search.ts';
 import { declarationsOnLine, topLevelDeclarationsNamed } from './declarations-on-line.ts';
-import type { SymbolView } from './query-types.ts';
+import { ambiguityMessage, distinctDeclarations } from './ambiguity.ts';
+import { resolveSymbolId } from './rebind-symbol-id.ts';
+import { NAME_CANDIDATE_LIMIT, type ResolvedTarget } from './resolve-contract.ts';
 
-export type ResolvedTarget =
-  | { ok: true; abs: string; offset: number; rebind?: HandleRebind }
-  | { ok: false; message: string; rebind?: HandleRebind };
+export type { ResolvedTarget };
+import type { SymbolView } from './query-types.ts';
 
 /** The three ways an agent addresses a symbol (§6 targets): a held `ts:` SymbolId, an
  *  explicit `file+line+col`, or an unambiguous `name`. */
@@ -146,23 +145,45 @@ function resolveByLine(
 
 /** Name → position, via the LS workspace-symbol provider. Multiple navto entries are often
  *  ONE logical symbol seen twice (a declaration + its `export { X }` specifier — the shadcn
- *  module pattern), so candidates are deduped by definition; a genuine ambiguity returns the
- *  candidate list with file:line:col (+ kind) so the agent can pick one. */
+ *  module pattern), so candidates are deduped by definition and ranked declaration-first; a
+ *  genuine ambiguity returns that list (§3.4 shown/total honest) so the agent can pick one. */
 function resolveByName(h: TsProjectHost, name: string, root: string): ResolvedTarget {
-  const matches = searchSymbols(h, name, 10, root).matches.filter((m) => m.name === name);
+  // `nameExact` filters INSIDE the search, so the budget buys exact-name declarations only: a
+  // post-filter over a fuzzy-ranked page lets a barrel chain crowd the real declaration off the
+  // end (it is then absent from the ambiguity list — unpickable, §3.4) and miscounts the rest.
+  const found = searchSymbols(h, name, NAME_CANDIDATE_LIMIT, root, undefined, false, {
+    nameExact: name,
+    preferDeclarations: true,
+  });
+  const matches = found.matches;
   const first = matches[0];
-  if (first === undefined) return { ok: false, message: `no symbol named '${name}'` };
-  const distinct = matches.length === 1 ? [first] : dedupeByDefinition(h, matches);
-  const sole = distinct[0];
-  if (distinct.length > 1 || sole === undefined) {
-    // Carry file:line:COL (+ kind) — two distinct declarations can share a line (a `const` and
-    // its named function expression both at col 41); without the column they render as a
-    // spurious duplicate. The col also makes each entry a copy-paste file:line:col target.
+  if (first === undefined) {
+    // An empty page under a SLICED workspace search is "couldn't", not "doesn't exist": navto ranks
+    // by matchKind + name with no case tie-break, so a flood of `span` can fill the page and hide
+    // the type `Span` entirely. Claiming absence there is the §3.6 lie (a "not found" the agent
+    // cannot distinguish from a real one).
     return {
       ok: false,
-      message: `'${name}' is ambiguous (${distinct.length} distinct declarations: ${distinct
-        .map((m) => `${m.span.file}:${m.span.line}:${m.span.col} (${m.kind})`)
-        .join(', ')}) — pass file:line:col or a SymbolId`,
+      message: found.searchTruncated
+        ? `could not determine whether '${name}' exists — the workspace symbol search hit the LS's own result cap, so its page may not contain it; pass name+file (resolves in one file, rank-independent), file:line:col, or narrow with search_symbol {query:'${name}', pathInclude:[…]}`
+        : `no symbol named '${name}'`,
+    };
+  }
+  const distinct = matches.length === 1 ? [{ view: first }] : distinctDeclarations(h, matches);
+  const sole = distinct[0]?.view;
+  if (distinct.length > 1 || sole === undefined) {
+    // Each candidate prints as its canonical SymbolId (which contains file:line:col — two
+    // declarations can share a line, so the column stays part of the identity) plus, for an
+    // alias, the declaration it resolves to. The count is a LOWER BOUND when either cap bit — our
+    // own view budget, or the LS's page slice, which runs BEFORE `nameExact` and is invisible to a
+    // `total === shown` comparison (§3.4).
+    return {
+      ok: false,
+      message: ambiguityMessage(
+        name,
+        distinct,
+        found.total > matches.length || found.searchTruncated,
+      ),
     };
   }
   const abs = h.absOf(sole.span.file);
@@ -172,7 +193,14 @@ function resolveByName(h: TsProjectHost, name: string, root: string): ResolvedTa
   const offset =
     sourceFile === undefined ? undefined : offsetOfLoc(sourceFile, sole.span.line, sole.span.col);
   if (offset === undefined) return { ok: false, message: `cannot locate '${name}'` };
-  return { ok: true, abs, offset };
+  // A single surviving candidate under a SLICED page is not proof of uniqueness — the bare-name
+  // contract ("must match exactly one") would otherwise be asserted over a set we never saw (§3.4).
+  return {
+    ok: true,
+    abs,
+    offset,
+    ...(found.searchTruncated ? { searchTruncated: true as const } : {}),
+  };
 }
 
 /** One resolved declaration in `mergeDeclarations` mode: a concrete `{abs, offset}` plus the
@@ -188,14 +216,26 @@ export function resolveAllByName(
   h: TsProjectHost,
   name: string,
   root: string,
-): ResolvedDeclaration[] | string {
+): { decls: ResolvedDeclaration[]; searchTruncated: boolean } | string {
   // The navto cap is comfortably above any realistic count of DISTINCT declarations of one exact
   // name (the interface + host + impl pattern is 3; a same-named-everywhere method a handful) — far
-  // more than 50 would be a degenerate name, not a merge an agent reasons over. Same silent-bound
-  // class as `resolveByName`'s navto cap; raising it never un-truncates a smaller real answer.
-  const matches = searchSymbols(h, name, 50, root).matches.filter((m) => m.name === name);
-  if (matches.length === 0) return `no symbol named '${name}'`;
-  const distinct = matches.length === 1 ? matches : dedupeByDefinition(h, matches);
+  // more than 50 would be a degenerate name, not a merge an agent reasons over. `nameExact` keeps
+  // that budget spent on the asked-for name (a fuzzy page would crowd out real declarations).
+  const found = searchSymbols(h, name, NAME_CANDIDATE_LIMIT, root, undefined, false, {
+    nameExact: name,
+    preferDeclarations: true,
+  });
+  const matches = found.matches;
+  if (matches.length === 0) {
+    return found.searchTruncated
+      ? `could not determine whether '${name}' exists — the workspace symbol search hit the LS's own result cap; pass name+file or file:line:col`
+      : `no symbol named '${name}'`;
+  }
+  const distinct = (
+    matches.length === 1 ? [{ view: matches[0] }] : distinctDeclarations(h, matches)
+  )
+    .map((c) => c.view)
+    .filter((v): v is SymbolView => v !== undefined);
   const out: ResolvedDeclaration[] = [];
   for (const m of distinct) {
     const abs = h.absOf(m.span.file);
@@ -206,129 +246,15 @@ export function resolveAllByName(
     out.push({ abs, offset, view: m });
   }
   if (out.length === 0) return `cannot locate any declaration of '${name}'`;
-  return out;
-}
-
-function resolveSymbolId(h: TsProjectHost, id: string, root: string): ResolvedTarget {
-  const decoded = decodeSymbolId(id);
-  // A real SymbolId's payload always carries the `@file` separator (`plugin:Name@rel:line:col`).
-  // A value with no usable prefix (a bare name) — OR one whose first `:` is incidental and leaves
-  // an `@`-less payload (a `file:line:col` position pasted into the field) — is not a SymbolId at
-  // all. Both are the misplaced-input friction this op hardened against, so point the agent at the
-  // RIGHT field (`name` / `file+line+col`), not at an opaque "not a SymbolId" or a phantom plugin.
-  const looksLikeSymbolId = decoded !== undefined && decoded.payload.includes('@');
-  if (decoded === undefined || (!looksLikeSymbolId && decoded.plugin !== 'ts')) {
-    return {
-      ok: false,
-      message: `'${id}' is not a SymbolId (those look like 'ts:Name@file:line:col') — to search by name pass it under 'name', or to address by position pass file+line+col`,
-    };
-  }
-  if (decoded.plugin !== 'ts') {
-    return {
-      ok: false,
-      message: `SymbolId '${id}' belongs to plugin '${decoded.plugin}', not 'ts' — this op resolves ts symbols`,
-    };
-  }
-  const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)(?:~([0-9a-f]+))?$/);
-  if (m === null) return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-  const [, name, rel, lineStr, colStr, tag] = m;
-  if (name === undefined || rel === undefined) {
-    return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-  }
-  // Cross-root guard (§6 / spec-stresstest §4b): a SymbolId carries the workspace it was minted in.
-  // If it was minted in a DIFFERENT root than the one resolving it (an `amiro` id passed with
-  // root:'../cf2'), do NOT name-rebind it onto a same-named symbol in this repo — that binds the
-  // handle to a different symbol entirely. Report `gone` and tell the agent to re-search here.
-  if (tag !== undefined && tag !== h.rootTag) {
-    return {
-      ok: false,
-      message: `SymbolId '${id}' was minted in a different workspace root — re-search the symbol by name in this root (SymbolIds do not cross roots)`,
-      rebind: {
-        status: 'gone',
-        from: id as SymbolId,
-        reason: 'handle belongs to a different workspace root — re-search by name in the new root',
-      },
-    };
-  }
-  const abs = h.absOf(rel as RepoRelPath);
-  const sourceFile = h.sourceFileAcross(abs)?.sf;
-  const line = Number(lineStr);
-  const col = Number(colStr);
-
-  if (sourceFile !== undefined) {
-    const offset = offsetOfLoc(sourceFile, line, col);
-    // Still the same symbol at the recorded position? `startsWith` alone is a prefix test —
-    // a LONGER identifier sharing the prefix (`foobar` where `foo` was) would pass it and
-    // silently bind the handle to the wrong symbol with no rebind/note. Require a word
-    // boundary after the name so only the exact identifier holds the handle (§6).
-    if (offset !== undefined && sourceFile.text.startsWith(name, offset)) {
-      const next = sourceFile.text[offset + name.length];
-      if (next === undefined || !/[A-Za-z0-9_$]/.test(next)) {
-        return { ok: true, abs, offset };
-      }
-    }
-  }
-
-  // Rebind (§6): re-locate by name — same file first, then workspace-wide.
-  const candidates = searchSymbols(h, name, 20, root).matches.filter((c) => c.name === name);
-  const sameFile = candidates.find((c) => c.span.file === rel);
-  const candidate = sameFile ?? candidates[0];
-  if (candidate === undefined) {
-    return {
-      ok: false,
-      message: `symbol '${name}' no longer found (handle ${id})`,
-      rebind: {
-        status: 'gone',
-        from: id as SymbolId,
-        reason: 'no symbol of this name/kind remains in the workspace',
-      },
-    };
-  }
-  const candAbs = h.absOf(candidate.span.file);
-  const candFile = h.sourceFileAcross(candAbs)?.sf; // candidate may be sibling-declared (cross-program search)
-  const candOffset =
-    candFile === undefined
-      ? undefined
-      : offsetOfLoc(candFile, candidate.span.line, candidate.span.col);
-  if (candOffset === undefined) {
-    return { ok: false, message: `cannot re-locate '${name}' after file change` };
-  }
-  const rebind: HandleRebind = {
-    status: 'rebound',
-    from: id as SymbolId,
-    to: {
-      id: candidate.id as SymbolId,
-      name: candidate.name,
-      kind: candidate.kind,
-      loc: { file: candidate.span.file, line: candidate.span.line, col: candidate.span.col },
-    },
-    proof: candidate.span,
-    confidence: 'partial',
-    note: `a ${candidate.kind} named '${name}' is here now; structural continuity not proven`,
+  // `mergeDeclarations` promises the union over ALL same-named declarations; under a sliced page it
+  // can only union the ones the page held, so the caller must say so rather than imply totality.
+  // BOTH caps matter here, unlike the single-resolution path: a merge unions the declarations it
+  // was handed, so our own view cap (`total > matches`) hides same-named declarations just as the
+  // LS page does. (On the single path our cap truncates BEFORE `distinctDeclarations` collapses a
+  // barrel chain into one declaration, so it routinely bites on a COMPLETE answer — flagging it
+  // there would be a false incompleteness.)
+  return {
+    decls: out,
+    searchTruncated: found.searchTruncated || found.total > matches.length,
   };
-  return { ok: true, abs: candAbs, offset: candOffset, rebind };
-}
-
-/** Collapse same-named navto candidates that resolve to one declaration (decl +
- *  `export { X }` re-mention). Candidates whose definition can't be resolved stay —
- *  dropping them could hide a real ambiguity. */
-function dedupeByDefinition(h: TsProjectHost, matches: readonly SymbolView[]): SymbolView[] {
-  const byDefinition = new Map<string, SymbolView>();
-  for (const match of matches) {
-    const abs = h.absOf(match.span.file);
-    const sourceFile = h.service.getProgram()?.getSourceFile(abs);
-    const offset =
-      sourceFile === undefined
-        ? undefined
-        : offsetOfLoc(sourceFile, match.span.line, match.span.col);
-    let key = `${match.span.file}:${match.span.line}:${match.span.col}`;
-    if (offset !== undefined) {
-      const def = h.service.getDefinitionAtPosition(abs, offset)?.[0];
-      if (def !== undefined) key = `${def.fileName}:${def.textSpan.start}`;
-    }
-    // First candidate per definition-key wins (navto order); a later re-mention of the same
-    // declaration is collapsed away.
-    if (!byDefinition.has(key)) byDefinition.set(key, match);
-  }
-  return [...byDefinition.values()];
 }

@@ -52,3 +52,21 @@ export function definitionFloor(labels: readonly string[]): {
     note: `!! LOWER BOUND — ${labels.length} repo tsconfig(s) NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)}); a DISTINCT same-named symbol may be declared under one of them (unindexed here), so this definition may NOT be the one you want. This is NOT proof it is the only/right declaration — add the config to a parent \`references\` (or place it adjacent to the primary) to resolve across all programs.`,
   };
 }
+
+/** §3.4/§3.6 FLOOR for the OTHER cause of an incomplete name resolution: the LS's workspace-symbol
+ *  search returned a full page, so it SLICED candidates before codemaster's exact-name filter ran
+ *  (TS ranks by matchKind + name with no case tie-break — a flood of `span` can hide `Span`). A
+ *  bare-name answer built on that page is therefore a floor: another declaration of the same name
+ *  may sit behind the cut. Shaped exactly like `definitionFloor` (machine-readable verdict first,
+ *  prose `!!` note for the verdict position) so a consumer reads one incompleteness vocabulary
+ *  whatever the cause. `false` → empty, and the result stays byte-identical. */
+export function searchCapFloor(truncated: boolean): {
+  fields: { complete: false; searchTruncated: true } | Record<string, never>;
+  note?: string;
+} {
+  if (!truncated) return { fields: {} };
+  return {
+    fields: { complete: false, searchTruncated: true },
+    note: `!! LOWER BOUND — the workspace symbol search hit the LS's own result cap, so same-named declarations may exist BEHIND the cut and this answer covers only the ones it could see. NOT proof this is the only declaration; re-address with name+file / file:line:col, or enumerate with symbols_overview {duplicatesOnly:true}.`,
+  };
+}

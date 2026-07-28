@@ -1,7 +1,7 @@
 ---
 id: t-811470
 title: Ambiguity FAIL lists candidates as file:line:col — print the canonical `ts:Name@file:line:col~hash` SymbolId too, so the agent copies it verbatim instead of re-hitting "is not a SymbolId"
-status: backlog
+status: done
 priority: low
 tags:
   - dogfood
@@ -23,3 +23,21 @@ The ambiguity FAIL lists candidates as bare `file:line:col`, which is NOT direct
 The COMPLEMENTARY intake half — accept a bare `file:line:col` as a location arg (relativize into file+line+col) — is arg-shape / intake and belongs to the separate bad_args triage, NOT here. This task is only the output-render fix (emit the copy-pasteable SymbolId in the candidate list).
 
 Archive source: 2026-07-06 (line 380). Related: t-262491 (ambiguity handling), t-424583 (intake, DONE).
+
+## Closed with the ambiguity-honesty fix (t-128204)
+
+The candidate list renders each entry as its canonical SymbolId (`plugins/ts/ambiguity.ts`
+`renderCandidate`) — `ts:Name@file:line:col~hash (kind[ → the declaration an alias resolves to])`.
+The location is not lost: it is inside the id.
+
+Verified verbatim round-trip on a barrel-chain fixture — an id copied out of the failure text and
+passed straight back as `symbolId` resolves, for both a real declaration and an alias candidate:
+
+```
+find_usages {name:'SaveButton'} → … ts:SaveButton@src/z/real.tsx:1:17~9041d82a (function), ts:SaveButton@src/a/bar1.ts:1:21~9041d82a (alias → src/a/impl1.tsx:1:25) …
+find_usages {symbolId:'ts:SaveButton@src/z/real.tsx:1:17~9041d82a'} → definition=…real.tsx:1:17 · function
+find_usages {symbolId:'ts:SaveButton@src/a/bar1.ts:1:21~9041d82a'} → definition=…bar1.ts:1:21 · alias
+```
+
+The complementary intake half (accept a bare `file:line:col` under `symbolId`) stays out of scope
+as this task's own scope note says.

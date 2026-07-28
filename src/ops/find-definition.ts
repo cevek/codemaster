@@ -6,7 +6,7 @@ import { failFromThrown, fail, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
-import { withUndiscoveredHint, definitionFloor } from './no-symbol-hint.ts';
+import { withUndiscoveredHint, definitionFloor, searchCapFloor } from './no-symbol-hint.ts';
 import { TS_TARGET_HINT, tsTargetShape, requireTarget, tsTargetIntake } from './ts-target.ts';
 import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { isFanCapableTarget } from './guard/fan-capable.ts';
@@ -69,11 +69,16 @@ export const findDefinitionOp = defineOp({
       // verdict is the fields, not the prose).
       const nameOnly = args.name !== undefined && args.file === undefined;
       const floor = definitionFloor(nameOnly ? ts.undiscoveredProgramLabels() : []);
+      // The second, independent cause of the same incompleteness: the name search itself was cut
+      // short by the LS's page cap, so a same-named declaration may sit behind it (§3.4).
+      const capFloor = searchCapFloor(outcome.searchTruncated === true);
+      const notes = [capFloor.note, floor.note].filter((n): n is string => n !== undefined);
       return ok(
         {
+          ...capFloor.fields,
           ...floor.fields,
           definitions: outcome.views.map((v) => tag('symbol', v)),
-          ...(floor.note !== undefined ? { notes: [floor.note] } : {}),
+          ...(notes.length > 0 ? { notes } : {}),
         },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
       );

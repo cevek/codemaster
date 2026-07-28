@@ -31,7 +31,7 @@ import {
   listableField,
   hoistView,
   usageNotes,
-  usagesFloor,
+  usagesFloors,
 } from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
@@ -205,8 +205,8 @@ export const findUsagesOp = defineOp({
           if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
           // §3.4 floor: a non-empty undiscovered set makes this section a LOWER BOUND — the `!!`
           // note leads (verdict-first), the fields ride as early machine-readable keys below.
-          const floor = usagesFloor(view);
-          if (floor.note !== undefined) notes.unshift(floor.note);
+          const floor = usagesFloors(view, outcome.searchTruncated === true);
+          for (const n of [...floor.notes].reverse()) notes.unshift(n);
           resolvedNames.push(view.definition?.name ?? fallbackName);
           targets.push({
             symbol: sym,
@@ -323,8 +323,8 @@ export const findUsagesOp = defineOp({
       // §3.4 floor (verdict-first): a non-empty undiscovered set makes the usages a LOWER BOUND.
       // `complete:false` + `undiscoveredPrograms` lead the data object so a count-only consumer
       // reads the incompleteness without parsing prose; the `!!` note leads `notes`.
-      const floor = usagesFloor(view);
-      if (floor.note !== undefined) notes.unshift(floor.note);
+      const floor = usagesFloors(view, outcome.searchTruncated === true);
+      for (const n of [...floor.notes].reverse()) notes.unshift(n);
       // `programs:` lever notes lead (before the floor note) — they explain WHY the floor did/not lift.
       for (const n of [...lever.notes].reverse()) notes.unshift(n);
       // The member-fallback resolution note leads all others (t-755152): the agent addressed a name it

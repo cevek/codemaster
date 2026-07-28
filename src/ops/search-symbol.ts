@@ -211,7 +211,7 @@ export const searchSymbolOp = defineOp({
           });
         }
       }
-      const { matches, total, filteredOutByPath } = ts.searchSymbol(
+      const { matches, total, filteredOutByPath, searchTruncated } = ts.searchSymbol(
         args.query,
         limit,
         filter,
@@ -233,14 +233,21 @@ export const searchSymbolOp = defineOp({
               undiscoveredHint(ts.undiscoveredProgramLabels());
         return ok({ matches: [], note });
       }
+      // Two independent truncations, and the LS's own is the one `total` cannot express: when navto
+      // returned a full page it SLICED before we counted, so `total` is itself a floor and a
+      // `total === shown` comparison would report the page as complete (§3.4). Say `≥` and why.
+      const capped = searchTruncated === true;
       return ok(
         { matches: matches.map((m) => tag('symbol', m)) },
-        total > matches.length
+        capped || total > matches.length
           ? {
               truncated: {
                 shown: matches.length,
                 total,
-                hint: 'raise limit, or narrow the query (it is fuzzy — a longer prefix helps)',
+                ...(capped ? { totalIsLowerBound: true } : {}),
+                hint: capped
+                  ? `raise limit (the LS returned a full page — ${total} is a LOWER BOUND, and a fuzzy near-match can crowd the exact name off it), narrow the query, or use symbols_overview (no LS page cap)`
+                  : 'raise limit, or narrow the query (it is fuzzy — a longer prefix helps)',
               },
             }
           : undefined,

@@ -77,7 +77,11 @@ void describe('kitchensink trap-presence (§6 gate 3/4)', () => {
     assert.equal(r.result.ok, false, 'an ambiguous name must NOT silently resolve to one');
     if (!r.result.ok) {
       assert.match(r.result.failure.message, /ambiguous/);
-      assert.match(r.result.failure.message, /3 distinct declarations/);
+      // "sites", not "symbols": each candidate is a proven declaration site, while whether two of
+      // them name ONE symbol is exactly what an unresolvable alias leaves unproven (t-000524).
+      assert.match(r.result.failure.message, /shown 3 of 3 distinct declaration sites/);
+      // All three are listed as copy-pasteable SymbolIds, so the pick needs no second call.
+      assert.match(r.result.failure.message, /ts:handle@src\/core\/handle\.ts:/);
     }
   });
 

@@ -17,6 +17,12 @@ import type { UsageRole } from './usage-roles.ts';
  *  stays a message. */
 export type UnresolvedTarget = { unresolved: string; rebind: HandleRebind };
 
+/** navto's `kind` for a re-export / import specifier — the symbol is a HANDLE to a declaration
+ *  elsewhere, not the declaration itself. Lives here because both the navto wrapper (`search.ts`,
+ *  which ranks declarations ahead of aliases) and the ambiguity list (`ambiguity.ts`) read it, and
+ *  it is navto vocabulary — a shared view constant, not either module's private policy. */
+export const ALIAS_KIND = 'alias';
+
 export type SymbolView = {
   id: string;
   name: string;

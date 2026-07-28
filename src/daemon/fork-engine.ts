@@ -8,7 +8,12 @@
 
 import { fork } from 'node:child_process';
 import process from 'node:process';
+import * as path from 'node:path';
 import type { JsonValue } from '../core/json.ts';
+import type { RepoId } from '../core/brands.ts';
+import { createRotatingFileSink } from '../support/debug/file-sink.ts';
+import { repoLogDir } from './repo-log-sink.ts';
+import { relayChildStderr } from './child-stderr-relay.ts';
 
 /** The subset of a forked child the host drives. A fake implements this in unit tests. */
 export interface EngineChildHandle {
@@ -37,9 +42,11 @@ export function forkEngineChild(opts: ForkEngineOpts): EngineChildHandle {
   const execArgv = [...process.execArgv, `--max-old-space-size=${opts.maxOldSpaceMB}`];
   const child = fork(opts.binPath, ['daemon', 'serve-engine'], {
     execArgv,
-    // stdout is discarded (the child speaks ONLY over IPC, never stdout — §13); stderr inherits
-    // so the child's debug/stderr sink is visible; `ipc` carries the JSON frames.
-    stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+    // stdout is discarded (the child speaks ONLY over IPC, never stdout — §13); stderr is PIPED
+    // and relayed into the repo's log dir (never inherited: a V8 fatal dump on the parent's
+    // terminal buries — and inverts — the honest `FAIL tool=oom`, see child-stderr-relay.ts);
+    // `ipc` carries the JSON frames.
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
     env: {
       ...process.env,
       CODEMASTER_ENGINE_ROOT: opts.root,
@@ -48,6 +55,14 @@ export function forkEngineChild(opts: ForkEngineOpts): EngineChildHandle {
       ...(opts.sockDir !== undefined ? { CODEMASTER_SOCK_DIR: opts.sockDir } : {}),
     },
   });
+  // Its OWN file beside the child's `debug.log`, never that file itself: a rotating sink counts
+  // bytes in memory, so two processes appending to one path rotate against each other and each
+  // `rename` overwrites the other's `.1` — losing precisely the dump this relay exists to keep.
+  // Same directory, so one grep over the repo's log dir still finds everything (§13).
+  const stderrSink = createRotatingFileSink(
+    path.join(repoLogDir(opts.stateDir, opts.root as RepoId, opts.root), 'child-stderr.log'),
+  );
+  relayChildStderr(child.stderr, stderrSink, () => child.pid);
   return {
     get pid() {
       return child.pid;

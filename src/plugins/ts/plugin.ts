@@ -125,6 +125,20 @@ export function createTsPlugin(
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
   const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target, root);
+  /** The WRITE-path resolve. A bare name whose candidate page the LS truncated resolved against the
+   *  candidates we could SEE, so the ambiguity gate — "a bare name must match exactly one" — was
+   *  never actually verified: the same call refuses without the flood and would mutate with it. A
+   *  mutation may not ride a gate that silently did not run (§7), so it refuses with the exact
+   *  targets that ARE verifiable. Reads are unaffected (they disclose instead, §3.4). */
+  const resolveForWrite = (target: TsTargetInput): ResolvedTarget => {
+    const resolved = resolve(target);
+    if (!resolved.ok || resolved.searchTruncated !== true) return resolved;
+    const addressed = target.name !== undefined ? `the bare name '${target.name}'` : 'this handle';
+    return {
+      ok: false,
+      message: `refusing to mutate via ${addressed}: the candidate search hit the LS's result cap, so same-named declarations may exist behind the cut and the ambiguity gate could not be verified — re-address with name+file or file:line:col (an exact position needs no gate)`,
+    };
+  };
 
   // "Is this ABSOLUTE file a source in the PRIMARY program right now?" — one instance, shared by the
   // public `primaryContains` and the rename refuse-on-non-primary guard so the two can't drift.
@@ -238,7 +252,11 @@ export function createTsPlugin(
       const resolved = resolve(target);
       if (!resolved.ok) return missOf(resolved);
       const views = findDefinitions(warm(), resolved.abs, resolved.offset) ?? [];
-      return { views, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+      return {
+        views,
+        ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
+        ...(resolved.searchTruncated === true ? { searchTruncated: true } : {}),
+      };
     },
 
     findUsages(target, options, deadline) {
@@ -248,17 +266,23 @@ export function createTsPlugin(
       const run = (): { view: UsagesView; rebind?: HandleRebind } | UnresolvedTarget | string => {
         const byName = target.name !== undefined && target.symbolId === undefined;
         if (options.mergeDeclarations === true && byName && target.name !== undefined) {
-          const decls = resolveAllByName(warm(), target.name, root);
-          if (typeof decls === 'string') return decls;
-          const merged = findUsagesMerged(warm(), decls, options);
+          const all = resolveAllByName(warm(), target.name, root);
+          if (typeof all === 'string') return all;
+          const merged = findUsagesMerged(warm(), all.decls, options);
           if (merged === undefined) return 'no references for any declaration of this name';
-          return { view: merged };
+          // The merge unions what the page held; under a slice that is a SUBSET of the same-named
+          // declarations, so the op must not present it as "all of them" (§3.4).
+          return { view: merged, ...(all.searchTruncated ? { searchTruncated: true } : {}) };
         }
         const resolved = resolve(target);
         if (!resolved.ok) return missOf(resolved);
         const view = findUsages(warm(), resolved.abs, resolved.offset, options);
         if (view === undefined) return 'no symbol at the resolved position';
-        return { view, ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}) };
+        return {
+          view,
+          ...(resolved.rebind !== undefined ? { rebind: resolved.rebind } : {}),
+          ...(resolved.searchTruncated === true ? { searchTruncated: true } : {}),
+        };
       };
       // Bound the LS fan-out by the op's budget (§1). On overrun `withDeadline` raises a
       // `DeadlineExceededError` (the op → an honest `timeout` failure), never a spin. Omitted
@@ -267,8 +291,8 @@ export function createTsPlugin(
     },
 
     sameNamedDeclarations(name) {
-      const decls = resolveAllByName(warm(), name, root);
-      return typeof decls === 'string' ? [] : decls.map((d) => d.view);
+      const all = resolveAllByName(warm(), name, root);
+      return typeof all === 'string' ? [] : all.decls.map((d) => d.view);
     },
 
     membersNamedInFile: (name, file) => membersNamedInFile(warm(), name, file),
@@ -368,7 +392,7 @@ export function createTsPlugin(
       // (§7 write-last), so a huge rename degrades instead of hanging. Omitted → unbounded.
       const body = () =>
         runWithOverlay(overlay, () => {
-          const resolved = resolve(target);
+          const resolved = resolveForWrite(target);
           if (!resolved.ok) return resolved.message;
           // Refuse for a NON-PRIMARY target (t-773499): the capture-safety gate is structurally
           // primary-only (the overlay `setOverlay` lives on the primary program, ls-host §), so it
@@ -444,7 +468,7 @@ export function createTsPlugin(
       return planUnderOverlay(
         overlay,
         (h, tree, options) =>
-          withRebind(resolve(target), (r) =>
+          withRebind(resolveForWrite(target), (r) =>
             planExtractTo(h, tree, options, r.abs, r.offset, dest, css, overlay),
           ),
         deadline,
@@ -455,7 +479,7 @@ export function createTsPlugin(
       return planUnderOverlay(
         overlay,
         (h, tree, options) =>
-          withRebind(resolve(target), (r) =>
+          withRebind(resolveForWrite(target), (r) =>
             planMoveSymbolTo(h, tree, options, r.abs, r.offset, dest, overlay),
           ),
         deadline,
@@ -466,7 +490,7 @@ export function createTsPlugin(
       return planUnderOverlay(
         overlay,
         (h, tree, options) =>
-          withRebind(resolve(target), (r) =>
+          withRebind(resolveForWrite(target), (r) =>
             // Fan call-site search across programs only off the transaction path (overlay present →
             // primary carries a planning overlay; a sibling reading stale disk is unsound, ls-host TRAP).
             planChangeSignature(h, tree, options, r.abs, r.offset, change, overlay === undefined),

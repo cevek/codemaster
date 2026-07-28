@@ -166,7 +166,9 @@ export function renderResultJson(result: Result<JsonValue>): string {
 }
 
 function renderTruncation(t: Truncation): string {
-  return `… ${t.total - t.shown} more (shown ${t.shown}/${t.total}; ${t.hint})`;
+  // `≥` when the producer could not count the rest either — the total is a floor (§3.4).
+  const total = t.totalIsLowerBound === true ? `≥${t.total}` : `${t.total}`;
+  return `… ${t.total - t.shown} more (shown ${t.shown}/${total}; ${t.hint})`;
 }
 
 /** find_definition's envelope: `{ definitions: SymbolView[] }`. */

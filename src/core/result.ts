@@ -55,6 +55,10 @@ export interface FreshnessNote {
 export interface Truncation {
   shown: number;
   total: number;
+  /** `total` itself is a FLOOR, not a count: the producer's own source (the TS LS's navto page)
+   *  truncated before it could be counted, so more may exist beyond it. Rendered as `≥total`, so a
+   *  capped count is never read as an exact one (§3.4). */
+  totalIsLowerBound?: boolean;
   /** How to retrieve the rest (narrow the filter, or paginate). */
   hint: string;
 }

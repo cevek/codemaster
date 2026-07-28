@@ -133,12 +133,24 @@ function searchOverSources(
   matches.sort(compareMatches);
   const total = matches.length;
   const views = matches.slice(0, limit).map((m) => m.view);
-  return { matches: views, total, ...(pathFiltered ? { filteredOutByPath } : {}) };
+  // No LS budget on this path: the scan enumerates the whole §10 surface itself, so `total` is the
+  // real count of matches in it and only `limit` (reported as shown/total) trims the answer.
+  return {
+    matches: views,
+    total,
+    searchTruncated: false,
+    ...(pathFiltered ? { filteredOutByPath } : {}),
+  };
 }
 
 function emptyView(filter: SearchFilter | undefined): SearchView {
   const pathFiltered = filter?.pathInclude !== undefined || filter?.pathExclude !== undefined;
-  return { matches: [], total: 0, ...(pathFiltered ? { filteredOutByPath: 0 } : {}) };
+  return {
+    matches: [],
+    total: 0,
+    searchTruncated: false,
+    ...(pathFiltered ? { filteredOutByPath: 0 } : {}),
+  };
 }
 
 function collectFromFile(

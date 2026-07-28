@@ -1,7 +1,7 @@
 ---
 id: t-817058
 title: "process-mode: the engine child's V8 fatal-OOM dump (~110 lines) floods the parent's stderr before the honest FAIL — fork stdio is 'inherit'"
-status: backlog
+status: done
 priority: high
 parent: t-031282
 tags:

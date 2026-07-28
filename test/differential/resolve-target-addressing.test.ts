@@ -186,38 +186,36 @@ test('name+file with >1 same-named top-level declaration → honest pick-list', 
   }
 });
 
-// RANK-INDEPENDENCE under a navto flood — the expand_type "Bug C" condition, made DISCRIMINATING:
-// 15 top-level `export const span` (EXACT name `span`, a case-insensitive collision with `Span`)
-// across files push the type `Span` past the workspace-search cap (10). So bare `{name:'Span'}` —
-// the pure navto path, IDENTICAL on main — FAILS "no symbol named 'Span'" (asserted below), while
-// `{name:'Span',file}` resolves via the direct AST pass (never navto). On main, where `file` is
-// ignored, name+file falls into that SAME flooded search and fails too — so this test is RED there.
+// RANK-INDEPENDENCE of `name+file`: it must resolve through the direct AST pass, NEVER the
+// workspace search. The falsifying condition has to be one the search genuinely cannot answer, so
+// the flood is 60 top-level declarations of the EXACT name `Span` (plus 15 case-colliding `span`):
+// bare `{name}` is then honestly ambiguous — no ranking tweak can pick one — while `{name,file}`
+// resolves the one in THIS file. Route `name+file` back through the search and this test goes red.
 const FLOOD = ((): Record<string, string> => {
   const files: Record<string, string> = {
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
     'src/types.ts': 'export interface Span { start: number; end: number }\n', // `Span` at 1:18
   };
   for (let i = 0; i < 15; i++) files[`src/flood${i}.ts`] = `export const span = ${i};\n`;
+  for (let i = 0; i < 60; i++) {
+    files[`src/twin${i}.ts`] = `export interface Span { twin${i}: number }\n`;
+  }
   return files;
 })();
 
-test('name+file resolves an exact type the navto flood buries past the cap (rank-independent — expand_type Bug C)', async () => {
+test('name+file resolves one declaration of a name that is genuinely ambiguous workspace-wide', async () => {
   const p: TestProject = await project(FLOOD);
   try {
-    // The flood condition AND the discriminator vs main: bare `{name:'Span'}` — pure navto — is
-    // pushed past the cap by the 15 lowercase `span`, so it cannot find the exact type.
+    // The falsifier: bare `{name:'Span'}` cannot be resolved by any ranking — 61 declarations of the
+    // exact name exist — so it FAILS with the candidate list, and only the file-scoped form works.
     const bare = await p.op('expand_type', { name: 'Span' });
     assert.ok(
       'result' in bare && !bare.result.ok,
-      `flood must bury bare Span: ${JSON.stringify(bare)}`,
+      `bare name must be ambiguous with 61 same-named declarations: ${JSON.stringify(bare)}`,
     );
-    assert.match(
-      bare.result.failure.message,
-      /no symbol named 'Span'/,
-      'navto flooded past the cap',
-    );
+    assert.match(bare.result.failure.message, /is ambiguous/, 'and it says so');
 
-    // name+file resolves it anyway (direct AST pass). Oracle: the positional form — `Span` at 1:18.
+    // name+file resolves it via the direct AST pass. Oracle: the positional form — `Span` at 1:18.
     const byName = await p.op('expand_type', { name: 'Span', file: 'src/types.ts' });
     assert.ok(
       'result' in byName && byName.result.ok,
@@ -231,7 +229,7 @@ test('name+file resolves an exact type the navto flood buries past the cap (rank
         .map((m) => m.name)
         .sort();
     assert.deepEqual(names(byName), names(byPos), 'name+file view == file+line+col view');
-    assert.deepEqual(names(byName), ['end', 'start'], 'resolved the Span type, not a span const');
+    assert.deepEqual(names(byName), ['end', 'start'], "resolved THIS file's Span, not a twin");
   } finally {
     await p.dispose();
   }
