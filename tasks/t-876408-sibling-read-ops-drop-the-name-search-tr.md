@@ -1,7 +1,7 @@
 ---
 id: t-876408
 title: 'Sibling read ops drop the name-search truncation the resolver computes: expand_type / impact / member_usages / source answer without the lower-bound verdict find_usages and find_definition carry'
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface

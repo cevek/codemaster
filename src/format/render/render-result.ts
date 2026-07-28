@@ -3,7 +3,13 @@
 // partiality, freshness drift, handle rebinds, truncation. Nothing is dropped to make
 // the output prettier — omitting a FreshnessNote is the silent-stale lie.
 
-import type { Result, FreshnessNote, Truncation, Verbosity } from '../../core/result.ts';
+import type {
+  Result,
+  Disclosure,
+  FreshnessNote,
+  Truncation,
+  Verbosity,
+} from '../../core/result.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import type { JsonValue } from '../../core/json.ts';
 import { stripShapeTags } from '../../common/shape-tag/tag.ts';
@@ -85,8 +91,12 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
   }
 
   // Honesty channels — small, load-bearing, and reserved against the cap (`assembleCapped`).
-  // truncation first (it qualifies the bulk it follows), then handle, then freshness — the
-  // same relative order the single-list render emitted.
+  // Disclosures lead: they qualify what the WHOLE answer may be read as asserting (its target may
+  // not be the symbol the agent meant), where truncation only qualifies the listed set. Then
+  // truncation (it qualifies the bulk it follows), then handle, then freshness.
+  if (result.disclosures !== undefined) {
+    for (const d of result.disclosures) tail.push(renderDisclosure(d));
+  }
   if (result.ok && result.truncated !== undefined) tail.push(renderTruncation(result.truncated));
   if (result.handle !== undefined) tail.push(renderRebind(result.handle));
   if (result.freshness !== undefined) {
@@ -163,6 +173,13 @@ const MARKER_RESERVE = capMarker(0, 0).length + 16;
 export function renderResultJson(result: Result<JsonValue>): string {
   if (result.data === undefined) return JSON.stringify(result);
   return JSON.stringify({ ...result, data: stripShapeTags(result.data) });
+}
+
+/** A resolve-time claim the answer does not support (§3.4/§3.6). `unsafe=` is the machine-readable
+ *  assertion and `target=` attributes it to the resolution at risk, so an agent reading two ops'
+ *  answers about one target sees the same line on both instead of contradictory confidence. */
+function renderDisclosure(d: Disclosure): string {
+  return `!! CANNOT CLAIM unsafe=${d.unsafe} target=${d.target} — ${d.note}`;
 }
 
 function renderTruncation(t: Truncation): string {

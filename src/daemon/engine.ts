@@ -11,6 +11,7 @@ import type { FreshnessNote } from '../core/result.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import { createDeadline } from '../common/async/deadline.ts';
+import { runWithDisclosures } from '../common/disclosure/ledger.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
 import { createJsScanner, type TextScanner } from '../support/text-search/scan.ts';
@@ -282,21 +283,31 @@ class Engine implements WorkspaceEngine {
           { capture: req.debug === true, route: this.repoId },
           async () => {
             opTrace('start', () => ({ args: req.args }));
-            const r = await op.run(
-              {
-                plugins: this.registry,
-                flags: extractFlags({ ...req, ...resolved.flags }),
-                daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
-                textScanner: this.textScanner,
-                // Cooperative wall-clock budget (§1 never-hang), fresh per op off the injected clock so
-                // a polling op degrades to an honest timeout, never spins. `?? Infinity` → an unbounded
-                // deadline (`at == ∞`, never expires) when no budget is wired, so a test / direct
-                // createEngine keeps its exact behaviour; a `0` budget is `at == now` → already expired,
-                // the deterministic timeout lever (§16).
-                deadline: createDeadline(this.deps.clock, this.deps.opDeadlineMs ?? Infinity),
-                ...(opts?.tableRowBound !== undefined ? { tableRowBound: opts.tableRowBound } : {}),
-              },
-              resolved.args,
+            // Envelope disclosure (§3.4/§3.6): whatever the op's resolutions stated they cannot
+            // claim is stamped onto the envelope here, the same way `debug` and `intake` already
+            // are — so an op inherits the disclosure by being dispatched, never by consuming it.
+            // This is the ONLY `op.run` call site in the tree (transaction steps run inside the
+            // `transaction` op, through plugin plan methods; sql producers and batch elements come
+            // back through `runOne`), so a legitimate execution path cannot slip past the stamp.
+            const r = await runWithDisclosures(() =>
+              op.run(
+                {
+                  plugins: this.registry,
+                  flags: extractFlags({ ...req, ...resolved.flags }),
+                  daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
+                  textScanner: this.textScanner,
+                  // Cooperative wall-clock budget (§1 never-hang), fresh per op off the injected clock so
+                  // a polling op degrades to an honest timeout, never spins. `?? Infinity` → an unbounded
+                  // deadline (`at == ∞`, never expires) when no budget is wired, so a test / direct
+                  // createEngine keeps its exact behaviour; a `0` budget is `at == now` → already expired,
+                  // the deterministic timeout lever (§16).
+                  deadline: createDeadline(this.deps.clock, this.deps.opDeadlineMs ?? Infinity),
+                  ...(opts?.tableRowBound !== undefined
+                    ? { tableRowBound: opts.tableRowBound }
+                    : {}),
+                },
+                resolved.args,
+              ),
             );
             opTrace('done', () => ({ ok: r.ok, ms: this.deps.clock.now() - started }));
             const captured = this.deps.debug.takeCapture();

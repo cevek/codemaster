@@ -54,6 +54,7 @@ import {
   type ResolvedTarget,
   type TsTargetInput,
 } from './resolve-target.ts';
+import { discloseTruncatedMerge, discloseTruncatedResolution } from './disclose-resolution.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createScanMemos, createPlanningHelpers, resolvedScan } from './plugin-helpers.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
@@ -124,7 +125,20 @@ export function createTsPlugin(
 
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
-  const resolve = (target: TsTargetInput): ResolvedTarget => resolveTarget(warm(), target, root);
+  //
+  // This is ALSO the single producer of the envelope disclosure (§3.4): a resolution built on a cut
+  // candidate set states, here and once, that the answer cannot claim uniqueness for this name. It
+  // sits at the RESOLVE rather than in each read method because every symbol-addressed read funnels
+  // through here — so an op cannot answer about a doubtful target and stay silent about it, and a
+  // NEW read method inherits the disclosure by using the resolver, not by remembering to.
+  // An EXACT target (symbolId at its recorded position / file:line:col / name+file) never carries
+  // the flag, so it never discloses: dressing an exact resolution as doubtful is the same lie
+  // inverted (§3.6).
+  const resolve = (target: TsTargetInput): ResolvedTarget => {
+    const resolved = resolveTarget(warm(), target, root);
+    if (resolved.ok && resolved.searchTruncated === true) discloseTruncatedResolution(target);
+    return resolved;
+  };
   /** The WRITE-path resolve. A bare name whose candidate page the LS truncated resolved against the
    *  candidates we could SEE, so the ambiguity gate — "a bare name must match exactly one" — was
    *  never actually verified: the same call refuses without the flood and would mutate with it. A
@@ -271,7 +285,10 @@ export function createTsPlugin(
           const merged = findUsagesMerged(warm(), all.decls, options);
           if (merged === undefined) return 'no references for any declaration of this name';
           // The merge unions what the page held; under a slice that is a SUBSET of the same-named
-          // declarations, so the op must not present it as "all of them" (§3.4).
+          // declarations, so the op must not present it as "all of them" (§3.4). This path does not
+          // go through `resolve`, so it states the same claim itself — the merge resolver is the
+          // second and last producer.
+          if (all.searchTruncated) discloseTruncatedMerge(target.name);
           return { view: merged, ...(all.searchTruncated ? { searchTruncated: true } : {}) };
         }
         const resolved = resolve(target);

@@ -63,6 +63,36 @@ export interface Truncation {
   hint: string;
 }
 
+/** A claim the answer must NOT be read as making, established at the moment the TARGET was
+ *  RESOLVED rather than where the answer was assembled — so every op that answers about that
+ *  target carries the same one and disclosure is never a per-op obligation (§3.4/§3.6).
+ *
+ *  The vocabulary names WHAT IS UNSAFE TO CLAIM, never the upstream EVENT that made it unsafe.
+ *  That distinction is load-bearing: a flag SET on an event ("the search page overflowed") and
+ *  READ as an assertion ("same-named declarations may be missing") are different statements, and
+ *  the gap between them is where false refusals and false incompleteness live. The cause belongs
+ *  in `note` (prose, for the agent), never in the type (the machine-readable claim). */
+export interface Disclosure {
+  /** The assertion this answer cannot support. */
+  unsafe: UnsafeClaim;
+  /** HOW the target was addressed (e.g. `name 'Span'`), so the claim is attributed to the
+   *  resolution that is actually at risk — an op that internally resolves some OTHER name must
+   *  never project its doubt onto the exactly-addressed target the agent passed. */
+  target: string;
+  /** The cause + the remedy, in words: why the claim is unsafe and how to address the target so
+   *  it becomes safe. */
+  note: string;
+}
+
+/** The closed set of assertions a resolution can invalidate. Closed so a consumer switches
+ *  exhaustively and a new claim is a compile error, never a silently-misread old one. */
+export type UnsafeClaim =
+  /** "the symbol this answer is about is the only one of that name." The name→declaration
+   *  candidate set was cut before we saw all of it, so the resolved symbol is one of the ones we
+   *  COULD see: the target itself may be a mis-pick, and any count / emptiness / completeness the
+   *  answer states about it is a floor rather than a fact. */
+  'target-is-the-only-symbol-of-this-name';
+
 /** Set when the op could not be completed because an internal tool failed — the
  *  TS LS, git, ast-grep, prettier, the filesystem. We surface the failure verbatim and
  *  never guess a result in its place; `data` is empty (or partial, if `partial`). The
@@ -94,6 +124,13 @@ interface ResultCommon {
    *  (`status`/`argsHint`); this just states what we reinterpreted so the agent is never
    *  silently second-guessed. Absent when nothing was rewritten. */
   intake?: readonly string[];
+  /** Resolve-time disclosures (§3.4/§3.6): claims this answer does NOT support, recorded where
+   *  the target was resolved and stamped onto the envelope by the dispatcher. On the ENVELOPE and
+   *  not in `data` because the fact is a property of the RESOLUTION, not of any one op's payload —
+   *  so an op answering about a doubtful target inherits the disclosure without opting in, and two
+   *  ops cannot report contradictory confidence about one target. Absent when the resolution
+   *  supports everything the answer says. */
+  disclosures?: readonly Disclosure[];
 }
 
 /** Success envelope: `data` present, no `failure`. */
