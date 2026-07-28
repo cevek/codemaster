@@ -43,3 +43,23 @@ Second, smaller: `member_usages` on a specific option KEY of an options-object a
 passing `wrap:false` / omitting `resetOnSuccess` — would give the opt-out census directly. It was obtained
 by grep only because those key names happen to be unique strings; on a generic key (`mode`, `enabled`)
 there is no way to ask.
+
+## The named handlers are HISTORICAL — and this one is worse than stale coordinates
+
+`SendFormBody`, `AddLabPanel`, `EditWorkspaceFormInner`, `EditOrganizationFormInner`, `AmendmentComposer`
+were classified mid-track, in a repo under active editing (amiro, ~3 days before filing). Two compounding
+reasons not to treat them as a repro list:
+
+1. line offsets have moved;
+2. **that track's entire purpose was changing the very contract these handlers were classified against**
+   — moving the unsaved-changes reset from the submit event to the actual commit. So some of these
+   handlers were plausibly reworked by the same work that surfaced them. A worker starting from this list
+   may be auditing code that no longer has the property described.
+
+Re-derive by name against current HEAD before drawing any conclusion. What is durable is the QUESTION —
+"for every callback passed to X, which exits complete without reaching the awaited call" — and the fact
+that it took human reading plus two review agents to answer once. The op proposed here is justified by the
+shape of the question, not by the survival of these five instances.
+
+Origin sessions (archived, worktrees gone — read the transcript via MCP, do not message them):
+`~-Dev-amiro/sessions/caf41ed2` and `~-Dev-amiro/sessions/59949227`.
