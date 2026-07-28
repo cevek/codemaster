@@ -1,7 +1,7 @@
 ---
 id: t-109741
 title: No prop-aware JSX query — a wrapper-only sweep shipped an analysis claiming a 3-file surface when the real one was 11; the miss was caught by a screenshot, not by the tool
-status: backlog
+status: done
 priority: urgent
 tags:
   - agent-surface
