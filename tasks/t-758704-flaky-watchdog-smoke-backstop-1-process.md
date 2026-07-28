@@ -1,7 +1,7 @@
 ---
 id: t-758704
-title: 'FLAKY: watchdog-smoke backstop-1 (process-mode child) asserts the breadcrumb names the wedged ENGINE op, but under full-suite load it reads `freshness`'
-status: backlog
+title: "FLAKY: watchdog-smoke backstop-1 (process-mode child) — the arm's 200ms wedge threshold has no headroom over the pre-wedge freshness span, which spawns git"
+status: done
 priority: medium
 tags:
   - platform
@@ -12,53 +12,45 @@ area: platform
 source: dogfood-jul
 created: '2026-07-27T22:49:27.245Z'
 ---
-`test/e2e/watchdog-smoke.test.ts:104` ("backstop 1 (process-mode child)") asserts the stall
-breadcrumb matches the wedged engine op. Under a full `npm test` run it failed with
-`actual: 'freshness'` — the beacon publishes the OLDEST live op (`beacon.ts` `publish`), and under
-CPU contention the freshness walk is registered first and outlives the assertion window, so the
-published breadcrumb names `freshness` rather than the op under test.
+`test/e2e/watchdog-smoke.test.ts` arm "backstop 1 (process-mode child)" compresses the watchdog's
+5-minute production wedge threshold to 200 ms. That threshold applies to EVERY measured span, and
+this arm goes through the real request path, whose per-read `freshness` walk is measured
+(`engine.ts` `refresh`) and **spawns `git`** (`checkGit` runs before the mtime-walk fallback). When
+process-spawn latency pushes that legitimate span past 200 ms, the worker reaps the child while it
+is merely SLOW — the stall record then reads `op: 'freshness'`, `seq: 1`.
 
-Reproduction is load-dependent: the test passes in isolation (3/3) and also passes with 6 competing
-CPU-burner processes, but failed inside a full-suite run. So it is a real ordering race in the
-ASSERTION, not in the watchdog: the diagnostic value ("what was running") is arguably still honest —
-`freshness` genuinely was the oldest live op — but the test claims a stronger guarantee than the
-beacon gives.
+`seq: 1` is the decisive fact: the beacon published exactly ONE breadcrumb, so `op:wedge` never
+started. There is no live-set overlap and no competing span — the beacon's oldest-live-op contract
+is not implicated at any point.
 
-Fix direction: either assert the breadcrumb names ANY live op of the wedged child and separately
-assert the op-under-test is among the live set, or make the test's op provably the oldest (drive the
-freshness walk to completion before the wedging call). Do not weaken it to a substring-anywhere
-match, which would stop discriminating.
+## Causal repro (deterministic, no full-suite coin flips)
 
-Unrelated to the crash-telemetry breadcrumb work (t-807677): that path is on the MCP facade
-(`serveMcp`), which this test does not exercise.
+A `git` shim that sleeps 0.5 s in front of `PATH`, against the arm's own spawn shape at the 200 ms
+threshold, reproduces the reported symptom byte-for-byte, 3/3:
 
-## Reproduction data (4 full-suite runs, branch n3-antijoin-producers)
+```
+op="freshness" seq=1 reason=wedge elapsedMs≈235   (threshold 200, poll 50)
+```
 
-Duplicate t-523210 folded in here; this task carries the correct cause (the beacon publishes the
-OLDEST live op, so `freshness` is honest by the beacon's own contract and the over-claim is in the
-ASSERTION). The duplicate's competing explanation — "a later cheap span overwrites the breadcrumb, so
-a real stall record would name the wrong op" — is WRONG and should not be built on: nothing
-overwrites, the oldest-live-op rule is doing exactly what it says.
+Without the shim the same probe is 3/3 `op:"op:wedge"` `seq=2`. Load models that do NOT reproduce
+it: 24-way CPU oversubscription on 12 cores (4/4 green) and a 24k-file root (2/2 green) — CPU burn
+and repo size are the wrong variables; process-spawn latency inside the pre-wedge span is the one.
 
-| run | commit | result |
-| --- | --- | --- |
-| 1 | 6d1c351 | green |
-| 2 | dce82a7 | **fail** (`actual: 'freshness'`) |
-| 3 | fb40cf5 | green |
-| 4 | 6d8b4c0 | **fail** (same) |
+## Fix
 
-Runs differ only by test-only commits; none touches `src/daemon/**`, `src/support/watchdog/**`, or
-this test. Narrowing that sharpens the "load-dependent" note above:
+Threshold raised 200 → 3000 ms for this arm only, with the reason recorded at the call site. The
+wedge is an infinite spin, so headroom costs only wall-clock (arm runs ~3.4 s, outer timeout 20 s).
+The assertion is unchanged (`/op:wedge/`) and the failure message now prints the whole record, so a
+future recurrence names its own cause. Arm 1 needs no change — it stamps its own breadcrumb with
+nothing else measured, so 200 ms is structurally safe there; arm 2 already sets 600000.
 
-- the file alone → 3/3 (twice);
-- the whole `test:e2e` group under the machine lock → 345 tests, 0 fail;
-- ONLY the full 1269-test suite reproduces it, ~50% of runs, and runs 3 and 4 were uncontended — so
-  the trigger is parallelism WITHIN one full run, not another process competing for CPU.
+Measured margin after the fix: a 2 s `git` spawn passes (10× the previously-fatal 0.5 s); past the
+3 s threshold the run is inconclusive and fails naming `freshness`/`seq 1` — the honest residual of
+compressing a 5-minute threshold into a test.
 
-That the e2e group alone stays green while the full suite flips is the useful new signal: the
-competing span comes from test files outside e2e, so "6 competing CPU burners" (which passed) is not
-the right model of the load — what matters is another engine's freshness walk registering first.
+Discrimination verified by mutation: removing the `beacon.measure` op wrap (`engine.ts`) → red via
+the outer timeout; forcing `isWedged` to `false` → red on the SIGKILL assert. Both probes reverted.
 
-Since t-933867 landed, three condition-oracle test files run in that pool (one evaluating ~11k
-site×input pairs), which raises the odds this surfaces — including in CI. It does not cause the race;
-a test that catches an existing defect more often is working.
+Not a product defect: at the 5-minute default no legitimate span approaches the threshold, so the
+`reason: 'wedge'` inference stays sound (§1). Unrelated to the crash-telemetry breadcrumb work
+(t-807677), which lives on the MCP facade.

@@ -116,7 +116,13 @@ test('backstop 1 (process-mode child): a wedge in the forked engine-child is rea
         ...process.env,
         CODEMASTER_ENGINE_ROOT: dir,
         CODEMASTER_ENGINE_STATE_DIR: dir,
-        CODEMASTER_WATCHDOG_MS: '200', // wedge threshold — tiny for the test
+        // Compressed from the 5-min production default, but NOT sub-second: unlike arm 1 (which
+        // stamps its own breadcrumb and spins with nothing else measured), this arm goes through the
+        // real request path, whose per-read `freshness` walk is measured too AND spawns `git`. A
+        // threshold under that span's worst case reaps the child while it is merely SLOW, and the
+        // record then names `freshness` (seq 1 — the wedge op never started). The wedge is an
+        // infinite spin, so headroom costs only wall-clock; keep it well above a `git` spawn.
+        CODEMASTER_WATCHDOG_MS: '3000',
         CODEMASTER_WATCHDOG_POLL_MS: '50',
         CODEMASTER_STALL_DIR: stallDir,
       },
@@ -155,11 +161,18 @@ test('backstop 1 (process-mode child): a wedge in the forked engine-child is rea
     const record = JSON.parse(readFileSync(path.join(stallDir, stalls[0] ?? ''), 'utf8')) as {
       reason: string;
       op: string;
+      seq: number;
     };
     assert.equal(record.reason, 'wedge');
     // The engine's OWN `beacon.measure('op:<name>')` wrap fired — proof the child armed the watchdog
-    // over the real request path, not a hand-stamped breadcrumb.
-    assert.match(record.op, /op:wedge/, 'the breadcrumb names the engine op that wedged');
+    // over the real request path, not a hand-stamped breadcrumb. A record naming a PRE-wedge span
+    // (`freshness`, seq 1) means the child was reaped before the op under test ever started — either
+    // the threshold above lost its headroom, or the op wrap is gone; the record says which.
+    assert.match(
+      record.op,
+      /op:wedge/,
+      `the breadcrumb names the engine op that wedged; got ${JSON.stringify(record)}`,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
