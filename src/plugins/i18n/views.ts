@@ -55,16 +55,25 @@ export type I18nUnusedView = {
   /** Every unused key, each carrying its OWN confidence — a key under a demoted namespace is
    *  `partial`, an unrelated key stays `certain` (prefix-scoped demotion, backlog I-a). */
   unused: UnusedKeyView[];
-  /** True when SOME demotion is in effect — a global reason (headless dynamic call, parse
-   *  failure, unresolved module) OR a prefix-scoped one. Not "every key demoted": see
-   *  `globalDemote` for that. */
+  /** True when THIS answer is not fully provable: a reported key came back `partial`, or a cause
+   *  that HIDES keys/usages is in effect (a locale parse failure, an unresolved i18n module — an
+   *  empty list is then incomplete, not clean). Scoped to the reported set, so a `prefix` whose
+   *  every row is provable is NOT stamped degraded by a dynamic call confined elsewhere — while
+   *  per-key confidence stays the whole-scan fact. Not "every key demoted": see `globalDemote`. */
   degraded: boolean;
   /** True when EVERY key is demoted (no namespace stays `certain`): a dynamic call with no
-   *  static prefix, a locale parse failure, or an unresolved i18n module. */
+   *  static prefix, a locale parse failure, or an unresolved i18n module. A WHOLE-SCAN fact,
+   *  unlike `degraded` — with nothing reported in scope it can stand beside `degraded:false`
+   *  (the scan proves nothing dead; this scope has no dead-claim to prove). */
   globalDemote: boolean;
   /** Static namespace heads that scoped the demotion (e.g. `errors.codes.`) — keys under these
    *  are `partial`, the rest `certain`. Empty when `globalDemote` (the whole scan is partial). */
   demotedPrefixes: readonly string[];
+  /** Proof spans over the dynamic `t()` calls whose bound reaches a REPORTED key — the sites that
+   *  must change for those keys to become provable, so the caller can find the blocker instead of
+   *  re-narrowing (t-949045). Ordered by `file:line:col`. Empty when the cause is not a call (a
+   *  parse failure / an unresolved module) or when nothing is reported. */
+  blockers: readonly Span[];
   /** The single global reason for the demotion (set iff degraded). Stated ONCE here, never
    *  stamped per row — every row would carry the identical string (a 1-per-key repeat). */
   degradedReason?: string;
@@ -75,8 +84,8 @@ export type I18nUnusedView = {
 /** Scoping for `unusedKeys` (the whole-locale answer caps fast on a real key set). `prefix`
  *  narrows by dotted key namespace (segment-aware, no trailing dot — e.g. 'errors.codes');
  *  pathInclude/pathExclude are globs over the locale .json path. Scopes which keys are REPORTED —
- *  the `degraded` verdict still reflects the WHOLE usage scan, so scoping never upgrades a key to
- *  a false `certain` dead. */
+ *  each key's own confidence still reflects the WHOLE usage scan, so scoping never upgrades a key
+ *  to a false `certain` dead (only the summary `degraded`/`degradedReason` follow the scope). */
 export type I18nUnusedFilter = {
   prefix?: string;
   pathInclude?: readonly string[];

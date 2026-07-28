@@ -19,7 +19,7 @@ import { matchesAnyGlob } from '../../common/glob/match.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import { parseLocaleKeys, type LocaleKey } from './parse.ts';
-import { dynamicDemotion, isKeyDemoted } from './demotion.ts';
+import { blockingCalls, dynamicDemotion, isKeyDemoted } from './demotion.ts';
 import type {
   I18nLookupFilter,
   I18nLookupView,
@@ -262,22 +262,6 @@ export function createI18nPlugin(
       const hasFailures = failures.size > 0;
       const globalDemote = demote.global || hasFailures || unresolved;
       const demotedPrefixes = globalDemote ? [] : demote.prefixes;
-      const degraded = globalDemote || demotedPrefixes.length > 0;
-
-      // ONE reason string — never stamped per row (identical for every demoted key).
-      const globalReasons: string[] = [];
-      if (demote.global) globalReasons.push('a dynamic t() call with no static prefix exists');
-      if (hasFailures) globalReasons.push('a locale file failed to parse');
-      if (unresolved)
-        globalReasons.push(
-          'the configured i18n module did not resolve — no usage could be matched',
-        );
-      const degradedReason =
-        globalReasons.length > 0
-          ? `cannot prove any key dead — ${globalReasons.join(' and ')}`
-          : demotedPrefixes.length > 0
-            ? `a dynamic t(\`…\`) demotes namespace(s) ${demotedPrefixes.join(', ')} — unrelated keys stay certain`
-            : undefined;
 
       // One representative definition per key (first locale file, by sorted path), PLUS the full
       // set of files defining each key — path scoping (inScope) runs over the whole set, not the rep.
@@ -304,11 +288,46 @@ export function createI18nPlugin(
           confidence: isKeyDemoted(key, globalDemote, demotedPrefixes) ? 'partial' : 'certain',
         });
       }
+
+      // The SUMMARY verdict is scoped to what this call REPORTS (t-949045); the per-key confidence
+      // above is not — it stays the whole-scan fact, so no key can become a false `certain` dead.
+      // A dynamic call demotes this answer only when it reached a reported key: a scoped question
+      // (`prefix=ui`) whose every row is provable must not be stamped `degraded` by a dynamic call
+      // confined to `errors.codes.*`. The other two causes stay WHOLE-SCAN, because they hide keys
+      // rather than demote them: an unreadable locale (a dead key could live only there) or an
+      // unresolved module (no usage matched at all) makes even an EMPTY list incomplete — reporting
+      // that as clean would be the §3.6 completeness lie the scoping must not open.
+      const anyPartial = unused.some((u) => u.confidence === 'partial');
+      const hiddenCauses: string[] = [];
+      if (hasFailures) hiddenCauses.push('a locale file failed to parse');
+      if (unresolved)
+        hiddenCauses.push('the configured i18n module did not resolve — no usage could be matched');
+      const degraded = anyPartial || hiddenCauses.length > 0;
+
+      // ONE reason string — never stamped per row (identical for every demoted key). The
+      // namespace form names only the heads that actually cover a REPORTED key.
+      const reachedPrefixes = demotedPrefixes.filter((p) =>
+        unused.some((u) => u.key.startsWith(p)),
+      );
+      const unprovableCauses = [
+        ...(anyPartial && demote.global ? ['a dynamic t() call with no static prefix exists'] : []),
+        ...hiddenCauses,
+      ];
+      const degradedReason = !degraded
+        ? undefined
+        : unprovableCauses.length > 0
+          ? `cannot prove any key dead — ${unprovableCauses.join(' and ')}`
+          : `a dynamic t(\`…\`) demotes namespace(s) ${reachedPrefixes.join(', ')} — unrelated keys stay certain`;
+
       return {
         unused,
         degraded,
         globalDemote,
         demotedPrefixes,
+        blockers: blockingCalls(
+          demote.bounds,
+          unused.map((u) => u.key),
+        ),
         ...(degradedReason !== undefined ? { degradedReason } : {}),
         scannedKeys,
         scannedUsages: calls.length,

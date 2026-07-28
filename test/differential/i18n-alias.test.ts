@@ -31,6 +31,11 @@ const EN = JSON.stringify(
     aliasns: { key: 'A' }, // used via aliased-base member `i.t('aliasns.key')`
     plain: { key: 'P' }, // used via the bare name       `t('plain.key')`
     unused: { dead: 'nobody' }, // referenced by nothing
+    // Under the dynamic call's static head `x.` — so the demote it causes is OBSERVABLE in the
+    // answer (the verdict is scoped to the reported keys: a demote that reaches none is not
+    // stamped). Without a key here, `degraded` could not distinguish "detected as dynamic" from
+    // "not detected at all".
+    x: { dyn: 'D' },
   },
   null,
   2,
@@ -82,9 +87,15 @@ test('alias + namespace + aliased-base usages are NOT reported unused', async ()
     );
 
     // The dynamic `tr(`x.${a}`)` is detected (degraded), but its static head `x.` demotes only the
-    // `x.*` namespace — and no key lives there. So `unused.dead` stays PROVABLY dead, not buried
-    // in partial (backlog I-a, prefix-scoped). The alias work resolves the FUNCTION, never the key.
+    // `x.*` namespace — so `x.dyn` is partial (collapsed into the summary) while `unused.dead`
+    // stays PROVABLY dead (backlog I-a, prefix-scoped). The alias work resolves the FUNCTION,
+    // never the key.
     assert.equal(data['degraded'], true, 'a dynamic aliased call is still detected as dynamic');
+    assert.equal(
+      (data['partial'] as { count?: number } | undefined)?.count,
+      1,
+      'the demote lands on x.dyn — the proof the dynamic call was seen',
+    );
     assert.equal(data['globalDemote'], false, 'a scoped head (x.) does not degrade the whole scan');
     for (const u of unused)
       assert.equal(u.confidence, 'certain', 'unrelated dead key stays certain');

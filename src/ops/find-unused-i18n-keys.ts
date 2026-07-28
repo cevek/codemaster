@@ -6,20 +6,56 @@
 //
 // To keep one dynamic key from burying the genuinely-dead tail in 1000+ all-`partial` rows
 // (backlog I-a), the default render lists the `certain`-dead keys and COLLAPSES the partials to a
-// summary (count + reason + how to narrow). `partials:'list'` lists them all; `partials:'hide'`
-// shows only the certain tail. sql-mode emits every row (each with its confidence) uncapped.
+// summary (count + reason + a remedy computed from THIS call's args). `partials:'list'` lists them
+// all; `partials:'hide'` shows only the certain tail. sql-mode emits every row uncapped.
+//
+// The summary verdict is SCOPED to what the call reports and the blocking call sites are named
+// (t-949045): a `prefix=` answer whose every row is provable is not stamped `degraded` by a dynamic
+// call confined elsewhere, and a demote that narrowing cannot lift says so instead of proposing the
+// narrowing the caller already applied. Per-key confidence is untouched (the whole-scan fact).
 
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
+import type { Span } from '../core/span.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
+import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { HIDE_CONF_KEY } from '../format/render/shapes/meta-keys.ts';
 import type { I18nPluginApi, UnusedKeyView } from '../plugins/i18n/plugin.ts';
+import type { I18nUnusedView } from '../plugins/i18n/views.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 
 const DEFAULT_LIMIT = 200;
 const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit)';
+/** How many blocking call sites are shown inline. The cut states itself as `more` inside the
+ *  `blocking` block — NOT through the envelope `Truncation`, which the `unused` row cap owns
+ *  (two cuts of different natures must not share one channel, §3.4). */
+const BLOCKER_CAP = 3;
+
+const locOf = (s: Span): string => `${s.file}:${s.line}:${s.col}`;
+
+/** The remedy line for the collapsed partials — computed from the CALL's own args, so it can never
+ *  propose the state the caller is already in (t-949045: both reporters passed `prefix=` and were
+ *  told to "narrow with prefix"). A global demote is not liftable by narrowing at all; a namespace
+ *  demote is, but only for a caller who has not already narrowed INTO the demoted namespace. */
+function partialHint(
+  view: I18nUnusedView,
+  prefix: string | undefined,
+  reached: readonly string[],
+): string {
+  const sites = view.blockers.map(locOf);
+  const at = sites.length > 0 ? ` — blocking dynamic call: ${nameWithMore(sites, 1)}` : '';
+  const list = 'partials:"list" to see them';
+  if (view.globalDemote)
+    return `narrowing does not lift this demote: no key anywhere is provable${at}. ${list}`;
+  const demoted = reached.join(', ');
+  // A prefix ALREADY inside a demoted namespace cannot be narrowed out of it — every sub-namespace
+  // is demoted too. A BROADER prefix (or none) still has provable siblings to narrow to.
+  if (prefix !== undefined && reached.some((h) => `${prefix}.`.startsWith(h)))
+    return `narrowing further does not lift this demote: prefix="${prefix}" is inside the demoted namespace(s) ${demoted}${at}. ${list}`;
+  return `these keys are under the demoted namespace(s) ${demoted}${at} — a prefix= outside them returns certain results, or ${list}`;
+}
 
 const findUnusedI18nKeysTable: TableSpec<JsonValue> = {
   columns: [
@@ -62,10 +98,11 @@ export const findUnusedI18nKeysOp = defineOp({
   example: { args: { prefix: 'errors.codes' } },
   notes: [
     'a dynamic t() call demotes unused-claims to partial. A TEMPLATE with a static prefix (t(`errors.codes.${x}`)) demotes ONLY the errors.codes.* namespace — unrelated keys stay certain; a HEADLESS dynamic call (t(k) / t(`${x}`)), a locale parse failure, or an unresolved i18n module demotes EVERY claim. Never reported as definitely-unused when demoted.',
-    "partials (default 'summary'): the certain-dead keys are always listed; 'summary' collapses the demoted (partial) keys to a count + reason + narrow-hint (so one dynamic key never buries the dead tail in 1000+ rows), 'list' lists every partial key, 'hide' drops them entirely. The partial summary names the demoted namespaces.",
+    "partials (default 'summary'): the certain-dead keys are always listed; 'summary' collapses the demoted (partial) keys to a count + reason + a remedy hint (so one dynamic key never buries the dead tail in 1000+ rows), 'list' lists every partial key, 'hide' drops them entirely. The partial summary names the demoted namespaces, and the hint is computed from THIS call's args — it never proposes narrowing to a call that already narrowed, and says outright when narrowing cannot lift the demote.",
+    'blocking (set iff a dynamic call demoted a reported key): the call sites whose bound reaches the reported keys — proof spans of WHICH t() cost the verdict, capped with `more`. Empty when the cause is not a call (a locale parse failure / an unresolved module — see degradedReason + parseFailures).',
     'i18n.module identity match-model: see i18n_lookup. With it, a same-named t from another module no longer keeps a key alive and a renamed-destructure / namespace-alias usage is no longer mis-reported as unused; without it, the by-name model (alias-aware).',
     'BOUNDARY (identity mode): a key reached ONLY through a COMPUTED-index call (`i18n[expr]()`), a t passed as a value, or a multi-hop re-export chain is not counted, so it MAY be reported unused (under-report, never a fabricated usage). Within-file shadowing of a bound name is the syntactic bound (no scope check).',
-    'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED; scanned.keys reflects the scope. The demotion verdict still reflects the whole usage scan, so scoping never invents a certain-dead key.',
+    'prefix (dotted key namespace, e.g. "errors.codes" — segment-aware, same as i18n_lookup; no trailing dot) + pathInclude/pathExclude (globs over the locale path) scope which keys are REPORTED; scanned.keys reflects the scope. Each key\'s own confidence still reflects the WHOLE usage scan, so scoping never invents a certain-dead key; only the summary degraded/degradedReason follow the scope — a prefix whose every row is provable is NOT stamped degraded by a dynamic call confined to another namespace (globalDemote stays the whole-scan fact).',
   ],
   table: findUnusedI18nKeysTable,
   async run(ctx, args) {
@@ -85,10 +122,25 @@ export const findUnusedI18nKeysOp = defineOp({
         tag('i18n-unused-key', view.globalDemote ? { ...u, [HIDE_CONF_KEY]: true } : u);
       // Verdict-before-bulk (§12): the small load-bearing fields render FIRST so the hard
       // char-cap can only ever truncate the (truncation-reported) `unused` tail, never the verdict.
+      // The demote's PROOF, beside its reason: the dynamic call sites that reach the reported keys
+      // (t-949045 — the caller could not find which t() cost them the verdict). Capped inline with
+      // its own `more`, so the envelope's Truncation stays the `unused` row cap's alone.
+      const blockers = view.blockers;
+      const blocking =
+        blockers.length === 0
+          ? {}
+          : {
+              blocking: {
+                count: blockers.length,
+                sites: blockers.slice(0, BLOCKER_CAP).map((span) => tag('bare-span', { span })),
+                ...(blockers.length > BLOCKER_CAP ? { more: blockers.length - BLOCKER_CAP } : {}),
+              },
+            };
       const head = {
         degraded: view.degraded,
         globalDemote: view.globalDemote,
         ...(view.degradedReason !== undefined ? { degradedReason: view.degradedReason } : {}),
+        ...blocking,
         scanned: { keys: view.scannedKeys, usages: view.scannedUsages },
         ...(failures.length > 0
           ? { parseFailures: failures.map((f) => tag('parse-failure', f)) }
@@ -110,6 +162,7 @@ export const findUnusedI18nKeysOp = defineOp({
       const mode = args.partials ?? 'summary';
       const certain = view.unused.filter((u) => u.confidence === 'certain');
       const partial = view.unused.filter((u) => u.confidence === 'partial');
+      const reached = view.demotedPrefixes.filter((p) => partial.some((u) => u.key.startsWith(p)));
       const listed = mode === 'list' ? view.unused : certain;
       const cap = args.limit ?? DEFAULT_LIMIT;
       const shown = listed.slice(0, cap);
@@ -124,12 +177,8 @@ export const findUnusedI18nKeysOp = defineOp({
                       count: partial.length,
                       // Only the namespaces that actually cover a REPORTED partial key — a
                       // whole-scan prefix with no in-scope partials would mislabel the summary.
-                      demoted: view.globalDemote
-                        ? 'global'
-                        : view.demotedPrefixes.filter((p) =>
-                            partial.some((u) => u.key.startsWith(p)),
-                          ),
-                      hint: 'cannot prove these dead — partials:"list" to see them, or narrow with prefix=<namespace>',
+                      demoted: view.globalDemote ? 'global' : reached,
+                      hint: partialHint(view, args.prefix, reached),
                     },
             }
           : {}),

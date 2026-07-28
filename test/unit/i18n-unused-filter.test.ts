@@ -1,8 +1,9 @@
 // find_unused_i18n_keys scoping (prefix / pathInclude / pathExclude). The whole-locale answer
 // caps fast on a real key set, so the op must narrow. Load-bearing invariant (mirrors the scss
-// filter): scoping selects which keys are REPORTED — it must NOT upgrade a globally-demoted key
-// to a false `certain` dead, because the `degraded` verdict reflects the WHOLE usage scan (a
-// dynamic t(`…`) anywhere). Oracle = hand-built expectations over an inline-VFS locale.
+// filter): scoping selects which keys are REPORTED — it must NOT upgrade a demoted key to a false
+// `certain` dead, because each key's own confidence reflects the WHOLE usage scan (a dynamic
+// t(`…`) anywhere). Only the SUMMARY verdict follows the scope. Oracle = hand-built expectations
+// over an inline-VFS locale.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,8 +84,12 @@ test('find_unused_i18n_keys: a dynamic t(`common.${x}`) demotes ONLY common.* �
     const e = await p.op('find_unused_i18n_keys', { prefix: 'errors' });
     assert.ok('result' in e && e.result.ok);
     const ev = e.result.data as View;
-    assert.equal(ev.degraded, true, 'the scan IS degraded (common.* unprovable)…');
-    assert.equal(ev.globalDemote, false, '…but NOT globally — only a namespace was demoted');
+    // The verdict is scoped to what THIS call reports (t-949045): every `errors.*` row is
+    // provable, so the answer is not stamped degraded by a call confined to `common.*` — a
+    // scoped question is not decided by an out-of-scope fact. (The second half below pins that
+    // the demote still lands where it CAN reach.)
+    assert.equal(ev.degraded, false, 'no reported row is unprovable → not degraded');
+    assert.equal(ev.globalDemote, false, 'a scoped head never degrades the whole scan');
     assert.deepEqual(ev.unused.map((u) => u.key).sort(), ['errors.a', 'errors.b']);
     assert.ok(
       ev.unused.every((u) => u.confidence === 'certain'),

@@ -157,13 +157,20 @@ test('identity: provenance is correct per usage row (written | alias | namespace
 
 test('identity: a dynamic key with a scoped head leaves unrelated keys certain (§18, backlog I-a)', async () => {
   // Add a dynamic call of the REAL identity-bound `t`; it must be detected as dynamic, but its
-  // static head `x.` can only resolve under `x.*` — so the unrelated dead keys (dead, ghost)
-  // stay PROVABLY dead instead of being buried in partial.
-  const p = await identityProject(`export const dyn = t(\`x.\${a}\`);\n`);
+  // static head `gh` can only resolve under `gh*` — so it buries `ghost` alone, and the unrelated
+  // dead key stays PROVABLY dead. The head deliberately COVERS a real key: the verdict is scoped
+  // to the reported set, so a head reaching nothing could not distinguish "detected as dynamic"
+  // from "not detected at all".
+  const p = await identityProject(`export const dyn = t(\`gh\${a}\`);\n`);
   try {
     const res = await p.op('find_unused_i18n_keys', {});
     const data = (res as { result: { data: Record<string, unknown> } }).result.data;
     assert.equal(data['degraded'], true, 'a dynamic identity-bound t(`…`) is detected');
+    assert.equal(
+      (data['partial'] as { count?: number } | undefined)?.count,
+      1,
+      'ghost is the one key the head can produce — the proof the call was seen',
+    );
     assert.equal(data['globalDemote'], false, 'a scoped head (x.) does not degrade the whole scan');
     assert.match(String(data['degradedReason']), /dynamic/i);
     for (const u of (data['unused'] as Unused[]) ?? [])
