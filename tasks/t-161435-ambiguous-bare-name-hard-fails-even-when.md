@@ -35,3 +35,33 @@ is real there. Same shape helps `find_definition` / `source`.
 
 Lands in the resolve path reworked by t-128204 (`resolve-target.ts` + `ResolveNarrowing`), so it is a
 natural extension of that seam rather than a new one.
+
+## Implementation recipe (from the worker who owns the resolve seam, t-128204)
+
+Assessed as S/M, deliberately NOT folded into t-128204's diff. Reason it is not a few lines: the filter
+is a DISPLAY filter today and making it a co-resolver needs three things beyond the filtering itself.
+
+1. **Thread the call's filter into `resolveTarget`.** `UsageOptions.pathInclude` currently reaches only
+   `usages.ts`; it does not flow to target resolution. This adds a parameter to the shared resolver used
+   by EVERY symbol-addressed op — not a local change.
+2. **A disclosure channel for "narrowed by your filter"**, modelled on the `searchTruncated` →
+   `searchCapFloor` pair built in t-128204. Without it this is a silent change of target — precisely the
+   class t-128204 existed to close.
+3. **Decide the semantic boundary.** Narrow on PATH filters only, never on `kind` / `exportedOnly` /
+   `role` (otherwise `role:'call'` starts selecting the declaration). Decide separately what it means for
+   `find_definition` / `expand_type`, and for WRITE paths — `resolveForWrite` refuses today, and allowing
+   a filter-narrowed target on a mutation needs its own gate.
+
+Concrete recipe, so the next wave does not re-derive it:
+- Narrow ONLY when `distinct.length > 1` — i.e. exactly on today's hard-FAIL. A successful resolve stays
+  byte-identical.
+- Filter the already-COLLAPSED candidates (`distinctDeclarations`), not the raw navto hits.
+- Still fail on 0 or ≥2 survivors.
+- Oracle arm: two same-named symbols + `pathInclude` selecting one → resolves, and a leading note names
+  the narrowing; the same call without the filter → the prior ambiguity FAIL.
+
+## The `mergeDeclarations` workaround is now worse than "semantic widening"
+
+After t-128204 it also marks the answer `complete:false` whenever the candidate set was capped. So a
+recipe built on `mergeDeclarations` carries a permanent LOWER BOUND — one more reason to make
+filter-narrowing work properly rather than routing around it.
