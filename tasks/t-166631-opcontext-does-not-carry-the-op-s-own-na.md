@@ -31,3 +31,25 @@ Ask: put the op's identity on `OpContext`, populated by the dispatcher from `OpD
 place that already knows it, by construction rather than by convention. Then the literal disappears from
 every call-site, the oracle becomes unnecessary, and a wrong name becomes impossible rather than merely
 tested-against.
+
+## Residual at closing: what the types make impossible, and what they do not
+
+The op name is no longer a parameter anywhere a refusal is built. `OpContext.opName` is stamped by
+the dispatcher from the `OpDefinition` it runs — the same object `opsByName` is keyed by, so there
+is no second value that could disagree — and `ops/guard/refusal.ts` exposes `opRefusal(ctx, …)`,
+which reads it and accepts no op-name argument. The source-derived oracle that used to check the
+literal is deleted: it guarded a parameter that no longer exists.
+
+What remains open, stated rather than instrumented: `semanticFanoutRefusal` takes a structural
+`Pick<OpContext, 'opName'>`, so `semanticFanoutRefusal({ ...ctx, opName: 'other' }, …)` compiles. No
+call site does it, and it takes a deliberate spread-override rather than a copy-paste — the class
+this task was filed for is dead. It also cannot produce the split failure the original defect
+caused: the head and the redirect read the SAME `ctx.opName`, so a wrong name moves the whole
+refusal instead of making it self-contradictory.
+
+Deliberately NOT covered by a source oracle. Adding one would restore the test-standing-in-for-a-
+field pattern this task exists to remove, to cover a shape nothing produces.
+
+`wireRefusal(requestName, …)` is the second and last entry point: the daemon failing requests whose
+op never ran has no `OpDefinition`, so the wire request is the only authority for which call the
+message is about. That is not a residual — it is the honest source on that path.
