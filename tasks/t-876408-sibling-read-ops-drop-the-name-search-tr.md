@@ -2,7 +2,7 @@
 id: t-876408
 title: 'Sibling read ops drop the name-search truncation the resolver computes: expand_type / impact / member_usages / source answer without the lower-bound verdict find_usages and find_definition carry'
 status: backlog
-priority: medium
+priority: high
 tags:
   - agent-surface
   - dogfood
@@ -40,3 +40,28 @@ Fix shape: thread `searchTruncated` out of the remaining `plugin.ts` read method
 already there for `findDefinition` / `findUsages`) and reuse `searchCapFloor` in each op. The lower
 ones (`expand_type` / `source`) at least print `at=<file:line:col>`, so the agent can see WHICH
 declaration answered; `impact` / `member_usages` do not.
+
+## Root fix: disclosure belongs on the ENVELOPE, not hand-plumbed per op
+
+From worker cc8ddaaa, which shipped the per-op version and reports the cost: threading ONE fact
+(the LS search page was truncated, so a completeness claim is not safe) took edits in SEVEN places and
+STILL left four ops mute — the exact asymmetry this task describes. Hand-plumbing a cross-cutting honesty
+signal does not converge: every new consumer must remember to consume it, and forgetting is silent.
+
+So the ask sharpens from "make the neighbours agree" to "stop making agreement a per-op obligation":
+resolve-time provenance (was the candidate set complete? was the page capped? was the target narrowed?)
+should ride the `Result` envelope from the point of resolution, so every op that answers about that target
+inherits the same disclosure without opting in.
+
+## Design lesson worth keeping — a boolean was too coarse, and the gap shipped two false refusals
+
+`searchTruncated` was SET on an event ("the page overflowed") and CONSUMED as an assertion ("same-named
+declarations may be missing"). Those are not the same claim, and the gap between them produced two
+regressions in this track's own review rounds: ~200 unrelated prefix matches blocked renaming a uniquely
+named symbol, and an exact handle inherited truncation and failed with a message about a bare name it
+never had.
+
+Generalizable: an honesty flag must encode WHAT IS UNSAFE TO CLAIM, not what happened upstream. If the
+producer's event and the consumer's question differ, one bit cannot bridge them — the fix was to set the
+flag only when the retained page's tail is still in the exact-match bucket, i.e. to express the assertion
+directly rather than its cause.
