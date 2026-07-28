@@ -1,7 +1,7 @@
 ---
 id: t-115173
 title: 'Doc delta for the envelope-disclosure channel: §3.4 / §3.6 / §5-L0 / §5-L0.5 / §5-L3 / §12 / §15 / §16 + src/README L0.5 are closed enumerations that no longer match the code'
-status: backlog
+status: done
 priority: high
 tags:
   - docs

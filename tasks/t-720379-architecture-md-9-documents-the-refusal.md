@@ -1,7 +1,7 @@
 ---
 id: t-720379
 title: ARCHITECTURE.md §9 documents the refusal redirect that was removed, and argues for restoring the refusal→refusal chain
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
