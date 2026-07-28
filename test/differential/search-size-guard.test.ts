@@ -25,6 +25,7 @@ import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { project } from '../helpers/project.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
+import { navigationFor } from '../../src/ops/guard/navigate.ts';
 
 // A config with a peak threshold: written as a real codemaster.config.ts so the load → zod →
 // plugin-construction wiring is exercised end-to-end (the guard is dead if any composition root
@@ -108,6 +109,27 @@ test('over threshold: default search_symbol REFUSES + redirects, and the LS stay
       assert.match(msg, /syntactic:true/, 'redirect names the syntactic escape');
       assert.match(msg, /force:true/, 'redirect names the force override');
       assert.match(msg, /\d+ files.*peak threshold 1/, 'refusal states the peak vs threshold');
+      // t-615758: the refusal STATES what it puts out of reach, rather than leaving each consumer
+      // to re-infer it from the prose. Declined before warming → the engine is intact, so only
+      // this call is out of reach and a redirect may name a program-building call.
+      assert.equal(res.result.failure.outOfReach, 'this-call');
+      // And the whole message is pinned byte-exact against its three parts assembled by hand:
+      // head, the shared redirect, then this producer's own escape clause. A pin, not a golden —
+      // the expected value is built here from the pieces, so a silent drift in either the head or
+      // the tail during a refactor of the constructor shows up as a diff rather than passing the
+      // loose regexes above.
+      const { peak } = estimates(p.root);
+      const shape = peak.pruned
+        ? `even after discovery-pruning to the primary program, its ${peak.peakFiles} files would build`
+        : `warming would build ${peak.peakFiles} files across its programs`;
+      assert.equal(
+        msg,
+        `search_symbol declines to warm: repo is large (${shape}, over the peak threshold 1) — ` +
+          `the navto search risks OOM (can kill the daemon) and holds large type-checker memory ` +
+          `for a throwaway discovery query. ` +
+          `${navigationFor('search_symbol', { query: 'Widget' }, 'this-call')} ` +
+          `Or pass force:true to warm anyway.`,
+      );
     }
     assert.equal(await tsFingerprint(p), 'cold', 'a refused search must not warm the LS');
   } finally {

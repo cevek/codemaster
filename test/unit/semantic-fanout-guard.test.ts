@@ -17,17 +17,14 @@ const ts = (count: Result<number>, threshold = 4000) => ({
 const OVER = ok(5000);
 const UNDER = ok(100);
 const ESTIMATE_FAIL: Result<number> = fail({ tool: 'git', message: 'git failed' });
-// t-959904: the refusal names the op that is declining and what it was asked, so it can redirect
-// to a call answering the SAME question here.
-const NAV = { op: 'find_usages', args: { name: 'Button' } };
+// The refusal names the op that is declining and what it was asked, so it can redirect to a call
+// answering the SAME question here. WHICH op is declining is not passable (t-166631): it comes from
+// `ctx.opName`, which the dispatcher stamps off the OpDefinition it ran.
+const CTX = { opName: 'find_usages', daemon: { isolation: 'in-process' } } as const;
+const ARGS = { name: 'Button' };
 
 test('in-process, over threshold, no force → REFUSES with a process-mode redirect', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(OVER),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(OVER), undefined, ARGS);
   assert.ok(r !== undefined, 'refuses');
   assert.match(r.message, /isolation/);
   assert.match(r.message, /5000 src files > threshold 4000/);
@@ -38,10 +35,10 @@ test('in-process, over threshold, no force → REFUSES with a process-mode redir
 test('refusal names the actual cause — one remedy per cause, all distinct', () => {
   const msgFor = (reason: IsolationReason) =>
     semanticFanoutRefusal(
-      { daemon: { isolation: 'in-process', isolationReason: reason } },
+      { ...CTX, daemon: { isolation: 'in-process', isolationReason: reason } },
       ts(OVER),
       undefined,
-      NAV,
+      ARGS,
     )?.message ?? '';
 
   assert.match(msgFor('auto-escalate-disabled'), /autoEscalate/);
@@ -65,12 +62,7 @@ test('refusal names the actual cause — one remedy per cause, all distinct', ()
 
 // Honest-on-unknown: no recorded cause must SAY so, never substitute a plausible one.
 test('no recorded cause → says the cause is unknown, invents none', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(OVER),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(OVER), undefined, ARGS);
   assert.ok(r !== undefined);
   assert.match(r.message, /not recorded/);
   assert.doesNotMatch(r.message, /autoEscalate: false|Auto-escalation is switched OFF/);
@@ -81,12 +73,7 @@ test('no recorded cause → says the cause is unknown, invents none', () => {
 // ORDER is the contract — the runnable call precedes the cause, and the cause is labelled with the
 // access it needs, rather than being offered as the answer.
 test('refusal leads with a call the caller can run, then the access-gated cause', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(OVER),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(OVER), undefined, ARGS);
   assert.ok(r !== undefined);
   const nextCall = r.message.indexOf('search_symbol {query:"Button",syntactic:true}');
   const rootCause = r.message.indexOf('Cause (needs config/daemon access)');
@@ -104,12 +91,7 @@ test('refusal leads with a call the caller can run, then the access-gated cause'
 // ITSELF with a file pin, which is single-program-exact and never guarded. Asserting name-absence
 // across all ops would fail on that correct behaviour.
 test('refusal never redirects into the op it just declined (unconditionally guarded op)', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(OVER),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(OVER), undefined, ARGS);
   assert.ok(r !== undefined);
   // Guard the anchor before slicing: `indexOf` on drifted prose returns -1, and `slice(-1)` yields
   // the last CHARACTER — on which `doesNotMatch` passes unconditionally. Without this the test goes
@@ -120,44 +102,39 @@ test('refusal never redirects into the op it just declined (unconditionally guar
 });
 
 test('process-mode → NEVER refuses even far over threshold (survives the OOM via t-000052)', () => {
-  const r = semanticFanoutRefusal({ daemon: { isolation: 'process' } }, ts(OVER), undefined, NAV);
+  const r = semanticFanoutRefusal(
+    { ...CTX, daemon: { isolation: 'process' } },
+    ts(OVER),
+    undefined,
+    ARGS,
+  );
   assert.equal(r, undefined, 'process-mode is a killable child — no refusal');
 });
 
 // t-693742: `force:true` USED to bypass this and killed the daemon in production — the tool's own
 // refusal text advertised it as the escape. It must now refuse, and say the force was ignored.
 test('force:true → still REFUSES in-process (no in-band route to a dead daemon)', () => {
-  const r = semanticFanoutRefusal({ daemon: { isolation: 'in-process' } }, ts(OVER), true, NAV);
+  const r = semanticFanoutRefusal(CTX, ts(OVER), true, ARGS);
   assert.ok(r !== undefined, 'force must not override an uncatchable-OOM refusal');
   assert.match(r.message, /force:true.*does NOT override/i);
 });
 
 test('force:true under threshold → no refusal (force never manufactures one)', () => {
-  const r = semanticFanoutRefusal({ daemon: { isolation: 'in-process' } }, ts(UNDER), true, NAV);
+  const r = semanticFanoutRefusal(CTX, ts(UNDER), true, ARGS);
   assert.equal(r, undefined);
 });
 
 test('under threshold → no refusal', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(UNDER),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(UNDER), undefined, ARGS);
   assert.equal(r, undefined, 'within budget warms normally');
 });
 
 test('estimate failure → falls through (never over-refuse; the guard is an optimization)', () => {
-  const r = semanticFanoutRefusal(
-    { daemon: { isolation: 'in-process' } },
-    ts(ESTIMATE_FAIL),
-    undefined,
-    NAV,
-  );
+  const r = semanticFanoutRefusal(CTX, ts(ESTIMATE_FAIL), undefined, ARGS);
   assert.equal(r, undefined, 'a git hiccup must not refuse a legitimate op');
 });
 
 test('undefined daemon (no isolation wired) → no refusal (cannot confirm in-process risk)', () => {
-  const r = semanticFanoutRefusal({ daemon: undefined }, ts(OVER), undefined, NAV);
+  const r = semanticFanoutRefusal({ ...CTX, daemon: undefined }, ts(OVER), undefined, ARGS);
   assert.equal(r, undefined, 'unknown isolation is treated as not-in-process — never over-refuse');
 });

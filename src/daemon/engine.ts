@@ -293,6 +293,11 @@ class Engine implements WorkspaceEngine {
               op.run(
                 {
                   plugins: this.registry,
+                  // The op's own identity (t-166631), from the definition being dispatched — not
+                  // from `req.name`, which is merely what the caller spelled. `opsByName` is keyed
+                  // by `op.name`, so this is the one authority and an op can never be told it is
+                  // something else.
+                  opName: op.name,
                   flags: extractFlags({ ...req, ...resolved.flags }),
                   daemon: buildDaemonInfo(this.deps, this.order, [...this.opsByName.keys()]),
                   textScanner: this.textScanner,

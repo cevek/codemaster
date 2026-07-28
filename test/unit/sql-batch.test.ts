@@ -42,7 +42,10 @@ test("a producer's own truncation marks its table partial", async () => {
     createRunner: createSqliteRunner,
     runProducer: (req) =>
       stub
-        .run({ plugins: undefined as never, flags: {}, tableRowBound: 100 }, req.args)
+        .run(
+          { plugins: undefined as never, flags: {}, opName: req.name, tableRowBound: 100 },
+          req.args,
+        )
         .then((result) => ({ name: req.name, result })),
     freshness: undefined,
   });
@@ -62,7 +65,10 @@ function runStub(byName: Record<string, AnyOpDefinition>, req: { name: string; a
   const op = byName[req.name];
   if (op === undefined) throw new Error(`no stub registered for '${req.name}'`);
   return op
-    .run({ plugins: undefined as never, flags: {}, tableRowBound: 100 }, req.args as never)
+    .run(
+      { plugins: undefined as never, flags: {}, opName: req.name, tableRowBound: 100 },
+      req.args as never,
+    )
     .then((result) => ({ name: req.name, result }));
 }
 

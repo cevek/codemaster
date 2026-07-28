@@ -25,6 +25,7 @@
 // orientation calls that still work — never an invented near-equivalent presented as the answer.
 // The point an agent must come away with is that the REPO is not dead, only one op is.
 
+import type { OutOfReach } from '../../core/result.ts';
 import { classifyTargetString } from '../intake/smart-string.ts';
 
 /** One paste-able call plus what it actually returns. `gives` states the answer's real extent,
@@ -32,24 +33,11 @@ import { classifyTargetString } from '../intake/smart-string.ts';
 export type CheapCall = {
   readonly call: string;
   readonly gives: string;
-  /** True when running this call builds a TS program and warms the checker. Such a call escapes the
-   *  fan-out GUARD (which refuses over addressing, not cost) but does NOT escape an engine that just
-   *  died of OOM — see `RefusalCause`. */
+  /** True when running this call builds a TS program and warms the checker. Such a call is fine
+   *  after a `'this-call'` failure (the engine is intact) and is NOT after an `'any-program-build'`
+   *  one — see `OutOfReach` in `core/result.ts`. */
   readonly buildsProgram?: true;
 };
-
-/** Why we are rendering a redirect — and it changes which calls are honest to name.
- *
- *  `guard`: an op DECLINED before doing any work. The refusal is about ADDRESSING (a bare name fans
- *  across every program; a file pin is single-program-exact), so re-pinning the same op provably
- *  escapes it.
- *
- *  `died`: the isolated engine actually ran out of memory — or was killed — running this op. Nothing
- *  about addressing changes that. Measured on a 6k-file repo: a FILE-PINNED
- *  `trace_prop_through_tree` OOMs exactly as the bare-name one does, so offering the re-pin here
- *  would hand the agent back the very call that just failed. Under `died` only calls that build no
- *  program at all survive; the rest is honestly reported as out of reach. */
-export type RefusalCause = 'guard' | 'died';
 
 /** The target fields a redirect can interpolate. Read defensively — a shape mismatch degrades to a
  *  subject-less redirect, never a throw. */
@@ -259,13 +247,14 @@ const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
 export function cheapCallsFor(
   op: string,
   args: unknown,
-  cause: RefusalCause,
+  outOfReach: OutOfReach,
 ): { readonly calls: readonly CheapCall[]; readonly substitute: boolean } {
   const nav = readArgs(args);
-  // A dead engine is not escaped by re-addressing: drop every call that would build a program, and
-  // let what remains (or nothing) decide whether a substitute can honestly be claimed.
+  // The failure's own claim decides this — it is not re-derived here. Where every program build is
+  // out of reach, drop each call that would build one and let what remains (or nothing) decide
+  // whether a substitute can honestly be claimed.
   const specific = (BY_OP.get(op)?.(nav) ?? []).filter(
-    (c) => cause === 'guard' || c.buildsProgram !== true,
+    (c) => outOfReach !== 'any-program-build' || c.buildsProgram !== true,
   );
   if (specific.length > 0) return { calls: specific, substitute: true };
   return { calls: orientation(nav.name), substitute: false };
@@ -273,14 +262,14 @@ export function cheapCallsFor(
 
 /** Render the redirect as ONE dense clause (§12 — a refusal that buries its own next step in prose
  *  is the failure this table exists to fix). Verdict first: what to run, then what it returns. */
-export function navigationFor(op: string, args: unknown, cause: RefusalCause): string {
-  const { calls, substitute } = cheapCallsFor(op, args, cause);
+export function navigationFor(op: string, args: unknown, outOfReach: OutOfReach): string {
+  const { calls, substitute } = cheapCallsFor(op, args, outOfReach);
   const body = calls.map((c) => `${c.call} → ${c.gives}`).join(' · ');
   // The lead carries NO cost claim: under `guard` some of these calls do build a program (a file pin
   // escapes the guard without being free), so a blanket "no program build" would be false. What each
   // call costs and covers lives in its own `gives`, which is per-call and cannot over-generalise.
-  // Nor can the lead take the refused op as its implied subject — on the `died` path that op is
-  // already gone, so "still runs here" would be a claim about the corpse.
+  // Nor can the lead take the refused op as its implied subject — under `'any-program-build'` that
+  // op is already gone, so "still runs here" would be a claim about the corpse.
   const lead = substitute
     ? 'RUN INSTEAD'
     : `NO cheaper in-tool path to this question (${op} is what answers it). What still answers here`;

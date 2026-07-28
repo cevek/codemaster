@@ -62,7 +62,7 @@ function ctxOf(plugins: Plugin[]): OpContext {
     has: (id) => byId.has(id),
     ids: plugins.map((p) => p.id),
   };
-  return { plugins: registry, flags: {} };
+  return { plugins: registry, flags: {}, opName: 'list' };
 }
 
 const demo = fakePlugin('demo', {

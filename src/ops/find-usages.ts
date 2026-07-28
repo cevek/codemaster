@@ -130,7 +130,7 @@ export const findUsagesOp = defineOp({
     // oversized in-process repo that OOMs and kills the daemon (§1). Refuse BEFORE any resolve/warm, naming why the repo
     // was not auto-escalated (a name-addressed call warms inside resolveByName). `force`
     // bypasses; process-mode + an estimate failure fall through (see the guard).
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'find_usages', args });
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, args);
     if (refusal !== undefined) return fail(refusal);
     // sql-mode signal (§2.3): the engine sets tableRowBound only when this op feeds a
     // SQLite table. Import collapse is forced OFF there — the table projects from the

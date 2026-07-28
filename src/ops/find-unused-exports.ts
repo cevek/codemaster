@@ -113,7 +113,7 @@ export const findUnusedExportsOp = defineOp({
     // in-process kills the daemon uncatchably. Stated lifetime: this call goes away (or is
     // re-derived) once the auto-escalate-oversized-repo-to-process-mode path lands and the guard's
     // "refuse in-process" semantics are replaced by "route to a killable child".
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'find_unused_exports', args });
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, args);
     if (refusal !== undefined) return fail(refusal);
     try {
       // Widen the search first (t-228533): a `programs:`-loaded config is searched + subtracted from

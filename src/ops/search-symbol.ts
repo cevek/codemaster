@@ -12,8 +12,9 @@ import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
 import { fileModuleHint } from './search-file-hint.ts';
-import { navigationFor } from './guard/navigate.ts';
-import type { Cell, TableSpec } from './registry.ts';
+import { opRefusal } from './guard/refusal.ts';
+import type { ToolFailure } from '../core/result.ts';
+import type { Cell, OpContext, TableSpec } from './registry.ts';
 
 /** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
  *  `confidence` is always `certain`. */
@@ -79,20 +80,28 @@ const argsSchema = z.strictObject({
  *  override this particular guard (the warm is a memory risk, not an uncatchable in-process OOM),
  *  unlike the fan-out guard, where forcing killed the daemon in production (t-693742). */
 function sizeGuardRefusal(
+  ctx: Pick<OpContext, 'opName'>,
   peakFiles: number,
   threshold: number,
   pruned: boolean,
   args: unknown,
-): string {
+): ToolFailure {
   const shape = pruned
     ? `even after discovery-pruning to the primary program, its ${peakFiles} files would build`
     : `warming would build ${peakFiles} files across its programs`;
-  return (
-    `search_symbol declines to warm: repo is large (${shape}, over the peak threshold ${threshold}) — ` +
-    `the navto search risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
-    `throwaway discovery query. ${navigationFor('search_symbol', args, 'guard')} ` +
-    `Or pass force:true to warm anyway.`
-  );
+  return opRefusal(ctx, {
+    tool: 'size-guard',
+    // Declined before warming — the engine is intact, so a program-building call is still within
+    // reach here. The escape from THIS refusal is a different MODE (`syntactic:true`) or `force`,
+    // not a re-address: which is exactly why the claim names reach and the prose names the remedy.
+    outOfReach: 'this-call',
+    args,
+    head:
+      `${ctx.opName} declines to warm: repo is large (${shape}, over the peak threshold ${threshold}) — ` +
+      `the navto search risks OOM (can kill the daemon) and holds large type-checker memory for a ` +
+      `throwaway discovery query.`,
+    tail: 'Or pass force:true to warm anyway.',
+  });
 }
 
 /** Guardrail 4 (t-515730): every syntactic-path answer states its provenance and does NOT claim to
@@ -219,15 +228,15 @@ export const searchSymbolOp = defineOp({
       if (args.force !== true) {
         const estimate = ts.estimateSearchPeak();
         if (estimate.ok && estimate.data.peakFiles > ts.searchWarmPeakMaxFiles) {
-          return fail({
-            tool: 'size-guard',
-            message: sizeGuardRefusal(
+          return fail(
+            sizeGuardRefusal(
+              ctx,
               estimate.data.peakFiles,
               ts.searchWarmPeakMaxFiles,
               estimate.data.pruned,
               args,
             ),
-          });
+          );
         }
       }
       const { matches, total, filteredOutByPath, searchTruncated } = ts.searchSymbol(
@@ -275,14 +284,22 @@ export const searchSymbolOp = defineOp({
       // §1 never-hang: navto ran past the wall-clock budget. No usable matches were produced, so an
       // honest `timeout` failure — never an empty match list dressed as a clean "no symbol" (§3.4).
       if (thrown instanceof DeadlineExceededError) {
-        return fail({
-          tool: 'timeout',
-          // Same claim, same home: the timeout is the fan-out that overran rather than one declined
-          // up front, but "what to run instead" is one statement and it lives in navigate.ts. The
-          // narrowing hint is this branch's own — a timeout, unlike a size refusal, can also be
-          // fixed by asking for less.
-          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}. ${navigationFor('search_symbol', args, 'guard')} Or narrow the query.`,
-        });
+        // Same claim, same home: the timeout is the fan-out that overran rather than one declined
+        // up front, but "what to run instead" is one statement and it lives in navigate.ts. The
+        // narrowing hint is this branch's own — a timeout, unlike a size refusal, can also be
+        // fixed by asking for less.
+        //
+        // `'this-call'`: the deadline cancelled COOPERATIVELY (§19) — the engine is intact, unlike a
+        // child the daemon had to kill — so only this call, as issued, is out of reach.
+        return fail(
+          opRefusal(ctx, {
+            tool: 'timeout',
+            outOfReach: 'this-call',
+            args,
+            head: `${ctx.opName} exceeded its wall-clock budget — ${thrown.message}.`,
+            tail: 'Or narrow the query.',
+          }),
+        );
       }
       return failFromThrown('ts-ls', thrown);
     }

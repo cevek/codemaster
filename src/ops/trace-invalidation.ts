@@ -50,7 +50,7 @@ export const traceInvalidationOp = defineOp({
     // Pre-warm guard (t-411303): the trace walk fans find_usages / JSX references across every
     // program — on an oversized in-process repo that OOMs and kills the daemon (§1). Refuse with a
     // refusal BEFORE any resolve/warm. `force` does NOT override it (t-693742); see the guard.
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'trace_invalidation', args });
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, args);
     if (refusal !== undefined) return fail(refusal);
     try {
       const view = rq.invalidationsFor(args.mutation);

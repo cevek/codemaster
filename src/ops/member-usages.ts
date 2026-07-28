@@ -109,7 +109,7 @@ export const memberUsagesOp = defineOp({
     // across every program — on an oversized in-process repo that OOMs and kills the daemon (§1).
     // Refuse BEFORE any resolve/warm, naming why the repo was not auto-escalated. `force` does NOT override it; process-mode +
     // an estimate failure fall through (see the guard).
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'member_usages', args });
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, args);
     if (refusal !== undefined) return fail(refusal);
     try {
       const outcome = ts.memberUsages(args, args.member, {

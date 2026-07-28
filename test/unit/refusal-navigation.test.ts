@@ -11,11 +11,15 @@ import { cheapCallsFor, navigationFor } from '../../src/ops/guard/navigate.ts';
 
 const OPS_DIR = fileURLToPath(new URL('../../src/ops/', import.meta.url));
 
-type OpFile = { op: string; guarded: boolean; conditional: boolean; passedOp?: string };
+type OpFile = { op: string; guarded: boolean; conditional: boolean };
 
-/** Read every op module once: its declared name, whether it calls the fan-out guard, whether that
- *  call is conditional on `isFanCapableTarget` (so a file-pinned target is NOT guarded), and the op
- *  name literal it hands the guard. */
+/** Read every op module once: its declared name, whether it calls the fan-out guard, and whether
+ *  that call is conditional on `isFanCapableTarget` (so a file-pinned target is NOT guarded).
+ *
+ *  It no longer reads the op-name literal each site hands the guard, because there is none: the
+ *  refusing op comes from `ctx.opName`, stamped by the dispatcher off the `OpDefinition` it ran
+ *  (t-166631). A site carrying a neighbour's name is a shape the types no longer admit, so an
+ *  oracle for it would be checking that a non-existent parameter is filled correctly. */
 function readOps(): OpFile[] {
   const out: OpFile[] = [];
   for (const file of readdirSync(OPS_DIR)) {
@@ -23,16 +27,10 @@ function readOps(): OpFile[] {
     const src = readFileSync(`${OPS_DIR}${file}`, 'utf8');
     const declared = /^ {2}name: '([a-z0-9_]+)',$/m.exec(src);
     if (declared?.[1] === undefined) continue;
-    const guarded = src.includes('semanticFanoutRefusal(');
-    // Formatting-tolerant: prettier wraps the longer call sites across lines, and an oracle that
-    // silently stopped matching on reformat would go quietly vacuous — the failure mode it exists
-    // to prevent. Anchored on the `op:` literal inside a guard call, whitespace-insensitive.
-    const passed = /semanticFanoutRefusal\([\s\S]*?\{\s*op:\s*'([a-z0-9_]+)'/.exec(src);
     out.push({
       op: declared[1],
-      guarded,
+      guarded: src.includes('semanticFanoutRefusal('),
       conditional: src.includes('isFanCapableTarget('),
-      ...(passed?.[1] !== undefined ? { passedOp: passed[1] } : {}),
     });
   }
   return out;
@@ -61,14 +59,6 @@ test('the guarded-op set is discovered from source (oracle is not vacuously empt
   );
   assert.ok(GUARDED.has('find_usages') && GUARDED.has('impact'));
   assert.ok(CONDITIONAL.has('find_definition'), 'find_definition guards only fan-capable targets');
-});
-
-// A wrong literal at a call site would emit a redirect computed for a DIFFERENT question — the
-// failure mode of threading an identifier through ~15 sites by hand.
-test('every guard call site passes its own declared op name', () => {
-  for (const o of OPS.filter((x) => x.guarded)) {
-    assert.equal(o.passedOp, o.op, `${o.op} passes '${o.passedOp ?? '<none>'}' to the guard`);
-  }
 });
 
 const opOf = (call: string) => /^([a-z0-9_]+)\s/.exec(call.trim())?.[1] ?? '';
@@ -106,7 +96,7 @@ test('no refusal redirects into another refusal — every op, every arg shape', 
   assert.ok(everyOp.length > GUARDED.size, 'the sweep must reach unguarded ops as well');
   for (const op of everyOp) {
     for (const shape of ARG_SHAPES) {
-      for (const c of cheapCallsFor(op, shape.args, 'guard').calls) {
+      for (const c of cheapCallsFor(op, shape.args, 'this-call').calls) {
         assertReachable(c.call, `${op} (${shape.label})`);
       }
     }
@@ -131,7 +121,7 @@ test('every BY_OP key names a real op (a stale key would silently degrade to the
 // say the question itself is out of reach here, or the agent takes the near-miss for the real thing.
 test('an op with no cheap equivalent reports substitute:false rather than a near-equivalent', () => {
   for (const op of ['impact', 'affected', 'importers_of', 'find_unused_exports']) {
-    const { calls, substitute } = cheapCallsFor(op, { name: 'Button' }, 'guard');
+    const { calls, substitute } = cheapCallsFor(op, { name: 'Button' }, 'this-call');
     assert.equal(substitute, false, `${op} must not claim a substitute`);
     assert.ok(calls.length > 0, `${op} must still name what does work here`);
   }
@@ -141,7 +131,7 @@ test('an op with no cheap equivalent reports substitute:false rather than a near
 // copy-pasteable SymbolIds. A suggestion carrying no concrete subject is a hint, not a next call.
 test('redirects interpolate the refused call subject verbatim', () => {
   for (const op of ['find_usages', 'find_definition', 'search_symbol']) {
-    const calls = cheapCallsFor(op, { name: 'Butt"on' }, 'guard').calls;
+    const calls = cheapCallsFor(op, { name: 'Butt"on' }, 'this-call').calls;
     assert.ok(calls.length > 0);
     for (const c of calls) {
       assert.match(c.call, /"Butt\\"on"/, `${op} must JSON-quote the subject: ${c.call}`);
@@ -154,19 +144,19 @@ test('redirects interpolate the refused call subject verbatim', () => {
 // and a `name` that is really a position must NOT be pasted into a name-matching query — a redirect
 // that quietly finds nothing is worse than one that admits it has no subject.
 test('raw pre-intake args: alias keeps the subject, a path-shaped name never becomes a query', () => {
-  const aliased = cheapCallsFor('find_usages', { symbol: 'Button' }, 'guard');
+  const aliased = cheapCallsFor('find_usages', { symbol: 'Button' }, 'this-call');
   assert.equal(aliased.substitute, true, '`symbol` is the §7 alias of `name`');
   assert.ok(aliased.calls[0]?.call.includes('"Button"'), 'subject survives the alias');
 
   for (const posed of ['src/x.ts:10:3', 'src/x.ts:10']) {
-    for (const c of cheapCallsFor('find_usages', { name: posed }, 'guard').calls) {
+    for (const c of cheapCallsFor('find_usages', { name: posed }, 'this-call').calls) {
       assert.doesNotMatch(c.call, /query:"src/, `a position leaked into a name query: ${c.call}`);
     }
   }
 
   // An implausibly long "name" is dropped rather than elided: a call cut with `…` reads as runnable
   // and is not.
-  for (const c of cheapCallsFor('find_usages', { name: 'x'.repeat(500) }, 'guard').calls) {
+  for (const c of cheapCallsFor('find_usages', { name: 'x'.repeat(500) }, 'this-call').calls) {
     assert.doesNotMatch(c.call, /…/, `emitted an un-runnable elided call: ${c.call}`);
   }
 });
@@ -177,13 +167,13 @@ test('raw pre-intake args: alias keeps the subject, a path-shaped name never bec
 // `oom`/`timeout` verdict, for every request in the batch, with an internal stack trace.
 test('a non-own op name yields a redirect, never a throw', () => {
   for (const op of ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'find_usage']) {
-    const line = navigationFor(op, { name: 'Button' }, 'guard');
+    const line = navigationFor(op, { name: 'Button' }, 'this-call');
     assert.match(
       line,
       /symbols_overview|search_symbol/,
       `${op} must still name something runnable`,
     );
-    for (const c of cheapCallsFor(op, { name: 'Button' }, 'guard').calls)
+    for (const c of cheapCallsFor(op, { name: 'Button' }, 'this-call').calls)
       assertReachable(c.call, op);
   }
 });
@@ -198,7 +188,7 @@ test('a trace re-pins itself and keeps its own args, rather than borrowing find_
       prop: 'userId',
       file: 'src/App.tsx',
     },
-    'guard',
+    'this-call',
   );
   assert.equal(pinned.substitute, true);
   const [call] = pinned.calls;
@@ -212,7 +202,7 @@ test('a trace re-pins itself and keeps its own args, rather than borrowing find_
   const unpinned = cheapCallsFor(
     'trace_prop_through_tree',
     { name: 'App', prop: 'userId' },
-    'guard',
+    'this-call',
   );
   for (const c of unpinned.calls) assertReachable(c.call, 'trace_prop_through_tree (unpinned)');
   assert.ok(
@@ -234,7 +224,7 @@ test('the subject is found wherever the op keeps it', () => {
     ['find_unused_props', { component: 'Button' }],
     ['find_usages', { symbols: ['Button'] }],
   ] as const) {
-    const { calls } = cheapCallsFor(op, args, 'guard');
+    const { calls } = cheapCallsFor(op, args, 'this-call');
     const subject: unknown = Object.values(args)[0];
     const want: unknown = Array.isArray(subject) ? (subject as readonly unknown[])[0] : subject;
     assert.ok(
@@ -252,7 +242,7 @@ test('a died-engine redirect never names a call that builds a program', () => {
   const everyOp = [...new Set([...OPS.map((o) => o.op), 'search_symbol'])];
   for (const op of everyOp) {
     for (const shape of ARG_SHAPES) {
-      for (const c of cheapCallsFor(op, shape.args, 'died').calls) {
+      for (const c of cheapCallsFor(op, shape.args, 'any-program-build').calls) {
         assert.notEqual(
           c.buildsProgram,
           true,
@@ -266,13 +256,13 @@ test('a died-engine redirect never names a call that builds a program', () => {
 test('a died-engine redirect never echoes back the call that just failed', () => {
   const args = { name: 'Button', prop: 'size', file: 'src/Button.tsx' };
   for (const op of ['trace_prop_through_tree', 'trace_type_widening', 'find_definition']) {
-    const { calls, substitute } = cheapCallsFor(op, args, 'died');
+    const { calls, substitute } = cheapCallsFor(op, args, 'any-program-build');
     for (const c of calls) {
       assert.ok(!c.call.startsWith(`${op} `), `${op} redirects to itself after dying: ${c.call}`);
     }
     // Under the GUARD the very same call IS the right answer — the refusal was about addressing.
     assert.ok(
-      cheapCallsFor(op, args, 'guard').calls.some((c) => c.call.startsWith(`${op} `)),
+      cheapCallsFor(op, args, 'this-call').calls.some((c) => c.call.startsWith(`${op} `)),
       `${op} must still re-pin itself when the GUARD refused`,
     );
     // With a file already pinned, the only specific call each of these had was the program-building
@@ -282,7 +272,7 @@ test('a died-engine redirect never echoes back the call that just failed', () =>
 
   // Without a file, find_definition still has a genuine no-build partial (the syntactic scan finds
   // the declaring file), so it may claim one — the filter drops only the program-building step.
-  const noFile = cheapCallsFor('find_definition', { name: 'Button' }, 'died');
+  const noFile = cheapCallsFor('find_definition', { name: 'Button' }, 'any-program-build');
   assert.equal(noFile.substitute, true);
   assert.deepEqual(
     noFile.calls.map((c) => c.call),
@@ -293,7 +283,7 @@ test('a died-engine redirect never echoes back the call that just failed', () =>
 // The partial must never be sold as the whole: the syntactic scan finds declarations and import
 // sites, which is NOT the per-site usage set find_usages would have returned.
 test('the find_usages redirect states what it does NOT give', () => {
-  const [first] = cheapCallsFor('find_usages', { name: 'Button' }, 'guard').calls;
+  const [first] = cheapCallsFor('find_usages', { name: 'Button' }, 'this-call').calls;
   assert.ok(first !== undefined);
   assert.match(first.gives, /NOT the per-site usage set/);
 });
@@ -302,7 +292,7 @@ test('the find_usages redirect states what it does NOT give', () => {
 // not be parsed here) still has to hand back something runnable, not a placeholder-only string.
 test('a subject-less refusal still yields a runnable call', () => {
   for (const args of [{ module: 'src/x.ts' }, {}]) {
-    const { calls } = cheapCallsFor('importers_of', args, 'guard');
+    const { calls } = cheapCallsFor('importers_of', args, 'this-call');
     assert.deepEqual(
       calls.map((c) => c.call),
       ['symbols_overview {}'],

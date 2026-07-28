@@ -195,7 +195,7 @@ export const impactTypeErrorOp = defineOp({
     // Pre-warm guard (t-411303): the dependent closure fans find_usages across every program and the
     // trial typecheck runs cross-program — on an oversized in-process repo that OOMs and kills the
     // daemon (§1). Refuse BEFORE any resolve/warm, naming why the repo was not auto-escalated. `force` does NOT override it (t-693742).
-    const refusal = semanticFanoutRefusal(ctx, ts, args.force, { op: 'impact_type_error', args });
+    const refusal = semanticFanoutRefusal(ctx, ts, args.force, args);
     if (refusal !== undefined) return fail(refusal);
     const maxDepth = args.depth ?? DEFAULT_DEPTH;
     const maxNodes = args.nodes ?? DEFAULT_NODES;

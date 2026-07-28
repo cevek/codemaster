@@ -19,9 +19,9 @@
 
 import type { ToolFailure } from '../../core/result.ts';
 import type { TsPluginApi } from '../../plugins/ts/plugin.ts';
-import type { DaemonInfo } from '../registry.ts';
+import type { DaemonInfo, OpContext } from '../registry.ts';
 import type { IsolationReason } from '../../core/isolation.ts';
-import { navigationFor } from './navigate.ts';
+import { opRefusal } from './refusal.ts';
 
 /** Refuse a heavy semantic fan-out when the in-process daemon would OOM on it — else `undefined`
  *  (warm as normal). Called at the TOP of a guarded op's `run()`, BEFORE any resolve/warm (a
@@ -30,13 +30,15 @@ import { navigationFor } from './navigate.ts';
  *  isolation mode + its cause + the cheap estimate), so it composes with the full
  *  `OpContext`/`TsPluginApi` and is unit-testable without faking either whole. */
 export function semanticFanoutRefusal(
-  ctx: { daemon?: Pick<DaemonInfo, 'isolation' | 'isolationReason'> | undefined },
+  ctx: Pick<OpContext, 'opName'> & {
+    daemon?: Pick<DaemonInfo, 'isolation' | 'isolationReason'> | undefined;
+  },
   ts: Pick<TsPluginApi, 'estimateSourceFileCount' | 'searchWarmMaxFiles'>,
   force: boolean | undefined,
-  // t-959904: which op is refusing, and what it was asked — the refusal names the call that answers
-  // the SAME question here (navigate.ts). REQUIRED, so tsc catches a call site that would otherwise
-  // silently emit a redirect for the wrong op.
-  nav: { op: string; args: unknown },
+  // What the op was asked — the refusal names the call that answers the SAME question here
+  // (navigate.ts). WHICH op is refusing is not a parameter: it comes from `ctx.opName`, so a call
+  // site cannot hand this guard a neighbour's name (t-166631).
+  args: unknown,
 ): ToolFailure | undefined {
   // Only in-process: a forked child (process-mode) has its own killable heap → the t-000052
   // mechanism turns the OOM into an honest ToolFailure without touching the daemon. `undefined`
@@ -50,39 +52,28 @@ export function semanticFanoutRefusal(
   // Estimate failure (git hiccup) or a repo within budget → warm as normal. The guard is an
   // optimization against a known-oversized repo, never a correctness gate.
   if (!estimate.ok || estimate.data <= ts.searchWarmMaxFiles) return undefined;
-  return {
-    tool: 'size-guard',
-    message: fanoutRefusalMessage(
-      estimate.data,
-      ts.searchWarmMaxFiles,
-      ctx.daemon.isolationReason,
-      force === true,
-      nav,
-    ),
-  };
-}
-
-/** Ordering IS the contract here (§12 verdict-first, t-959904). What the agent can run RIGHT NOW
- *  comes before why the heavy path is unavailable, because the reader of this message is usually an
- *  agent inside someone else's repo: it can make another call, and it cannot restart a machine-wide
- *  daemon or edit that repo's config. The cause+remedy still ships — one clause, explicitly labelled
- *  as needing access the caller may not have — so the operator who CAN act is not left guessing. */
-function fanoutRefusalMessage(
-  count: number,
-  threshold: number,
-  reason: IsolationReason | undefined,
-  forced: boolean,
-  nav: { op: string; args: unknown },
-): string {
-  const forcedNote = forced
+  const forcedNote = force
     ? ' (`force:true` does NOT override this — forcing the warm here killed the daemon in production, t-693742.)'
     : '';
-  return (
-    `${nav.op} declines: repo ${count} src files > threshold ${threshold}, engine IN-PROCESS — its ` +
-    `cross-program reference fan-out can OOM the daemon uncatchably, killing every workspace on it. ` +
-    `${navigationFor(nav.op, nav.args, 'guard')} ` +
-    `Cause (needs config/daemon access): ${remedyFor(reason)}${forcedNote}`
-  );
+  // head → redirect → tail is `opRefusal`'s fixed shape, and the ordering IS the contract (§12
+  // verdict-first): what the agent can run RIGHT NOW precedes why the heavy path is unavailable,
+  // because this message's usual reader is an agent inside someone else's repo — it can make
+  // another call, and it can neither restart a machine-wide daemon nor edit that repo's config. The
+  // cause+remedy still ships as the tail, labelled as needing access the caller may not have, so
+  // the operator who CAN act is not left guessing.
+  return opRefusal(ctx, {
+    tool: 'size-guard',
+    // Nothing was attempted: the op declined before warming, so the engine is intact and a
+    // program-building call (this same op, file-pinned) still runs here (§9). What escapes THIS
+    // refusal is prose below, not the claim — the claim is only about reach.
+    outOfReach: 'this-call',
+    args,
+    head:
+      `${ctx.opName} declines: repo ${estimate.data} src files > threshold ${ts.searchWarmMaxFiles}, ` +
+      `engine IN-PROCESS — its cross-program reference fan-out can OOM the daemon uncatchably, ` +
+      `killing every workspace on it.`,
+    tail: `Cause (needs config/daemon access): ${remedyFor(ctx.daemon.isolationReason)}${forcedNote}`,
+  });
 }
 
 /** Name the ACTUAL cause and its remedy, one clause each. Exhaustive over the union, so a new cause

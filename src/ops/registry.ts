@@ -46,6 +46,15 @@ export interface DaemonInfo {
 export interface OpContext {
   plugins: PluginRegistry;
   flags: OpFlags;
+  /** The op's OWN name (t-166631) — stamped by the dispatcher from the `OpDefinition` it is about
+   *  to run, which is also the key it was looked up by, so there is no second value that could
+   *  disagree. An op that has to name itself (a refusal saying which call declined, §9) reads it
+   *  here instead of repeating a literal that must match its own `defineOp({name})` with nothing in
+   *  the types tying the two together — a copy-paste carrying a neighbour's name used to compile
+   *  and produce a confidently wrong message. REQUIRED, not optional: an optional field re-admits
+   *  the same class through a `?? ''` fallback, which is a fabricated fact in the one place whose
+   *  whole job is to be exact. */
+  opName: string;
   /** Daemon-attached runtime context (§ feedback-channel). Present on every op call. */
   daemon?: DaemonInfo;
   /** The textual-occurrence scanner for `find_usages text:true` (§ text-overlay). A

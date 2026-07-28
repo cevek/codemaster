@@ -16,7 +16,7 @@ import { fail } from '../common/result/construct.ts';
 import type { ProjectHost } from './host.ts';
 import type { EngineChildHandle } from './fork-engine.ts';
 import { parseEngineFrame, type EngineReply, type EngineRequest } from './engine-protocol.ts';
-import { navigationFor } from '../ops/guard/navigate.ts';
+import { wireRefusal } from '../ops/guard/refusal.ts';
 
 export interface ProcessHostDeps {
   repoId: RepoId;
@@ -158,22 +158,30 @@ export async function createProcessHost(
       s.reason === 'oom' ? `${name} cannot complete on this repo` : `${name} did not complete`;
     return reqs.map((r) => ({
       name: r.name,
-      result: fail<JsonValue>({
-        // Per-request, not one shared string: a batch's requests ask different questions, and a
-        // redirect computed for the first would be wrong for the rest.
-        tool,
-        // Redirect BEFORE the cause here — the inverse of the guards' order, and deliberately, but
-        // as READING order, not survival: this message renders into the envelope's `head`, which
-        // `assembleEnvelope` reserves against both budgets, and a batch is cut at whole-section
-        // boundaries with disclosure — so it is never tail-trimmed either way. The reason is §12
-        // verdict-first: on this path the op is already dead, so the cause explains a fact the agent
-        // has (it failed) while the redirect is the only part it can act on. That leads.
-        // `'died'`: the engine is gone, so a redirect may only name calls that build no program —
-        // re-addressing escapes the fan-out GUARD, never an exhausted heap (measured: a file-pinned
-        // trace OOMs exactly as its bare-name form does).
-        message: `${verdict(r.name)}. ${navigationFor(r.name, r.args, 'died')} Cause: ${cause}.`,
-        partial: true,
-      }),
+      // Per-request, not one shared failure: a batch's requests ask different questions, and a
+      // redirect computed for the first would be wrong for the rest. The op name is `r.name` and
+      // can only be that — this path has no `OpDefinition` (the op never ran), so the request being
+      // failed is the sole authority for which call this message is about (t-166631).
+      //
+      // Redirect BEFORE the cause here — the inverse of the guards' order, and deliberately, but
+      // as READING order, not survival: this message renders into the envelope's `head`, which
+      // `assembleEnvelope` reserves against both budgets, and a batch is cut at whole-section
+      // boundaries with disclosure — so it is never tail-trimmed either way. The reason is §12
+      // verdict-first: on this path the op is already dead, so the cause explains a fact the agent
+      // has (it failed) while the redirect is the only part it can act on. That leads.
+      //
+      // `'any-program-build'`: the engine is gone, so a redirect may only name calls that build no
+      // program — re-addressing escapes the fan-out GUARD, never an exhausted heap (measured: a
+      // file-pinned trace OOMs exactly as its bare-name form does).
+      result: fail<JsonValue>(
+        wireRefusal(r.name, {
+          tool,
+          outOfReach: 'any-program-build',
+          args: r.args,
+          head: `${verdict(r.name)}.`,
+          tail: `Cause: ${cause}.`,
+        }),
+      ),
     }));
   }
 

@@ -95,6 +95,30 @@ export type UnsafeClaim =
    *  answer states about it is a floor rather than a fact. */
   'target-is-the-only-symbol-of-this-name';
 
+/** What a failure puts BEYOND REACH — an assertion about the caller's NEXT call, never a record
+ *  of what happened to this one. Two failures that read alike ("could not do it") can leave the
+ *  caller in completely different positions, and the difference is not cosmetic: a redirect that
+ *  is valid after one is a dead end after the other. So the distinction is a field, not prose to
+ *  be re-inferred per consumer.
+ *
+ *  Each member must be TRUE of every failure that sets it. That is why neither names a REMEDY:
+ *  the escape from a declined call is sometimes a re-address, sometimes a different mode
+ *  (`syntactic:true`), sometimes asking for less — one word for all three would over-claim on two
+ *  of them. What they share is the reach, and only that. The remedy belongs in `message`, in
+ *  prose, where it can be specific.
+ *
+ *  Closed so a consumer switches exhaustively rather than parsing prose. */
+export type OutOfReach =
+  /** Only THIS call, as issued, is out of reach. The engine is intact: a call that builds a TS
+   *  program still succeeds on this repo, so a redirect may name one. How to get the answer
+   *  anyway is the failure's own `message`. */
+  | 'this-call'
+  /** EVERY call that builds a TS program is out of reach here, whatever its target — the engine
+   *  ran out of memory (or was killed) doing this work, and addressing has no bearing on that. A
+   *  redirect may name only calls that build no program; offering a re-addressed one hands the
+   *  caller back the very call that just died. */
+  | 'any-program-build';
+
 /** Set when the op could not be completed because an internal tool failed — the
  *  TS LS, git, ast-grep, prettier, the filesystem. We surface the failure verbatim and
  *  never guess a result in its place; `data` is empty (or partial, if `partial`). The
@@ -106,6 +130,10 @@ export interface ToolFailure {
   message: string;
   /** True if some results were produced before the failure. */
   partial?: boolean;
+  /** What this failure leaves out of reach (above). Absent = it claims nothing about the next
+   *  call — the honest default for an ordinary git / fs / LS failure, and never to be read as
+   *  "everything still works". */
+  outOfReach?: OutOfReach;
 }
 
 /** Common envelope fields that apply to both success and failure paths. */

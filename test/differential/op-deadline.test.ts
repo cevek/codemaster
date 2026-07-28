@@ -19,6 +19,7 @@ import { buildClosure } from '../../src/ops/impact-closure.ts';
 import type { GroupRow } from '../../src/plugins/ts/query-types.ts';
 import type { RepoRelPath } from '../../src/core/brands.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
+import { navigationFor } from '../../src/ops/guard/navigate.ts';
 
 // ── the seam: createDeadline over the injected Clock ──────────────────────────────────────────
 
@@ -238,6 +239,17 @@ test('search_symbol: generous budget finds the symbol; exhausted budget is a tim
     const res = r.result;
     assert.equal(res.ok, false, 'a failure envelope — never an empty match list dressed as clean');
     assert.ok(!res.ok && res.failure.tool === 'timeout', 'tool=timeout');
+    // t-615758: a cooperative deadline cancels the SEARCH, it does not kill the engine — so the
+    // claim is that only this call is out of reach, and the message may still name a
+    // program-building call. (An engine the daemon had to KILL is the other member, set by
+    // `process-host`.) Pinned byte-exact around the shared redirect so a drift in either the head
+    // or this branch's own narrowing clause is a diff, not a silent rewording.
+    assert.ok(!res.ok && res.failure.outOfReach === 'this-call');
+    const redirect = navigationFor('search_symbol', { query: 'widget' }, 'this-call');
+    assert.ok(
+      !res.ok && res.failure.message.startsWith('search_symbol exceeded its wall-clock budget — '),
+    );
+    assert.ok(!res.ok && res.failure.message.endsWith(`. ${redirect} Or narrow the query.`));
   } finally {
     await timed.dispose();
   }
