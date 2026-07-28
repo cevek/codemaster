@@ -210,7 +210,9 @@ interface OkResult<T> {
   data: T;
   handle?: HandleRebind; // proof-carrying rebind когда SymbolId протух (§6 ARCH)
   freshness?: FreshnessNote; // per-plugin fingerprints + pending изменения
-  truncated?: Truncation; // {shown, total, hint} — никогда silent capping
+  // {shown, total, totalIsLowerBound?, hint} — никогда silent capping; недосчитанный
+  // продюсером total несёт totalIsLowerBound и рендерится как `≥N`
+  truncated?: Truncation;
   debug?: string[]; // opt-in трасса для дебага
 }
 

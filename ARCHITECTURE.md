@@ -411,6 +411,31 @@ probing.
   not an opaque "Could not find source file" throw (t-773499). Unlike references (which merge across
   programs), a definition is a fixed set from the one program that owns the position, so a
   primary-resident target stays byte-identical.
+  **Name→declaration resolve, and the honesty of its own search page.** The LS's workspace-symbol
+  search (navto) is FUZZY (prefix / substring / camelCase) and budgeted, so a bare `{name}` resolve
+  narrows INSIDE the navto loop (`ResolveNarrowing`): the exact-name filter runs before the view cap
+  and before `total` — a post-filter over a fuzzy-capped page silently drops exact matches and
+  miscounts the rest (§3.4) — and the view budget is spent on real DECLARATIONS ahead of alias
+  (re-export / import) specifiers, so a barrel chain longer than the budget cannot crowd out the
+  declaration the caller means. `ResolveNarrowing` is deliberately NOT part of the public
+  `SearchFilter`: that type is the browse filter, shared with the syntactic search which implements
+  none of this, and a type must not advertise a field one implementor ignores (§3.6). Orthogonally,
+  the LS's own page slice is tracked (`SearchView.searchTruncated`): navto ranks by matchKind + name
+  with NO case tie-break and slices before our filter ever runs, so a flood of `span` can push `Span`
+  off the page and `total === shown` proves nothing. It is set only when it can matter — a NARROWED
+  resolve whose last retained item is already past the `exact` bucket has every exact-name candidate
+  on the page and is complete however much fuzzy tail was cut; stamping that as truncated would be a
+  false incompleteness (a common prefix refusing an unambiguous rename), the same lie inverted. The
+  bit is consumed three ways, three different guarantees: READS disclose `complete:false` +
+  a `!! LOWER BOUND` note (`searchCapFloor`, shaped like the undiscovered-program floor so a consumer
+  reads one incompleteness vocabulary whatever the cause); the §6 rebind does not claim `gone` for a
+  symbol it merely could not see; MUTATIONS refuse (§7). The ambiguity list a multi-declaration name
+  returns (`plugins/ts/ambiguity.ts`) collapses candidates by resolved DEFINITION (a barrel chain is
+  one symbol seen N times; within one definition a real declaration displaces the alias pointing at
+  it), ranks declaration-first, prints each candidate as a copy-pasteable `SymbolId` with an alias
+  disclosing the declaration it resolves to, and carries `{shown, total}` with the display cap
+  (`… N more`) and the search-budget truncation (`≥N`) as SEPARATE markers — different causes,
+  different remedies, so collapsing them into one "capped" would lose the remedy.
   **`importers_of` MODULE-mode resolution honesty (§3.6).** The result carries `resolved`: a module
   spec that does NOT resolve to a file under the project's own resolution (a typo'd / out-of-project
   path) reads as a LOUD `module unresolved: X` — distinct from an honest resolved-0 (a real module
@@ -765,7 +790,10 @@ There is no central registry of how a SymbolId is shaped — only of which plugi
 > `{ status: 'gone' }` means absent **in this workspace root** — truly removed, or a handle
 > minted in a _different_ root (SymbolIds are root-scoped: a `ts:` id carries its origin root, and
 > resolving it against another root returns `gone` + "re-search here", never a cross-repo rebind).
-> "gone" is never "merely moved within this root" — that is always a `rebound`.
+> "gone" is never "merely moved within this root" — that is always a `rebound`. Nor is it "we
+> couldn't see it": when the relocating search hit the LS's own page cap (`searchTruncated`, §5-L2)
+> the rebind withholds `gone` and says so instead — an absence asserted off a sliced page is the
+> §3.4 lie in its most damaging form, since the agent's whole chain rests on it.
 
 **Each plugin owns its rebind.** There is no universal rebind algorithm. The `ts` plugin
 rebinds through the LS (re-find symbol by name/kind in current AST); the `scss` plugin
@@ -828,7 +856,12 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 - **Symbol-anchored** (`rename_symbol`, `move_file`, `extract_symbol`, `move_symbol`,
   `change_signature`): the `ts` plugin resolves the symbol through its LS, then computes
   the semantic reference sites; the op rewrites only those. Never fired from a
-  textual/shape match.
+  textual/shape match. **A mutation may not ride a gate that did not run:** all four resolve through
+  `resolveForWrite`, which REFUSES a bare `{name}` whose candidate search hit the LS's page cap
+  (`searchTruncated`, §5-L2) — the "a bare name must match exactly one declaration" check was then
+  verified only against the candidates we could SEE, so the same call would refuse without the flood
+  and mutate with it. The refusal names the addressing that needs no gate (`name`+`file` /
+  `file:line:col`). Reads take the other branch and disclose (§3.4).
 - **Shape-based** (`codemod`): an **ast-grep** structural pattern (`<X prop={$V}>`).
   Operates on syntactic shape and **never claims to target a symbol** — so it can't
   accidentally rewrite a same-named unrelated binding. Implemented at the op level over
@@ -1157,6 +1190,11 @@ one-line legend + sectioned summary). Rules:
 
 - Always emit clickable `file:line`.
 - Default cap with explicit `… N more (filter: …)` — never silent.
+- **A count the producer could not finish is rendered as a floor.** `Truncation.totalIsLowerBound`
+  marks a `total` whose own source truncated before it could be counted (the TS LS's navto page,
+  §5-L2); the renderer then emits `≥N` instead of `N`, so a capped count is never read as an exact
+  one. It is orthogonal to the display cap — `shown X of ≥Y` states both at once, and the two
+  carry different remedies.
 - **Verdict-before-bulk ordering (a stated contract, not an accident).** The dense renderer emits
   object keys in **insertion order** and the hard char-cap truncates the **tail**, so a result
   must place its small, load-bearing verdict FIRST and any bulky/re-fetchable payload LAST. The
@@ -1304,20 +1342,51 @@ disk/serialize error never touches the request path.
 **A fatal call is recorded, not lost.** A record written only after dispatch returns would leave a
 call that never returns — the in-process OOM that kills the serving process — with zero trace, so
 `fail.jsonl` would read as if the tool's worst outcome were a polite `bad_args` (§3.4 by omission).
-So one telemetry span wraps each call (`mcp/call-telemetry.ts`): a small **breadcrumb** file is
-stamped under `<usage-dir>/inflight/` BEFORE dispatch (the `UsageLogger.begin` seam) and cleared
-only AFTER the record is written, so a death between the two reports the call once, never zero
-times. A leftover breadcrumb means the owner died with that call in flight; the next file-backed
-logger start **promotes** it into `fail.jsonl` carrying the real `tool` / op names / cwd / args —
-the discriminator is an additive `outcome`, so existing consumers keep working. `outcome:'crash'`
-when the owner pid is gone; `outcome:'abandoned'` when it still answers but the call has been in
-flight over 6h — death unproven, and claiming it would be the same lie inverted. `durationMs` is
-`null`, never a fabricated `0`: the moment the call stopped is unknown. Writes are atomic
-(temp + rename), a promotion claims its file by rename so two racing starts can never count one
-fatal twice, and the pass is bounded — the remainder stays on disk and is disclosed as a lower
-bound (§3.4), not dropped. On by default on the `mcp` path (the composition root injects the logger;
-`serveMcp`'s library default is a no-op — no side effects in tests); opt out with
-`CODEMASTER_USAGE_LOG=0`, relocate with `CODEMASTER_USAGE_DIR`.
+So a **breadcrumb** file is stamped under `<usage-dir>/inflight/` BEFORE dispatch (the
+`UsageLogger.begin` seam) and cleared only AFTER the record is written, so a death between the two
+reports the call once, never zero times. A leftover breadcrumb means the owner died with that call
+in flight; the next file-backed logger start **promotes** it into `fail.jsonl` carrying the real
+`tool` / op names / cwd / args. `outcome:'crash'` when the owner pid is gone;
+`outcome:'abandoned'` when it still answers but the call has been in flight over 6h — death
+unproven, and claiming it would be the same lie inverted. `durationMs` is `null`, never a
+fabricated `0`: the moment the call stopped is unknown. Writes are atomic (temp + rename), a
+promotion claims its file by rename so two racing starts can never count one fatal twice, and the
+pass is bounded — the remainder stays on disk and is disclosed as a lower bound (§3.4), not dropped.
+
+**Two spans, one owner of accounting.** The **agent-facing** process — the `mcp` bridge, an
+`--in-process` server, or the in-process fallback — is the sole owner of call ACCOUNTING
+(`mcp/call-telemetry.ts`: breadcrumb + `record`), because it is the only one that sees a call that
+never reached the daemon at all. The **daemon** owns only its OWN in-flight breadcrumbs
+(`daemon/daemon-server.ts` `withBreadcrumb`: `begin`/`clear`, never `record`), because only its
+breadcrumb can attribute a daemon fatal to the op that was running — the bridge SURVIVES the
+daemon's death and writes an ordinary `ok:false`, indistinguishable from a transport hiccup. So
+there are two additive discriminators: `outcome` (`crash` / `abandoned`) and `origin` (absent = the
+agent-facing view; `'daemon'` = a promoted daemon breadcrumb); an existing consumer's key-set is
+unchanged by either. **Counting:** a fatal therefore yields TWO lines in `fail.jsonl` for one call —
+count calls with `origin === undefined`, and correlate the pair on `cwd` + `ops`, NOT on `tool`
+(derived on the daemon view from the request COUNT, so a batch of exactly one is indistinguishable
+from a per-op call — the invoking tool name never crosses the socket). On an `origin:'daemon'`
+record `args` is the WIRE list (`[{name, args}]`), not the flat tool args, and `ops` past 32 carries
+a `+N more` marker the agent-facing record does not — join on the prefix. A daemon-origin record
+means a FATAL rather than a routine `codemaster daemon restart` because `shutdown()` explicitly
+clears the live breadcrumb set before exiting and `dispatch` refuses anything arriving after
+teardown began — the property is structural, not a timing accident. The logger is injected on BOTH
+paths by the composition root (`bin.ts`); the `serveMcp` / `serveDaemon` library defaults are no-ops,
+so tests touch no disk. Opt out with `CODEMASTER_USAGE_LOG=0`, relocate with `CODEMASTER_USAGE_DIR`.
+
+**A process-mode engine child's stderr is relayed, never inherited.** An OOM-killed child prints a
+~110-line V8 fatal dump; inherited, it sprays the parent's stderr immediately BEFORE the honest
+`FAIL tool=oom` reaches the client, so an agent sampling CLI output through `head` reads only the
+dump and concludes codemaster crashed — the exact INVERSE of the truth (the isolated child died on
+purpose, the daemon survived, the tool answered honestly; verdict-first §12 cannot hold against an
+unmanaged writer). So the child's `stdio[2]` is piped and relayed LINE-BY-LINE
+(`daemon/child-stderr-relay.ts`) into a `child-stderr.log` beside the repo's `debug.log` — the dump
+is kept, not discarded. Its OWN file, because a rotating sink counts bytes in memory: two processes
+appending to one path rotate against each other and each rename destroys the other's `.1`, losing
+exactly the dump the relay exists for. The cap is PER-LINE with an explicit marker (a lifetime
+budget would mute the relay before the fatal it is for); the stream is NEVER paused (a full pipe
+would block the child — §1 ranks a hang worst); the sink is released on the STREAM's end, not the
+child's `exit`, since a dying child's last bytes are still in the pipe when `exit` fires.
 
 See [`src/core/debug.ts`](src/core/debug.ts).
 
@@ -1394,6 +1463,7 @@ codemaster/
       ids/                   # SymbolId codec (encode/decode plugin-prefix-routed format)
       span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
       confidence/            # worstOf and per-hop reducers
+      condition/             # domain-neutral per-site enclosing-condition chain contract + its ONE shared renderer
       trace/                 # domain-neutral trace-hop contract: TraceNode/TraceHop + makeNode/makeHop/dedupHops (§17 Phase 6)
       fingerprint/           # FileFingerprint shape + comparators (mtime-tie hash, §19)
       hash/                  # FNV-1a — rollups + short stable keys (never security)
@@ -1404,7 +1474,7 @@ codemaster/
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
-      truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore; cap-response (§12 MCP-seam total-size cap)
+      truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore / capOpNames (the shared breadcrumb op-name cap, §13); cap-response (§12 MCP-seam total-size cap)
     support/                 # L1 — external-tool wrappers; per-tool subfolders
       git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync; + ls-source-files.ts: ls-files --recurse-submodules ∪ --others --exclude-standard for the no-program syntactic scan), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
@@ -1418,7 +1488,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition + declaration-first)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1435,7 +1505,7 @@ codemaster/
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
-    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts)
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap) + call-telemetry.ts / inflight-ops.ts (§13 crash breadcrumbs)
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
@@ -1695,6 +1765,9 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   Node's own ~4 GB, `config.daemon.maxOldSpaceMB` overrides) — a warm that would OOM the shared
   daemon dies in the child instead (t-167395), and the daemon settles the pending request as an
   honest `ToolFailure` (oom-hinted on a SIGABRT/134 signature) and respawns on the next request.
+  The child's `stdio[2]` is PIPED, not inherited, and relayed line-by-line into the repo's own
+  `child-stderr.log` (§13) — an inherited V8 fatal dump lands ahead of the honest `FAIL tool=oom` and
+  reads as a codemaster crash.
   Orphan-child reaping is `process.on('disconnect')` in the child: a `SIGKILL`ed orchestrator drops
   the IPC channel → the child self-exits, so a warm LS never squats. (§2, §9)
 - **Eviction is graceful.** Idle-TTL, path-existence sweeper, and the memory governor
