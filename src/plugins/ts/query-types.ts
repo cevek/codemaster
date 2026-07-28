@@ -75,7 +75,7 @@ export type UsageView = {
   /** `props` filter (t-109741), `jsx`-role sites: the REQUESTED props present at this site, each
    *  carrying its normalized literal value or (for `kind:'dynamic'`) its expression source. A
    *  site matched only through a `{...spread}` carries none — `spread` is then the whole story. */
-  props?: JsxAttrValue[];
+  props?: Omit<JsxAttrValue, 'index'>[];
   /** The site carries a `{...spread}` — any prop may flow (or be overridden) through it (§3.3). */
   spread?: true;
   /** Opt-in (`conditions:true`), flat mode (t-933867): the enclosing conditional-BRANCH chain this
@@ -193,11 +193,16 @@ export type UsagesView = {
    *  the expression), `spreadMaybe` sites may receive/override it through a `{...spread}` (read
    *  the spread). Present only when a `props` filter ran; `0` is a measured "none". */
   propsUncertain?: { dynamicValue: number; spreadMaybe: number };
+  /** jsx sites the `props` filter itself dropped (the prop is not passed, and no spread could
+   *  deliver it) — kept apart from `excluded` (YOUR path/kind filters): different cause, different
+   *  remedy. Present only when a `props` filter ran; `0` is a measured "none dropped". */
+  excludedByProps?: number;
   /** §3.4 FLOOR: repo tsconfigs NOT loaded as programs (a nested-package config neither adjacent
    *  to the primary nor `references`d, and not loaded by the read-path nearest-config discovery) —
    *  a usage living ONLY under such a program is NOT searched, so this set being non-empty means
-   *  the usages are a LOWER BOUND, never provably complete. Set-level (the found usages are each
-   *  `certain`; incompleteness is a property of the SET, not any row), surfaced by the op as
+   *  the usages are a LOWER BOUND, never provably complete. Set-level (each found usage carries its
+   *  OWN per-site confidence — a `props` filter can make a row `dynamic`; incompleteness is a
+   *  property of the SET, not any row), surfaced by the op as
    *  `complete:false` + a named `!!` note. Absent/empty ⇒ every loaded program was searched. */
   undiscoveredPrograms?: string[];
 };

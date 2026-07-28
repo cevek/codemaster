@@ -22,10 +22,18 @@ const VALUE_TEXT_CAP = 120;
 /** One named attribute of a JSX site. `value` is the NORMALIZED literal text for
  *  `kind:'literal'` (so `variant="x"`, `variant={'x'}` and a bare `disabled` are comparable), and
  *  the (elided) expression SOURCE for `kind:'dynamic'`. */
-export type JsxAttrValue = { name: string; kind: 'literal' | 'dynamic'; value: string };
+export type JsxAttrValue = {
+  name: string;
+  kind: 'literal' | 'dynamic';
+  value: string;
+  /** Position among the element's attribute properties — JSX takes the LAST writer, so a consumer
+   *  compares this against `lastSpreadIndex` to know whether a spread can overwrite it. */
+  index: number;
+};
 
-/** The attribute set of one `<Tag .../>` site. */
-export type JsxSiteAttrs = { attrs: JsxAttrValue[]; hasSpread: boolean };
+/** The attribute set of one `<Tag .../>` site. `lastSpreadIndex` is the position of the LAST
+ *  `{...spread}` (`-1` when there is none) — the override frontier. */
+export type JsxSiteAttrs = { attrs: JsxAttrValue[]; hasSpread: boolean; lastSpreadIndex: number };
 
 /** Read the attributes of the JSX element whose tag-name token sits at `position`.
  *  `undefined` when the position is not inside a JSX element (never a fabricated empty set —
@@ -39,20 +47,48 @@ export function readJsxSiteAttrs(
   if (opening === undefined) return undefined;
   const attrs: JsxAttrValue[] = [];
   let hasSpread = false;
-  for (const prop of opening.attributes.properties) {
+  let lastSpreadIndex = -1;
+  const properties = opening.attributes.properties;
+  for (let i = 0; i < properties.length; i++) {
+    const prop = properties[i];
+    if (prop === undefined) continue;
     if (ts.isJsxSpreadAttribute(prop)) {
       hasSpread = true;
+      lastSpreadIndex = i;
       continue;
     }
-    if (ts.isJsxAttribute(prop)) attrs.push(readAttribute(sourceFile, prop));
+    if (ts.isJsxAttribute(prop)) attrs.push({ ...readAttribute(sourceFile, prop), index: i });
   }
-  return { attrs, hasSpread };
+  // JSX element CONTENT (`<C>body</C>`) passes the `children` prop — a second channel the language
+  // itself desugars, so it belongs to this (generic) reader, not to any consumer's policy. Without
+  // it a content-passed `children` reads as never-passed: a false certain-dead for a mass React
+  // pattern. Its value is a node list, not a comparable literal → `dynamic`. A self-closing element
+  // has no content; whitespace-only text is not content.
+  const parent = opening.parent;
+  if (
+    ts.isJsxOpeningElement(opening) &&
+    ts.isJsxElement(parent) &&
+    parent.children.some((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces)) &&
+    !attrs.some((a) => a.name === 'children')
+  ) {
+    // Content is written LAST (after every attribute and spread), so it can never be overridden.
+    attrs.push({
+      name: 'children',
+      kind: 'dynamic',
+      value: '<element content>',
+      index: properties.length,
+    });
+  }
+  return { attrs, hasSpread, lastSpreadIndex };
 }
 
 /** Normalize one attribute's value. The spellings that MUST compare equal:
  *  `x="a"` / `x={'a'}` → `a`; `x={false}` → `false`; `x={0}` → `0`; a bare `x` → `true`
  *  (JSX's own shorthand). Anything else is `dynamic` carrying its source text. */
-function readAttribute(sourceFile: ts.SourceFile, attr: ts.JsxAttribute): JsxAttrValue {
+function readAttribute(
+  sourceFile: ts.SourceFile,
+  attr: ts.JsxAttribute,
+): Omit<JsxAttrValue, 'index'> {
   const name = ts.isIdentifier(attr.name) ? attr.name.text : attr.name.getText(sourceFile);
   const init = attr.initializer;
   // A valueless attribute is JSX shorthand for `={true}` — a literal, not an absent value.

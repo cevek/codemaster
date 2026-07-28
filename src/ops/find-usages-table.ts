@@ -143,6 +143,28 @@ function propsCell(u: UsageView): Cell {
     .join(';');
 }
 
+/** The props-filter uncertainty disclosure(s) for a table projection — one per section (or one
+ *  top-level). Empty when no `props` filter ran, or everything it matched was statically readable. */
+function propsUncertaintyLabels(data: JsonValue): string[] {
+  type U = { dynamicValue: number; spreadMaybe: number };
+  const d = data as {
+    propsUncertain?: U;
+    targets?: { symbol?: string | null; propsUncertain?: U }[];
+  };
+  const line = (who: string | undefined, u: U): string[] =>
+    u.dynamicValue + u.spreadMaybe === 0
+      ? []
+      : [
+          `!! props filter${who !== undefined ? ` (${who})` : ''} — ${u.dynamicValue} row(s) carry a NON-LITERAL value (props LIKE '%={%') and ${u.spreadMaybe} match only through a {...spread} (prop_spread=1); both read confidence='dynamic', so an exact-value claim over these rows is NOT proven`,
+        ];
+  if (d.targets !== undefined) {
+    return d.targets.flatMap((t) =>
+      t.propsUncertain !== undefined ? line(t.symbol ?? undefined, t.propsUncertain) : [],
+    );
+  }
+  return d.propsUncertain !== undefined ? line(undefined, d.propsUncertain) : [];
+}
+
 /** The `!!` lower-bound disclosure(s) for a table projection: one per section (or one top-level)
  *  whose reference set was searched over fewer programs than the repo has. Empty when complete. */
 function floorLabels(data: JsonValue): string[] {
@@ -255,6 +277,10 @@ export const findUsagesTable: TableSpec<JsonValue> = {
         );
       }
     }
+    // §3.4 — the props-filter uncertainty must reach a SQL consumer too: a sql answer is
+    // {columns, rows} + these notes only, so an anti-join over a set containing spread-opaque /
+    // non-literal matches would otherwise read as exact.
+    for (const label of propsUncertaintyLabels(data)) notes.push(label);
     const unresolved =
       (data as { unresolved?: { name: string; reason: string }[] }).unresolved ?? [];
     for (const u of unresolved) notes.push(`unresolved symbol '${u.name}': ${u.reason}`);

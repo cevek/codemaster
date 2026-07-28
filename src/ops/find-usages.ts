@@ -27,8 +27,8 @@ import {
   PROPS_ROLE_CONFLICT,
   propFilterOf,
   propsArgShape,
+  propsNotes,
   propsUncertainField,
-  propsUncertaintyNotes,
 } from './find-usages-props.ts';
 import { TEXT_ONLY_CAP, attachOverlay, overlayFor } from './find-usages-text.ts';
 import { memberFallback } from './find-usages-member-fallback.ts';
@@ -198,8 +198,7 @@ export const findUsagesOp = defineOp({
           shownRows += rowsShown(view);
           totalRows += rowsTotal(view);
           const notes = usageNotes(view, options.role, verbosity);
-          if (view.propsUncertain !== undefined)
-            notes.push(...propsUncertaintyNotes(view.propsUncertain));
+          notes.push(...propsNotes(view, args.text === true));
           const hoisted = hoistView(view, options.role, sqlMode);
           if (hoisted.progNote !== undefined) notes.push(hoisted.progNote);
           // §3.4 floor: a non-empty undiscovered set makes this section a LOWER BOUND — the `!!`
@@ -309,8 +308,7 @@ export const findUsagesOp = defineOp({
       let shown = rowsShown(view);
       let total = rowsTotal(view);
       const notes = usageNotes(view, options.role, verbosity);
-      if (view.propsUncertain !== undefined)
-        notes.push(...propsUncertaintyNotes(view.propsUncertain));
+      notes.push(...propsNotes(view, args.text === true));
       // R1 — honest disclosure (§3.6): mergeDeclarations was requested but the target addresses ONE
       // declaration (a SymbolId/position), so it could not apply. Say so instead of silently dropping
       // the flag. (When it DID apply, `view.mergedDeclarations` is present and this never fires.)

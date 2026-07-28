@@ -32,14 +32,11 @@ export const propsArgShape = {
 /** The verdict-first (§12) uncertainty counts, as a spreadable data field — present only when a
  *  `props` filter actually ran, so `{dynamicValue:0, spreadMaybe:0}` is a MEASURED "no fog". */
 export function propsUncertainField(view: UsagesView): Record<string, never> | object {
-  return view.propsUncertain !== undefined ? { propsUncertain: view.propsUncertain } : {};
+  return view.propsUncertain !== undefined
+    ? { propsUncertain: view.propsUncertain, excludedByProps: view.excludedByProps ?? 0 }
+    : {};
 }
 
-/** Under groupBy the `props` FILTER still applies (it runs before the rollup — the sweep question
- *  is answered), but the per-site value annotation has no home on an encloser row; say which half
- *  was dropped rather than let the absence read as "no props matched" (§3.6). */
-export const PROPS_GROUPBY_NOTE =
-  'props filter applied before the rollup; per-site prop VALUES are a flat-mode annotation — drop groupBy to read them';
 /** `props` addresses JSX attributes, so the question is a JSX one. An explicit non-jsx `role`
  *  beside it is refused rather than silently rewritten — quietly answering a different question
  *  than the one asked is the §3.6 lie (t-109741). */
@@ -62,10 +59,25 @@ export function propFilterOf(
 /** One `props` entry as the agent may spell it: `true` (any value), or the literal value(s). */
 type PropArg = true | string | false | number | (string | boolean | number)[];
 
+/** The text overlay is NAME-based (a scanner, not the LS), so a `props` filter cannot apply to it:
+ *  its section lists occurrences that never passed the filter. Disclosed per call rather than left
+ *  for the agent to infer from a suspiciously long text section (§3.6). */
+const PROPS_TEXT_NOTE =
+  'text:true overlay is NAME-based and is NOT prop-filtered — the text-only section lists occurrences that did not pass your props filter';
+
+/** Every props-filter disclosure for one answer: the two `!!` uncertainty lines, plus the
+ *  text-overlay caveat when `text:true` rode along. Empty when no filter ran. */
+export function propsNotes(view: UsagesView, textOverlay: boolean): string[] {
+  if (view.propsUncertain === undefined) return [];
+  const notes = propsUncertaintyNotes(view.propsUncertain);
+  if (textOverlay) notes.push(PROPS_TEXT_NOTE);
+  return notes;
+}
+
 /** The `!!` uncertainty note for a props-filtered answer — the two causes stay APART because
  *  their remedies are different reads (the expression vs what's in the spread). Empty when the
  *  filter ran with everything statically readable (a measured "no fog"). */
-export function propsUncertaintyNotes(u: { dynamicValue: number; spreadMaybe: number }): string[] {
+function propsUncertaintyNotes(u: { dynamicValue: number; spreadMaybe: number }): string[] {
   const notes: string[] = [];
   if (u.dynamicValue > 0) {
     notes.push(

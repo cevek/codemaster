@@ -3,7 +3,11 @@
 // requested annotation that cannot apply is named — never silently swallowed (§3.6). Split from
 // the op module to keep it under the line cap.
 
-import { PROPS_GROUPBY_NOTE } from './find-usages-props.ts';
+/** Under groupBy the `props` FILTER still applies (it runs before the rollup — the sweep question
+ *  is answered), but the per-site value annotation has no home on an encloser row; say which half
+ *  was dropped rather than let the absence read as "no props matched" (§3.6). */
+const PROPS_GROUPBY_NOTE =
+  'props filter applied before the rollup; per-site prop VALUES are a flat-mode annotation — drop groupBy to read them';
 
 const DESTRUCTURES_GROUPBY_NOTE =
   'destructures ignored — a per-call-site return-shape is a flat-mode annotation; drop groupBy to see it';

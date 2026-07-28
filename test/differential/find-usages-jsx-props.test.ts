@@ -27,6 +27,7 @@ type Data = {
   enclosers?: { name: string; count: number; confidence: string }[];
   total: number;
   excludedByFilter?: number;
+  excludedByProps?: number;
   roleBreakdown?: Record<string, number>;
   propsUncertain?: { dynamicValue: number; spreadMaybe: number };
   notes?: string[];
@@ -73,6 +74,15 @@ const FILES = {
     "import { Button } from './button';\n" + // 1
     'export const FormF = (p: { rest: object }) => (\n' + // 2
     '  <Button variant="text" {...p.rest} />\n' + // 3 ← spread may OVERRIDE the literal
+    ');\n',
+  // Spread ORDER: JSX takes the last writer.
+  'src/form-k.tsx':
+    "import { Button } from './button';\n" + // 1
+    'export const FormK = (p: { rest: object }) => (\n' + // 2
+    '  <Button variant="contained" {...p.rest} />\n' + // 3 ← matching literal, spread AFTER → may be overwritten
+    ');\n' +
+    'export const FormL = (p: { rest: object }) => (\n' + // 5
+    '  <Button {...p.rest} variant="text" />\n' + // 6 ← spread BEFORE an explicit literal → definite non-match
     ');\n',
   // The value-spelling zoo + the amiro escape-hatch shape.
   'src/form-g.tsx':
@@ -124,8 +134,13 @@ test('props filter: every site passing variant=contained, including the ones gre
     for (const expected of ['src/wrappers.tsx:3', 'src/form-a.tsx:2', 'src/form-b.tsx:2']) {
       assert.ok(sites.includes(expected), `${expected} missing from ${sites.join(', ')}`);
     }
-    // …and the three uncertain ones, KEPT (§3.3) — dropping any is the shipped-miscount bug.
-    for (const expected of ['src/form-c.tsx:2', 'src/form-d.tsx:2', 'src/form-f.tsx:3']) {
+    // …and the uncertain ones, KEPT (§3.3) — dropping any is the shipped-miscount bug.
+    for (const expected of [
+      'src/form-c.tsx:2',
+      'src/form-d.tsx:2',
+      'src/form-f.tsx:3',
+      'src/form-k.tsx:3',
+    ]) {
       assert.ok(sites.includes(expected), `uncertain site ${expected} was dropped`);
     }
     // The definite non-match is excluded, and counted — never silently absent.
@@ -135,8 +150,10 @@ test('props filter: every site passing variant=contained, including the ones gre
     );
     // form-e (variant="text") + the four form-g sites that pass no `variant` at all, and carry no
     // spread that could deliver one — every one of them reported, never silently absent (§3.4).
-    assert.equal(d.excludedByFilter, 5, 'non-matching jsx sites are reported, not vanished');
-    assert.equal(d.total, 6);
+    // Counted APART from a path/kind exclusion: different cause, different remedy.
+    assert.equal(d.excludedByProps, 6, 'non-matching jsx sites are reported, not vanished');
+    assert.equal(d.excludedByFilter, undefined, 'no path filter ran — nothing to report there');
+    assert.equal(d.total, 7);
 
     // ⊇ the textual fallback, and STRICTLY more: the alias/barrel site is invisible to it.
     const textual = textualScan(p.root, SRC);
@@ -160,7 +177,7 @@ test('props filter: every site passing variant=contained, including the ones gre
     assert.equal(byLine.get('src/form-f.tsx:3')?.confidence, 'dynamic');
 
     // The TWO uncertainties are counted apart — one merged count would hide which read is needed.
-    assert.deepEqual(d.propsUncertain, { dynamicValue: 1, spreadMaybe: 2 });
+    assert.deepEqual(d.propsUncertain, { dynamicValue: 1, spreadMaybe: 3 });
     const notes = (d.notes ?? []).join('\n');
     assert.match(notes, /NON-LITERAL value/);
     assert.match(notes, /\{\.\.\.spread\}/);
@@ -175,7 +192,7 @@ test('props value spellings normalize; presence (true) is certain even for a dyn
     const target = { name: 'Button', file: 'src/button.tsx' };
     // The two spread-bearing sites are candidates for ANY prop question (a spread may carry it) —
     // they ride along at `dynamic`, counted under `spreadMaybe`, never as a certain match.
-    const SPREAD = ['src/form-d.tsx:2', 'src/form-f.tsx:3'];
+    const SPREAD = ['src/form-d.tsx:2', 'src/form-f.tsx:3', 'src/form-k.tsx:3', 'src/form-k.tsx:6'];
     const certainOf = (d: Data): string[] =>
       (d.usages ?? [])
         .filter((u) => u.confidence === 'certain')
@@ -189,7 +206,7 @@ test('props value spellings normalize; presence (true) is certain even for a dyn
       'a bare attribute is the literal `true`',
     );
     assert.deepEqual(sitesOf(bare), ['src/form-g.tsx:2', ...SPREAD].sort());
-    assert.deepEqual(bare.propsUncertain, { dynamicValue: 0, spreadMaybe: 2 });
+    assert.deepEqual(bare.propsUncertain, { dynamicValue: 0, spreadMaybe: 4 });
 
     const zero = dataOf(await p.op('find_usages', { ...target, props: { count: '0' } }));
     assert.deepEqual(certainOf(zero), ['src/form-g.tsx:3'], '{0} is a literal, not dynamic');
@@ -198,7 +215,7 @@ test('props value spellings normalize; presence (true) is certain even for a dyn
     const guard = dataOf(await p.op('find_usages', { ...target, props: { dirtyGuard: 'false' } }));
     assert.deepEqual(certainOf(guard), ['src/form-g.tsx:4']);
     assert.ok(sitesOf(guard).includes('src/form-g.tsx:5'), 'the dynamic {!isView} site is kept');
-    assert.deepEqual(guard.propsUncertain, { dynamicValue: 1, spreadMaybe: 2 });
+    assert.deepEqual(guard.propsUncertain, { dynamicValue: 1, spreadMaybe: 4 });
 
     // The spelling an agent reaches for first: a real `false`, not the string.
     const boolArg = dataOf(await p.op('find_usages', { ...target, props: { dirtyGuard: false } }));
@@ -207,7 +224,31 @@ test('props value spellings normalize; presence (true) is certain even for a dyn
     // `true` = "passed at all": presence is PROVEN even when the value is an expression.
     const any = dataOf(await p.op('find_usages', { ...target, props: { dirtyGuard: true } }));
     assert.deepEqual(certainOf(any), ['src/form-g.tsx:4', 'src/form-g.tsx:5']);
-    assert.deepEqual(any.propsUncertain, { dynamicValue: 0, spreadMaybe: 2 });
+    // Presence is PROVEN (the rows stay certain), but the summary must still say one site's VALUE
+    // is an expression — a `dynamicValue:0` beside a `{!p.isView}` row is the summary lying.
+    assert.deepEqual(any.propsUncertain, { dynamicValue: 1, spreadMaybe: 4 });
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('content children (<C>body</C>) is a passed prop, not an absence', async () => {
+  const p: TestProject = await project(FILES);
+  try {
+    const d = dataOf(
+      await p.op('find_usages', {
+        name: 'Button',
+        file: 'src/button.tsx',
+        props: { children: true },
+      }),
+    );
+    // The wrapper passes `children` as ELEMENT CONTENT, never as an attribute — the channel the
+    // language desugars. Reading only `attributes.properties` calls it never-passed (a false
+    // certain-dead on a mass React pattern).
+    assert.ok(
+      sitesOf(d).includes('src/wrappers.tsx:3'),
+      `content-passed children lost: ${sitesOf(d).join(', ')}`,
+    );
   } finally {
     await p.dispose();
   }
@@ -225,11 +266,11 @@ test('a props-filtered 0 is not "nobody passes it": the jsx denominator survives
     );
     // No literal `ghost` exists anywhere — what survives is exactly the fog: the two spread sites
     // and the one non-literal `variant={p.mode}`, which COULD evaluate to it.
-    assert.deepEqual(d.propsUncertain, { dynamicValue: 1, spreadMaybe: 2 });
+    assert.deepEqual(d.propsUncertain, { dynamicValue: 1, spreadMaybe: 3 });
     assert.equal((d.usages ?? []).filter((u) => u.confidence === 'certain').length, 0);
     assert.ok((d.roleBreakdown?.['jsx'] ?? 0) > 0, 'the role distribution states the denominator');
     assert.equal(
-      d.total + (d.excludedByFilter ?? 0),
+      d.total + (d.excludedByProps ?? 0),
       d.roleBreakdown?.['jsx'],
       'every jsx site is accounted for: matched + excluded',
     );

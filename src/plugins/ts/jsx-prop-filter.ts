@@ -30,7 +30,13 @@ export type PropMatch = {
 };
 
 /** Decide one site. `undefined` = does not match the filter (the site is excluded, and the caller
- *  counts it — an exclusion is never silent). */
+ *  counts it — an exclusion is never silent).
+ *
+ *  SPREAD ORDER IS LOAD-BEARING. JSX takes the LAST writer, so a `{...spread}` sitting AFTER an
+ *  attribute can override it: `<X variant="contained" {...rest}/>` may in fact render `"text"`, and
+ *  `<X {...rest} variant="text"/>` definitely renders `"text"` whatever the spread holds. So a
+ *  spread makes an answer uncertain only when it comes after the attribute it could overwrite (an
+ *  ABSENT prop can be delivered by a spread in any position). */
 export function matchProps(site: JsxSiteAttrs, filter: PropFilter): PropMatch | undefined {
   const props: JsxAttrValue[] = [];
   let dynamicValue = false;
@@ -44,21 +50,31 @@ export function matchProps(site: JsxSiteAttrs, filter: PropFilter): PropMatch | 
       continue;
     }
     props.push(attr);
-    if (want === true) continue; // presence asked, presence proven — certain even for a dynamic value
-    if (attr.kind === 'dynamic') {
-      dynamicValue = true; // passed, value unknowable — kept and flagged, never dropped
+    // A later spread can overwrite this attribute — whatever we read here may not be what renders.
+    const overridable = attr.index < site.lastSpreadIndex;
+    // A non-literal value is COUNTED whichever question was asked — the count is "how many sites
+    // still need a human read", not a confidence. Under `want === true` presence stays PROVEN (a
+    // spread cannot un-pass a prop), so such a site is still `certain`; but a `dynamicValue:0`
+    // beside a `{!isView}` row would be the summary channel lying about its own body.
+    if (attr.kind === 'dynamic') dynamicValue = true;
+    if (want === true) continue; // presence asked, presence proven — value fog is counted, not fatal
+    if (overridable) {
+      spreadMaybe = true; // the value we matched (or rejected) may be overwritten downstream
       continue;
     }
+    if (attr.kind === 'dynamic') continue; // value unknowable → the match itself is dynamic (below)
     if (want.includes(attr.value)) continue;
-    // A literal outside the requested set — but a spread can OVERRIDE an explicit attribute,
-    // so silently excluding such a site would be the very miss this filter prevents.
-    if (!site.hasSpread) return undefined;
-    spreadMaybe = true;
+    return undefined; // a literal outside the set, with no spread after it — a DEFINITE non-match
   }
   return {
     props,
     spread: site.hasSpread,
-    confidence: dynamicValue || spreadMaybe ? 'dynamic' : 'certain',
+    // The MATCH's own certainty: an unreadable value or an overridable one. A counted `dynamicValue`
+    // under a presence question does not demote (presence is proven either way).
+    confidence:
+      spreadMaybe || props.some((a) => a.kind === 'dynamic' && filter[a.name] !== true)
+        ? 'dynamic'
+        : 'certain',
     dynamicValue,
     spreadMaybe,
   };

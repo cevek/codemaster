@@ -71,6 +71,9 @@ export function assembleView(
   // and "may flow through a spread" are different questions with different next steps.
   let propsDynamicValue = 0;
   let propsSpreadMaybe = 0;
+  // Kept APART from `excluded` (your path/kind filter): "this site passes no such prop" and "your
+  // path filter dropped it" have different remedies, so one merged count is hidden work (§3.6).
+  let propsExcluded = 0;
   const roleActive = options.role !== undefined;
 
   // Pass 1: classify every in-scope ref. Path filter applies here; the role filter does
@@ -104,7 +107,7 @@ export function assembleView(
       const site = readJsxSiteAttrs(sourceFile, ref.start);
       match = site !== undefined ? matchProps(site, options.props) : undefined;
       if (match === undefined) {
-        excluded++;
+        propsExcluded++;
         continue;
       }
       if (match.dynamicValue) propsDynamicValue++;
@@ -154,7 +157,10 @@ export function assembleView(
     total: refs.length, // counts everything matched — collapse is display-only (§2.2)
     excluded,
     ...(options.props !== undefined
-      ? { propsUncertain: { dynamicValue: propsDynamicValue, spreadMaybe: propsSpreadMaybe } }
+      ? {
+          propsUncertain: { dynamicValue: propsDynamicValue, spreadMaybe: propsSpreadMaybe },
+          excludedByProps: propsExcluded,
+        }
       : {}),
     ...collapseField,
     ...breakdownField,
@@ -176,8 +182,9 @@ export function assembleView(
     confidence: r.confidence ?? 'certain',
     // t-109741: the requested props AT this site (value or expression source) + the spread flag —
     // the proof the agent would otherwise open every file to read.
+    // `index` is the internal override-ordering signal (jsx-attr-values) — not part of the answer.
     ...(r.propMatch !== undefined && r.propMatch.props.length > 0
-      ? { props: r.propMatch.props }
+      ? { props: r.propMatch.props.map((a) => ({ name: a.name, kind: a.kind, value: a.value })) }
       : {}),
     ...(r.propMatch?.spread === true ? { spread: true as const } : {}),
     ...(multiProgram ? { program: r.program } : {}),

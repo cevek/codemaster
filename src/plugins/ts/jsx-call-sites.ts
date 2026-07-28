@@ -12,14 +12,13 @@
 // so the consumer demotes its verdicts rather than lie. Bounded: the reference set is hard-capped
 // (§19) and the cap reported as truncation — never a silent partial read.
 
-import ts from 'typescript';
+import type ts from 'typescript';
 import type { Span } from '../../core/span.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross } from './cross-program.ts';
 import { classifyRole } from './usage-roles.ts';
-import { nodeAt } from './ast-node.ts';
 import { spanFromRange } from './spans.ts';
-import { enclosingJsxOpening } from './jsx-element-at.ts';
+import { readJsxSiteAttrs } from './jsx-attr-values.ts';
 
 /** Hard cap on references inspected per target (§19 never-hang). `findReferencesAcross` is
  *  itself bounded/cancellable; this bounds the per-site attribute reads and the result size. */
@@ -105,37 +104,16 @@ export function scanJsxCallSites(
   };
 }
 
-/** The named attributes + spread presence of the JSX element whose tag name sits at `position`. */
+/** The named attributes + spread presence of the JSX element whose tag name sits at `position`.
+ *  A PROJECTION over the one shared attribute reader (`jsx-attr-values.ts`) — this scan needs only
+ *  the names, but a second walk of `attributes.properties` would be a second oracle for "what does
+ *  this site pass" and the two would drift (the content-`children` rule is exactly where they did).
+ *  Order, the content-`children` synthesis and `hasSpread` come from there unchanged. */
 function readJsxAttributes(
   sourceFile: ts.SourceFile,
   position: number,
 ): { names: string[]; hasSpread: boolean } {
-  const node = nodeAt(sourceFile, position);
-  const opening = node !== undefined ? enclosingJsxOpening(node) : undefined;
-  if (opening === undefined) return { names: [], hasSpread: false };
-  const names: string[] = [];
-  let hasSpread = false;
-  for (const prop of opening.attributes.properties) {
-    if (ts.isJsxSpreadAttribute(prop)) {
-      hasSpread = true;
-      continue;
-    }
-    if (ts.isJsxAttribute(prop)) {
-      names.push(ts.isIdentifier(prop.name) ? prop.name.text : prop.name.getText(sourceFile));
-    }
-  }
-  // JSX element CONTENT (`<C>body</C>`) passes the `children` prop — a separate channel from the
-  // `children={…}` attribute (already captured above). Without this a content-passed `children`
-  // reads as never-passed → a false certain-dead (a mass React pattern). A self-closing element has
-  // no content; whitespace-only text (`<C>\n</C>`) is not content.
-  const parent = opening.parent;
-  if (
-    ts.isJsxOpeningElement(opening) &&
-    ts.isJsxElement(parent) &&
-    parent.children.some((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces)) &&
-    !names.includes('children')
-  ) {
-    names.push('children');
-  }
-  return { names, hasSpread };
+  const site = readJsxSiteAttrs(sourceFile, position);
+  if (site === undefined) return { names: [], hasSpread: false };
+  return { names: site.attrs.map((a) => a.name), hasSpread: site.hasSpread };
 }
