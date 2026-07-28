@@ -36,3 +36,40 @@ never silently omitted, §3.3).
 
 The syntactic JSX scan this needs already exists — `jsxCallSites` (per-attr value signal + `{...spread}`
 flag) is what the react plugin's unused-props read-model rides on.
+
+## Verified from the originating session transcript (backoffice2, session 7237bc5c)
+
+The write-up above was the reporter's own summary. The call sequence confirms it and adds the causal
+chain — this is evidence, not recollection:
+
+```
+source {BlueButton, LightBlueButton}                                  → ok
+find_usages {symbols:[BlueButton, LightBlueButton],
+             role:'jsx', groupBy:'enclosing'}                         → FAIL size-guard
+Bash: grep -rn "<BlueButton" / "<LightBlueButton"                     → fallback
+… later: grep -n "variant=|<Button", grep -rn "low-contrast"          → form (b) finally found
+Edit VisitNoteForm / VisitNoteFormB2B / ConsiderationNoteFormB2B      → the five bypassing forms
+playwright screenshot                                                 → the actual catch
+second commit: "Five forms bypass the shared buttons"
+```
+
+Two findings this settles:
+
+1. **It is a capability gap, not a steering one.** The agent DID ask codemaster the right question — the
+   wrapper JSX query — on its first attempt. It could not ask the prop question at all, because no op
+   expresses it. So better naming/steering would not have helped; the query does not exist.
+
+2. **The size-guard refusal is UPSTREAM of the shipped bug, not adjacent to it.** The refusal pushed the
+   agent onto grep, and grep can only match the literal `<BlueButton` — form (b) is structurally invisible
+   to it. Had the wrapper query answered, the agent would still have missed form (b), but it would have
+   been working from a semantic result rather than a textual one, and the `<Button variant=…>` sites were
+   eventually found by a LATER grep for `variant=` — i.e. the information was reachable, just not from the
+   path the refusal forced.
+
+Reinforces t-959904 (a refusal that redirects to a strictly weaker tool is not a neutral event) and
+t-544207 (the guard refuses repo-wide where the cost is repo-wide, so a narrow JSX query pays the full
+fan-out price).
+
+The session also wrote itself a memory note (`emr-button-style-duality.md`) recording that EMR expresses
+button styling two structurally different ways — the agent learned by shipping the bug what a prop query
+would have told it in one call.
