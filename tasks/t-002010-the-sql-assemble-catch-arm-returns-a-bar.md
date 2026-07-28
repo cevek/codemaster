@@ -15,7 +15,7 @@ relates:
 surface:
   - daemon
 audience: both
-evidence: repro
+evidence: reported
 created: '2026-07-28T11:49:25.620Z'
 ---
 `daemon/sql-batch.ts` `assemble()` has three failure exits. Two carry the producers' resolve-time

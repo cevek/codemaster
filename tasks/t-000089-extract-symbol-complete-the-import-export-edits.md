@@ -11,6 +11,7 @@ relates:
 surface:
   - docs
   - plugins/ts
+  - test
 audience: both
 evidence: repro
 created: '2026-07-08T00:01:28.000Z'

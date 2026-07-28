@@ -19,6 +19,7 @@ surface:
   - core
   - ops
   - plugins/ts
+  - test
 audience: both
 evidence: reported
 created: '2026-07-28T10:55:19.056Z'
