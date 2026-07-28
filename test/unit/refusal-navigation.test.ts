@@ -240,14 +240,20 @@ test('the subject is found wherever the op keeps it', () => {
 // the very call that had just failed. Under either engine-death claim, only calls that build no program may be named.
 test('a died-engine redirect never names a call that builds a program', () => {
   const everyOp = [...new Set([...OPS.map((o) => o.op), 'search_symbol'])];
-  for (const op of everyOp) {
-    for (const shape of ARG_SHAPES) {
-      for (const c of cheapCallsFor(op, shape.args, 'any-program-build').calls) {
-        assert.notEqual(
-          c.buildsProgram,
-          true,
-          `${op} (${shape.label}) offers a program-building call after the engine died: ${c.call}`,
-        );
+  // BOTH engine-death claims, not just the proven one. This is the widest matrix in the tree for
+  // the invariant, and covering only `'any-program-build'` would leave the claim a deadline kill
+  // actually sets to a single 3-op assertion elsewhere — so re-permitting the re-pin for a timeout
+  // would pass right here, in the test named for exactly that defect.
+  for (const claim of ['any-program-build', 'unproven-program-build'] as const) {
+    for (const op of everyOp) {
+      for (const shape of ARG_SHAPES) {
+        for (const c of cheapCallsFor(op, shape.args, claim).calls) {
+          assert.notEqual(
+            c.buildsProgram,
+            true,
+            `${op} (${shape.label}, ${claim}) offers a program-building call after the engine died: ${c.call}`,
+          );
+        }
       }
     }
   }

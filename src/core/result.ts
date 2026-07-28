@@ -115,9 +115,11 @@ export type UnsafeClaim =
  *
  *  Closed so a consumer switches exhaustively rather than parsing prose. */
 export type OutOfReach =
-  /** Only THIS call, as issued, is out of reach. Nothing was consumed producing this failure — the
-   *  op DECLINED before doing the work, or a cooperative deadline cancelled it (§19) and the engine
-   *  kept running — so whatever this repo could serve a moment ago, it can still serve.
+  /** Only THIS call, as issued, is out of reach. The engine came through it intact — the op
+   *  DECLINED before doing the work, or a cooperative deadline cancelled it (§19) and the process
+   *  kept running — so this repo can still be served, by a fresh call rather than by this one. (A
+   *  cancelled fan HAS warmed programs it does not release, so "intact" means alive and answering,
+   *  not untouched.)
    *
    *  That is what licenses a redirect to name a call that builds a TS program, and it is all it
    *  licenses: the claim is about the ENGINE's state, not about any particular build being
@@ -126,11 +128,19 @@ export type OutOfReach =
    *  to name for a given op stays the redirect table's judgement, per op (`ops/guard/navigate.ts`).
    *  How to get the answer anyway is the failure's own `message`. */
   | 'this-call'
-  /** EVERY call that builds a TS program is out of reach here, whatever its target: the engine
-   *  exhausted its heap doing this work, and a retry does the same thing again. Addressing has no
-   *  bearing on it — a file-pinned trace OOMs exactly as its bare-name form does. A redirect may
-   *  name only calls that build no program; offering a re-addressed one hands the caller back the
-   *  very call that just died. */
+  /** EVERY call that builds a TS program is out of reach here, whatever its target — the engine
+   *  died on the heap-exhaustion signature doing this work, so a retry does the same thing again.
+   *  Addressing has no bearing on it: a file-pinned trace OOMs exactly as its bare-name form does.
+   *  A redirect may name only calls that build no program; offering a re-addressed one hands the
+   *  caller back the very call that just died.
+   *
+   *  KNOW WHAT THIS RESTS ON. The signature is V8's OOM abort (SIGABRT / 134), which is
+   *  best-effort, not portable, and shared with any other abort in that process — see
+   *  `daemon/process-host.ts` `isOom`, which is careful to call it a HINT. This member is the same
+   *  reading as the verdict sentence it ships beside ("cannot complete on this repo"), so the two
+   *  cannot disagree; it is NOT a heap measurement, and a non-heap abort carrying that signature
+   *  would over-claim here exactly as it over-claims there. Confirming the signature against the
+   *  relayed V8 fatal dump (§13) before either claim is filed as t-163532. */
   | 'any-program-build'
   /** Whether a program-building call is out of reach is UNPROVEN: the engine died running this
    *  work without establishing why — killed on a deadline, or a non-OOM exit. That says what
