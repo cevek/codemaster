@@ -34,6 +34,15 @@ import { pidfilePathFor } from './support/pidfile/write.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
+import { argValue, flagIssue, flagValue, hasFlag } from './cli/flags.ts';
+import {
+  BATCH_USAGE,
+  parseBatchCommand,
+  runCompose,
+  runOpSql,
+  type CliOutcome,
+} from './cli/compose.ts';
+import { parseOpCommand } from './cli/op-command.ts';
 
 /** Per-request reply deadline for the bridge (§1 never-hang), ALSO the process-mode child's
  *  request/kill deadline (one constant → the two-tier scheme). Set STRICTLY above the in-op graceful
@@ -88,43 +97,13 @@ function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-function argValue(args: string[], flag: string): string | undefined {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || idx + 1 >= args.length) return undefined;
-  const value = args[idx + 1];
-  args.splice(idx, 2);
-  return value;
-}
-
-/** A value-bearing flag accepting BOTH spellings — `--flag value` and `--flag=value` — and
- *  spliced out either way (the `=` form is one token). The equals form is checked first so a
- *  `--format=json` never falls through to the space-form lookup and gets left behind. */
-function flagValue(args: string[], flag: string): string | undefined {
-  const eqPrefix = `${flag}=`;
-  const eqIdx = args.findIndex((a) => a.startsWith(eqPrefix));
-  if (eqIdx !== -1) {
-    const value = args[eqIdx]?.slice(eqPrefix.length) ?? '';
-    args.splice(eqIdx, 1);
-    return value;
-  }
-  return argValue(args, flag);
-}
-
-/** A valueless boolean flag (`--apply`, `--summaryOnly`): present → true, and spliced out so it
- *  never collides with the positional JSON-args lookup. */
-function hasFlag(args: string[], flag: string): boolean {
-  const idx = args.indexOf(flag);
-  if (idx === -1) return false;
-  args.splice(idx, 1);
-  return true;
-}
-
-/** After every KNOWN flag has been spliced out, any residual `--`-prefixed token is an
- *  unrecognized flag. Returns them so the caller can reject LOUDLY (§3: a silent drop is the exact
- *  intake anti-pattern the tool forbids) — naming the offending flags + the command usage. Empty
- *  array ⇒ nothing stray, caller proceeds. */
-function unknownFlags(args: readonly string[]): string[] {
-  return args.filter((a) => a.startsWith('--'));
+/** Write a composed command's outcome (payload → stdout, diagnostics → stderr), release the
+ *  one-shot orchestrator, and hand back its exit code. */
+async function emit(outcome: CliOutcome, orchestrator: Orchestrator): Promise<number> {
+  for (const line of outcome.stdout) out(line);
+  for (const line of outcome.stderr) process.stderr.write(`${line}\n`);
+  await orchestrator.dispose();
+  return outcome.code;
 }
 
 async function main(): Promise<number> {
@@ -277,11 +256,11 @@ async function main(): Promise<number> {
       const brief = hasFlag(args, '--brief');
       const op = flagValue(args, '--op');
       // `--root` (extracted globally above) + the render dials are the only flags `status` accepts.
-      // Anything else `--`-prefixed is unrecognized — reject, never drop (§3 silent-swallow).
-      const stray = unknownFlags(args);
-      if (stray.length > 0) {
+      // Anything else `--`-prefixed is unread input — reject, never drop (§3 silent-swallow).
+      const issue = flagIssue(args, ['--root', '--op']);
+      if (issue !== undefined) {
         process.stderr.write(
-          `unrecognized flag(s): ${stray.join(', ')}\nusage: codemaster status [--root <dir>] [--full] [--brief] [--op <name>]\n`,
+          `${issue}\nusage: codemaster status [--root <dir>] [--full] [--brief] [--op <name>]\n`,
         );
         return 2;
       }
@@ -292,60 +271,21 @@ async function main(): Promise<number> {
       return 0;
     }
     case 'op': {
-      const OP_USAGE =
-        'usage: codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n';
-      const name = args.shift();
-      if (name === undefined) {
-        process.stderr.write(OP_USAGE);
+      const parsed = parseOpCommand(args);
+      if (!parsed.ok) {
+        process.stderr.write(parsed.message);
         return 2;
       }
-      const verbosity = argValue(args, '--verbosity');
-      const v = verbosity === 'normal' || verbosity === 'full' ? verbosity : 'terse';
-      // `--format json` mirrors the MCP `format` flag: json routes the envelope through the SAME
-      // `renderResultJson` the MCP path uses (byte parity, no parallel serializer). An unknown
-      // value is rejected (not silently coerced to text) — the CLI mirror of the MCP zod enum.
-      const format = flagValue(args, '--format');
-      if (format !== undefined && format !== 'text' && format !== 'json') {
-        process.stderr.write(`--format must be 'text' or 'json' (got '${format}')\n${OP_USAGE}`);
-        return 2;
-      }
-      // Mutating-op flags (§7): without these a CLI `op` could only ever dry-run, so a mutating op
-      // can't be dogfooded from the CLI. Parsed (and spliced) BEFORE the positional JSON-args find.
-      const apply = hasFlag(args, '--apply');
-      const summaryOnly = hasFlag(args, '--summaryOnly');
-      // Every KNOWN flag is now spliced out; any residual `--`-token is unrecognized → reject,
-      // never drop (§3). Checked before the op runs so a typo'd flag never yields a misleading
-      // "success" over unintended defaults.
-      const stray = unknownFlags(args);
-      if (stray.length > 0) {
-        process.stderr.write(`unrecognized flag(s): ${stray.join(', ')}\n${OP_USAGE}`);
-        return 2;
-      }
-      // Every known flag and any unrecognized `--` token is now handled, so `args` holds only
-      // positionals. The op takes at most ONE (the JSON args); a second bareword is stray input →
-      // reject LOUDLY (exit 2, named), never drop it (§3 silent-swallow, positional half — t-865108).
-      if (args.length > 1) {
-        process.stderr.write(`unexpected argument(s): ${args.slice(1).join(', ')}\n${OP_USAGE}`);
-        return 2;
-      }
-      let opArgs: unknown = {};
-      const rawArgs = args[0];
-      if (rawArgs !== undefined) {
-        try {
-          opArgs = JSON.parse(rawArgs);
-        } catch {
-          process.stderr.write(`args is not valid JSON: ${rawArgs}\n`);
-          return 2;
-        }
-      }
+      const { request, verbosity: v, format, sql, returnMode } = parsed;
       const orchestrator = buildOrchestrator();
-      // Thread verbosity into the REQUEST (not just the render), so an op that shapes its DATA by
-      // density — expand_type lifts its member cap at full (§3.4 completeness) — sees it in
-      // `ctx.flags`. The MCP path already carries it; without this the CLI would render `full` over
-      // data the op capped at the terse default. Ops that ignore verbosity are unaffected.
-      const outcome = await orchestrator.request(process.cwd(), root, [
-        { name, args: opArgs as never, apply, summaryOnly, verbosity: v },
-      ]);
+      if (sql !== undefined) {
+        const composed = await runOpSql(orchestrator, process.cwd(), root, request, {
+          sql,
+          ...(returnMode !== undefined ? { return: returnMode } : {}),
+        });
+        return await emit(composed, orchestrator);
+      }
+      const outcome = await orchestrator.request(process.cwd(), root, [request]);
       if (!outcome.ok) {
         process.stderr.write(`${outcome.message}\n`);
         await orchestrator.dispose();
@@ -367,10 +307,21 @@ async function main(): Promise<number> {
       await orchestrator.dispose();
       return dispatchFailed ? 1 : 0;
     }
+    case 'batch': {
+      // The composition surface (§11) on the one-shot path: many ops in one dispatch, optionally
+      // joined by a single read-only SELECT over their aliased tables.
+      const parsed = parseBatchCommand(args, root);
+      if (!parsed.ok) {
+        process.stderr.write(`${parsed.message}\n${BATCH_USAGE}`);
+        return 2;
+      }
+      const orchestrator = buildOrchestrator();
+      return await emit(await runCompose(orchestrator, process.cwd(), parsed.plan), orchestrator);
+    }
     case undefined:
     default:
       process.stderr.write(
-        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio (the daemon bridge)\n  codemaster daemon <status|start|stop|restart>   manage the singleton daemon\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full]\n`,
+        `codemaster v${VERSION}\nusage:\n  codemaster mcp            serve MCP over stdio (the daemon bridge)\n  codemaster daemon <status|start|stop|restart>   manage the singleton daemon\n  codemaster status [--root <dir>]\n  codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full] [--sql '<SELECT>'] [--return sql|all]\n  codemaster batch '<json-requests>' [--sql '<SELECT>'] [--return sql|all] [--root <dir>]\n`,
       );
       return command === undefined || command === 'help' ? 0 : 2;
   }
