@@ -11,6 +11,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, symlinkSync } from 'node:fs';
+import * as path from 'node:path';
 import { project, assertSpansValid } from '../helpers/project.ts';
 import { PKG, TSCONFIG, data, oracle, unusedNames } from '../helpers/unused-props.ts';
 
@@ -114,6 +116,38 @@ test('prop: found:0 is disambiguated — passed-somewhere vs not-a-prop are neve
     assert.ok(!o.declared.has('nope'), 'oracle: nope is not declared');
     assert.deepEqual(r['notDeclared'], ['nope']);
     assert.equal(r['undetermined'], undefined, 'member set was not capped → a real absence claim');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a workspace package reached THROUGH a node_modules symlink stays repo-declared', async () => {
+  // The damaging direction of the narrowing: a monorepo's OWN package is imported as
+  // `@repo/ui`, i.e. via a `node_modules` symlink (the pnpm/yarn-workspaces layout). If the
+  // declaration file were read as the symlink path, its props would be silently hidden. An
+  // ACTUAL on-disk symlink is the oracle — not an assumption about what TS returns.
+  const p = await project({
+    'package.json': PKG,
+    'tsconfig.json': TSCONFIG,
+    'packages/ui/package.json': '{"name":"@repo/ui","version":"1.0.0","types":"props.ts"}',
+    'packages/ui/props.ts': 'export interface UiProps { uiDead?: string; uiUsed?: number }\n',
+    'src/Widget.tsx':
+      "import type { UiProps } from '@repo/ui';\n" +
+      'export const Widget = (props: UiProps & { ownDead?: boolean }) =>\n' +
+      '  <div>{props.uiUsed}</div>;\n',
+    'src/App.tsx':
+      "import { Widget } from './Widget';\n" +
+      'export const App = () => <Widget uiUsed={1}/>;\n',
+  });
+  try {
+    mkdirSync(path.join(p.root, 'node_modules', '@repo'), { recursive: true });
+    symlinkSync(path.join(p.root, 'packages', 'ui'), path.join(p.root, 'node_modules', '@repo', 'ui'), 'dir');
+
+    const o = oracle(p.root, 'Widget');
+    assert.equal(o.external.size, 0, 'oracle: every prop is declared inside the repo');
+    const d = data(await p.op('find_unused_props', { component: 'Widget' }));
+    assert.deepEqual([...unusedNames(d)].sort(), ['ownDead', 'uiDead'], 'sibling prop not hidden');
+    assert.equal(d['hiddenExternal'], undefined, 'nothing to hide — no false external');
   } finally {
     await p.dispose();
   }
