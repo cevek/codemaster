@@ -69,7 +69,7 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     const wrongLine = failMsg(
       await p.op('find_usages', { name: 'sum', file: 'src/d.ts', line: 2 }),
     );
-    assert.match(wrongLine, /drop 'line'/, 'names an addressing that reaches the target');
+    assert.match(wrongLine, /drop 'line'/, 'names the line-independent addressing');
     assert.ok(!/or a 'name'/.test(wrongLine), 'but never the bare name the caller already used');
     const viaNameFile = defId(await p.op('find_usages', { name: 'sum', file: 'src/d.ts' }));
     assert.match(viaNameFile, /sum@src\/d\.ts:3:/, 'the advised call resolves the symbol');
@@ -79,7 +79,7 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     const nameOutside = failMsg(
       await p.op('find_usages', { name: 'sum', file: 'src/d.ts', line: 99 }),
     );
-    assert.match(nameOutside, /drop 'line'/, 'the reaching remedy survives the out-of-range arm');
+    assert.match(nameOutside, /drop 'line'/, 'the offer survives the out-of-range arm');
 
     // The offer is NOT gated on a probe of whether it would land, and these two shapes are why.
     // (1) A MEMBER: the top-level walk does not see `render`, but `find_usages` retries a
@@ -98,14 +98,29 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     const pattern = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts', line: 1 }));
     assert.ok(!/declares no top-level/.test(pattern), `no false claim about source: ${pattern}`);
     assert.ok(!/does not reach it/.test(pattern), `and no false dead-end: ${pattern}`);
-    assert.match(pattern, /pass file:line:col/, 'the addressing that does reach it is named');
+    // The listed declarations are NOT candidates for `a` (they were filtered out by the name), so
+    // the message must not read as a pick-list an agent lands `obj` from.
+    assert.match(pattern, /none of them 'a'/, 'the list is marked as context, not as candidates');
 
-    // A name nothing in the file declares still gets the offer — the OP then fails with its own
-    // honest message, which is the cheap error; withholding a working call is the expensive one.
+    // The offer carries NO promise about its outcome — the whole justification for making it
+    // unconditional. A reworded "name+file WILL resolve it" must fail here.
     const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
-    assert.match(noSuch, /drop 'line'/, 'offered without a promise about the outcome');
+    assert.match(noSuch, /drop 'line'/, 'the addressing is named');
+    assert.ok(
+      !/\b(will|resolves|reaches|finds)\b/i.test(noSuch.split("drop 'line'")[1] ?? ''),
+      `no promise about the outcome: ${noSuch}`,
+    );
+    // …and the op it points at fails HONESTLY when it cannot land: for a name the file declares
+    // through a binding pattern, that message may not claim the declaration does not exist.
+    const landed = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts' }));
+    assert.ok(
+      !/no top-level declaration named/.test(landed),
+      `a declared-but-unanchorable name is a capability limit, not an absence: ${landed}`,
+    );
+    assert.match(landed, /could not anchor/, 'it reports what it could not do');
+    assert.match(landed, /search_symbol/, 'and names a call that does find it (t-561552)');
     const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
-    assert.match(proof, /'zzz'/, 'and the op that cannot land it says so itself, naming the name');
+    assert.match(proof, /'zzz'/, 'the same message names the symbol it could not anchor');
   } finally {
     await p.dispose();
   }

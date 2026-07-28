@@ -143,9 +143,16 @@ test('member fallback: a genuinely-absent name+file keeps the honest top-level d
   try {
     const r = await p.op('find_usages', { name: 'noSuchThingXyz', file: 'src/gen.ts' });
     assert.ok('result' in r && !r.result.ok, JSON.stringify(r));
+    // The dead-end names what the resolver could not ANCHOR — never "the file does not declare
+    // it": that walk is blind to a top-level binding pattern / namespace import (t-561552), so an
+    // absence claim would be false for those shapes and unprovable for this one.
     assert.match(
       JSON.stringify(r.result.failure),
-      /no top-level declaration named 'noSuchThingXyz'/,
+      /could not anchor a top-level declaration named 'noSuchThingXyz'/,
+    );
+    assert.ok(
+      !/no top-level declaration named/.test(JSON.stringify(r.result.failure)),
+      'no absence claim the resolver cannot support',
     );
   } finally {
     await p.dispose();

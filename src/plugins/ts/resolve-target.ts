@@ -92,9 +92,15 @@ function resolveNameInFile(h: TsProjectHost, name: string, file: string): Resolv
   const decls = topLevelDeclarationsNamed(sourceFile, name);
   const sole = decls[0];
   if (sole === undefined) {
+    // NOT "the file declares no such symbol": this walk anchors bare-identifier declarations, so
+    // a top-level BINDING PATTERN (`export const { alpha } = …`) or a namespace import/export
+    // (`import * as X`) is invisible to it while the file plainly declares it — `search_symbol`
+    // finds exactly those. Report the capability limit, not an absence we cannot support (§3.6),
+    // and name the two calls that do reach such a declaration. The walk's blind spot itself (and
+    // its second consumer, the §6 rebind) is t-561552.
     return {
       ok: false,
-      message: `no top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col`,
+      message: `could not anchor a top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col. NOTE: a destructured binding / namespace import is not anchorable by name here even when the file DOES declare it, so this is not proof of absence: search_symbol {query:'${name}'} tells the two apart`,
     };
   }
   if (decls.length > 1) {

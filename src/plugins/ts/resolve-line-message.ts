@@ -9,8 +9,9 @@ import { nameWithMore } from '../../common/truncate/name-with-more.ts';
  *  minified line can hold hundreds. */
 export const LINE_DECL_PREVIEW = 8;
 
-/** The col-less miss message. Every arm names a remedy that CAN reach a symbol from here, and
- *  claims only what this resolver knows:
+/** The col-less miss message. Every arm names an addressing to try from here — without promising
+ *  it lands, which this module cannot know (see `altAddressing`) — and claims only what this
+ *  resolver knows:
  *   · out of range   → no column helps; the line number is what to check.
  *   · has declarations → they are listed with their columns (the pick list).
  *   · in range, none  → we anchor no DECLARATION (never "the source declares nothing": a binding
@@ -40,12 +41,18 @@ export function lineMissMessage(
     // too), and it matches the wording the col-carrying path already uses for the same fact.
     return `${head} — line ${line} is outside ${file}, so NO column resolves there: check the line number${alt}`;
   }
+  // With `name` given, NONE of the listed declarations carries it (they were filtered out) — so
+  // the list is context, not a pick-list, and saying so stops an agent from landing on `obj` when
+  // it asked for `a`. Without a name they ARE the candidates.
+  const listed = nameWithMore(
+    all.map((d) => `${d.name} at col ${d.col}`),
+    LINE_DECL_PREVIEW,
+  );
   const there =
     all.length > 0
-      ? ` (declared there: ${nameWithMore(
-          all.map((d) => `${d.name} at col ${d.col}`),
-          LINE_DECL_PREVIEW,
-        )})`
+      ? name !== undefined
+        ? ` (that line declares ${listed} — none of them '${name}')`
+        : ` (declared there: ${listed})`
       : ' (the line anchors no declaration — a column still resolves a symbol USED there, if the' +
         ' line holds one; else check the line number)';
   return `${head}${there} — pass file:line:col (the column)${alt}`;
