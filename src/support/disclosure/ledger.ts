@@ -4,17 +4,17 @@
 //
 // Why ambient rather than a return value: the fact is produced at target-resolution time and is
 // relevant to EVERY op that answers about that target. Threading it out through each plugin method
-// and into each op is what the per-op version measured — seven edits, four ops still mute — because
-// each new consumer must remember to consume it and forgetting is silent. Here the producer states
-// the fact once and the dispatcher stamps it; a new op inherits it by existing.
+// and into each op costs an edit per consumer and leaves any op that forgets silently mute. Here
+// the producer states the fact once and the dispatcher stamps it; a new op inherits it by existing.
 //
 // Why `AsyncLocalStorage` rather than a module-global: in `in-process` mode one process hosts
 // SEVERAL workspace engines, whose ops interleave across `await`s. A shared global would attach one
 // repo's disclosure to another repo's answer — a FALSE claim of doubt, which is the same lie
 // inverted (§3.6) and exactly what a disclosure mechanism must never manufacture.
 //
-// This is `common/` by the bright line: pure bookkeeping over `core/` types — no filesystem, no
-// network, no child process, no real time.
+// It lives in `support/`, beside the other two ambient runtime mechanisms (`debug`'s `req#N` ALS and
+// `watchdog/beacon`'s process-global): `common/` is pure logic over `core/` types, and per-request
+// mutable state is not that, whatever it does or does not touch.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Disclosure, Result } from '../../core/result.ts';

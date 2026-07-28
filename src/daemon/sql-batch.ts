@@ -13,8 +13,9 @@
 // naming the failed producers (§11; §3.4 no-silent-drop).
 
 import type { JsonValue } from '../core/json.ts';
-import type { Result } from '../core/result.ts';
+import type { Disclosure, Result } from '../core/result.ts';
 import { fail, messageOfThrown, ok } from '../common/result/construct.ts';
+import { mergeDisclosures } from '../common/result/merge-disclosures.ts';
 import type { DispatchError, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition, TableSpec } from '../ops/registry.ts';
 import type { FreshnessNote } from '../core/result.ts';
@@ -67,9 +68,17 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
     producerTruncated: boolean;
   }[] = [];
   const failed: string[] = [];
+  // A `sql` answer is assembled into a FRESH envelope over the producers' results, so every
+  // honesty channel the producers carried has to be forwarded explicitly or it is dropped. The
+  // claim "this producer's target may not be the symbol you named" survives the join: a doubtful
+  // target feeding a `NOT IN` poisons the whole relation, and the joined answer would otherwise
+  // come back with no trace of it (§3.4). Collected from BOTH arms — a failed producer's doubt
+  // still qualifies the SELECT that did not run.
+  const producerDisclosures: (readonly Disclosure[])[] = [];
   for (const item of plan.items) {
     const produced = await ctx.runProducer(item.req);
     perReq.push(produced);
+    if ('result' in produced) producerDisclosures.push([...(produced.result.disclosures ?? [])]);
     // A producer that errors or returns ok:false fails the SELECT — never its INDEPENDENT
     // neighbours. We run them all (they were already going to run; the cost is accepted)
     // and gate only the SELECT, since a join over a missing table would silently lie (§11).
@@ -97,16 +106,20 @@ export async function runSqlBatch(ctx: SqlBatchCtx): Promise<readonly OpResult[]
   // under `return:'all'`. The sql record is an honest failure naming the failed producers
   // WITH their causes inline; under `return:'all'` the per-request results carry the full
   // failure too (§3.4, §11).
+  const disclosures = mergeDisclosures(producerDisclosures);
   const sqlResult: OpResult =
     failed.length > 0
       ? {
           name: 'sql',
-          result: fail({
-            tool: 'sql',
-            message: `SELECT not run — producer(s) ${failed.join('; ')}. Under return:'all' the per-request results above carry each full failure.`,
-          }),
+          result: fail(
+            {
+              tool: 'sql',
+              message: `SELECT not run — producer(s) ${failed.join('; ')}. Under return:'all' the per-request results above carry each full failure.`,
+            },
+            disclosures !== undefined ? { disclosures } : undefined,
+          ),
         }
-      : assemble(producers, ctx);
+      : assemble(producers, ctx, disclosures);
   return finalize(ctx.returnMode, perReq, sqlResult);
 }
 
@@ -121,7 +134,8 @@ function finalize(
 /** Project → bound → register → query → dispose, with the §5.5 envelope. Returns an
  *  `OpResult`: a SQL error becomes a pointed `bad_args` listing every table's columns
  *  (§4.6); a native-load failure becomes an honest `ToolFailure`; success carries the
- *  rows plus partial/truncation/notes. */
+ *  rows plus partial/truncation/notes — and the producers' disclosures, which qualify the
+ *  relation the SELECT ran over just as much as they qualified each producer's own answer. */
 function assemble(
   producers: ReadonlyArray<{
     alias: string;
@@ -130,11 +144,13 @@ function assemble(
     producerTruncated: boolean;
   }>,
   ctx: SqlBatchCtx,
+  disclosures: readonly Disclosure[] | undefined,
 ): OpResult {
+  const extras = disclosures !== undefined ? { disclosures } : undefined;
   const runnerOutcome = ctx.createRunner();
   if (!runnerOutcome.ok) {
     // Native-load / open failure (§4.1) — surface the ToolFailure verbatim, no data.
-    return { name: 'sql', result: fail(runnerOutcome.failure) };
+    return { name: 'sql', result: fail(runnerOutcome.failure, extras) };
   }
   const runner = runnerOutcome.data;
 
@@ -177,6 +193,7 @@ function assemble(
       result: ok(data, {
         ...(ctx.freshness !== undefined ? { freshness: ctx.freshness } : {}),
         ...(truncated !== undefined ? { truncated } : {}),
+        ...extras,
       }),
     };
   } catch (thrown) {

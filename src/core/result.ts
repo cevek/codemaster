@@ -84,8 +84,10 @@ export interface Disclosure {
   note: string;
 }
 
-/** The closed set of assertions a resolution can invalidate. Closed so a consumer switches
- *  exhaustively and a new claim is a compile error, never a silently-misread old one. */
+/** The closed set of assertions a resolution can invalidate. Closed so a consumer CAN switch
+ *  exhaustively rather than parse prose; today none does — the renderer interpolates the code
+ *  verbatim and the agent reads `unsafe=` as the machine-readable key. Adding a member is
+ *  therefore a source change to review, not yet a compile error. */
 export type UnsafeClaim =
   /** "the symbol this answer is about is the only one of that name." The name→declaration
    *  candidate set was cut before we saw all of it, so the resolved symbol is one of the ones we

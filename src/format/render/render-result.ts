@@ -1,7 +1,8 @@
 // Render a `Result<JsonValue>` envelope as dense agent-facing text (§12). Every
 // honesty channel of the envelope surfaces explicitly: failure (with the tool named),
-// partiality, freshness drift, handle rebinds, truncation. Nothing is dropped to make
-// the output prettier — omitting a FreshnessNote is the silent-stale lie.
+// partiality, resolve-time disclosures, truncation, handle rebinds, freshness drift,
+// intake rewrites. Nothing is dropped to make the output prettier — omitting a
+// FreshnessNote is the silent-stale lie.
 
 import type {
   Result,
@@ -40,8 +41,9 @@ const RENDER_BYTE_CAP = 50_000;
 export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = 'terse'): string {
   // The envelope is rendered as FOUR segments so the cap can never bury an honesty channel
   // (§12 envelope-seam): `head` is the verdict-before-bulk preamble, `bulk` is the ONLY
-  // cappable region (the data render), `tail` carries the load-bearing honesty channels —
-  // truncation / handle-rebind / freshness — that MUST survive the cap by construction, and
+  // cappable region (the data render), `tail` carries the load-bearing honesty channels — in
+  // emission order: disclosures / truncation / handle-rebind / freshness / intake — that MUST
+  // survive the cap by construction, and
   // `debug` is the lowest-priority dev trace. Capping the tail-shaped honesty channels off the
   // end (the old single-`lines[]` shape) silently dropped a `freshness: UNVERIFIED` or a
   // `handle: rebound confidence=partial` — the exact silent-stale / §6-misidentification lie.
@@ -94,9 +96,7 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
   // Disclosures lead: they qualify what the WHOLE answer may be read as asserting (its target may
   // not be the symbol the agent meant), where truncation only qualifies the listed set. Then
   // truncation (it qualifies the bulk it follows), then handle, then freshness.
-  if (result.disclosures !== undefined) {
-    for (const d of result.disclosures) tail.push(renderDisclosure(d));
-  }
+  if (result.disclosures !== undefined) tail.push(...renderDisclosures(result.disclosures));
   if (result.ok && result.truncated !== undefined) tail.push(renderTruncation(result.truncated));
   if (result.handle !== undefined) tail.push(renderRebind(result.handle));
   if (result.freshness !== undefined) {
@@ -175,11 +175,27 @@ export function renderResultJson(result: Result<JsonValue>): string {
   return JSON.stringify({ ...result, data: stripShapeTags(result.data) });
 }
 
-/** A resolve-time claim the answer does not support (§3.4/§3.6). `unsafe=` is the machine-readable
+/** Resolve-time claims the answer does not support (§3.4/§3.6). `unsafe=` is the machine-readable
  *  assertion and `target=` attributes it to the resolution at risk, so an agent reading two ops'
- *  answers about one target sees the same line on both instead of contradictory confidence. */
-function renderDisclosure(d: Disclosure): string {
-  return `!! CANNOT CLAIM unsafe=${d.unsafe} target=${d.target} — ${d.note}`;
+ *  answers about one target sees the same line on both instead of contradictory confidence.
+ *
+ *  Entries sharing one claim+note collapse to ONE line listing their targets. A multi-target op
+ *  (`source` takes 20) would otherwise repeat a byte-identical sentence per target inside the
+ *  cap-RESERVED tail, where every char is subtracted from the answer's own budget — the same fact
+ *  restated 20 times is §12 density spent on nothing. Values are quoted so the `k=v` pairs stay
+ *  whitespace-splittable (§13) even though a target reads `name 'Span'`. */
+function renderDisclosures(disclosures: readonly Disclosure[]): string[] {
+  const byClaim = new Map<string, { unsafe: string; note: string; targets: string[] }>();
+  for (const d of disclosures) {
+    const key = `${d.unsafe}|${d.note}`;
+    const group = byClaim.get(key) ?? { unsafe: d.unsafe, note: d.note, targets: [] };
+    if (!group.targets.includes(d.target)) group.targets.push(d.target);
+    byClaim.set(key, group);
+  }
+  return [...byClaim.values()].map(
+    (g) =>
+      `!! CANNOT CLAIM unsafe=${g.unsafe} target=${g.targets.map((t) => JSON.stringify(t)).join(',')} — ${g.note}`,
+  );
 }
 
 function renderTruncation(t: Truncation): string {

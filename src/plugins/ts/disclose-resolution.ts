@@ -8,18 +8,27 @@
 // event, so producer and consumer cannot mean different things by the same bit.
 
 import type { Disclosure } from '../../core/result.ts';
-import { disclose } from '../../common/disclosure/ledger.ts';
+import { disclose } from '../../support/disclosure/ledger.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 
+// Dense by contract (§12): the cause in one clause and the ONE canonical remedy. The full model —
+// what the claim means, why it is a floor, how to enumerate the twins — lives once in the `status`
+// concepts legend, not repeated per answer. The remedy is exact re-addressing because that is the
+// one move guaranteed to resolve rank-independently; a `symbols_overview` sweep is a discovery aid
+// with its own scope caveats (exported-only by default, collisions counted across FILES) and would
+// be a second, weaker answer to the same question.
 const NOTE =
-  "the workspace symbol search hit the LS's own result cap and the cut fell inside the exact-name matches, so a DISTINCT declaration of this name may sit behind it — the answer is about one of the declarations we could see, and any count / emptiness / completeness it states is a floor, not a fact. Re-address with name+file or file:line:col (an exact target ranks nothing), or enumerate the collisions with symbols_overview {duplicatesOnly:true}.";
+  "the name→declaration page hit the LS's cap INSIDE the exact-name matches, so a distinct same-named declaration may sit behind the cut; counts / emptiness / completeness about this target are a FLOOR. Re-address exactly — name+file or file:line:col ranks nothing. (status → concepts:disclosure)";
 
 /** How the target was addressed, so a disclosure is attributed to the resolution that is actually
  *  at risk. Only the two forms that can BE at risk are named: a bare name (ranked by navto) and a
  *  held handle whose §6 rebind fell back to the workspace search. */
 function describe(target: TsTargetInput): string {
-  if (target.name !== undefined && target.file === undefined) return `name '${target.name}'`;
+  // Same order the resolver dispatches in (`resolveTarget`): a call carrying BOTH a symbolId and a
+  // name resolved through the HANDLE, so naming it as a bare-name resolution would attribute the
+  // doubt to a field the resolver never read.
   if (target.symbolId !== undefined) return `handle ${target.symbolId}`;
+  if (target.name !== undefined && target.file === undefined) return `name '${target.name}'`;
   // An exact form should never reach here (the resolver flags no truncation for one); describe it
   // honestly rather than mislabelling it as a name if it ever does.
   return target.name !== undefined ? `name '${target.name}'` : '<target>';

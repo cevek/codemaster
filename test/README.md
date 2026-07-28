@@ -14,9 +14,9 @@ Strategy, oracles, and the invariants that gate CI live in
   - `repos/` — committed mini-projects for realistic cases (monorepo, scss, i18n,
     dynamic-dispatch, schema) and MCP end-to-end.
   - `scenarios/` — `*.scenario.ts` stateful transcripts (mutate → query → assert).
-- `differential/` — the oracle-backed invariants (per-plugin): proof-span validity,
-  per-plugin freshness honesty, per-plugin `cold == warm`, edit safety, op-vs-oracle
-  golden, plugin DAG honesty.
+- `differential/` — the oracle-backed invariants: proof-span validity, per-plugin freshness
+  honesty, per-plugin `cold == warm`, edit safety, op-vs-oracle golden, plugin DAG honesty,
+  and cross-op envelope-disclosure agreement (§16).
 - `unit/` — inline-VFS unit tests (the inner loop: `npm run test:light` = unit + golden).
 - `e2e/` — CLI + MCP end-to-end: daemon/bridge lifecycle, sql-over-ops, the response-size matrix.
 - `golden/` — dense-output snapshots (never the only assertion for a correctness claim).

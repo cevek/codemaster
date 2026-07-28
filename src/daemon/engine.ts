@@ -11,7 +11,7 @@ import type { FreshnessNote } from '../core/result.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
 import { createDeadline } from '../common/async/deadline.ts';
-import { runWithDisclosures } from '../common/disclosure/ledger.ts';
+import { runWithDisclosures } from '../support/disclosure/ledger.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
 import { createJsScanner, type TextScanner } from '../support/text-search/scan.ts';

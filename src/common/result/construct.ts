@@ -4,6 +4,7 @@
 // agent never mistakes it for a complete answer). ARCHITECTURE.md §3.6.
 
 import type {
+  Disclosure,
   FailureResult,
   FreshnessNote,
   OkResult,
@@ -17,6 +18,11 @@ export interface ResultExtras {
   handle?: HandleRebind;
   freshness?: FreshnessNote;
   debug?: string[];
+  /** Resolve-time claims this answer does not support (§3.4). Ops do not set this — the
+   *  dispatcher stamps each op's own ledger. It is settable here for the envelope factories that
+   *  build a result OVER other results (the `sql` join), which must forward the channel rather
+   *  than drop it. */
+  disclosures?: readonly Disclosure[];
 }
 
 export function ok<T>(data: T, extras?: ResultExtras & { truncated?: Truncation }): OkResult<T> {

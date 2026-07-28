@@ -126,11 +126,13 @@ export function createTsPlugin(
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
   //
-  // This is ALSO the single producer of the envelope disclosure (§3.4): a resolution built on a cut
-  // candidate set states, here and once, that the answer cannot claim uniqueness for this name. It
-  // sits at the RESOLVE rather than in each read method because every symbol-addressed read funnels
-  // through here — so an op cannot answer about a doubtful target and stay silent about it, and a
-  // NEW read method inherits the disclosure by using the resolver, not by remembering to.
+  // This is ALSO the PRIMARY producer of the envelope disclosure (§3.4): a resolution built on a cut
+  // candidate set states, here, that the answer cannot claim uniqueness for this name. It sits at the
+  // RESOLVE rather than in each read method because every symbol-addressed read funnels through here
+  // — so an op cannot answer about a doubtful target and stay silent about it, and a NEW read method
+  // inherits the disclosure by using the resolver, not by remembering to. The `mergeDeclarations`
+  // resolver (see `findUsages` below) resolves OUTSIDE this chokepoint and states the same claim
+  // itself; those two are the only producers, and both build their record in `disclose-resolution.ts`.
   // An EXACT target (symbolId at its recorded position / file:line:col / name+file) never carries
   // the flag, so it never discloses: dressing an exact resolution as doubtful is the same lie
   // inverted (§3.6).

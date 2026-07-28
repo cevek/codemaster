@@ -54,7 +54,7 @@ export const sourceOp = defineOp({
   },
   notes: [
     'one call returns N bodies (≤20) — the "show me the code" call, instead of N Reads.',
-    'unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed.',
+    'unresolvable/ambiguous targets come back under unresolved; a moved held-SymbolId is restated as rebound on its entry (never silent); extra definitions (overloads/merging) are listed. An ambiguity hidden BEHIND a cut candidate page resolves instead of failing, and rides the envelope disclosure (status → concepts:disclosure).',
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
