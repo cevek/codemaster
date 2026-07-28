@@ -31,7 +31,10 @@ export function lineMissMessage(
   // opens, so "has N lines" would overstate by one on almost every file — a small lie is still
   // one. The bound is used for the branch, not quoted as a fact.
   const outside = line < 1 || line > sourceFile.getLineStarts().length;
-  const head = `no declaration${name !== undefined ? ` named '${name}'` : ''} on ${file}:${line}`;
+  // "anchorable": the head may not negate over the LINE either. `export const obj = { a: 1 }`
+  // declares `a`, and `export const { x } = o` declares `x`, at columns this walk never anchors —
+  // a bare "no declaration named 'a' on file:1" is false about source that plainly declares it.
+  const head = `no anchorable declaration${name !== undefined ? ` named '${name}'` : ''} on ${file}:${line}`;
   // The line-independent alternative, offered on EVERY arm — an out-of-range line is exactly
   // where the caller most needs it (see `altAddressing` for why it is never gated on a probe).
   const alt = altAddressing(name);

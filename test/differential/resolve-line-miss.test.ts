@@ -103,8 +103,9 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // So no arm may negate over the LINE or over columns — only over what it anchors. Asserted as
     // a property (any such claim, however worded), not as one banned string.
     assertNoAbsenceClaim(pattern, 'a');
-    assert.ok(!/\bno column\b/i.test(pattern), `must not deny the column that works: ${pattern}`);
+    assertNoPromise(pattern);
     assert.match(pattern, /anchorable declarations there/, 'the list is scoped to what it anchors');
+    assert.match(pattern, /no anchorable declaration named 'a'/, 'and so is the head negation');
 
     // The offer carries NO promise about its outcome — the whole justification for making it
     // unconditional. Checked over the WHOLE message: a promise placed before the offer, or worded
@@ -118,6 +119,10 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // name any name-based call as a discriminator, since navto is blind to the same forms.
     const landed = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts' }));
     assertNoAbsenceClaim(landed, 'a');
+    // …and it may not name ANY op as the call that settles absent-vs-unanchorable. Ground truth
+    // for why: a workspace name search finds some of these forms and misses others, so no single
+    // named call discriminates — asserted as a property (a discriminator promise, however worded).
+    assertNoPromise(landed);
     assert.match(landed, /could not anchor/, 'it reports what it could not do');
     assert.match(landed, /NOT proof of absence/, 'and says the miss proves nothing');
     const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));

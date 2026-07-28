@@ -79,7 +79,9 @@ test('file+line (no col) on a line with NO declaration fails honestly (not a fab
   const p: TestProject = await project(M);
   try {
     const msg = failMsg(await p.op('find_usages', { file: 'src/m.ts', line: 4 }));
-    assert.match(msg, /no declaration.*on src\/m\.ts:4/, 'honest "no declaration on this line"');
+    // "anchorable": the head may not negate over the LINE — a binding pattern declares symbols
+    // this resolver cannot anchor, so a bare "no declaration on line N" would be false there.
+    assert.match(msg, /no anchorable declaration on src\/m\.ts:4/, 'honest, and scoped to us');
   } finally {
     await p.dispose();
   }
@@ -95,7 +97,11 @@ test('a miss never advises the addressing already used: no "or a name" when name
       await p.op('find_usages', { name: 'employees', file: 'src/m.ts', line: 2 }),
     );
     assert.ok(!/or a 'name'/.test(msg), `must not re-suggest 'name': ${msg}`);
-    assert.match(msg, /no declaration named 'employees' on src\/m\.ts:2/, 'names what missed');
+    assert.match(
+      msg,
+      /no anchorable declaration named 'employees' on src\/m\.ts:2/,
+      'names what missed, scoped to what this resolver anchors',
+    );
     assert.match(msg, /file:line:col/, 'keeps the column remedy');
     assert.match(msg, /beta at col 14/, 'names what IS declared on that line');
     assert.match(msg, /gamma at col 24/);

@@ -48,3 +48,15 @@ Note the interaction: `declarationsOnLine` shares `isTargetableDeclaration` with
 widening it also makes a destructuring LINE anchorable by `file+line` (today it reads as
 "the line anchors no declaration"). That is an improvement, but it changes the col-less
 resolution path and its tests — do the two together, not by accident.
+
+## Third consumer: the workspace name search says it outright
+
+`src/plugins/ts/resolve-target.ts` `resolveByName` answers a flat `no symbol named 'ns'` for
+`export * as ns from './other'` — the unhedged false absence, one call away from the `name`+`file`
+message that now deliberately refuses to name a name-based call as a discriminator (because navto
+misses exactly these forms while `{file,line,col}` resolves them).
+
+Note the asymmetry to preserve when fixing: a workspace name search DOES find an `import * as X`
+alias and a top-level binding pattern; it misses `export * as ns` and an object-literal property.
+So "navto is blind to these forms" is true of some and false of others — any message or fix must
+be scoped per form, not stated as a universal (that overclaim was itself a defect once).

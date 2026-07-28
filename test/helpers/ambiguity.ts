@@ -17,35 +17,48 @@ export function defId(r: OpResult): string {
   return id;
 }
 
-/** No wording may assert that the symbol is ABSENT — this resolver anchors bare-identifier
- *  declarations only, so a miss is a capability limit (t-561552). Matched as a PROPERTY (any
- *  phrasing of "there is no such thing"), because a blacklist of one sentence is satisfied by
- *  rewording the same lie — the failure mode this suite exists to catch. */
+/** No wording may assert that the symbol is ABSENT, anywhere or on a line — this resolver anchors
+ *  bare-identifier declarations only, so a miss is a capability limit (t-561552).
+ *
+ *  A blacklist of exact sentences is what a reworded lie walks straight through, so the shapes
+ *  here are deliberately generic: any "no … <name> …" clause CLOSED by a scope word (exists /
+ *  anywhere / in the file / on that line / any column) is rejected whatever verb carries it, and
+ *  so is any claim about columns, which the caller may be about to use. */
 export function assertNoAbsenceClaim(msg: string, name: string): void {
+  const SCOPE = `(exist|anywhere|in (the|this) (file|repo|project)|on (that|this) line|any column)`;
   const claims = [
     /no top-level declaration named/i,
-    new RegExp(`declares no (such )?\\S*\\s?'?${name}'?`, 'i'),
-    new RegExp(
-      `no (such )?(symbol|declaration)[^.]*'${name}'[^.]*(exists|anywhere|in the (file|repo))`,
-      'i',
-    ),
+    // "declares no X" / "contains no X" / "has no X" — any verb, any filler before the name.
+    new RegExp(`\\b(declares|contains|has|holds)\\s+no\\b[^.;)]{0,40}'?${name}'?`, 'i'),
+    // "no <thing> 'X' … <scope>" — the negation closed by a scope word makes it an absence claim.
+    new RegExp(`\\bno\\b[^.;)]{0,40}'?${name}'?[^.;)]{0,60}${SCOPE}`, 'i'),
+    // …and the same with the scope word BEFORE the name ("nothing anywhere named X").
+    new RegExp(`\\bno(thing|ne)?\\b[^.;)]{0,40}${SCOPE}[^.;)]{0,40}'?${name}'?`, 'i'),
     /does not exist/i,
     /\bnot declared\b/i,
+    // A claim about columns is an absence claim about the one addressing that still works.
+    /\bno (other )?column\b/i,
+    /\bno column (on|in)\b/i,
   ];
   for (const c of claims) {
     assert.ok(!c.test(msg), `an absence this resolver cannot prove (${String(c)}): ${msg}`);
   }
 }
 
-/** The offered addressing is named WITHOUT a promise that it lands — the property the
- *  unconditional offer rests on. Scanned over the whole message, not a suffix. */
+/** An addressing may be NAMED but never promised — neither "it will resolve" nor "it settles the
+ *  question". The second half matters as much: naming one call as the DISCRIMINATOR between
+ *  absent and unanchorable is the defect that recurred twice, and no name-based call here is one. */
 export function assertNoPromise(msg: string): void {
   const promises = [
     /\bwill\b/i,
     /\bguarantee/i,
     /\balways (lands|works|resolves)/i,
-    /\bresolves it\b/i,
+    /\b(resolves|reaches|finds|lands) it\b/i,
+    /\bthat (lands|resolves|reaches)\b/i,
     /\bis guaranteed\b/i,
+    // discriminator promises
+    /tells (the two|them) apart/i,
+    /\b(settles|proves) (it|absence|the question)\b/i,
   ];
   for (const pr of promises) {
     assert.ok(!pr.test(msg), `a promise about the outcome (${String(pr)}): ${msg}`);
