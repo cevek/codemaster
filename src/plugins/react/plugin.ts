@@ -17,12 +17,22 @@ import type { TsPluginApi } from '../ts/plugin.ts';
 import type { TsTargetInput } from '../ts/plugin.ts';
 import { detectComponents, detectHooks, COMPONENTS_NOTE } from './detect.ts';
 import { detectDialogs } from './dialogs.ts';
-import { pickComponent, computeUnusedProps, type UnusedPropsResult } from './unused-props.ts';
+import {
+  pickComponent,
+  computeUnusedProps,
+  type UnusedPropsOptions,
+  type UnusedPropsResult,
+} from './unused-props.ts';
 import { classifyDecl, declAt, type DeclClassification } from './classify.ts';
 
 // Public surface for the unused-props read-model — ops depend on these, never on the internal
 // `unused-props.ts` module (§5-L3).
-export type { UnusedProp, UnusedPropsView, UnusedPropsResult } from './unused-props.ts';
+export type {
+  UnusedProp,
+  UnusedPropsView,
+  UnusedPropsResult,
+  UnusedPropsOptions,
+} from './unused-props.ts';
 export type { DeclClassification, DeclKind } from './classify.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
@@ -31,8 +41,10 @@ export interface ReactPluginApi extends Plugin {
   /** Declared-but-never-passed props of the component named `component` (optionally scoped to
    *  `file`). The read-model over the `ts` plugin's `firstParamTypeMembers` + `jsxCallSites`
    *  seams; verdicts demote to `partial` when a spread / opaque reference / capped site set makes
-   *  the passed props unreadable. An honest message when the component isn't found / is ambiguous. */
-  unusedProps(component: string, file?: string): UnusedPropsResult;
+   *  the passed props unreadable. An honest message when the component isn't found / is ambiguous.
+   *  `options` narrows the DECLARED-member view only (external provenance / an explicit name
+   *  list) — the site-derived demotion is unaffected by it. */
+  unusedProps(component: string, file?: string, options?: UnusedPropsOptions): UnusedPropsResult;
   /** Classify the declaration a `target` resolves to (component / hook / other) by the react
    *  conventions — the generic decl-routing seam trace ops walk a declaration chain through. A
    *  string is an honest miss (target did not resolve to a declaration). */
@@ -69,7 +81,7 @@ export function createReactPlugin(): ReactPluginApi {
     },
     pending: () => [],
 
-    unusedProps(component: string, file?: string): UnusedPropsResult {
+    unusedProps(component: string, file?: string, options?: UnusedPropsOptions): UnusedPropsResult {
       const ts = tsApi();
       const picked = pickComponent(ts.functionDeclarations().decls, component, file);
       if (!picked.ok) return picked;
@@ -86,7 +98,10 @@ export function createReactPlugin(): ReactPluginApi {
       if (typeof jsxOut === 'string') return { ok: false, message: jsxOut };
       if (!('view' in jsxOut)) return { ok: false, message: jsxOut.unresolved };
 
-      return { ok: true, view: computeUnusedProps(picked.decl, membersOut.view, jsxOut.view) };
+      return {
+        ok: true,
+        view: computeUnusedProps(picked.decl, membersOut.view, jsxOut.view, options),
+      };
     },
 
     classify(target: TsTargetInput): DeclClassification | string {
