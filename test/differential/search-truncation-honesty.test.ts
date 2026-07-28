@@ -66,6 +66,29 @@ test('a resolution built on a sliced page discloses that it may not be the only 
     const d = single.result.data as { complete?: boolean; searchTruncated?: boolean };
     assert.equal(d.complete, false, 'a single resolution off a sliced page is a floor, not a fact');
     assert.equal(d.searchTruncated, true, 'and the cause is machine-readable, not prose-only');
+    assert.equal(
+      (single.result.data as { notes?: string[] }).notes,
+      undefined,
+      'a complete-program answer carries no set-level floor note either',
+    );
+
+    // The claim is STATED — in prose, where the agent reads verdicts — on the envelope.
+    assert.ok(
+      (single.result.disclosures ?? []).some(
+        (x) => x.unsafe === 'target-is-the-only-symbol-of-this-name',
+      ),
+      `the claim must be stated, not only encoded: ${JSON.stringify(single.result.disclosures)}`,
+    );
+    // …and stated ONCE. A `!!` line restating the envelope's sentence a line away from it is how the
+    // marker stops being read, so the payload must NOT carry a second copy of this claim's prose.
+    // This half of the oracle is new: nothing previously caught the duplication.
+    assert.deepEqual(
+      ((single.result.data as { notes?: string[] }).notes ?? []).filter((n) =>
+        /result cap|same-named|only declaration/i.test(n),
+      ),
+      [],
+      'the claim has one home — the envelope — and must not be restated in data.notes',
+    );
 
     const merged = await p.op('find_usages', { name: 'Span', mergeDeclarations: true });
     assert.ok('result' in merged && merged.result.ok, JSON.stringify(merged));
@@ -80,17 +103,26 @@ test('a resolution built on a sliced page discloses that it may not be the only 
       `a merge over ${covered} of 5 declarations must not read as "all of them": ${JSON.stringify(m)}`,
     );
     assert.ok(
-      (m.notes ?? []).some((n) => /LOWER BOUND/.test(n)),
-      `the verdict is stated in the notes too: ${JSON.stringify(m.notes)}`,
+      (merged.result.disclosures ?? []).some(
+        (x) => x.unsafe === 'target-is-the-only-symbol-of-this-name',
+      ),
+      `the merge states the claim too: ${JSON.stringify(merged.result.disclosures)}`,
     );
 
-    // find_definition carries the same verdict — one op must not disclose while its sibling hides.
+    // find_definition carries the same verdict — one op must not disclose while its sibling hides —
+    // in BOTH channels: the machine-readable field a count-only consumer reads without prose, and
+    // the envelope claim that is identical to the one its siblings carry.
     const def = await p.op('find_definition', { name: 'Span' });
     assert.ok('result' in def && def.result.ok, JSON.stringify(def));
     assert.equal(
       (def.result.data as { complete?: boolean }).complete,
       false,
       'find_definition discloses the same floor',
+    );
+    assert.deepEqual(
+      def.result.disclosures,
+      single.result.disclosures,
+      'and states the identical claim — two ops may never disagree about one target',
     );
   } finally {
     await p.dispose();

@@ -38,35 +38,34 @@ export function withUndiscoveredHint(message: string, labels: readonly string[])
  *  0-match `undiscoveredHint`, and of `usagesFloor`): when a NAME resolves to a decl but nested
  *  tsconfig(s) are unloaded, a DISTINCT same-named symbol may live under one — so a confident single
  *  definition is a possible MIS-target, not a proven answer. Returns the machine-readable verdict
- *  (`complete:false` + named `undiscoveredPrograms`) so a count-only consumer sees it WITHOUT prose,
- *  plus a `!!` note for the verdict position (§12). Empty when nothing is unloaded — the result stays
- *  byte-identical (no false hint). The resolved decls are each real; incompleteness is a property of
- *  the SET (another same-named decl may be unindexed), never a per-view demotion. */
+ *
+ *  FIELDS ONLY, deliberately. The prose for this claim has ONE home — the envelope disclosure
+ *  (`Result.disclosures`), stated at the resolve and therefore carried by EVERY op answering about
+ *  that target, not just this one. What stays here is the machine-readable verdict a count-only
+ *  consumer (sql / json / a test) reads without parsing text. A `!!` note here as well would restate
+ *  the envelope's sentence a line away from it, and a signal repeated beside itself is how `!!`
+ *  becomes something agents skim past. Empty when nothing is unloaded — the result stays
+ *  byte-identical. The resolved decls are each real; incompleteness is a property of the SET
+ *  (another same-named decl may be unindexed), never a per-view demotion. */
 export function definitionFloor(labels: readonly string[]): {
   fields: { complete: false; undiscoveredPrograms: readonly string[] } | Record<string, never>;
-  note?: string;
 } {
   if (labels.length === 0) return { fields: {} };
-  return {
-    fields: { complete: false, undiscoveredPrograms: labels },
-    note: `!! LOWER BOUND — ${labels.length} repo tsconfig(s) NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)}); a DISTINCT same-named symbol may be declared under one of them (unindexed here), so this definition may NOT be the one you want. This is NOT proof it is the only/right declaration — add the config to a parent \`references\` (or place it adjacent to the primary) to resolve across all programs.`,
-  };
+  return { fields: { complete: false, undiscoveredPrograms: labels } };
 }
 
-/** §3.4/§3.6 FLOOR for the OTHER cause of an incomplete name resolution: the LS's workspace-symbol
- *  search returned a full page, so it SLICED candidates before codemaster's exact-name filter ran
- *  (TS ranks by matchKind + name with no case tie-break — a flood of `span` can hide `Span`). A
- *  bare-name answer built on that page is therefore a floor: another declaration of the same name
- *  may sit behind the cut. Shaped exactly like `definitionFloor` (machine-readable verdict first,
- *  prose `!!` note for the verdict position) so a consumer reads one incompleteness vocabulary
- *  whatever the cause. `false` → empty, and the result stays byte-identical. */
+/** §3.4/§3.6 FLOOR for the OTHER cause of an incomplete name resolution: the candidate set was cut
+ *  before every same-named declaration was seen (the LS's page sliced inside the exact-name matches,
+ *  or our own candidate budget on the merge path). A bare-name answer built on it is therefore a
+ *  floor: another declaration of the same name may sit behind the cut.
+ *
+ *  FIELDS ONLY, for the same reason as `definitionFloor` above — the claim's prose lives once, on
+ *  the envelope, where every op answering about the target inherits it. These two floors share one
+ *  verdict vocabulary (`complete:false`), so a consumer reads incompleteness without caring which
+ *  cause fired. `false` → empty, and the result stays byte-identical. */
 export function searchCapFloor(truncated: boolean): {
   fields: { complete: false; searchTruncated: true } | Record<string, never>;
-  note?: string;
 } {
   if (!truncated) return { fields: {} };
-  return {
-    fields: { complete: false, searchTruncated: true },
-    note: `!! LOWER BOUND — the workspace symbol search hit the LS's own result cap, so same-named declarations may exist BEHIND the cut and this answer covers only the ones it could see. NOT proof this is the only declaration; re-address with name+file / file:line:col, or enumerate with symbols_overview {duplicatesOnly:true}.`,
-  };
+  return { fields: { complete: false, searchTruncated: true } };
 }

@@ -72,13 +72,11 @@ export const findDefinitionOp = defineOp({
       // The second, independent cause of the same incompleteness: the name search itself was cut
       // short by the LS's page cap, so a same-named declaration may sit behind it (§3.4).
       const capFloor = searchCapFloor(outcome.searchTruncated === true);
-      const notes = [capFloor.note, floor.note].filter((n): n is string => n !== undefined);
       return ok(
         {
           ...capFloor.fields,
           ...floor.fields,
           definitions: outcome.views.map((v) => tag('symbol', v)),
-          ...(notes.length > 0 ? { notes } : {}),
         },
         outcome.rebind !== undefined ? { handle: outcome.rebind } : undefined,
       );

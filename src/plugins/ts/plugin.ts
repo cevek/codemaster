@@ -54,7 +54,7 @@ import {
   type ResolvedTarget,
   type TsTargetInput,
 } from './resolve-target.ts';
-import { discloseTruncatedMerge, discloseTruncatedResolution } from './disclose-resolution.ts';
+import { discloseMergeDoubt, discloseResolutionDoubt, doubtOf } from './disclose-resolution.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createScanMemos, createPlanningHelpers, resolvedScan } from './plugin-helpers.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
@@ -138,7 +138,7 @@ export function createTsPlugin(
   // inverted (§3.6).
   const resolve = (target: TsTargetInput): ResolvedTarget => {
     const resolved = resolveTarget(warm(), target, root);
-    if (resolved.ok && resolved.searchTruncated === true) discloseTruncatedResolution(target);
+    if (resolved.ok) discloseResolutionDoubt(target, doubtOf(warm(), target, resolved));
     return resolved;
   };
   /** The WRITE-path resolve. A bare name whose candidate page the LS truncated resolved against the
@@ -147,7 +147,12 @@ export function createTsPlugin(
    *  mutation may not ride a gate that silently did not run (§7), so it refuses with the exact
    *  targets that ARE verifiable. Reads are unaffected (they disclose instead, §3.4). */
   const resolveForWrite = (target: TsTargetInput): ResolvedTarget => {
-    const resolved = resolve(target);
+    // Deliberately NOT the disclosing `resolve`: a write does not answer, it refuses, and the
+    // refusal states the cause and the remedy itself. Stamping a claim about what "the answer" may
+    // not assert onto an envelope that carries no answer is noise at best — and it contradicts the
+    // one-line contract the agent reads in `status`, which says a mutation refuses rather than
+    // proceeding under the doubt.
+    const resolved = resolveTarget(warm(), target, root);
     if (!resolved.ok || resolved.searchTruncated !== true) return resolved;
     const addressed = target.name !== undefined ? `the bare name '${target.name}'` : 'this handle';
     return {
@@ -290,7 +295,10 @@ export function createTsPlugin(
           // declarations, so the op must not present it as "all of them" (§3.4). This path does not
           // go through `resolve`, so it states the same claim itself — the merge resolver is the
           // second and last producer.
-          if (all.searchTruncated) discloseTruncatedMerge(target.name);
+          discloseMergeDoubt(
+            target.name,
+            doubtOf(warm(), target, all.searchTruncated ? { searchTruncated: true } : {}),
+          );
           return { view: merged, ...(all.searchTruncated ? { searchTruncated: true } : {}) };
         }
         const resolved = resolve(target);

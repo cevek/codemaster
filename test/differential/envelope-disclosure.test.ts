@@ -22,51 +22,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, type TestProject } from '../helpers/project.ts';
 import { floodRepo } from '../helpers/ambiguity.ts';
-import type { OpResult } from '../../src/ops/contracts.ts';
-import type { JsonValue } from '../../src/core/json.ts';
 import type { Disclosure } from '../../src/core/result.ts';
-
-/** The envelope's disclosures, read from EITHER arm — a failure built on a doubtful resolution needs
- *  the claim as much as a success does (an empty answer reads as absence either way). */
-function disclosuresOf(r: OpResult): readonly Disclosure[] {
-  assert.ok('result' in r, `expected an op result, got a dispatch error: ${JSON.stringify(r)}`);
-  // The claim is stated at RESOLVE time, before the op does any work — so an op that resolved and
-  // then failed still satisfies a disclosure assertion. Pinning `ok` here keeps every arm a
-  // statement about a real ANSWER: without it, a fixture drift that turned an op into a failure
-  // (e.g. a different `Span` surviving the page cut, whose member `start0` does not exist) would
-  // leave the arm green while testing nothing.
-  assert.ok(r.result.ok, `expected the op to answer, got: ${JSON.stringify(r.result)}`);
-  return r.result.disclosures ?? [];
-}
-
-type Target = Record<string, JsonValue>;
-
-/** Per-fixture facts the ops need beyond the target: the member every declaration in that fixture
- *  carries, and the declaration text a trial edit rewrites it to. Passed in rather than hardcoded so
- *  an arm cannot silently degrade into a FAILING op that still satisfies a disclosure assertion. */
-type Fixture = { member: string; replace: string };
-
-/** EVERY read op that resolves a ts target — derived from the producer, not from a reading of which
- *  ops happen to forward a flag today. They all funnel through the ts plugin's one `resolve`, so
- *  they all inherit; enumerating them here is what turns "inherits by construction" from a claim
- *  into a measurement, and what makes a future op that forgets to forward anything still correct. */
-const OPS: ReadonlyArray<{ op: string; args: (t: Target, f: Fixture) => JsonValue }> = [
-  { op: 'find_usages', args: (t) => t },
-  { op: 'find_definition', args: (t) => t },
-  { op: 'expand_type', args: (t) => t },
-  { op: 'impact', args: (t) => t },
-  { op: 'member_usages', args: (t, f) => ({ ...t, member: f.member }) },
-  { op: 'source', args: (t) => ({ targets: [t] }) },
-  { op: 'construction_sites', args: (t) => t },
-  { op: 'discrimination_sites', args: (t) => t },
-  { op: 'trace_type_widening', args: (t) => t },
-  { op: 'impact_type_error', args: (t, f) => ({ ...t, edit: { replace: f.replace } }) },
-];
-
-const SPAN_FIXTURE: Fixture = {
-  member: 'start0',
-  replace: 'export interface Span { start0: string; }',
-};
+import { OPS, SPAN_FIXTURE, disclosuresOf, type Target } from '../helpers/disclosure.ts';
 
 test('every op answering about a name resolved off a cut page carries the SAME envelope disclosure', async () => {
   // 199 `span` + 5 `Span`: the lowercase flood fills the LS page inside the exact-name bucket, so
@@ -140,6 +97,57 @@ test('an EXACT target inherits no disclosure — a resolution that ranked nothin
   }
 });
 
+// The SAME claim, reached by a different cause: a nested tsconfig codemaster never loaded as a
+// program may declare a distinct symbol of this name, so the resolved target may be the wrong one of
+// several. The vocabulary is deliberately the claim and not the cause — an agent needs to know what
+// the answer cannot assert, and the two causes make it unassertable identically.
+test('an unindexed nested tsconfig raises the SAME claim — the vocabulary is the assertion, not its cause', async () => {
+  const C = '{"strict":true,"target":"es2022","module":"esnext"}';
+  const p: TestProject = await project({
+    'tsconfig.json': `{"compilerOptions":${C},"include":["src"]}`,
+    'src/lib.ts': 'export interface Shape {\n  a: number;\n}\n',
+    // nested/ is NOT adjacent to the primary, NOT referenced, and has no package.json → the config
+    // is never loaded, so the `Shape` it declares is invisible to every query below.
+    'nested/tsconfig.json': `{"compilerOptions":${C},"include":["."]}`,
+    'nested/app.ts': 'export interface Shape {\n  b: number;\n}\n',
+  });
+  const fixture = { member: 'a', replace: 'export interface Shape { a: string; }' };
+  try {
+    // Precondition: the page was NOT cut here (the repo is tiny) — so anything disclosed below comes
+    // from the unindexed cause alone, and this arm cannot pass on the other cause's machinery.
+    const seed = await p.op('find_usages', { name: 'Shape' });
+    assert.ok('result' in seed && seed.result.ok, JSON.stringify(seed));
+    assert.equal(
+      (seed.result.data as { searchTruncated?: boolean }).searchTruncated,
+      undefined,
+      'precondition: no candidate-set cut in this fixture',
+    );
+
+    for (const { op, args } of OPS) {
+      const r = await p.op(op, args({ name: 'Shape' }, fixture));
+      assert.deepEqual(
+        disclosuresOf(r).map((x) => x.unsafe),
+        ['target-is-the-only-symbol-of-this-name'],
+        `${op} must raise the claim for an unindexed same-named twin`,
+      );
+      assert.match(
+        disclosuresOf(r)[0]?.note ?? '',
+        /nested\/tsconfig\.json/,
+        'and the note names the config that could hide it',
+      );
+    }
+
+    // File-pinned: the declaration is pinned, so a twin under an unloaded config cannot be the one
+    // meant. Claiming doubt here would dress a complete resolution as partial (§3.6).
+    for (const { op, args } of OPS) {
+      const r = await p.op(op, args({ name: 'Shape', file: 'src/lib.ts' }, fixture));
+      assert.deepEqual(disclosuresOf(r), [], `${op}: a file-pinned target inherits nothing`);
+    }
+  } finally {
+    await p.dispose();
+  }
+});
+
 // A react-plugin op reaches the same resolver by a DIFFERENT arg shape (`field`, not the shared
 // `{symbolId|name|file+line+col}` target), and it forwards no truncation flag of its own. It is the
 // case that decides whether the envelope actually removed the "every consumer must remember" class:
@@ -179,109 +187,6 @@ test('an op that forwards nothing and takes its own arg shape still inherits —
     // And the exact form of the SAME op stays clean — inheritance follows the resolution, not the op.
     const exact = await p.op('trace_field_to_render', { field: 'src/t0.ts:1:26' });
     assert.deepEqual(disclosuresOf(exact), [], 'a position-addressed field ranks nothing');
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('within one batch a disclosure stays on its own request — the ledger is per-op, not per-process', async () => {
-  // The mechanism is an ambient (async-context) ledger, so its characteristic failure is BLEED: a
-  // claim raised by one request appearing on a neighbour's envelope. Here request 1 resolves the
-  // flooded bare name (doubtful) and request 2 resolves the SAME symbol exactly (not doubtful) in
-  // the same batch, same engine, same process. Request 2 inheriting the claim would be false
-  // incompleteness manufactured by the disclosure machinery itself — the worst outcome available,
-  // because it would make the channel a source of the very lie it exists to prevent.
-  const p: TestProject = await project(floodRepo(199, 5));
-  try {
-    const results = await p.request([
-      { name: 'impact', args: { name: 'Span' } },
-      { name: 'impact', args: { name: 'Span', file: 'src/t0.ts' } },
-      { name: 'expand_type', args: { file: 'src/t0.ts', line: 1, col: 18 } },
-    ]);
-    assert.equal(results.length, 3);
-    assert.equal(
-      disclosuresOf(results[0] as OpResult).length,
-      1,
-      'the bare-name request must carry the claim',
-    );
-    assert.deepEqual(
-      disclosuresOf(results[1] as OpResult),
-      [],
-      'the exact-target neighbour must NOT inherit it',
-    );
-    assert.deepEqual(
-      disclosuresOf(results[2] as OpResult),
-      [],
-      'nor a later exact request in the same batch',
-    );
-  } finally {
-    await p.dispose();
-  }
-});
-
-// The disclosure covers a resolution that SUCCEEDED off a cut page. When the cut hid the name
-// ENTIRELY the resolver fails instead — honestly, "could not determine whether 'X' exists" — and
-// that failure must reach the agent AS a failure. An op that converts it into `ok{found:0}` makes
-// "we could not find out" wear the shape of "nothing renders this field", which is not an incomplete
-// answer but a positive claim about the repo that nothing established (§3.6); an agent acting on it
-// deletes live code.
-test('a name the cut page hid ENTIRELY fails — a couldn-t is never laundered into a proven absence', async () => {
-  const files: Record<string, string> = {
-    'package.json': JSON.stringify({ dependencies: { react: '18' } }),
-    'tsconfig.json': '{"compilerOptions":{"strict":true,"jsx":"react-jsx","module":"preserve"}}',
-    'src/types.ts': 'export interface User { Email: string }\n',
-    'src/Card.tsx':
-      "import type { User } from './types';\n" +
-      'export const Card = (props: { user: User }) => <span>{props.user.Email}</span>;\n',
-  };
-  // 300 lowercase `email` against one `Email`: past the page budget the exact name never reaches
-  // the page at all, so the resolver cannot say whether it exists.
-  for (let i = 0; i < 300; i++) files[`src/f${i}.ts`] = `export const email = ${i};\n`;
-  const p: TestProject = await project(files);
-  try {
-    // Precondition: the field DOES exist and IS rendered — so a `found:0` answer would be false,
-    // not merely unhelpful. Proven independently of the name path, by position.
-    const byLoc = await p.op('trace_field_to_render', { field: 'src/types.ts:1:26' });
-    assert.ok('result' in byLoc && byLoc.result.ok, JSON.stringify(byLoc));
-    assert.equal(
-      (byLoc.result.data as { renderedBy?: number }).renderedBy,
-      1,
-      'precondition: addressed by position, the field resolves and Card renders it',
-    );
-
-    const byName = await p.op('trace_field_to_render', { field: 'Email' });
-    assert.ok(
-      'result' in byName && !byName.result.ok,
-      `the name the page hid must FAIL, not answer found:0: ${JSON.stringify(byName)}`,
-    );
-    assert.match(
-      byName.result.failure.message,
-      /could not determine|result cap/,
-      `and the failure says it could not, not that nothing matched: ${byName.result.failure.message}`,
-    );
-  } finally {
-    await p.dispose();
-  }
-});
-
-// A `sql` join assembles a NEW envelope over its producers' results, so it is a second envelope
-// factory — and the one place a dropped claim does the most damage: producers run UNCAPPED
-// precisely so a `NOT IN` can be trusted, and a relation built on a possibly-mis-picked target is
-// exactly the untrustworthy join that reasoning is meant to prevent. Under `return:'sql'` the
-// per-request results are discarded, so the joined envelope is the ONLY place the claim can appear.
-test('a sql join carries its producers disclosures — a second envelope factory may not drop the channel', async () => {
-  const p: TestProject = await project(floodRepo(199, 5));
-  try {
-    const results = await p.request([{ name: 'find_usages', args: { name: 'Span' }, as: 't' }], {
-      sql: 'SELECT COUNT(*) AS n FROM t',
-    });
-    const sql = results[results.length - 1];
-    assert.ok(sql !== undefined && 'result' in sql, JSON.stringify(results));
-    assert.deepEqual(
-      (sql.result.disclosures ?? []).map((d) => d.unsafe),
-      ['target-is-the-only-symbol-of-this-name'],
-      'the SELECT ran over a relation built from a doubtful target — the join must say so',
-    );
   } finally {
     await p.dispose();
   }

@@ -144,10 +144,18 @@ export function usagesFloor(view: UsagesView): {
 }
 
 /** Both §3.4 floors a usages answer can carry, composed once: the undiscovered-program cause
- *  (`usagesFloor`) and the LS-page-cap cause (`searchCapFloor`). They are independent — either
+ *  (`usagesFloor`) and the cut-candidate-set cause (`searchCapFloor`). They are independent — either
  *  alone makes the answer a LOWER BOUND — and share one verdict vocabulary, so a consumer reads
- *  `complete:false` without caring which cause fired. Notes come back verdict-first (§12), ready to
- *  lead the note list; both empty on a complete answer, leaving the result byte-identical. */
+ *  `complete:false` without caring which cause fired.
+ *
+ *  Only ONE of them still carries prose, and the split is by CLAIM, not by cause. `usagesFloor`'s
+ *  note says the USAGE SET is a lower bound — a statement about this op's payload that holds however
+ *  the target was addressed, and that no other channel makes. The cut-candidate note said the TARGET
+ *  may not be the only symbol of its name — a statement about the RESOLUTION, which now has one home
+ *  on the envelope (`Result.disclosures`) where every op inherits it. Keeping both would print the
+ *  same sentence a line from the envelope's, and a `!!` repeated beside itself is how the marker
+ *  stops being read. Notes come back verdict-first (§12); empty on a complete answer, leaving the
+ *  result byte-identical. */
 export function usagesFloors(
   view: UsagesView,
   searchTruncated: boolean,
@@ -156,7 +164,7 @@ export function usagesFloors(
   const cap = searchCapFloor(searchTruncated);
   return {
     fields: { ...cap.fields, ...floor.fields },
-    notes: [cap.note, floor.note].filter((n): n is string => n !== undefined),
+    notes: [floor.note].filter((n): n is string => n !== undefined),
   };
 }
 
