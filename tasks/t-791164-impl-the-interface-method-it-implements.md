@@ -3,6 +3,7 @@ id: t-791164
 title: impl + the interface method it implements are ONE entity for a usage question, but ambiguity treats them as two — so every "who consumes this plugin seam" question fails its first call, and the repo's own architecture makes that shape near-universal
 status: backlog
 priority: high
+parent: t-826059
 tags:
   - agent-surface
   - dogfood
@@ -13,7 +14,6 @@ source: dogfood-jul
 relates:
   - t-161435
   - t-821130
-  - t-826059
 surface:
   - ops
   - plugins/ts

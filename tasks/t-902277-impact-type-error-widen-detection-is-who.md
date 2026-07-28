@@ -2,7 +2,7 @@
 id: t-902277
 title: 'impact_type_error widen detection is whole-type/return only: a deep-member widen to any ({cb:()=>void}→{cb:any}) or an index-signature mask is not detected'
 status: backlog
-priority: low
+priority: medium
 type: bug
 complexity: M
 area: impact-usages

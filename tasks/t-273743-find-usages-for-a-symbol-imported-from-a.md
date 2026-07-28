@@ -2,7 +2,7 @@
 id: t-273743
 title: find_usages for a symbol imported from an EXTERNAL package (e.g. `find_usages {module:'yaml', name:'parse'}` → the repo's import+call sites)
 status: backlog
-priority: low
+priority: high
 type: feat
 complexity: M
 area: impact-usages
