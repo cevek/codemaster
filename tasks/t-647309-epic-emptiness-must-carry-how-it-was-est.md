@@ -34,7 +34,8 @@ the answer says the two diverged.
 Close this as an INVARIANT, not as five fixes. Whoever takes one of these alone will patch a symptom and
 leave the class intact — that is how it reached five.
 
-Members, each with a live repro in its own body:
+Members — each one load-bearing. Four carry a repro or a measurement in their own body; t-288409 is
+the limiting case, where no op reaches the question at all (see the membership rule below):
 - **t-162650** (urgent) — `construction_sites` renders a semantic verdict over a program it never scanned
   (`files=0`), and its remedy blames the caller's scoping. TWO independent repos; second instance DID scan
   (`literals=7 files=4`) and still missed a call-argument literal with conditional spread.
@@ -113,6 +114,7 @@ qualified answer, not a bare absence. A shipped disclosure is exactly what takes
 epic — the epic is about absences that carry nothing, so an absence that now carries its scope has
 been answered, not deferred.
 
-That is why these four sit at `relates`: not because they are weaker reports, but because none has
-been shown to still read as an unqualified absence on current `main`. Show that, and the edge becomes
-`parent`.
+That is why these four sit at `relates`: not because `reported` disqualifies — t-288409 is a member at
+`reported` — but because the shown-on-`main` test has not been run for them. t-000010 / t-000011 /
+t-000041 have not been reproduced at all; t-610052 has, and its answer no longer reads as bare.
+Run that test and the edge becomes `parent`.
