@@ -90,24 +90,29 @@ of a whole answer instead of one producer.
 Concrete ask when this epic is taken: the disclosure channel should carry the COUNT and the identity of
 active floors, not a boolean per producer.
 
-## Candidates — same shape, not members until reproduced
+## Candidates — same shape, linked by `relates`, not `parent`
 
-Four tasks describe the same shape and are linked by `relates`, NOT by `parent`. The distinction is
-deliberate and is about the evidentiary bar, not about severity:
+Four tasks describe the same shape and are attached by `relates`: **t-000010** and **t-000011**
+(`find_unused_exports` — a vacuous-filter warning that fires only when the filter is FULLY vacuous; a
+false-clean on a broken program), **t-000041** (`trace_type_widening` non-modeled-flow caveat), and
+**t-610052** (`trace_field_to_render` answering `found:1 renderedBy:0` for a target that is not a
+property).
 
-- **t-000010** (`reported`) — `find_unused_exports` vacuous-filter warning fires only on a FULLY vacuous filter.
-- **t-000011** (`reported`) — `find_unused_exports` false-clean on a broken program (no filter).
-- **t-000041** (`reported`) — `trace_type_widening` non-modeled flow caveat.
-- **t-610052** (`repro`) — `trace_field_to_render` answers `found:1 renderedBy:0` for a target that is not a
-  property.
+**Membership is not derivable from `evidence`, and must not be read off it.** t-288409 is a member at
+`evidence: reported`; t-610052 is a candidate at `evidence: repro`. The field records how well the
+BODY is established; membership records something else — that the absence is load-bearing and that
+codemaster's own surface produced or permitted it. t-288409 qualifies as the limiting case the
+invariant needs: no op reaches string-literal config identity at all, so "is `OPENAI_BASE_URL`
+referenced anywhere?" is an absence nothing establishes.
 
-Each member above is a specific instance pinned to a named op, a named seam and an observed answer. These
-four are not yet at that bar: three are `reported` (a self-report not independently checked) and t-610052
-is reproduced but not yet tied to THIS invariant rather than to its own op's edge model. CONTRIBUTING
-requires a repro on current `main` before a hedged item is treated as a known defect, so admitting them as
-members would lower the evidentiary bar the epic's five instances establish — and the epic's force comes
-from every member being independently checkable.
+**Promotion criterion.** Reproduce the item on current `main` and show the answer STILL reads as a
+proven absence — a `0` / `found:0` / "not among" an agent would act on, with nothing in the response
+qualifying it. The second half is doing real work, not decoration: t-610052 is reproduced, but its
+op's `notes` now DISCLOSE the gap (§3.6, the honest stopgap), so what an agent reads today is a
+qualified answer, not a bare absence. A shipped disclosure is exactly what takes an item OUT of this
+epic — the epic is about absences that carry nothing, so an absence that now carries its scope has
+been answered, not deferred.
 
-Promotion criterion, so this is decidable rather than a judgement call: reproduce the item on current
-`main` and show the answer reads as a PROVEN ABSENCE (a `0`/`found:0`/"not among" that an agent would act
-on) rather than as an ordinary miss or a modelling gap. That evidence turns `relates` into `parent`.
+That is why these four sit at `relates`: not because they are weaker reports, but because none has
+been shown to still read as an unqualified absence on current `main`. Show that, and the edge becomes
+`parent`.
