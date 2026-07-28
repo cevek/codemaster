@@ -68,8 +68,10 @@ const argsSchema = z.strictObject({
 });
 
 /** The pre-warm size guard's refuse message (§1 never-crash / resource-respect): honest about WHY
- *  (OOM + throwaway memory) and actionable (the three no-warm / opt-in escapes). */
-/** t-959904: the redirect names only paths that are cheap BY CONSTRUCTION on the very repo that
+ *  (OOM + throwaway memory) and actionable — the escapes come from `navigate.ts`, not enumerated
+ *  here, so this function cannot drift from what the table actually emits.
+ *
+ *  t-959904: the redirect names only paths that are cheap BY CONSTRUCTION on the very repo that
  *  tripped this guard (navigate.ts). It must never name `find_usages` — wherever the peak threshold
  *  is exceeded, a repo-wide reference fan-out is exactly what cannot run, so pointing there sends
  *  the agent from one refusal into the next. `force:true` is advertised HERE and only here: it does
@@ -274,7 +276,11 @@ export const searchSymbolOp = defineOp({
       if (thrown instanceof DeadlineExceededError) {
         return fail({
           tool: 'timeout',
-          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}; try search_symbol {syntactic:true} (no LS) or a longer query`,
+          // Same claim, same home: the timeout is the fan-out that overran rather than one declined
+          // up front, but "what to run instead" is one statement and it lives in navigate.ts. The
+          // narrowing hint is this branch's own — a timeout, unlike a size refusal, can also be
+          // fixed by asking for less.
+          message: `search_symbol exceeded its wall-clock budget — ${thrown.message}. ${navigationFor('search_symbol', args)} Or narrow the query.`,
         });
       }
       return failFromThrown('ts-ls', thrown);

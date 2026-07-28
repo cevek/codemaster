@@ -59,9 +59,16 @@ test('over threshold, in-process: find_usages / impact / importers_of REFUSE + r
         // Two honest leads: a real substitute (`RUN INSTEAD`), or none — `impact` / `importers_of`
         // have no cheaper in-tool path, and the message must SAY so rather than dress the
         // orientation calls as the answer (§3.6). Either way it precedes the access-gated cause.
-        const instead = Math.max(msg.indexOf('RUN INSTEAD'), msg.indexOf('NO cheaper in-tool path'));
+        const instead = Math.max(
+          msg.indexOf('RUN INSTEAD'),
+          msg.indexOf('NO cheaper in-tool path'),
+        );
         const cause = msg.indexOf('Cause (needs config/daemon access)');
         assert.ok(instead > 0 && cause > instead, `${req.name} leads with what the caller can run`);
+        // All three ops here are UNCONDITIONALLY guarded, so naming themselves is always wrong.
+        // (A conditionally guarded op may legitimately redirect to itself with a file pin — the
+        // general reachability rule lives in `test/unit/refusal-navigation.test.ts`; adding such an
+        // op to this list would fail this cruder assertion on correct behaviour.)
         assert.doesNotMatch(
           msg.slice(instead, cause),
           new RegExp(`\\b${req.name} \\{`),

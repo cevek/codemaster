@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { cheapCallsFor } from '../../src/ops/guard/navigate.ts';
+import { cheapCallsFor, navigationFor } from '../../src/ops/guard/navigate.ts';
 
 const OPS_DIR = fileURLToPath(new URL('../../src/ops/', import.meta.url));
 
@@ -21,13 +21,13 @@ function readOps(): OpFile[] {
   for (const file of readdirSync(OPS_DIR)) {
     if (!file.endsWith('.ts')) continue;
     const src = readFileSync(`${OPS_DIR}${file}`, 'utf8');
-    const declared = /^ {2}name: '([a-z_]+)',$/m.exec(src);
+    const declared = /^ {2}name: '([a-z0-9_]+)',$/m.exec(src);
     if (declared?.[1] === undefined) continue;
     const guarded = src.includes('semanticFanoutRefusal(');
     // Formatting-tolerant: prettier wraps the longer call sites across lines, and an oracle that
     // silently stopped matching on reformat would go quietly vacuous — the failure mode it exists
     // to prevent. Anchored on the `op:` literal inside a guard call, whitespace-insensitive.
-    const passed = /semanticFanoutRefusal\([\s\S]*?\{\s*op:\s*'([a-z_]+)'/.exec(src);
+    const passed = /semanticFanoutRefusal\([\s\S]*?\{\s*op:\s*'([a-z0-9_]+)'/.exec(src);
     out.push({
       op: declared[1],
       guarded,
@@ -41,6 +41,17 @@ function readOps(): OpFile[] {
 const OPS = readOps();
 const GUARDED = new Set(OPS.filter((o) => o.guarded).map((o) => o.op));
 const CONDITIONAL = new Set(OPS.filter((o) => o.guarded && o.conditional).map((o) => o.op));
+
+/** The table's keys, read off its source rather than exported: `BY_OP` is an implementation detail
+ *  and widening the module's API just to test it would be the tail wagging the dog. */
+const BY_OP_KEYS = (() => {
+  const src = readFileSync(
+    fileURLToPath(new URL('../../src/ops/guard/navigate.ts', import.meta.url)),
+    'utf8',
+  );
+  const body = /const BY_OP[\s\S]*?\[([\s\S]*?)\n\]\);/.exec(src)?.[1] ?? '';
+  return [...body.matchAll(/\[\s*'([a-z0-9_]+)',/g)].map((m) => m[1] ?? '');
+})();
 
 // Sanity: the oracle is only meaningful if it actually found the call sites it reasons about.
 test('the guarded-op set is discovered from source (oracle is not vacuously empty)', () => {
@@ -60,7 +71,7 @@ test('every guard call site passes its own declared op name', () => {
   }
 });
 
-const opOf = (call: string) => /^([a-z_]+)\s/.exec(call.trim())?.[1] ?? '';
+const opOf = (call: string) => /^([a-z0-9_]+)\s/.exec(call.trim())?.[1] ?? '';
 
 /** The one rule. A suggested call is legal only if running it cannot land in a guard:
  *   - an unguarded op is always fine;
@@ -88,13 +99,31 @@ const ARG_SHAPES = [
   { label: 'no args', args: {} },
 ];
 
-test('no refusal redirects into another refusal — every guarded op, every arg shape', () => {
-  for (const op of [...GUARDED, 'search_symbol']) {
+// EVERY op, not just the guarded ones: `daemon/process-host`'s failAll renders a redirect for
+// whatever op names a batch carried, so `rename_symbol` / `codemod` / `source` reach the table too.
+test('no refusal redirects into another refusal — every op, every arg shape', () => {
+  const everyOp = [...new Set([...OPS.map((o) => o.op), ...GUARDED, 'search_symbol'])];
+  assert.ok(everyOp.length > GUARDED.size, 'the sweep must reach unguarded ops as well');
+  for (const op of everyOp) {
     for (const shape of ARG_SHAPES) {
       for (const c of cheapCallsFor(op, shape.args).calls) {
         assertReachable(c.call, `${op} (${shape.label})`);
       }
     }
+  }
+});
+
+// A renamed or deleted op would leave a stale BY_OP key: tsc cannot see it (the keys are strings),
+// and the sweep above cannot either — a missing entry falls into the legal fallback arm. So the
+// table's own keys are checked against the real op catalogue.
+test('every BY_OP key names a real op (a stale key would silently degrade to the fallback)', () => {
+  // Anchored on a key that must exist, not just a count: a regex that silently stopped matching
+  // would otherwise pass this test by reading zero stale keys.
+  assert.ok(BY_OP_KEYS.includes('find_usages'), `oracle misread BY_OP: ${BY_OP_KEYS.join(',')}`);
+  assert.ok(BY_OP_KEYS.length >= 5, `oracle read too few BY_OP keys (${BY_OP_KEYS.length})`);
+  const real = new Set(OPS.map((o) => o.op));
+  for (const op of BY_OP_KEYS) {
+    assert.ok(real.has(op), `BY_OP has '${op}', which is not a declared op`);
   }
 });
 
@@ -117,6 +146,92 @@ test('redirects interpolate the refused call subject verbatim', () => {
     for (const c of calls) {
       assert.match(c.call, /"Butt\\"on"/, `${op} must JSON-quote the subject: ${c.call}`);
     }
+  }
+});
+
+// `daemon/process-host` renders redirects ABOVE the child that runs §7 intake, so it hands the table
+// raw wire args. Two shapes must survive that: an off-canonical spelling must still yield a subject,
+// and a `name` that is really a position must NOT be pasted into a name-matching query — a redirect
+// that quietly finds nothing is worse than one that admits it has no subject.
+test('raw pre-intake args: alias keeps the subject, a path-shaped name never becomes a query', () => {
+  const aliased = cheapCallsFor('find_usages', { symbol: 'Button' });
+  assert.equal(aliased.substitute, true, '`symbol` is the §7 alias of `name`');
+  assert.ok(aliased.calls[0]?.call.includes('"Button"'), 'subject survives the alias');
+
+  for (const posed of ['src/x.ts:10:3', 'src/x.ts:10']) {
+    for (const c of cheapCallsFor('find_usages', { name: posed }).calls) {
+      assert.doesNotMatch(c.call, /query:"src/, `a position leaked into a name query: ${c.call}`);
+    }
+  }
+
+  // An implausibly long "name" is dropped rather than elided: a call cut with `…` reads as runnable
+  // and is not.
+  for (const c of cheapCallsFor('find_usages', { name: 'x'.repeat(500) }).calls) {
+    assert.doesNotMatch(c.call, /…/, `emitted an un-runnable elided call: ${c.call}`);
+  }
+});
+
+// `process-host` fails a whole batch BEFORE any op name is validated (`mcp/schema.ts` only checks
+// `name` is a non-empty string), so the table is reached with arbitrary strings. On a plain object
+// `toString` / `__proto__` resolve to inherited members — a throw here would replace an honest
+// `oom`/`timeout` verdict, for every request in the batch, with an internal stack trace.
+test('a non-own op name yields a redirect, never a throw', () => {
+  for (const op of ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'find_usage']) {
+    const line = navigationFor(op, { name: 'Button' });
+    assert.match(
+      line,
+      /symbols_overview|search_symbol/,
+      `${op} must still name something runnable`,
+    );
+    for (const c of cheapCallsFor(op, { name: 'Button' }).calls) assertReachable(c.call, op);
+  }
+});
+
+// A conditionally guarded op refuses over its ADDRESSING, not its question, so the honest redirect
+// is the same op re-pinned — carrying the caller's own args, or the promise "paste this" is false.
+test('a trace re-pins itself and keeps its own args, rather than borrowing find_definition', () => {
+  const pinned = cheapCallsFor('trace_prop_through_tree', {
+    name: 'App',
+    prop: 'userId',
+    file: 'src/App.tsx',
+  });
+  assert.equal(pinned.substitute, true);
+  const [call] = pinned.calls;
+  assert.ok(call !== undefined);
+  assert.match(call.call, /^trace_prop_through_tree \{/, 'must re-pin itself, not another op');
+  assert.match(call.call, /prop:"userId"/, "the caller's own args must survive");
+  assert.match(call.call, /file:"src\/App\.tsx"/);
+
+  // Without a file there is nothing to pin yet: locate first, then re-address — and it must still
+  // never present "where is App declared" as an answer to "where does userId flow".
+  const unpinned = cheapCallsFor('trace_prop_through_tree', { name: 'App', prop: 'userId' });
+  for (const c of unpinned.calls) assertReachable(c.call, 'trace_prop_through_tree (unpinned)');
+  assert.ok(
+    unpinned.calls.some((c) => c.call.startsWith('trace_prop_through_tree ')),
+    'the two-step must end at the op the caller actually asked for',
+  );
+  assert.ok(
+    !unpinned.calls.some((c) => c.call.startsWith('find_definition ')),
+    'must not offer a definition lookup as a substitute for a trace',
+  );
+});
+
+// Subjects live under different keys per op; reading only `name`/`query` silently dropped one that
+// was sitting in the args.
+test('the subject is found wherever the op keeps it', () => {
+  for (const [op, args] of [
+    ['trace_invalidation', { mutation: 'updateUser' }],
+    ['trace_field_to_render', { field: 'userId' }],
+    ['find_unused_props', { component: 'Button' }],
+    ['find_usages', { symbols: ['Button'] }],
+  ] as const) {
+    const { calls } = cheapCallsFor(op, args);
+    const subject: unknown = Object.values(args)[0];
+    const want: unknown = Array.isArray(subject) ? (subject as readonly unknown[])[0] : subject;
+    assert.ok(
+      calls.some((c) => c.call.includes(`"${String(want)}"`)),
+      `${op} dropped its subject: ${calls.map((c) => c.call).join(' · ')}`,
+    );
   }
 });
 

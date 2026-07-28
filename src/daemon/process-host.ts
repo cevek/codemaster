@@ -157,7 +157,11 @@ export async function createProcessHost(
         // Per-request, not one shared string: a batch's requests ask different questions, and a
         // redirect computed for the first would be wrong for the rest.
         tool,
-        message: `${cause}; ${r.name} cannot complete on this repo. ${navigationFor(r.name, r.args)}`,
+        // Redirect BEFORE the cause here — the inverse of the guards' order, and deliberately. This
+        // function fails an ENTIRE batch at once, so N of these messages concatenate into one frame
+        // and the §12 seam cap trims the tail: whatever sits last is what the later requests lose.
+        // The cause is one clause and re-derivable; the redirect is the only actionable part.
+        message: `${r.name} cannot complete on this repo. ${navigationFor(r.name, r.args)} Cause: ${cause}.`,
         partial: true,
       }),
     }));

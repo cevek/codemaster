@@ -25,47 +25,94 @@
 // orientation calls that still work — never an invented near-equivalent presented as the answer.
 // The point an agent must come away with is that the REPO is not dead, only one op is.
 
+import { classifyTargetString } from '../intake/smart-string.ts';
+
 /** One paste-able call plus what it actually returns. `gives` states the answer's real extent,
  *  including what it is NOT, so a redirect can never read as an equivalent of the refused op. */
 export type CheapCall = { readonly call: string; readonly gives: string };
 
-/** The target fields a redirect can interpolate. Read defensively off the op's own (already
- *  validated) args — a shape mismatch degrades to a subject-less redirect, never a throw. */
-type NavArgs = { readonly name?: string; readonly file?: string };
+/** The target fields a redirect can interpolate. Read defensively — a shape mismatch degrades to a
+ *  subject-less redirect, never a throw. */
+type NavArgs = {
+  readonly name?: string;
+  readonly file?: string;
+  /** The caller's own args, kept so a re-pinned call can carry them verbatim. */
+  readonly bag?: Record<string, unknown>;
+};
 
 function str(bag: Record<string, unknown>, key: string): string | undefined {
   const v = bag[key];
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
+  if (typeof v === 'string' && v.length > 0) return v;
+  // A list-shaped target (`symbols:[…]`, `targets:[…]`): the first element still names something
+  // real, and a redirect about one of them beats a redirect about none.
+  const head: unknown = Array.isArray(v) ? (v as readonly unknown[])[0] : undefined;
+  return typeof head === 'string' && head.length > 0 ? head : undefined;
 }
+
+/** Where each op keeps the SYMBOL it was asked about. Not every op calls it `name`: a trace is
+ *  addressed by `mutation` / `field`, unused-props by `component`. Reading only `name`/`query`
+ *  silently dropped a subject that was sitting right there in the args. */
+const SUBJECT_KEYS = ['name', 'query', 'symbol', 'mutation', 'field', 'component', 'symbols'];
 
 /** The SYMBOL the refused call was about. `module` is deliberately NOT read: it is a path, and
  *  pasting a path into a name-matching `query` would produce a call that silently finds nothing —
- *  a redirect that fails quietly is worse than one that admits it has no subject. */
+ *  a redirect that fails quietly is worse than one that admits it has no subject.
+ *
+ *  Args here may be RAW, pre-intake wire args, not the canonical shape. The two L3 callers run
+ *  inside `run()`, below `resolveArgs`, so they see canonical keys — but `daemon/process-host`'s
+ *  failure path sits ABOVE the child that normalizes (§7 intake runs in the engine), so it sees
+ *  whatever the agent actually sent. Hence both liberal spellings AND the same path-shaped-name
+ *  classification the intake layer applies (`classifyTargetString`, reused rather than re-derived):
+ *  a `name` that is really `src/x.ts:10:3` must NOT become `query:"src/x.ts:10:3"` — that is exactly
+ *  the quiet-miss this function refuses to emit for `module`. */
 function readArgs(args: unknown): NavArgs {
   if (typeof args !== 'object' || args === null) return {};
   const bag = args as Record<string, unknown>;
-  const name = str(bag, 'name') ?? str(bag, 'query');
-  const file = str(bag, 'file');
-  return { ...(name !== undefined ? { name } : {}), ...(file !== undefined ? { file } : {}) };
+  // Bounded, but NOT elided: a redirect's whole value is that it can be pasted and run, and a
+  // subject cut with `…` yields a call that looks runnable and is not. So an implausibly long
+  // subject is DROPPED, degrading to the subject-less redirect (still exact, still runnable) rather
+  // than emitting a broken one. This is why `common/truncate/elideString` is deliberately not used.
+  // `symbol` is the §7 alias of `name`; `target` is the alias of `symbolId` and is deliberately not
+  // read (a handle carries no name outside its owning plugin — see t-702879).
+  let raw: string | undefined;
+  for (const key of SUBJECT_KEYS) raw ??= str(bag, key);
+  const classified =
+    raw !== undefined && raw.length <= MAX_SUBJECT ? classifyTargetString(raw) : undefined;
+  const name = classified?.kind === 'name' ? classified.name : undefined;
+  const file = str(bag, 'file') ?? (classified?.kind === 'location' ? classified.file : undefined);
+  return {
+    bag,
+    ...(name !== undefined ? { name } : {}),
+    ...(file !== undefined ? { file } : {}),
+  };
 }
+
+/** Well past any real identifier; a longer "name" is a pasted blob, not a symbol. */
+const MAX_SUBJECT = 120;
 
 const j = (v: string) => JSON.stringify(v);
 
-/** The two calls that answer on ANY repo, however large: no program build, no LS warm, no guard. */
-function orientation(name: string | undefined): CheapCall[] {
+/** The whole-repo name catalogue — the one call that answers on ANY repo, at any size. Named rather
+ *  than reached for by position in `orientation`, so a reorder there cannot silently turn another
+ *  redirect into a duplicate of its own first entry. */
+function symbolsOverviewCall(name: string | undefined): CheapCall {
   if (name === undefined) {
-    return [
-      {
-        call: 'symbols_overview {}',
-        gives: "the repo's declared symbol names per tsconfig — pick one, then search_symbol on it",
-      },
-    ];
+    return {
+      call: 'symbols_overview {}',
+      gives: "the repo's declared symbol names per tsconfig — pick one, then search_symbol on it",
+    };
   }
+  return {
+    call: `symbols_overview {query:${j(name)}}`,
+    gives: `declared names matching ${j(name)}, per tsconfig`,
+  };
+}
+
+/** The calls that answer on ANY repo, however large: no program build, no LS warm, no guard. */
+function orientation(name: string | undefined): CheapCall[] {
+  if (name === undefined) return [symbolsOverviewCall(undefined)];
   return [
-    {
-      call: `symbols_overview {query:${j(name)}}`,
-      gives: `declared names matching ${j(name)}, per tsconfig`,
-    },
+    symbolsOverviewCall(name),
     {
       call: `search_symbol {query:${j(name)},syntactic:true}`,
       gives: `where ${j(name)} is declared, AST-only (no type-check)`,
@@ -114,34 +161,77 @@ function definitionAlternatives(nav: NavArgs): CheapCall[] {
   ];
 }
 
-/** Per-op cheap paths. An op absent from this map, or one whose entry yields nothing for the args
- *  at hand, falls through to the honest no-substitute arm — never a fabricated near-equivalent. */
-const BY_OP: Record<string, (nav: NavArgs) => CheapCall[]> = {
-  find_usages: (nav) => usageAlternatives(nav.name),
-  member_usages: (nav) => usageAlternatives(nav.name),
-  find_definition: definitionAlternatives,
-  trace_prop_through_tree: definitionAlternatives,
-  trace_type_widening: definitionAlternatives,
-  search_symbol: (nav) =>
-    nav.name === undefined
-      ? []
-      : [
-          {
-            call: `search_symbol {query:${j(nav.name)},syntactic:true}`,
-            gives:
-              'the same fuzzy name search over the AST alone — no program build, no LS warm; noisier (import/re-export sites included, declarations ranked first)',
-          },
-          ...orientation(nav.name).slice(0, 1),
-        ],
-  list: (nav) => [
+/** The CONDITIONALLY guarded ops (`isFanCapableTarget`): their refusal is about the ADDRESSING, not
+ *  the question — a bare name fans across every program, a file pin is single-program-exact and is
+ *  never guarded. So the honest redirect is the very same op re-pinned, not a different one that
+ *  answers a different question. The re-pinned call carries the caller's OWN remaining args verbatim
+ *  (a trace's `prop` / `field` must survive, or the "paste this" promise is false); `symbolId` is
+ *  dropped because a handle plus a file pin is a contradictory target. */
+function repinnedCall(op: string, bag: Record<string, unknown>, file: string): string | undefined {
+  const parts = Object.entries({ ...bag, symbolId: undefined, file })
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k}:${JSON.stringify(v)}`);
+  const call = `${op} {${parts.join(',')}}`;
+  return call.length <= MAX_CALL ? call : undefined;
+}
+
+/** A re-pin is only offered when it can be rendered EXACTLY; an over-long arg bag degrades to the
+ *  locate-then-repin two-step rather than a truncated call that cannot be run. */
+const MAX_CALL = 300;
+
+function repinAlternatives(op: string, nav: NavArgs): CheapCall[] {
+  const { name, file, bag } = nav;
+  if (name === undefined || bag === undefined) return [];
+  const pinned = file === undefined ? undefined : repinnedCall(op, bag, file);
+  if (pinned !== undefined) {
+    return [
+      { call: pinned, gives: `the same ${op}, single-program-exact — a file pin never fans` },
+    ];
+  }
+  return [
     {
-      call:
-        nav.name === undefined ? 'symbols_overview {}' : `symbols_overview {query:${j(nav.name)}}`,
-      gives:
-        "the repo's declared symbol names per tsconfig — a NAME catalogue, not this registry's typed entries",
+      call: `search_symbol {query:${j(name)},syntactic:true}`,
+      gives: `the file(s) declaring ${j(name)}`,
     },
+    {
+      call: `${op} {…same args…,file:"<file from the call above>"}`,
+      gives: `the same ${op} re-addressed — pinning the file makes it single-program-exact, so it never fans`,
+    },
+  ];
+}
+
+/** Per-op cheap paths. An op absent from this map, or one whose entry yields nothing for the args
+ *  at hand, falls through to the honest no-substitute arm — never a fabricated near-equivalent.
+ *  A `Map`, not an object literal: this is looked up with an op name straight off the wire
+ *  (process-host fails a whole batch before any name is validated), and on an object `'toString'` /
+ *  `'__proto__'` resolve to INHERITED members — turning an honest `oom` verdict into a TypeError
+ *  inside the very path that reports it. `Map.get` has no such shadow. */
+const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
+  ['find_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
+  ['member_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
+  ['find_definition', definitionAlternatives],
+  // NOT definitionAlternatives: "where is X declared" is not "where does this prop flow" / "where
+  // does this type widen", and offering it under a `RUN INSTEAD` lead would claim an equivalence
+  // that does not hold (§3.6). These are addressing refusals — re-pin the same op.
+  ['trace_prop_through_tree', (nav: NavArgs) => repinAlternatives('trace_prop_through_tree', nav)],
+  ['trace_type_widening', (nav: NavArgs) => repinAlternatives('trace_type_widening', nav)],
+  [
+    'search_symbol',
+    (nav: NavArgs) =>
+      nav.name === undefined
+        ? []
+        : [
+            {
+              call: `search_symbol {query:${j(nav.name)},syntactic:true}`,
+              // How the syntactic path DIFFERS from navto (noisier, declarations ranked first) is
+              // the op's static note — restating it here gave one claim two homes, and the two had
+              // already drifted ("definitions" vs "declarations"). This says only what the call is.
+              gives: 'the same fuzzy name search over the AST alone — no program build, no LS warm',
+            },
+            symbolsOverviewCall(nav.name),
+          ],
   ],
-};
+]);
 
 /** The calls a refusal should offer for `op` called with `args`, and whether any of them addresses
  *  the question that was actually asked. `substitute:false` means the honest answer is "not here" —
@@ -151,7 +241,7 @@ export function cheapCallsFor(
   args: unknown,
 ): { readonly calls: readonly CheapCall[]; readonly substitute: boolean } {
   const nav = readArgs(args);
-  const specific = BY_OP[op]?.(nav) ?? [];
+  const specific = BY_OP.get(op)?.(nav) ?? [];
   if (specific.length > 0) return { calls: specific, substitute: true };
   return { calls: orientation(nav.name), substitute: false };
 }
@@ -161,8 +251,11 @@ export function cheapCallsFor(
 export function navigationFor(op: string, args: unknown): string {
   const { calls, substitute } = cheapCallsFor(op, args);
   const body = calls.map((c) => `${c.call} → ${c.gives}`).join(' · ');
+  // The lead may not have the refused op as its implied subject: this same string is rendered on a
+  // path where the op has ALREADY died (the isolated engine's OOM), so "still runs here" would read
+  // as a claim about the corpse. It asserts only about the calls it lists.
   const lead = substitute
     ? 'RUN INSTEAD (no program build, no fan)'
-    : `NO cheaper in-tool path to this question (${op} is what answers it); still runs here`;
+    : `NO cheaper in-tool path to this question (${op} is what answers it). What still answers here`;
   return `${lead}: ${body}.`;
 }

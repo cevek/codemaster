@@ -97,8 +97,13 @@ test('refusal leads with a call the caller can run, then the access-gated cause'
   );
 });
 
-// The defect this task exists to kill: a refusal whose "next step" is the op that just refused.
-test('refusal never redirects into the op it just declined', () => {
+// The defect this task exists to kill: a refusal whose "next step" is a call that would refuse in
+// turn. Scoped to `find_usages` on purpose — it is UNCONDITIONALLY guarded, so for it "names itself"
+// and "names something that would refuse" coincide. The general rule is reachability, not name
+// avoidance (`refusal-navigation.test.ts`): a conditionally guarded op legitimately redirects to
+// ITSELF with a file pin, which is single-program-exact and never guarded. Asserting name-absence
+// across all ops would fail on that correct behaviour.
+test('refusal never redirects into the op it just declined (unconditionally guarded op)', () => {
   const r = semanticFanoutRefusal(
     { daemon: { isolation: 'in-process' } },
     ts(OVER),
@@ -106,8 +111,12 @@ test('refusal never redirects into the op it just declined', () => {
     NAV,
   );
   assert.ok(r !== undefined);
-  const afterVerdict = r.message.slice(r.message.indexOf('RUN INSTEAD'));
-  assert.doesNotMatch(afterVerdict, /find_usages \{/, 'must not steer back into the refused op');
+  // Guard the anchor before slicing: `indexOf` on drifted prose returns -1, and `slice(-1)` yields
+  // the last CHARACTER — on which `doesNotMatch` passes unconditionally. Without this the test goes
+  // vacuously green exactly when the text it depends on changes.
+  const at = r.message.indexOf('RUN INSTEAD');
+  assert.ok(at > 0, 'the redirect section anchor must exist');
+  assert.doesNotMatch(r.message.slice(at), /find_usages \{/, 'must not steer back into the op');
 });
 
 test('process-mode → NEVER refuses even far over threshold (survives the OOM via t-000052)', () => {
