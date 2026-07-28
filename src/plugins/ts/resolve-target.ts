@@ -131,42 +131,39 @@ function resolveByLine(
   const decls = name === undefined ? all : all.filter((d) => d.name === name);
   const sole = decls[0];
   if (sole === undefined) {
-    // A line that declares NOTHING is a dead end for the column too — say that, rather than name
-    // a remedy no argument value can satisfy (CONTRIBUTING: a refusal names a call that works).
-    if (all.length === 0) {
-      // With `name`, dropping `line` is the live remedy (a name+file resolves file-wide); without
-      // it, the other addressings are. Neither is "pass a column".
-      const instead =
-        name !== undefined
-          ? `drop 'line' (name+file resolves file-wide)`
-          : `address by a 'name' or a SymbolId`;
-      return {
-        ok: false,
-        message: `no declaration on ${file}:${line} — the line declares nothing, so NO column resolves there; check the line number, or ${instead}`,
-      };
-    }
-    // Never advise the addressing the call ALREADY uses: with `name` given, the useful remedy is
-    // the column plus what is actually declared there (the name is what missed).
-    const there = nameWithMore(
-      all.map((d) => `${d.name} at col ${d.col}`),
-      LINE_DECL_PREVIEW,
-    );
+    // The COLUMN stays the remedy on every arm here, including a line that anchors no
+    // declaration: `file:line:col` addresses whatever symbol sits at that position — a USE as
+    // much as a declaration — so a `return alpha + beta` line resolves `alpha` at its column.
+    // Only the hint differs: what is declared there, or that nothing is (and a use still is).
+    const there =
+      all.length > 0
+        ? ` (declared there: ${nameWithMore(
+            all.map((d) => `${d.name} at col ${d.col}`),
+            LINE_DECL_PREVIEW,
+          )})`
+        : ' (the line anchors no declaration — a column still resolves a symbol USED there)';
+    // Never advise the addressing the call ALREADY uses: with `name` given, the name is what
+    // missed, so the remedy is the column plus what is really on the line.
     if (name !== undefined) {
       return {
         ok: false,
-        message: `no declaration named '${name}' on ${file}:${line} (declared there: ${there}) — pass file:line:col (the column)`,
+        message: `no declaration named '${name}' on ${file}:${line}${there} — pass file:line:col (the column)`,
       };
     }
     return {
       ok: false,
-      message: `no declaration on ${file}:${line} — pass file:line:col (the column) or a 'name'`,
+      message: `no declaration on ${file}:${line}${there} — pass file:line:col (the column) or a 'name'`,
     };
   }
   if (decls.length > 1) {
     // Here the list IS the remedy (the agent picks a column out of it), so a cut leaves the tail
-    // unpickable — name the second filter that reaches them instead of a bare `+N more`.
+    // unpickable — name the second filter that reaches them. Only where it is NOT already spent:
+    // with `name` given every candidate already carries it, so the same advice filters nothing.
     const labels = decls.map((d) => `${d.name} at col ${d.col} (${d.kind})`);
-    const overflow = labels.length > LINE_DECL_PREVIEW ? ", or add 'name' to filter the line" : '';
+    const overflow =
+      labels.length > LINE_DECL_PREVIEW && name === undefined
+        ? ", or add 'name' to filter the line"
+        : '';
     return {
       ok: false,
       message: `${file}:${line} has ${decls.length} declarations (${nameWithMore(

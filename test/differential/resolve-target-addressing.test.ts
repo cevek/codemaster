@@ -105,15 +105,52 @@ test('a miss never advises the addressing already used: no "or a name" when name
     const bare = failMsg(await p.op('find_usages', { file: 'src/m.ts', line: 4 }));
     assert.match(bare, /'name'/, "the advice survives where the caller hasn't used it");
 
-    // A line that declares NOTHING: the column is a dead end whatever value it takes, so the
-    // refusal must not name it as the remedy (it names one that works instead).
-    assert.match(bare, /declares nothing/, 'says why, not just that it failed');
-    assert.ok(!/pass file:line:col/.test(bare), `no dead-end remedy: ${bare}`);
-    const namedEmpty = failMsg(
-      await p.op('find_usages', { name: 'zzz', file: 'src/m.ts', line: 4 }),
+    // Line 4 declares nothing (`return alpha + beta + gamma;`) — but the column the refusal
+    // names is NOT a dead end there: it addresses the symbol USED at that position. The remedy
+    // is pinned by RUNNING it, not by reading the sentence (CONTRIBUTING: a refusal names a call
+    // the agent can run here).
+    assert.match(bare, /pass file:line:col/, 'the column remedy is offered');
+    const viaColumn = defId(await p.op('find_usages', { file: 'src/m.ts', line: 4, col: 10 }));
+    assert.match(viaColumn, /alpha@src\/m\.ts:1:/, 'the offered remedy resolves the used symbol');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a declaration-less line says so — and still names the column, which resolves a USE there', async () => {
+  const p: TestProject = await project(M);
+  try {
+    const msg = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/m.ts', line: 4 }));
+    assert.match(msg, /anchors no declaration/, 'says WHY the name missed, not just that it did');
+    assert.match(msg, /resolves a symbol USED there/, 'and that the column is not a dead end');
+    assert.ok(!/or a 'name'/.test(msg), "still does not re-suggest the caller's own addressing");
+    assert.ok(
+      !/declares nothing/.test(msg),
+      'and never claims the SOURCE declares nothing — only that we anchor no declaration there: ' +
+        'a destructuring `export const {a,b} = obj` declares symbols this resolver cannot anchor',
     );
-    assert.ok(!/pass file:line:col/.test(namedEmpty), `no dead-end remedy: ${namedEmpty}`);
-    assert.match(namedEmpty, /drop 'line'/, 'names the addressing that DOES reach the symbol');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a destructuring line: no anchorable declaration, yet the named remedy still resolves', async () => {
+  // The trap the wording exists for: `declarationsOnLine` anchors a narrow set of declaration
+  // kinds, so a line that genuinely DOES declare (a binding pattern) reads as declaration-less
+  // here. The refusal must therefore not assert anything about the source — and the column it
+  // names must work, which is asserted by running it.
+  const p: TestProject = await project({
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/d.ts':
+      'export const obj = { a: 1, b: 2 };\n' + // line 1
+      'export const { a, b } = obj;\n' + // line 2: declares a + b, not anchorable
+      'export const sum = a + b;\n', // line 3
+  });
+  try {
+    const msg = failMsg(await p.op('find_usages', { file: 'src/d.ts', line: 2 }));
+    assert.match(msg, /pass file:line:col/, 'the column stays the remedy');
+    const viaColumn = defId(await p.op('find_usages', { file: 'src/d.ts', line: 2, col: 16 }));
+    assert.match(viaColumn, /a@src\/d\.ts:/, 'and it resolves the destructured binding');
   } finally {
     await p.dispose();
   }
