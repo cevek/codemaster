@@ -1,6 +1,6 @@
 ---
 id: t-647309
-title: 'EPIC: emptiness must carry HOW it was established — five measured instances where a true answer reads as proven absence'
+title: 'EPIC: emptiness must carry HOW it was established — five load-bearing cases where a TRUE answer reads as a proven absence'
 status: backlog
 priority: urgent
 tags:
@@ -62,6 +62,18 @@ rows with their program, and carries `complete:false` + `!! LOWER BOUND`. The ma
 ops neither fan nor disclose. Also see the envelope disclosure work (t-876408) — the pattern of stating a
 claim ONCE at the point where it is established, so every consumer inherits it rather than remembering to.
 
+## What takes an item OUT of this epic
+
+**A shipped disclosure closes the item; it does not leave it a pending member.** This epic is about
+UNDISCLOSED emptiness. Once an op states its own scope — the programs it searched, the cap it hit, the
+edge it does not model — the answer an agent reads is qualified, and what remains is an ordinary
+capability gap: smaller, differently prioritised, and not this invariant. t-610052 is the worked
+example: it is reproduced, but `src/ops/trace-field-to-render.ts:49` now discloses the missing kind
+gate, so it sits at `relates` rather than `parent`.
+
+Apply this before admitting any new candidate — a repro alone does not qualify one, and re-deriving
+this each time is how a member set drifts.
+
 ## Cheapest way to find the rest
 
 From worker cb8fedab, having found the third instance in a neighbouring op while fixing its own:
@@ -118,3 +130,13 @@ That is why these four sit at `relates`: not because `reported` disqualifies —
 `reported` — but because the shown-on-`main` test has not been run for them. t-000010 / t-000011 /
 t-000041 have not been reproduced at all; t-610052 has, and its answer no longer reads as bare.
 Run that test and the edge becomes `parent`.
+
+## The fifth `relates` edge — t-561552 is excluded by scope, not by weight
+
+**t-561552** (`name+file` reports a FALSE absence for a symbol the file plainly declares) is linked but
+is NOT a member, and the reason is the epic's own scoping: every case here is one where **the number is
+TRUE** and only its READING misleads. t-561552's answer is wrong outright — a different and heavier
+defect class, since no amount of disclosing WHAT WAS SEARCHED repairs an answer that is false about what
+it did search. Admitting it would blur the definition that makes this epic actionable.
+
+The edge stays because the two are read together: they are the two ways an absence can fail an agent.
