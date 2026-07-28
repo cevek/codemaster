@@ -1,7 +1,7 @@
 ---
 id: t-959904
 title: On a large repo every refusal points at ANOTHER refusal instead of at the op that would actually answer — make the redirects name the working path (the ambiguity error is the model to copy)
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
