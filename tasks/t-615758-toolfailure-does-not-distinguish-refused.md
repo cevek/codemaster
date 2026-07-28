@@ -1,7 +1,7 @@
 ---
 id: t-615758
 title: '`ToolFailure` does not distinguish "refused BEFORE doing work" from "tried and died" — the escape sets differ, and conflating them printed the caller the exact call that had just crashed'
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface

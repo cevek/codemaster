@@ -1,7 +1,7 @@
 ---
 id: t-166631
 title: "`OpContext` does not carry the op's own name — a refusal cannot name itself, so the literal is threaded through ~17 call-sites with no type link, and a copy-paste with the wrong name compiles"
-status: backlog
+status: done
 priority: high
 tags:
   - dogfood

@@ -12,6 +12,7 @@ import type { EngineChildHandle } from '../../src/daemon/fork-engine.ts';
 import type { JsonValue } from '../../src/core/json.ts';
 import type { RepoId } from '../../src/core/brands.ts';
 import { manualClock } from '../helpers/project.ts';
+import { navigationFor } from '../../src/ops/guard/navigate.ts';
 
 interface FakeChild {
   handle: EngineChildHandle;
@@ -250,6 +251,22 @@ test('a timeout says the call did not complete, never that the repo cannot answe
     msg,
     /cannot complete on this repo/,
     'a timeout is not proof of impossibility',
+  );
+  // t-615758: the failure STATES what it leaves out of reach rather than leaving each consumer to
+  // re-infer it. The engine was killed, so no program build is within reach here whatever the
+  // target — and the message is pinned byte-exact around the shared redirect, so a drift in the
+  // verdict clause or the cause clause is a diff rather than something the loose matches above
+  // would still pass.
+  assert.equal(
+    r !== undefined && 'result' in r && r.result.ok === false
+      ? r.result.failure.outOfReach
+      : undefined,
+    'any-program-build',
+  );
+  const redirect = navigationFor('find_usages', { name: 'Button' }, 'any-program-build');
+  assert.equal(
+    msg,
+    `find_usages did not complete. ${redirect} Cause: isolated engine did not reply in 10ms — killed it.`,
   );
 });
 
