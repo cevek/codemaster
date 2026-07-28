@@ -35,3 +35,35 @@ one-shot process has no staleness problem by construction.
 Worth noting what DID work in the same session, since it is the counterexample: the ambiguity failure
 named `mergeDeclarations:true` as the escape, and `!! LOWER BOUND` fired correctly on a live incomplete
 query — both landed exactly as designed.
+
+## This is the ROOT of the grep-fallback pattern, not one more instance of it
+
+From worker de6fa39b, which spent an entire track REBUILDING the honesty mechanism and made **zero**
+symbol queries to codemaster. All three of its reference-graph questions went to grep. It ran the CLI
+constantly — but only as a behavioural probe of op OUTPUT, never once as a question about a symbol.
+
+The causal chain it names, and it is structural rather than behavioural:
+
+1. A worker editing `src/` makes the MCP path stale-by-construction — the daemon serves the code it
+   spawned with.
+2. The honest remedy is `daemon restart` after every edit; on a multi-agent machine that discards other
+   agents' warm LS, so the cheap escape is the CLI one-shot, always fresh.
+3. The CLI has no `batch`/`sql`.
+4. Therefore the loop pushes the tool-editing worker onto the ONE surface that cannot express composed
+   questions — and its third question was by nature a batch/sql question.
+
+So **the agent with the most reason to dogfood is designed away from the richest surface**, and the
+standing choice is "fresh answers OR composable ones", where freshness wins every time. That plausibly
+explains why four workers across three waves independently reported falling back to grep on
+reference-graph questions — it is not four lapses of discipline, it is one property of the loop.
+
+Sharpest single data point: the question that cost this track a `[BLOCK]` (which factories reassemble the
+envelope, so which ones could drop an ambient channel) was answerable in one call —
+`find_usages {name:'ok', file:'src/common/result/construct.ts', groupBy:'enclosing'}` lists every envelope
+factory, `sql-batch.ts assemble` among them. Two reviewers found it by reading; the tool would have found
+it by asking. And for the second question the precise op was `member_usages` — one of the four this very
+track was fixing.
+
+Related, each a facet of the same loop rather than a separate cause: t-089408 (the symbol question has no
+salience amid legitimate greps), t-034392 (the stale banner names only the expensive remedy),
+t-933867 (the same population failure measured on another track).
