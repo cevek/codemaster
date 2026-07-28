@@ -151,6 +151,23 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     assert.match(msg, /pass file:line:col/, 'the column stays the remedy');
     const viaColumn = defId(await p.op('find_usages', { file: 'src/d.ts', line: 2, col: 16 }));
     assert.match(viaColumn, /a@src\/d\.ts:/, 'and it resolves the destructured binding');
+
+    // A line PAST THE END of the file: here no column resolves anything, so the column must NOT
+    // be the remedy — the line number is. (The in-range hint above would be a false promise.)
+    const past = failMsg(await p.op('find_usages', { file: 'src/d.ts', line: 99 }));
+    assert.match(past, /past the end of src\/d\.ts/, 'says why, without quoting a line count it');
+    assert.match(past, /check the line number/, 'names the remedy that applies');
+    assert.ok(!/pass file:line:col/.test(past), `no column remedy past EOF: ${past}`);
+
+    // A `name` the file declares elsewhere: the column on THIS line cannot reach it, so the
+    // refusal also names the addressing that can — pinned by running it.
+    const wrongLine = failMsg(
+      await p.op('find_usages', { name: 'sum', file: 'src/d.ts', line: 2 }),
+    );
+    assert.match(wrongLine, /drop 'line'/, 'names an addressing that reaches the target');
+    assert.ok(!/or a 'name'/.test(wrongLine), 'but never the bare name the caller already used');
+    const viaNameFile = defId(await p.op('find_usages', { name: 'sum', file: 'src/d.ts' }));
+    assert.match(viaNameFile, /sum@src\/d\.ts:3:/, 'the advised call resolves the symbol');
   } finally {
     await p.dispose();
   }

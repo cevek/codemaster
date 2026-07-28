@@ -239,10 +239,15 @@ export function computeUnusedProps(
     demoteReasons: reasons,
     noParam: declared.noParam,
     ...(declared.truncated !== undefined ? { truncatedMembers: declared.truncated } : {}),
-    // Reported when it hid something, and ALSO at zero under a bitten cap: there the count is a
-    // floor (cut members were never classified), and an absent field would read as "nothing was
-    // hidden". Absent otherwise, so an uncapped component with no external props is unchanged.
-    ...(hiddenExternal > 0 || (options.prop === undefined && declared.truncated !== undefined)
+    // Reported when it hid something, and ALSO at zero under a bitten cap — there the count is a
+    // floor (cut members were never classified) and an absent field would read as "nothing was
+    // hidden". NOT under `includeExternal` / `prop`, where the filter never ran: a `0` there is
+    // EXACT, and marking it a floor would be a false incompleteness — the §3.4 lie inverted, and
+    // it would re-offer a flag the caller already passed.
+    ...(hiddenExternal > 0 ||
+    (options.prop === undefined &&
+      options.includeExternal !== true &&
+      declared.truncated !== undefined)
       ? { hiddenExternal }
       : {}),
   };

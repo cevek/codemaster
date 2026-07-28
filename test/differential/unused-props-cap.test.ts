@@ -66,6 +66,29 @@ test('cap BITES: the repo-declared prop survives it — the answer is not a fals
   }
 });
 
+test('cap BITES + includeExternal: nothing was hidden, so no floor marker is claimed', async () => {
+  const p = await project(capFixture(600));
+  try {
+    // The provenance filter never runs under `includeExternal`, so "0 hidden" is EXACT. Marking
+    // it a lower bound would be a false incompleteness (the §3.4 lie inverted) and would advise
+    // the very flag the caller just passed. The CAP's own floor is still stated — by the cap.
+    const d = data(await p.op('find_unused_props', { component: 'Widget', includeExternal: true }));
+    assert.equal(d['hiddenExternalIsLowerBound'], undefined, 'no floor marker for an exact 0');
+    assert.equal(d['hiddenExternal'], undefined, 'and no hidden channel at all');
+    assert.ok(
+      !(d['notes'] as string[]).some((n) => n.includes('includeExternal:true lists them')),
+      'never advises the flag already passed',
+    );
+    assert.equal(d['demoted'], true, 'the cap still demotes — that channel is untouched');
+    assert.ok(
+      (d['notes'] as string[]).some((n) => n.includes('floor')),
+      'and the cap still states its own floor',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('cap NOT bitten: member order is the checker’s own (the ordering is cap-only)', async () => {
   const p = await project(capFixture(4));
   try {

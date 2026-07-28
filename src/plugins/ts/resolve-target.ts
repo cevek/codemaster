@@ -6,14 +6,11 @@ import type { TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc } from './spans.ts';
 import { searchSymbols } from './search.ts';
 import { declarationsOnLine, topLevelDeclarationsNamed } from './declarations-on-line.ts';
+import { LINE_DECL_PREVIEW, lineMissMessage } from './resolve-line-message.ts';
+import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { ambiguityMessage, distinctDeclarations } from './ambiguity.ts';
 import { resolveSymbolId } from './rebind-symbol-id.ts';
-import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { NAME_CANDIDATE_LIMIT, type ResolvedTarget } from './resolve-contract.ts';
-
-/** Declarations named per line in a pick-list / miss message before `+N more` (§3.4) — a
- *  minified or generated line can hold hundreds. */
-const LINE_DECL_PREVIEW = 8;
 
 export type { ResolvedTarget };
 import type { SymbolView } from './query-types.ts';
@@ -131,29 +128,7 @@ function resolveByLine(
   const decls = name === undefined ? all : all.filter((d) => d.name === name);
   const sole = decls[0];
   if (sole === undefined) {
-    // The COLUMN stays the remedy on every arm here, including a line that anchors no
-    // declaration: `file:line:col` addresses whatever symbol sits at that position — a USE as
-    // much as a declaration — so a `return alpha + beta` line resolves `alpha` at its column.
-    // Only the hint differs: what is declared there, or that nothing is (and a use still is).
-    const there =
-      all.length > 0
-        ? ` (declared there: ${nameWithMore(
-            all.map((d) => `${d.name} at col ${d.col}`),
-            LINE_DECL_PREVIEW,
-          )})`
-        : ' (the line anchors no declaration — a column still resolves a symbol USED there)';
-    // Never advise the addressing the call ALREADY uses: with `name` given, the name is what
-    // missed, so the remedy is the column plus what is really on the line.
-    if (name !== undefined) {
-      return {
-        ok: false,
-        message: `no declaration named '${name}' on ${file}:${line}${there} — pass file:line:col (the column)`,
-      };
-    }
-    return {
-      ok: false,
-      message: `no declaration on ${file}:${line}${there} — pass file:line:col (the column) or a 'name'`,
-    };
+    return { ok: false, message: lineMissMessage(sourceFile, file, line, name, all) };
   }
   if (decls.length > 1) {
     // Here the list IS the remedy (the agent picks a column out of it), so a cut leaves the tail
