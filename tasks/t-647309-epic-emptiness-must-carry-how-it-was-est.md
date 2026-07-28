@@ -65,3 +65,36 @@ From worker cb8fedab, having found the third instance in a neighbouring op while
 
 `find_unused_props` and `trace_prop_through_tree` read the SAME capped seam and answered differently. That
 divergence is visible only to someone already holding the defect's shape — so audit by SEAM, not by op.
+
+## Floors do not COMPOSE — nothing says how many are active at once
+
+From the same 126-body read. About a third of that slice are defects each of which honestly classifies
+itself "safe direction, under-report, never a false `certain`" and is therefore `low`. Each is right on
+its own.
+
+In aggregate, ONE answer can be simultaneously: floored by an undiscovered program, cut by the candidate
+cap, severed at the `Result<JsonValue>` seam (t-100043), AND blunted by a repo-global demote — and nothing
+anywhere states how many independent floors are active.
+
+> Each disclosure says "this is a lower bound". None says "a lower bound four times over".
+
+So the reader applies a single discount to a number that has been discounted four times, and every
+individual `low` was defensible while the composite is not. This belongs to this epic rather than to a
+task of its own: it is the same invariant (emptiness must carry how it was established) read at the level
+of a whole answer instead of one producer.
+
+Concrete ask when this epic is taken: the disclosure channel should carry the COUNT and the identity of
+active floors, not a boolean per producer.
+
+## Candidates for membership, pending repro — NOT members
+
+Four further instances of the class, deliberately kept as `relates` rather than `parent`, because the five
+members above all carry live repros and admitting these would quietly lower the epic's evidentiary bar:
+
+- **t-000010** (`reported`) — a partially mistyped `pathInclude` silently under-scans.
+- **t-000011** (`reported`) — `find_unused_exports` reads `unused(0) / scanned 0 files` on a broken
+  program with no warning; the verdict an agent DELETES code on. Re-ranked to `high` for that reason.
+- **t-000041** (`reported`) — `0 widenings` reads as "widens nowhere".
+- **t-610052** (`repro`) — `found:1 renderedBy:0` for a non-property.
+
+Promote any of them on a captured repro, not on resemblance.
