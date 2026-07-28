@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, type TestProject } from '../helpers/project.ts';
-import { defId, failMsg } from '../helpers/ambiguity.ts';
+import { assertNoAbsenceClaim, assertNoPromise, defId, failMsg } from '../helpers/ambiguity.ts';
 
 const M = {
   'tsconfig.json': '{"compilerOptions":{"strict":true}}',
@@ -96,31 +96,33 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // so a probe's negative would have been a false claim about the source. No arm may say the
     // file declares no such symbol.
     const pattern = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts', line: 1 }));
-    assert.ok(!/declares no top-level/.test(pattern), `no false claim about source: ${pattern}`);
-    assert.ok(!/does not reach it/.test(pattern), `and no false dead-end: ${pattern}`);
-    // The listed declarations are NOT candidates for `a` (they were filtered out by the name), so
-    // the message must not read as a pick-list an agent lands `obj` from.
-    assert.match(pattern, /none of them 'a'/, 'the list is marked as context, not as candidates');
+    // GROUND TRUTH, established by running it: line 1 DOES declare `a`, at a column the message's
+    // list never names (an object-literal property is not anchorable by the line walk).
+    const viaProperty = defId(await p.op('find_usages', { file: 'src/d.ts', line: 1, col: 22 }));
+    assert.match(viaProperty, /a@src\/d\.ts:1:22/, 'a column on that line reaches `a`');
+    // So no arm may negate over the LINE or over columns — only over what it anchors. Asserted as
+    // a property (any such claim, however worded), not as one banned string.
+    assertNoAbsenceClaim(pattern, 'a');
+    assert.ok(!/\bno column\b/i.test(pattern), `must not deny the column that works: ${pattern}`);
+    assert.match(pattern, /anchorable declarations there/, 'the list is scoped to what it anchors');
 
     // The offer carries NO promise about its outcome — the whole justification for making it
-    // unconditional. A reworded "name+file WILL resolve it" must fail here.
+    // unconditional. Checked over the WHOLE message: a promise placed before the offer, or worded
+    // as "always lands" / "guaranteed", is the same defect as one placed after it.
     const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
     assert.match(noSuch, /drop 'line'/, 'the addressing is named');
-    assert.ok(
-      !/\b(will|resolves|reaches|finds)\b/i.test(noSuch.split("drop 'line'")[1] ?? ''),
-      `no promise about the outcome: ${noSuch}`,
-    );
+    assertNoPromise(noSuch);
+
     // …and the op it points at fails HONESTLY when it cannot land: for a name the file declares
-    // through a binding pattern, that message may not claim the declaration does not exist.
+    // through a binding pattern, that message may not claim the declaration does not exist — nor
+    // name any name-based call as a discriminator, since navto is blind to the same forms.
     const landed = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts' }));
-    assert.ok(
-      !/no top-level declaration named/.test(landed),
-      `a declared-but-unanchorable name is a capability limit, not an absence: ${landed}`,
-    );
+    assertNoAbsenceClaim(landed, 'a');
     assert.match(landed, /could not anchor/, 'it reports what it could not do');
-    assert.match(landed, /search_symbol/, 'and names a call that does find it (t-561552)');
+    assert.match(landed, /NOT proof of absence/, 'and says the miss proves nothing');
     const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
     assert.match(proof, /'zzz'/, 'the same message names the symbol it could not anchor');
+    assertNoAbsenceClaim(proof, 'zzz');
   } finally {
     await p.dispose();
   }

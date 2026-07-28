@@ -17,6 +17,41 @@ export function defId(r: OpResult): string {
   return id;
 }
 
+/** No wording may assert that the symbol is ABSENT — this resolver anchors bare-identifier
+ *  declarations only, so a miss is a capability limit (t-561552). Matched as a PROPERTY (any
+ *  phrasing of "there is no such thing"), because a blacklist of one sentence is satisfied by
+ *  rewording the same lie — the failure mode this suite exists to catch. */
+export function assertNoAbsenceClaim(msg: string, name: string): void {
+  const claims = [
+    /no top-level declaration named/i,
+    new RegExp(`declares no (such )?\\S*\\s?'?${name}'?`, 'i'),
+    new RegExp(
+      `no (such )?(symbol|declaration)[^.]*'${name}'[^.]*(exists|anywhere|in the (file|repo))`,
+      'i',
+    ),
+    /does not exist/i,
+    /\bnot declared\b/i,
+  ];
+  for (const c of claims) {
+    assert.ok(!c.test(msg), `an absence this resolver cannot prove (${String(c)}): ${msg}`);
+  }
+}
+
+/** The offered addressing is named WITHOUT a promise that it lands — the property the
+ *  unconditional offer rests on. Scanned over the whole message, not a suffix. */
+export function assertNoPromise(msg: string): void {
+  const promises = [
+    /\bwill\b/i,
+    /\bguarantee/i,
+    /\balways (lands|works|resolves)/i,
+    /\bresolves it\b/i,
+    /\bis guaranteed\b/i,
+  ];
+  for (const pr of promises) {
+    assert.ok(!pr.test(msg), `a promise about the outcome (${String(pr)}): ${msg}`);
+  }
+}
+
 /** N barrels, each `export { default as Widget } from './implK'` (a DISTINCT declaration apiece —
  *  they cannot collapse into one definition), plus ONE real `export function Widget`. The real
  *  declaration lives under `src/z/` so it is discovered LAST: rank, not file order, must surface it. */

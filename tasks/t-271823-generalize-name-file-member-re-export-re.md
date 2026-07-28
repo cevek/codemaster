@@ -14,3 +14,11 @@ That fallback is find_usages-scoped by design (boundary: the shared `plugins/ts/
 **Ask.** Lift the member/re-export resolution into `resolveNameInFile` (or a shared step it calls) so every symbol-addressed op benefits uniformly, then drop the op-level fallback in favor of the shared one. Keep the honest disclosure (a member is not the top-level the agent addressed) and the >1 pick-list. The engine already exists (`ts.membersNamedInFile` / `nonTopLevelDeclarationsNamed`) — this is a relocation + wiring across ops, not new capability.
 
 Reference: t-755152 (find_usages member fallback, DONE).
+
+## Message wording
+
+The dead-end this task quotes now reads `could not anchor a top-level declaration named 'X' in
+<file> — …` (`src/plugins/ts/resolve-target.ts`). The old `no top-level declaration named 'X'`
+string no longer occurs anywhere: the resolver reports what it could not ANCHOR, because that
+walk is blind to a top-level binding pattern / namespace import-export / object-literal property
+(t-561552), so an absence claim would be false for those shapes. Grep for `could not anchor`.

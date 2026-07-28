@@ -93,14 +93,16 @@ function resolveNameInFile(h: TsProjectHost, name: string, file: string): Resolv
   const sole = decls[0];
   if (sole === undefined) {
     // NOT "the file declares no such symbol": this walk anchors bare-identifier declarations, so
-    // a top-level BINDING PATTERN (`export const { alpha } = …`) or a namespace import/export
-    // (`import * as X`) is invisible to it while the file plainly declares it — `search_symbol`
-    // finds exactly those. Report the capability limit, not an absence we cannot support (§3.6),
-    // and name the two calls that do reach such a declaration. The walk's blind spot itself (and
-    // its second consumer, the §6 rebind) is t-561552.
+    // a top-level BINDING PATTERN (`export const { alpha } = …`), a namespace import/export
+    // (`import * as X` / `export * as X`) and an object-literal property are invisible to it while
+    // the file plainly declares them. Report the capability limit, not an absence we cannot
+    // support (§3.6) — and name NO name-based call as the discriminator: navto is blind to the
+    // same forms (`search_symbol {query:'ns'}` answers a flat 0 for `export * as ns`), so
+    // promising one would move this exact lie a call further. Only a POSITION resolves them.
+    // The blind spot itself, and its second consumer (the §6 rebind), is t-561552.
     return {
       ok: false,
-      message: `could not anchor a top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col. NOTE: a destructured binding / namespace import is not anchorable by name here even when the file DOES declare it, so this is not proof of absence: search_symbol {query:'${name}'} tells the two apart`,
+      message: `could not anchor a top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence, and no name-based call here can prove absence either — a destructured binding / namespace import-export / object-literal property is declared yet unanchorable BY NAME (navto misses the same forms). To settle it, address by position or read the file`,
     };
   }
   if (decls.length > 1) {

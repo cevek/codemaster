@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project, assertSpansValid, type TestProject } from '../helpers/project.ts';
 import { coldReferenceSites } from '../helpers/cold-ls.ts';
+import { assertNoAbsenceClaim } from '../helpers/ambiguity.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 type Usage = { span: { file: string; line: number } };
@@ -150,10 +151,7 @@ test('member fallback: a genuinely-absent name+file keeps the honest top-level d
       JSON.stringify(r.result.failure),
       /could not anchor a top-level declaration named 'noSuchThingXyz'/,
     );
-    assert.ok(
-      !/no top-level declaration named/.test(JSON.stringify(r.result.failure)),
-      'no absence claim the resolver cannot support',
-    );
+    assertNoAbsenceClaim(JSON.stringify(r.result.failure), 'noSuchThingXyz');
   } finally {
     await p.dispose();
   }

@@ -41,9 +41,11 @@ export function lineMissMessage(
     // too), and it matches the wording the col-carrying path already uses for the same fact.
     return `${head} — line ${line} is outside ${file}, so NO column resolves there: check the line number${alt}`;
   }
-  // With `name` given, NONE of the listed declarations carries it (they were filtered out) — so
-  // the list is context, not a pick-list, and saying so stops an agent from landing on `obj` when
-  // it asked for `a`. Without a name they ARE the candidates.
+  // With `name` given, none of the listed declarations carries it (the name filtered them out), so
+  // the list is context rather than a pick-list — but the negation is scoped to what this resolver
+  // ANCHORS, never to the line: `export const obj = { a: 1 }` declares `a` at a column this walk
+  // never lists, and a bare "none of them 'a'" would talk an agent out of the column that resolves
+  // it. Without a name the listed declarations ARE the candidates.
   const listed = nameWithMore(
     all.map((d) => `${d.name} at col ${d.col}`),
     LINE_DECL_PREVIEW,
@@ -51,7 +53,8 @@ export function lineMissMessage(
   const there =
     all.length > 0
       ? name !== undefined
-        ? ` (that line declares ${listed} — none of them '${name}')`
+        ? ` (anchorable declarations there: ${listed} — none named '${name}'; a column may still` +
+          ` reach a name this resolver cannot anchor, e.g. an object-literal property)`
         : ` (declared there: ${listed})`
       : ' (the line anchors no declaration — a column still resolves a symbol USED there, if the' +
         ' line holds one; else check the line number)';
