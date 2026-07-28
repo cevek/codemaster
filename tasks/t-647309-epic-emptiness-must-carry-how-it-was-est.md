@@ -35,7 +35,8 @@ Close this as an INVARIANT, not as five fixes. Whoever takes one of these alone 
 leave the class intact — that is how it reached five.
 
 Members — each one load-bearing. Four carry a repro or a measurement in their own body; t-288409 is
-the limiting case, where no op reaches the question at all (see the membership rule below):
+the limiting case, where no op reaches the question at all (see "Candidates" below for the rule that
+admits it):
 - **t-162650** (urgent) — `construction_sites` renders a semantic verdict over a program it never scanned
   (`files=0`), and its remedy blames the caller's scoping. TWO independent repos; second instance DID scan
   (`literals=7 files=4`) and still missed a call-argument literal with conditional spread.
@@ -74,7 +75,15 @@ gate, so it sits at `relates` rather than `parent`.
 Apply this before admitting any new candidate — a repro alone does not qualify one, and re-deriving
 this each time is how a member set drifts.
 
-One limit on that, or the rule over-closes: a disclosure retires an item at the level of ONE producer.
+Two limits on the rule, or it closes items it should not. **First: a note cannot rescue a FAILED
+resolution.** Disclosure retires an answer that is true and merely reads as more than it is; it does
+nothing for an `ok` whose lookup never resolved, which CONTRIBUTING already rules out ("an `ok` shaped
+like a proven absence is worse than an incomplete answer"). That is why member t-585566 stays a member
+despite carrying a note beside its `found:0` — the note sits next to a laundered "couldn't", and a
+`json`/`sql` consumer reads the `0` and never sees it. The discriminator is the SHAPE of the verdict,
+not the presence of prose.
+
+**Second: a disclosure retires an item at the level of ONE producer.**
 It says nothing about how many independent floors are active in a single answer — see "Floors do not
 COMPOSE" below, which is this same invariant at the level of a whole answer. Every producer disclosing
 its own scope does NOT empty this epic.
@@ -110,8 +119,8 @@ active floors, not a boolean per producer.
 
 ## Candidates — same shape, linked by `relates`, not `parent`
 
-Four tasks describe the same shape and are attached by `relates`. Each fails the bar below for its OWN
-reason — read them separately; none of them is merely a "weaker report":
+Four tasks describe the same shape and are attached by `relates`. Read them separately — the reason each
+falls short is stated per item, and for three of the four it is the same reason:
 
 - **t-000010** (`low`, `reported`) — `find_unused_exports` warns only when a filter is FULLY vacuous, so a
   partly-mistyped `pathInclude` scans a partial scope silently. Not reproduced.
@@ -121,9 +130,8 @@ reason — read them separately; none of them is merely a "weaker report":
 - **t-000041** (`low`, `reported`) — `trace_type_widening` traces 4 relations, so flow through a
   property-assign / spread / template is silently untraced and `0 widenings` reads as "widens nowhere".
   Not reproduced.
-- **t-610052** (`low`, `repro`) — `trace_field_to_render` answers `found:1 renderedBy:0` for a
-  non-property. Reproduced — and excluded by the exit rule above, not by the evidentiary bar: its op's
-  `notes` now disclose the missing kind gate, so what an agent reads today is qualified.
+- **t-610052** (`medium`, `repro`) — `trace_field_to_render` answers `found:1 renderedBy:0` for a
+  non-property. Reproduced; excluded by the exit rule above, not by the evidentiary bar.
 
 **Membership is not derivable from `evidence`, and must not be read off it.** t-288409 is a member at
 `evidence: reported`; t-610052 is a candidate at `evidence: repro`. The field records how well the
@@ -132,21 +140,23 @@ codemaster's own surface produced or permitted it. t-288409 qualifies as the lim
 invariant needs: no op reaches string-literal config identity at all, so "is `OPENAI_BASE_URL`
 referenced anywhere?" is an absence nothing establishes.
 
-**Promotion criterion.** Reproduce the item on current `main` and show the answer STILL reads as a
-proven absence — a `0` / `found:0` / "not among" an agent would act on, with nothing in the response
-qualifying it. The second half is doing real work, not decoration: t-610052 is reproduced, but its
-op's `notes` now DISCLOSE the gap (§3.6, the honest stopgap), so what an agent reads today is a
-qualified answer, not a bare absence. A shipped disclosure is exactly what takes an item OUT of this
-epic — the epic is about absences that carry nothing, so an absence that now carries its scope has
-been answered, not deferred.
+**Promotion criterion.** Reproduce the item on current `main` and show the answer still reads as a bare
+absence (the exit rule above says when it no longer does).
 
-So the four split two ways, and the split is the useful part: three are unreproduced, and one is
-reproduced but already disclosed. `reported` is not what disqualifies any of them — t-288409 is a member
-at `reported`.
+**Why that does not contradict the rule above.** A repro is required wherever an op EXISTS to reproduce
+against — which is every candidate here. t-288409 is exempt because there is nothing to run: no op
+reaches string-literal config identity, so a repro is vacuous rather than merely missing, and demanding
+one would be demanding evidence the tool cannot produce. So `evidence` still does not decide membership;
+what decides it is whether the absence is load-bearing and reachable by some op, and a repro is how that
+is SHOWN when an op exists.
+
+The four split two ways: three are unreproduced against ops that could reproduce them, and t-610052 is
+reproduced but retired by the exit rule.
 
 ## The fifth `relates` edge — t-561552 is excluded by scope, not by weight
 
-**t-561552** (`name+file` reports a FALSE absence for a symbol the file plainly declares) is linked but
+**t-561552** (a FALSE absence for a symbol that is declared — the message its title names is fixed; the
+unhedged case that survives is `resolveByName`'s flat `no symbol named 'ns'`) is linked but
 is NOT a member, and the reason is the epic's own scoping: every case here is one where **the number is
 TRUE** and only its READING misleads. t-561552's answer is wrong outright — a different and heavier
 defect class, since no amount of disclosing WHAT WAS SEARCHED repairs an answer that is false about what
