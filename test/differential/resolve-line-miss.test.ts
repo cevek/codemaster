@@ -47,9 +47,9 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
   const p: TestProject = await project({
     'tsconfig.json': '{"compilerOptions":{"strict":true}}',
     'src/d.ts':
-      'export const obj = { a: 1, b: 2 };\n' + // line 1
+      'export const obj = { a: 1, b: 2, render(): number { return 1; } };\n' + // line 1
       'export const { a, b } = obj;\n' + // line 2: declares a + b, not anchorable
-      'export const sum = a + b;\n', // line 3
+      'export const sum = a + b + obj.render();\n', // line 3
   });
   try {
     const msg = failMsg(await p.op('find_usages', { file: 'src/d.ts', line: 2 }));
@@ -81,20 +81,31 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     );
     assert.match(nameOutside, /drop 'line'/, 'the reaching remedy survives the out-of-range arm');
 
-    // …and it is NOT offered for a name this file does not declare top-level: the message states
-    // that fact instead of naming a call that would only fail again.
-    const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
-    assert.ok(!/drop 'line'/.test(noSuch), `no remedy that cannot land: ${noSuch}`);
-    assert.match(noSuch, /does not reach it either/, 'states what the resolver cannot do instead');
-    const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
-    assert.match(proof, /no top-level declaration named 'zzz'/, 'and that claim is true');
+    // The offer is NOT gated on a probe of whether it would land, and these two shapes are why.
+    // (1) A MEMBER: the top-level walk does not see `render`, but `find_usages` retries a
+    // name+file miss through its member fallback — a probe here would withhold a call that
+    // resolves. Asserted by running it.
+    const member = failMsg(
+      await p.op('find_usages', { name: 'render', file: 'src/d.ts', line: 2 }),
+    );
+    assert.match(member, /drop 'line'/, 'the offer survives for a name the top-level walk misses');
+    const viaMember = defId(await p.op('find_usages', { name: 'render', file: 'src/d.ts' }));
+    assert.match(viaMember, /render@src\/d\.ts:/, 'because the advised call does resolve it');
 
-    // The claim is about THIS RESOLVER, never about the source: `a` IS declared top-level here
-    // (a binding pattern), which the top-level walk skips — so the message must not say the file
-    // declares no top-level 'a'. The column, which does reach it, is still offered.
+    // (2) A top-level BINDING PATTERN: `a` is declared top-level, but that same walk skips it —
+    // so a probe's negative would have been a false claim about the source. No arm may say the
+    // file declares no such symbol.
     const pattern = failMsg(await p.op('find_usages', { name: 'a', file: 'src/d.ts', line: 1 }));
     assert.ok(!/declares no top-level/.test(pattern), `no false claim about source: ${pattern}`);
-    assert.match(pattern, /pass file:line:col/, 'and the addressing that does reach it is named');
+    assert.ok(!/does not reach it/.test(pattern), `and no false dead-end: ${pattern}`);
+    assert.match(pattern, /pass file:line:col/, 'the addressing that does reach it is named');
+
+    // A name nothing in the file declares still gets the offer — the OP then fails with its own
+    // honest message, which is the cheap error; withholding a working call is the expensive one.
+    const noSuch = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts', line: 2 }));
+    assert.match(noSuch, /drop 'line'/, 'offered without a promise about the outcome');
+    const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
+    assert.match(proof, /'zzz'/, 'and the op that cannot land it says so itself, naming the name');
   } finally {
     await p.dispose();
   }

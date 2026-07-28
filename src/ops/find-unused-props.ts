@@ -136,7 +136,10 @@ export const findUnusedPropsOp = defineOp({
         notes.push(
           view.hiddenExternal > 0
             ? `${capped !== undefined ? '≥' : ''}${view.hiddenExternal} unused prop(s) hidden by this view — declared outside the repo's own source (node_modules / outside the root); includeExternal:true lists them${capped !== undefined ? ' (it does NOT recover the capped members above)' : ''}`
-            : `0 unused props hidden by this view (every member the cap left is repo-declared) — but members past the cap were never classified, so this zero is a floor and includeExternal:true would add nothing`,
+            : // NOT "every surviving member is repo-declared": a PASSED member never reaches the
+              // provenance filter, so an external-but-used one can sit in the surviving set. All
+              // this zero knows is that no external member the cap left is UNUSED.
+              `0 unused props hidden by this view (no external member the cap left is unused) — but members past the cap were never classified, so this zero is a floor and includeExternal:true would add nothing to the list`,
         );
       }
       if (view.undetermined !== undefined) {

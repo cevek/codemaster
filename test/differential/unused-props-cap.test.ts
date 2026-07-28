@@ -114,9 +114,20 @@ test('cap BITES with NOTHING hidden: zero is still reported, and still marked a 
     assert.equal(d['hiddenExternal'], 0, 'the count is reported even at zero under a cap');
     assert.equal(d['hiddenExternalIsLowerBound'], true, 'because unseen members were never judged');
     assert.equal(d['demoted'], true);
+    const notes = d['notes'] as string[];
     assert.ok(
-      !(d['notes'] as string[]).some((n) => n.includes('includeExternal:true lists them')),
+      !notes.some((n) => n.includes('includeExternal:true lists them')),
       'and no remedy is named that would list nothing',
+    );
+    // Pinned in BOTH directions: deleting the zero-case note entirely must fail here, not pass
+    // because only the old string's ABSENCE was asserted.
+    assert.ok(
+      notes.some((n) => n.includes('0 unused props hidden') && n.includes('floor')),
+      'the zero states itself AND that it is a floor',
+    );
+    assert.ok(
+      !notes.some((n) => n.includes('every member the cap left is repo-declared')),
+      'and claims only what a zero knows — a PASSED external member never reached the filter',
     );
   } finally {
     await p.dispose();

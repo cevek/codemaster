@@ -4,7 +4,6 @@
 
 import type ts from 'typescript';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
-import { topLevelDeclarationsNamed } from './declarations-on-line.ts';
 
 /** Declarations named in a miss / pick-list message before `+N more` (§3.4) — a generated or
  *  minified line can hold hundreds. */
@@ -18,8 +17,8 @@ export const LINE_DECL_PREVIEW = 8;
  *     pattern declares symbols this resolver cannot anchor), and a column still reaches a symbol
  *     USED there — hedged, since a blank/comment line holds none.
  *  With `name` given it never re-offers a bare `name` (the state the call is already in, t-175046)
- *  but does offer `name`+`file` WITHOUT `line`, which is a different addressing and the one that
- *  reaches a top-level declaration elsewhere in the file. */
+ *  but does offer `name`+`file` WITHOUT `line` — a different addressing, and the one that reaches
+ *  a declaration elsewhere in the file. */
 export function lineMissMessage(
   sourceFile: ts.SourceFile,
   file: string,
@@ -32,11 +31,9 @@ export function lineMissMessage(
   // one. The bound is used for the branch, not quoted as a fact.
   const outside = line < 1 || line > sourceFile.getLineStarts().length;
   const head = `no declaration${name !== undefined ? ` named '${name}'` : ''} on ${file}:${line}`;
-  // The line-independent alternative, offered on EVERY arm (an out-of-range line is exactly where
-  // the caller most needs it) — and only when it can actually reach the target: `name`+`file`
-  // walks top-level statements, so for a name this file does not declare there, the honest thing
-  // is the FACT, not the call.
-  const alt = altAddressing(sourceFile, file, name);
+  // The line-independent alternative, offered on EVERY arm — an out-of-range line is exactly
+  // where the caller most needs it (see `altAddressing` for why it is never gated on a probe).
+  const alt = altAddressing(name);
   if (outside) {
     // "outside", not "past the end": the same branch guards a non-positive line (unreachable
     // through the op boundary, which validates a positive int, but this is a plugin-level entry
@@ -56,18 +53,16 @@ export function lineMissMessage(
 
 /** The remedy that does not depend on the line at all. With no `name`, that IS `name` (the
  *  addressing the caller has not spent). With one, it is `name`+`file` WITHOUT `line` — a
- *  DIFFERENT addressing from the bare `name` t-175046 bans re-offering — but only where that
- *  path can land: it is probed with the SAME walk `resolveNameInFile` uses, so the offer is made
- *  exactly when the advised call would resolve, and never as a wasted round-trip.
+ *  DIFFERENT addressing from the bare `name` t-175046 bans re-offering.
  *
- *  The negative arm says what the RESOLVER cannot reach, never what the file declares: that walk
- *  skips a top-level binding pattern (`export const { a } = obj`), so "the file declares no
- *  top-level 'a'" would be false about source that plainly declares it — the same lie shape this
- *  message family already had to unlearn once. */
-function altAddressing(sourceFile: ts.SourceFile, file: string, name: string | undefined): string {
-  if (name === undefined) return ` or a 'name'`;
-  if (topLevelDeclarationsNamed(sourceFile, name).length > 0) {
-    return `, or drop 'line' (name+file resolves the file's TOP-LEVEL declaration of that name)`;
-  }
-  return `; name+file does not reach it either — no anchorable top-level '${name}' in ${file}: check the name, or search it repo-wide`;
+ *  It is offered UNCONDITIONALLY, and names the addressing without promising a result. Probing
+ *  whether it would land was tried and is wrong in both directions: this module cannot see the
+ *  CALLER's resolution chain (`find_usages` retries a `name`+`file` miss through its member /
+ *  re-export fallback, so the probe withheld a call that resolves), and the only probe available
+ *  here — the top-level statement walk — misses a top-level binding pattern / namespace import,
+ *  so its negative would be a false claim about the file. An op that cannot land it fails with
+ *  its OWN honest message; a wasted round-trip is the cheap error, a withheld working call and a
+ *  false absence are the expensive ones. */
+function altAddressing(name: string | undefined): string {
+  return name === undefined ? ` or a 'name'` : `, or drop 'line' and address by name+file`;
 }
