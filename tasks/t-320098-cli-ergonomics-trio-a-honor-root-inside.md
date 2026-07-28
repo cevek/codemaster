@@ -29,3 +29,14 @@ Three CLI self-dev papercuts (the dogfood loop CONTRIBUTING.md points to), all o
 (c) **flag-before-subcommand dumps generic usage.** `node src/bin.ts --root /path op search_symbol '{…}'` prints the full generic usage banner with no hint of what's wrong. Either accept `--root` in either position, or emit a pointed "put --root after the op args". (line 313)
 
 Inbox source: 2026-07-07 / 2026-07-14 (lines 67 / 74 / 313).
+
+## (a) закрывается t-848858
+
+Пункт (a) — «`root` внутри args-JSON отбивается на CLI» — это тот же дефект, что [[t-848858]]: `root`
+лежит в `OP_TOOL_RESERVED_KEYS` (`mcp/op-tools.ts`), но не в `OP_FLAG_KEYS` (`ops/contracts.ts`), который
+и есть то, что §7-интейк поднимает из `args` в запрос. Одна правка (`root` → `OP_FLAG_KEYS`) закрывает
+обе задачи. Форму — слить или оставить двумя — решает тот, кто возьмёт; факт зафиксирован здесь, чтобы
+не чинилось дважды.
+
+Пункты (b) `--format json` / `--debug` и (c) флаг-до-сабкоманды остаются собственными: (b) пересекается с
+[[t-198617]] (у `--debug` на CLI вообще нет флага), (c) чисто argv-гигиена CLI.

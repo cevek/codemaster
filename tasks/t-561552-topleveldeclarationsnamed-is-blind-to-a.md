@@ -2,7 +2,7 @@
 id: t-561552
 title: topLevelDeclarationsNamed is blind to a top-level binding pattern / namespace import-export, so name+file reports a false absence for a symbol the file plainly declares
 status: backlog
-priority: medium
+priority: high
 tags:
   - dogfood
   - honesty

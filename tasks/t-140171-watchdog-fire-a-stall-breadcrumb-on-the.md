@@ -15,13 +15,40 @@ surface:
   - daemon
   - support
 audience: internal
-evidence: reported
+evidence: repro
 created: '2026-07-17T00:23:07.399Z'
 ---
-**Fold-in split out of t-095661** (the two watchdog backstops shipped; this is the deferred third fold-in). t-095661's body asks: "fire the stall breadcrumb on the §19 cancellable-deadline path too (the more common partial-stall leaves a diagnostic)."
+Split out of t-095661, whose two watchdog backstops shipped; this is the third fold-in it names:
+"fire the stall breadcrumb on the §19 cancellable-deadline path too (the more common partial-stall
+leaves a diagnostic)."
 
-**Why deferred, not done:** the §19 `HostCancellationToken` deadline path (TS checker/search ops → `ToolFailure{tool:'timeout', partial}`) is NOT YET IMPLEMENTED — grep for `getCancellationToken`/`CancellationToken` in `src/` is empty. There is no deadline-firing site to wire a stall record into today except the `support/fs/walk.ts` wall-clock deadline, which already returns an honest `partial{timeout}` (a bounded, self-terminating path — low diagnostic value, and coupling `support/fs` → `support/watchdog` is a cross-support smell).
+## Present state — both ends exist, the join does not
 
-**When to do:** when the `HostCancellationToken` deadline path lands (its own roadmap item), have its overrun handler call `writeStallRecord(stallDir, {reason:'deadline', op:<breadcrumb>, …})` from `src/support/watchdog/stall-dir.ts` (already built + exported, `reason:'deadline'` variant already in the `StallRecord` union) so a partial stall leaves the same `~/.codemaster/stalls/<ts>.json` diagnostic a full wedge does — WITHOUT killing (a deadline is honest termination, not a wedge). The breadcrumb is already stamped by `beacon.measure` around `runOne`, so the op label is available.
+The §19 cooperative deadline is wired: `src/plugins/ts/cancellation.ts` holds the shared
+`HostCancellationToken` predicate the programs poll (`ls-host.ts`, `program/single.ts`); on overrun
+it raises `DeadlineExceededError`, which the op turns into `ToolFailure{tool:'timeout'}`. Multi-call
+ops poll `deadline.expired()` at loop boundaries and return `partial` instead.
 
-Scope: tiny — one call site + a way to read the current beacon breadcrumb from the deadline handler. No new module.
+The sink is built: `support/watchdog/stall-dir.ts` exports `writeStallRecord`, and `StallRecord.reason`
+already carries the `'deadline'` variant beside `'wedge'` / `'orphan'`.
+
+Missing is only the connection between them. No deadline-overrun site writes a stall record, so a
+partial stall leaves nothing in `~/.codemaster/stalls/`, while a full wedge leaves the breadcrumb that
+says WHAT was running.
+
+## The one design point
+
+`support/watchdog/beacon.ts` exposes `measure()` and publishes the oldest live crumb into the
+SharedArrayBuffer — it has **no read accessor**. The wedge reaper reads that buffer from its worker
+thread; a same-thread deadline handler cannot. So this needs either a small `beacon.current()` or the
+crumb threaded down to the overrun site. `beacon.measure` already stamps the op label around `runOne`,
+so the label itself is available either way.
+
+## Scope
+
+One call site plus that accessor. No new module, and no kill — a deadline is honest termination, not a
+wedge, so the record is a diagnostic only.
+
+Deliberately NOT wired to `support/fs/walk.ts`'s own wall-clock deadline: it is a bounded,
+self-terminating path with low diagnostic value, and `support/fs` → `support/watchdog` is a
+cross-support edge.

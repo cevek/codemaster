@@ -2,7 +2,7 @@
 id: t-000162
 title: typecheck.preExisting` count is non-deterministic across identical runs
 status: backlog
-priority: medium
+priority: high
 type: bug
 complexity: M
 area: correctness

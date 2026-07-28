@@ -2,7 +2,7 @@
 id: t-946708
 title: "`fail()` silently drops a producer's `partial: true` — three process-host sites intend a partial and ship `partial: false`, with no type or lint signal"
 status: backlog
-priority: medium
+priority: low
 tags:
   - dogfood
   - platform
