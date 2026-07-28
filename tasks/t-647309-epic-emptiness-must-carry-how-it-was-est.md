@@ -74,6 +74,11 @@ gate, so it sits at `relates` rather than `parent`.
 Apply this before admitting any new candidate — a repro alone does not qualify one, and re-deriving
 this each time is how a member set drifts.
 
+One limit on that, or the rule over-closes: a disclosure retires an item at the level of ONE producer.
+It says nothing about how many independent floors are active in a single answer — see "Floors do not
+COMPOSE" below, which is this same invariant at the level of a whole answer. Every producer disclosing
+its own scope does NOT empty this epic.
+
 ## Cheapest way to find the rest
 
 From worker cb8fedab, having found the third instance in a neighbouring op while fixing its own:
@@ -105,11 +110,20 @@ active floors, not a boolean per producer.
 
 ## Candidates — same shape, linked by `relates`, not `parent`
 
-Four tasks describe the same shape and are attached by `relates`: **t-000010** and **t-000011**
-(`find_unused_exports` — a vacuous-filter warning that fires only when the filter is FULLY vacuous; a
-false-clean on a broken program), **t-000041** (`trace_type_widening` non-modeled-flow caveat), and
-**t-610052** (`trace_field_to_render` answering `found:1 renderedBy:0` for a target that is not a
-property).
+Four tasks describe the same shape and are attached by `relates`. Each fails the bar below for its OWN
+reason — read them separately; none of them is merely a "weaker report":
+
+- **t-000010** (`low`, `reported`) — `find_unused_exports` warns only when a filter is FULLY vacuous, so a
+  partly-mistyped `pathInclude` scans a partial scope silently. Not reproduced.
+- **t-000011** (`high`, `reported`) — `find_unused_exports` reads `unused(0) / scanned 0 files` on a broken
+  program with no warning: the verdict an agent DELETES code on, which is why it is ranked `high` while
+  sitting outside the member set. Not reproduced (it needs a program-load failure).
+- **t-000041** (`low`, `reported`) — `trace_type_widening` traces 4 relations, so flow through a
+  property-assign / spread / template is silently untraced and `0 widenings` reads as "widens nowhere".
+  Not reproduced.
+- **t-610052** (`low`, `repro`) — `trace_field_to_render` answers `found:1 renderedBy:0` for a
+  non-property. Reproduced — and excluded by the exit rule above, not by the evidentiary bar: its op's
+  `notes` now disclose the missing kind gate, so what an agent reads today is qualified.
 
 **Membership is not derivable from `evidence`, and must not be read off it.** t-288409 is a member at
 `evidence: reported`; t-610052 is a candidate at `evidence: repro`. The field records how well the
@@ -126,10 +140,9 @@ qualified answer, not a bare absence. A shipped disclosure is exactly what takes
 epic — the epic is about absences that carry nothing, so an absence that now carries its scope has
 been answered, not deferred.
 
-That is why these four sit at `relates`: not because `reported` disqualifies — t-288409 is a member at
-`reported` — but because the shown-on-`main` test has not been run for them. t-000010 / t-000011 /
-t-000041 have not been reproduced at all; t-610052 has, and its answer no longer reads as bare.
-Run that test and the edge becomes `parent`.
+So the four split two ways, and the split is the useful part: three are unreproduced, and one is
+reproduced but already disclosed. `reported` is not what disqualifies any of them — t-288409 is a member
+at `reported`.
 
 ## The fifth `relates` edge — t-561552 is excluded by scope, not by weight
 
