@@ -1,7 +1,7 @@
 ---
 id: t-631032
 title: "The self-dev loop cannot run the recipe it documents: `batch`/`sql` are MCP-only, the MCP daemon is a machine-global singleton serving pre-edit code, and `daemon restart` is an action on other agents' warm LS"
-status: in-progress
+status: done
 priority: high
 tags:
   - agent-surface

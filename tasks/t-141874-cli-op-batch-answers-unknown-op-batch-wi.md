@@ -1,7 +1,7 @@
 ---
 id: t-141874
 title: CLI `op batch` answers `unknown op 'batch'` with a list of known ops — true about that surface, false about the tool, which is the §3.6 shape the project catches elsewhere
-status: in-progress
+status: done
 priority: low
 tags:
   - agent-surface
