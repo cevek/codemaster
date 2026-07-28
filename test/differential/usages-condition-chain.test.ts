@@ -23,6 +23,13 @@ test('oracle 1 (fixture): every site carries the chain it was written under, pol
   const { rows, dispose } = await opChains();
   try {
     const expected = expectedByLine();
+    // Guard the guard (the runtime oracle's lesson applied here): if the case filter stops matching —
+    // a renamed `F`, a new call shape, a reference in type position — the loop below becomes empty and
+    // this test passes having asserted NOTHING. The floor is what makes that a failure instead.
+    assert.ok(
+      expected.size >= 45,
+      `case table shrank to ${expected.size} — the oracle went silent`,
+    );
     for (const [line, c] of expected) {
       const row = rows.find((x) => x.line === line);
       assert.ok(row !== undefined, `no usage reported on line ${line}: ${c.code}`);

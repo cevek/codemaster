@@ -8,6 +8,10 @@
 //      condition over a local would not be evaluable.
 //   2. No site's guard reads state an EARLIER site mutates (hence the separate `w`/`z` props), and
 //      there is no early `return`/`throw`, so "empty chain" and "always fired" must coincide.
+//   3. No site may sit in an expression that can THROW before reaching it (e.g. `(o.m?.g).call(null,
+//      F())` when `o.m` is nullish). Such a site has an honestly EMPTY chain — the throw is outside
+//      this annotation's scope — but the `⟺` assertion would read the non-call as a wrong chain, and
+//      the "obvious" repair is to invent a guard. Those shapes belong in `condition-cases.ts` only.
 
 /** Call recorder — `sites()` pushes each site id it actually reaches. */
 export const fired: number[] = [];

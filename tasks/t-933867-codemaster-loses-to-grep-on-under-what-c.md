@@ -136,3 +136,25 @@ the `!` step-through, dropping the argument-position narrowing, or stepping thro
 fails at least one oracle (verified by running the mutations). The optional-chain rules are pinned by
 EXECUTION; the `!` step-through only by the fixture table and the descent oracle, because a runtime
 site exercising it throws and would abort the fixture run — an honest limit, not a covered case.
+
+### Correction to the pinning claim above
+
+The weakest pin is NOT the `!` step-through. Two rounds of re-verify found the pinning claim
+overstated twice, so the accurate state is:
+
+- **leftmost-vs-nearest link** — pinned by all three oracles, including EXECUTION.
+- **`!` step-through** — fixture table + descent oracle. A runtime site exercising it throws, so
+  execution cannot host it.
+- **parenthesis-terminates-the-chain** — fixture table (one case: `(o.m?.g).call(null, F())`) +
+  descent. Same reason.
+- **argument-position narrowing** (a TYPE argument gets no runtime guard) — fixture table + descent.
+  It was pinned by the descent oracle ALONE until the fixture's own case filter was fixed: it matched
+  the literal `F()`, so the two `<typeof F>` cases written to pin this rule were silently dropped from
+  the oracle while the suite stayed green. The filter now matches a word-boundary `F`, and both
+  oracle-1 and the runtime oracle assert a SIZE floor so a filter that stops matching fails loudly
+  instead of asserting nothing.
+
+The general lesson, which cost three rounds: **a test that reads as protection can be decoration.**
+Every guard here now has a second assertion that the guard itself is still live — a size floor beside
+each derived count — because "the suite is green" was true in all three cases where a rule was
+unchecked.

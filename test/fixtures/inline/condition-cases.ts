@@ -112,11 +112,16 @@ export const FILES = {
   [SITE_FILE]: SITE_SRC,
 };
 
-/** Expected chain per 1-based line of the fixture (line 1 is the import). */
+/** Expected chain per 1-based line of the fixture (line 1 is the import).
+ *
+ *  Matches any WORD-boundary `F`, not the literal `F()`: a reference in TYPE position reads
+ *  `<typeof F>` and an `F()`-only filter dropped those cases from the oracle silently — leaving the
+ *  argument-position rule they exist to pin unchecked while the suite stayed green. A filter that can
+ *  quietly shrink the oracle is worse than no filter, so callers also assert the resulting SIZE. */
 export function expectedByLine(): Map<number, Case> {
   const m = new Map<number, Case>();
   CASES.forEach((c, i) => {
-    if (c.code.includes('F()')) m.set(i + 2, c);
+    if (/\bF\b/.test(c.code)) m.set(i + 2, c);
   });
   return m;
 }
