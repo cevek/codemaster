@@ -1,7 +1,7 @@
 ---
 id: t-933867
 title: codemaster loses to grep on "under WHAT CONDITION is F called" — find_usages answers with sites, not guards; and ABSENCE of a call (which ops lack F) is unanswerable without an sql-joinable op-registry × call-sites producer
-status: backlog
+status: in-progress
 priority: high
 tags:
   - agent-surface
