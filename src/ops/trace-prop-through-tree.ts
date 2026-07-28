@@ -66,9 +66,12 @@ export const tracePropThroughTreeOp = defineOp({
     }
     try {
       const root = react.classify(targetOf(args));
-      if (typeof root === 'string') {
-        return ok({ prop: args.prop, found: 0, notes: [root], hops: [] });
-      }
+      // The target did NOT resolve — a "couldn't", which must reach the agent as one (§3.6). An
+      // `ok{found:0}` here is the same shape as "this prop is forwarded nowhere", so an agent
+      // cannot tell a failed lookup from a proven absence and may act on the second. The
+      // classification arms below are different: there the target DID resolve and `found:0` states
+      // a fact the op established (it is a hook / not a component).
+      if (typeof root === 'string') return fail({ tool: 'ts-ls', message: root });
       if (root.kind !== 'component') {
         return ok({
           prop: args.prop,

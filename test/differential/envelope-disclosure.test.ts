@@ -219,6 +219,51 @@ test('within one batch a disclosure stays on its own request — the ledger is p
   }
 });
 
+// The disclosure covers a resolution that SUCCEEDED off a cut page. When the cut hid the name
+// ENTIRELY the resolver fails instead — honestly, "could not determine whether 'X' exists" — and
+// that failure must reach the agent AS a failure. An op that converts it into `ok{found:0}` makes
+// "we could not find out" wear the shape of "nothing renders this field", which is not an incomplete
+// answer but a positive claim about the repo that nothing established (§3.6); an agent acting on it
+// deletes live code.
+test('a name the cut page hid ENTIRELY fails — a couldn-t is never laundered into a proven absence', async () => {
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({ dependencies: { react: '18' } }),
+    'tsconfig.json': '{"compilerOptions":{"strict":true,"jsx":"react-jsx","module":"preserve"}}',
+    'src/types.ts': 'export interface User { Email: string }\n',
+    'src/Card.tsx':
+      "import type { User } from './types';\n" +
+      'export const Card = (props: { user: User }) => <span>{props.user.Email}</span>;\n',
+  };
+  // 300 lowercase `email` against one `Email`: past the page budget the exact name never reaches
+  // the page at all, so the resolver cannot say whether it exists.
+  for (let i = 0; i < 300; i++) files[`src/f${i}.ts`] = `export const email = ${i};\n`;
+  const p: TestProject = await project(files);
+  try {
+    // Precondition: the field DOES exist and IS rendered — so a `found:0` answer would be false,
+    // not merely unhelpful. Proven independently of the name path, by position.
+    const byLoc = await p.op('trace_field_to_render', { field: 'src/types.ts:1:26' });
+    assert.ok('result' in byLoc && byLoc.result.ok, JSON.stringify(byLoc));
+    assert.equal(
+      (byLoc.result.data as { renderedBy?: number }).renderedBy,
+      1,
+      'precondition: addressed by position, the field resolves and Card renders it',
+    );
+
+    const byName = await p.op('trace_field_to_render', { field: 'Email' });
+    assert.ok(
+      'result' in byName && !byName.result.ok,
+      `the name the page hid must FAIL, not answer found:0: ${JSON.stringify(byName)}`,
+    );
+    assert.match(
+      byName.result.failure.message,
+      /could not determine|result cap/,
+      `and the failure says it could not, not that nothing matched: ${byName.result.failure.message}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
 // A `sql` join assembles a NEW envelope over its producers' results, so it is a second envelope
 // factory — and the one place a dropped claim does the most damage: producers run UNCAPPED
 // precisely so a `NOT IN` can be trusted, and a relation built on a possibly-mis-picked target is

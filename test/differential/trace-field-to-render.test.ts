@@ -116,7 +116,7 @@ test('field→render: counts host renderers only; value-pass / destructure / com
   }
 });
 
-test('field→render: unresolved/ambiguous field is an honest found:0, never a faked trace', async () => {
+test('field→render: an unresolved/ambiguous field FAILS — a miss never wears the shape of a proven absence', async () => {
   const p = await project({
     'package.json': PKG,
     'tsconfig.json': TSCONFIG,
@@ -124,12 +124,18 @@ test('field→render: unresolved/ambiguous field is an honest found:0, never a f
       'export interface User { email: string }\nexport interface Org { email: string }\n',
   });
   try {
-    // bare `email` is shared by two types → ambiguous → honest miss (no guessed pick).
+    // bare `email` is shared by two types → ambiguous → no guessed pick. The op must not answer at
+    // all: `ok{found:0, renderedBy:0}` is byte-identical to the answer for a field that resolved and
+    // is rendered nowhere, so an agent reading it would take "we could not determine" for "this
+    // field reaches no screen" — a positive claim about the repo nothing proved (§3.6). A FAIL is
+    // the honest shape; the ONLY thing that may carry found:0 is a trace that actually ran.
     const r = await p.op('trace_field_to_render', { field: 'email' });
-    const d = data(r);
-    assert.equal(d['found'], 0, 'ambiguous name does not resolve');
-    assert.equal(d['renderedBy'], 0, 'no render claimed on a miss');
-    assert.equal((d['hops'] as JsonValue[] | undefined)?.length ?? 0, 0, 'no faked hops');
+    assert.ok('result' in r && !r.result.ok, `an unresolved field must FAIL: ${JSON.stringify(r)}`);
+    assert.match(
+      r.result.failure.message,
+      /ambiguous|email/,
+      `and the failure names why it could not resolve: ${r.result.failure.message}`,
+    );
   } finally {
     await p.dispose();
   }

@@ -44,7 +44,7 @@ export const traceFieldToRenderOp = defineOp({
   example: { args: { field: 'src/types.ts:1:25' } },
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (the member reference scan fans across every program and would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
-    'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous; a name shared by several types is an honest miss → address by loc/SymbolId). 0 matches → found:0, never a faked trace.',
+    'field addresses the PROPERTY declaration — a SymbolId, a `path:line:col`, or a bare property name (resolved only when unambiguous). A target that does NOT resolve (absent, ambiguous, or not a property) is a FAIL naming why — never an ok{found:0}, which would be indistinguishable from a field that resolved and is rendered nowhere. found:0 means the trace ran and proved no render.',
     'renderedBy counts the components that render the field in a HOST element (`<span>{u.email}</span>`). A read inside a VALUE element (`<Avatar email={u.email}/>`) is passed-to (partial) — the child decides the render, so it is NOT counted; follow it with trace_prop_through_tree.',
     'every hop carries per-hop confidence + provenance (rendered-in = type/LS member ref; passed-to/destructured = syntactic). A destructure binding, a host-attribute bind, or a wrapped/indirect component is flagged on its hop, never silently treated as a clean render.',
     'renderedBy is a lower bound — destructured/dynamic/spread reads are invisible to member-level references and are floored (an honest standing note), never counted as a proven render.',
@@ -61,11 +61,24 @@ export const traceFieldToRenderOp = defineOp({
     try {
       const target = targetFields(classifyTargetString(args.field)) as TsTargetInput;
 
+      // A target that did not resolve is a "couldn't", and it must reach the agent AS one (§3.6).
+      // Returning `ok{found:0, renderedBy:0}` here would make the shape of "we could not find out"
+      // identical to the shape of "this field is rendered nowhere" — and an agent acting on the
+      // second deletes code. That is worse than an incomplete answer: it is a positive claim about
+      // the repo that nothing established. `found:0` stays reserved for a field that DID resolve
+      // and genuinely has no render sites, which is a fact the trace actually proved.
       const def = ts.findDefinition(target);
-      if (typeof def === 'string') return ok(notFound(args.field, def));
-      if (!('views' in def)) return ok(notFound(args.field, def.unresolved));
+      if (typeof def === 'string') return fail({ tool: 'ts-ls', message: def });
+      if (!('views' in def)) {
+        return fail({ tool: 'ts-ls', message: def.unresolved }, { handle: def.rebind });
+      }
       const fieldView = def.views[0];
-      if (fieldView === undefined) return ok(notFound(args.field, 'no declaration at the target'));
+      if (fieldView === undefined) {
+        return fail({
+          tool: 'ts-ls',
+          message: `no declaration at the target '${args.field}' — address the property by SymbolId or file:line:col`,
+        });
+      }
       const label =
         fieldView.container !== undefined
           ? `${fieldView.container}.${fieldView.name}`
@@ -73,8 +86,10 @@ export const traceFieldToRenderOp = defineOp({
       const fieldNode = makeNode({ kind: 'field', label, span: fieldView.span, id: fieldView.id });
 
       const sitesOut = ts.fieldRenderSites(target);
-      if (typeof sitesOut === 'string') return ok(notFound(args.field, sitesOut));
-      if (!('view' in sitesOut)) return ok(notFound(args.field, sitesOut.unresolved));
+      if (typeof sitesOut === 'string') return fail({ tool: 'ts-ls', message: sitesOut });
+      if (!('view' in sitesOut)) {
+        return fail({ tool: 'ts-ls', message: sitesOut.unresolved }, { handle: sitesOut.rebind });
+      }
 
       const walked = buildFieldRenderTrace(fieldNode, sitesOut.view, react);
       const notes = [...walked.notes, FLOOR_NOTE];
@@ -97,13 +112,3 @@ export const traceFieldToRenderOp = defineOp({
     }
   },
 });
-
-/** An honest empty answer: the field did not resolve (absent, ambiguous, or not a property). */
-function notFound(field: string, why: string): Record<string, JsonValue> {
-  return {
-    field,
-    found: 0,
-    renderedBy: 0,
-    notes: [`no field matched '${field}' — ${why}`],
-  };
-}

@@ -1,7 +1,7 @@
 ---
 id: t-439939
 title: trace_field_to_render launders a could-not-determine resolution into ok{found:0}, which reads as a proven absence
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
