@@ -34,7 +34,12 @@ function sectionBody(
 /** Join `[i] name` sections under a byte budget, cutting only at WHOLE-section boundaries so every
  *  section that survives is complete WITH its own honesty tail (§12 / t-287999) — never a mid-section
  *  cut that drops a `freshness`/`truncation` channel. The first section is always kept (a lone
- *  over-budget section is then bounded by the MCP seam backstop); omitted sections are disclosed. */
+ *  over-budget section is then bounded by the MCP seam backstop); omitted sections are disclosed.
+ *
+ *  The marker states CODEMASTER's own aggregate bound, not the harness ceiling that motivated its
+ *  value. Both front doors render through here, and a one-shot CLI has no harness ceiling — naming
+ *  one there would justify a real cut with a constraint that does not exist on that transport
+ *  (§3.6). The remedy is what the agent needs either way, and it is unchanged. */
 function joinSectionsCapped(sections: readonly string[]): string {
   const kept: string[] = [];
   let bytes = 0;
@@ -43,7 +48,7 @@ function joinSectionsCapped(sections: readonly string[]): string {
     const add = (kept.length > 0 ? 2 : 0) + Buffer.byteLength(s, 'utf8');
     if (kept.length > 0 && bytes + add > AGGREGATE_BYTE_BUDGET) {
       kept.push(
-        `!! OUTPUT CAPPED — ${sections.length - i} more section(s) omitted to stay under the size ceiling; re-run them individually or narrow each. Sections shown are complete.`,
+        `!! OUTPUT CAPPED — ${sections.length - i} more section(s) omitted: the joined response passed codemaster's ${AGGREGATE_BYTE_BUDGET}-byte aggregate bound. Re-run them individually or narrow each. Sections shown are complete.`,
       );
       break;
     }

@@ -1,4 +1,7 @@
-// The CLI flag reader (src/cli/flags.ts). Oracle = the argv the caller wrote: after parsing, what
+// The CLI flag reader (src/cli/flags.ts) — the PURE half. (`test/e2e/cli-flags.test.ts` is the
+// separate subprocess-level seam test; different file, different level, similar name.)
+//
+// The CLI flag reader. Oracle = the argv the caller wrote: after parsing, what
 // the command runs on must be what was typed, or the command must refuse — never a third thing.
 //
 // The failure this pins is quiet by nature: `--sql --root /x` reading `--root` AS the sql text runs
@@ -16,7 +19,7 @@ test('a value-flag never consumes a following FLAG as its value', () => {
   // …and the root that would have been eaten is still readable.
   assert.equal(argValue(args, '--root'), '/x');
   // The leftover then reports the REAL cause, not "unrecognized" (t-141874's shape).
-  assert.match(flagIssue(args, ['--sql', '--root']) ?? '', /without a value/);
+  assert.match(flagIssue(args, { value: ['--sql', '--root'] }) ?? '', /without a value/);
 });
 
 test('both spellings parse and splice; an empty `--flag=` is refused, not read as absent', () => {
@@ -33,13 +36,40 @@ test('both spellings parse and splice; an empty `--flag=` is refused, not read a
   const empty = ['--format='];
   assert.equal(flagValue(empty, '--format'), undefined);
   assert.deepEqual(empty, ['--format=']);
-  assert.match(flagIssue(empty, ['--format']) ?? '', /without a value/);
+  assert.match(flagIssue(empty, { value: ['--format'] }) ?? '', /without a value/);
 });
 
-test('flagIssue separates the two causes, and is silent when nothing is stray', () => {
-  assert.equal(flagIssue(['positional'], ['--sql']), undefined);
-  assert.match(flagIssue(['--bogus'], ['--sql']) ?? '', /unrecognized flag\(s\): --bogus/);
-  assert.match(flagIssue(['--sql'], ['--sql']) ?? '', /without a value: --sql/);
+test('flagIssue names the CAUSE, not just the token — all three, including where they differ', () => {
+  const known = { value: ['--sql', '--format'], bool: ['--apply'] };
+  assert.equal(flagIssue(['positional'], known), undefined, 'nothing stray');
+  assert.match(flagIssue(['--bogus'], known) ?? '', /unrecognized flag\(s\): --bogus/);
+  assert.match(flagIssue(['--sql'], known) ?? '', /without a value: --sql/);
+
+  // The three the name-only split got positively WRONG. The duplicate cases are decided by what the
+  // reader OBSERVED it consumed, not by whether the next argv token happens to look like a value —
+  // the same residual token means different things depending on that, and only the reader knows.
+  const afterRead = { ...known, consumed: ['--format'] };
+  assert.match(
+    flagIssue(['--format', 'text'], afterRead) ?? '',
+    /more than once: --format/,
+    'a second `--format text` after the first was read — duplicated, not valueless',
+  );
+  assert.match(
+    flagIssue(['--format=text'], afterRead) ?? '',
+    /more than once: --format/,
+    'the `=` form carries its value plainly — never "without a value"',
+  );
+  assert.match(
+    flagIssue(['--apply'], known) ?? '',
+    /more than once: --apply/,
+    'a repeated BOOLEAN is recognized-and-duplicated, never "unrecognized"',
+  );
+  // …and the same token with NOTHING consumed is the other fact: the reader never got a value.
+  assert.match(
+    flagIssue(['--format'], known) ?? '',
+    /without a value: --format/,
+    'no copy was taken, so this one is missing its value — not a duplicate',
+  );
 });
 
 test('hasFlag splices; enumFlag distinguishes absent from out-of-enum', () => {

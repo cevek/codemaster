@@ -35,8 +35,13 @@ function runCli(args: string[]): Run {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-/** The `sql-absence-audit` fixture: a `defineOp` family where a/c call the guard, b/d do not, and
- *  e calls it only from a helper file — so the expected hole set is known by construction. */
+/** A REDUCED copy of `test/e2e/sql-absence-audit.test.ts`'s family: a/c call the guard, b/d do not,
+ *  so the hole set is `{b, d}` by construction. That file's `e`/`e-helper` pair (a member calling
+ *  the guard only from a helper, which the file-keyed join reports as a hole) is deliberately left
+ *  OUT — it pins the recipe's residual-error direction, which is that test's subject, not this
+ *  one's. This test asks only whether the CLI reaches the same answer as the in-process path, so it
+ *  keeps its own input rather than sharing a map whose expectations belong to another oracle (§16:
+ *  a fixture is input, never shared truth). Do not "restore the drift". */
 const OPS_FAMILY = {
   'tsconfig.json': '{"compilerOptions":{"strict":true}}',
   'src/reg.ts': `export function defineOp<T>(d: T): T { return d; }\nexport const guardCheck = (n: number): boolean => n > 0;\n`,
@@ -236,6 +241,74 @@ test("t-141874: `op batch` names the working form instead of answering 'unknown 
   assert.doesNotMatch(r.stderr, /unknown op/, 'batch is not unknown — it exists, elsewhere (§3.6)');
   assert.match(r.stderr, /not an op/, 'it says what batch IS');
   assert.match(r.stderr, /codemaster batch/, 'and names the form that works here');
+});
+
+test('a name that is genuinely NOT an op still reaches the honest catalogue — prototype keys too', async () => {
+  // The other half of t-141874, and the direction that is easy to break while fixing the first:
+  // the non-op map must not swallow names it does not own. A bare `MAP[name]` lookup on an object
+  // literal answers `constructor`/`toString`/`__proto__` from `Object.prototype` — a native-code
+  // string, on the WRONG exit code, in place of the dispatcher's own `unknown_op` + op list.
+  const p = await project(OPS_FAMILY);
+  try {
+    for (const name of ['no_such_op', 'constructor', 'toString', '__proto__']) {
+      const r = runCli(['op', name, '{}', '--root', p.root]);
+      const all = r.stdout + r.stderr;
+      assert.match(all, /unknown op/, `'${name}' reaches the honest rejection`);
+      assert.doesNotMatch(
+        all,
+        /native code|\[object Object\]/,
+        `'${name}' answers no prototype junk`,
+      );
+      assert.equal(r.status, 1, `'${name}' exits as a dispatch error, not a usage error`);
+    }
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a batch WITHOUT sql is byte-identical to its in-process render too', async () => {
+  // The sql path has its own parity test above; this is the plain multi-op batch — the common case,
+  // and the one where the per-request render-flag routing (`requests[i]?.format`) lives.
+  const p = await project(OPS_FAMILY);
+  try {
+    const requests: OpRequest[] = [
+      { name: 'search_symbol', args: { query: 'defineOp' } },
+      { name: 'find_usages', args: { name: 'guardCheck' }, verbosity: 'normal' },
+    ];
+    const results = await p.request(requests);
+    const expected = renderBatch(results, requests, {
+      sqlPresent: false,
+      format: undefined,
+      verbosity: undefined,
+    });
+    const r = runCli(['batch', JSON.stringify(requests), '--root', p.root]);
+    assert.equal(r.status, 0, `exit 0; stderr=${r.stderr}`);
+    assert.equal(r.stdout, `${expected}\n`);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('batch-level --format/--verbosity without --sql are REFUSED, not silently ignored', async () => {
+  // They describe the join output; with no join they would pass every gate and change nothing —
+  // a `--format json | jq` pipeline would get dense text with no diagnostic (§3 silent-swallow).
+  const p = await project(OPS_FAMILY);
+  try {
+    const r = runCli([
+      'batch',
+      '[{"name":"search_symbol","args":{"query":"defineOp"}}]',
+      '--format',
+      'json',
+      '--root',
+      p.root,
+    ]);
+    assert.equal(r.status, 2, 'refused');
+    assert.match(r.stderr, /--format/, 'names the flag');
+    assert.match(r.stderr, /join output only/, 'and why it does not apply here');
+    assert.equal(r.stdout, '', 'nothing ran');
+  } finally {
+    await p.dispose();
+  }
 });
 
 test('§3 no silent drop: a value-flag written without a value is reported AS THAT', () => {

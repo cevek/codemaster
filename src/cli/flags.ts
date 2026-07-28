@@ -4,8 +4,9 @@
 //
 // Every helper SPLICES what it consumed out of `args`, so after the known flags are read whatever
 // `--`-prefixed token remains is unread input — `flagIssue` is the §3 no-silent-drop backstop the
-// CLI leans on, and it distinguishes the two causes (a known flag missing its value vs a genuinely
-// unrecognized one) because reporting the first as the second is the §3.6 lie shape (t-141874).
+// CLI leans on, and it names WHICH of the three causes applied (missing value / given twice /
+// genuinely unrecognized), because a residual token looks the same in all three and asserting the
+// wrong one is a small false statement about the caller's own argv — the §3.6 shape (t-141874).
 
 /** A `--flag value` pair: returns the value and splices BOTH tokens. A next token that is itself
  *  `--`-prefixed is NOT consumed — `--root --format json` would otherwise silently read `--format`
@@ -59,20 +60,52 @@ export function enumFlag<T extends string>(
   return (allowed as readonly string[]).includes(raw) ? (raw as T) : null;
 }
 
+/** The flags a command accepts, so a residual token can be diagnosed by CAUSE rather than by name
+ *  alone. Both lists matter: a repeated boolean is recognized-but-duplicated, and reporting it as
+ *  "unrecognized" is the same class of false statement this helper exists to avoid. */
+export interface KnownFlags {
+  value: readonly string[];
+  bool?: readonly string[];
+  /** Flags whose reader ALREADY took a copy on this call — so a residual occurrence of one of them
+   *  is a second copy, observed rather than inferred. The callers know this exactly (their read
+   *  returned a value / `true`); reconstructing it from argv shape instead would guess, and a
+   *  guessed cause is what this whole helper exists not to state. */
+  consumed?: readonly string[];
+}
+
 /** After every KNOWN flag has been spliced out, any residual `--`-prefixed token is unread input.
  *  Returns the message to reject with (§3: a silent drop is the exact intake anti-pattern the tool
- *  forbids), or `undefined` when nothing is stray. `valueFlags` are the value-bearing flags this
- *  command accepts: one still present means it was written without a value, which is a DIFFERENT
- *  fact from "unrecognized" and gets its own message. */
-export function flagIssue(
-  args: readonly string[],
-  valueFlags: readonly string[],
-): string | undefined {
+ *  forbids), or `undefined` when nothing is stray.
+ *
+ *  Three distinct causes, three distinct statements — because the residual token alone does not say
+ *  which happened, and asserting the wrong one is a small lie about the caller's own argv (the
+ *  t-141874 shape, inverted): a known flag with nothing after it was written without a value; a
+ *  known flag whose reader already consumed an earlier copy was given more than once; anything else
+ *  is genuinely unrecognized. */
+export function flagIssue(args: readonly string[], known: KnownFlags): string | undefined {
   const stray = args.filter((a) => a.startsWith('--'));
   if (stray.length === 0) return undefined;
-  const known = stray.filter(
-    (a) => valueFlags.includes(a) || valueFlags.includes(a.split('=')[0] ?? a),
-  );
-  if (known.length > 0) return `flag(s) written without a value: ${known.join(', ')}`;
+  const isValue = (a: string): boolean =>
+    known.value.includes(a) || known.value.includes(a.split('=')[0] ?? a);
+  const isBool = (a: string): boolean => (known.bool ?? []).includes(a);
+  // A residual copy of a flag the reader already took IS a duplicate — the reader splices the first
+  // occurrence, so anything left over is a second one. Read off what the caller observed, never
+  // inferred from whether the next argv token happens to look like a value.
+  const taken = new Set(known.consumed ?? []);
+  const repeated = stray.filter((a) => taken.has(a.split('=')[0] ?? a));
+  if (repeated.length > 0) return `flag(s) given more than once: ${unique(repeated).join(', ')}`;
+  // A boolean the reader did NOT take cannot be here (`hasFlag` splices on sight and needs no
+  // value), so a residual one is a duplicate too — same statement, reached without a `consumed`
+  // entry the boolean readers would otherwise have to thread.
+  const duplicateBool = stray.filter(isBool);
+  if (duplicateBool.length > 0) {
+    return `flag(s) given more than once: ${unique(duplicateBool).join(', ')}`;
+  }
+  const valueless = stray.filter(isValue);
+  if (valueless.length > 0) return `flag(s) written without a value: ${valueless.join(', ')}`;
   return `unrecognized flag(s): ${stray.join(', ')}`;
+}
+
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }

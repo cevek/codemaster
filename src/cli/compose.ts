@@ -49,6 +49,9 @@ export interface ComposePlan {
 
 export type ComposeParse = { ok: true; plan: ComposePlan } | { ok: false; message: string };
 
+/** The json keys that a CLI flag can also spell — given twice, the call is rejected. */
+const CONFLICT_KEYS = ['sql', 'return', 'format', 'verbosity', 'root'] as const;
+
 /** Flag values already extracted from argv by the caller (which owns the splice/stray checks). */
 export interface ComposeFlags {
   sql?: string | undefined;
@@ -84,7 +87,7 @@ export function parseComposeArgs(rawJson: string, flags: ComposeFlags): ComposeP
     };
   }
   const obj = payload as Record<string, unknown>;
-  const conflict = ['sql', 'return', 'format', 'verbosity', 'root'].find(
+  const conflict = CONFLICT_KEYS.find(
     (key) => obj[key] !== undefined && flagOf(flags, key) !== undefined,
   );
   if (conflict !== undefined) {
@@ -104,6 +107,20 @@ export function parseComposeArgs(rawJson: string, flags: ComposeFlags): ComposeP
   const parsed = batchToolSchema.safeParse(normalizeBatchArguments(merged));
   if (!parsed.success) return { ok: false, message: `bad batch args: ${parsed.error.message}` };
   const { requests, sql, return: returnMode, format, verbosity, root } = parsed.data;
+  // Batch-level `format`/`verbosity`/`return` describe the JOIN output — `renderBatch` reads them
+  // only for the synthetic `sql` section, and each producer carries its own render flags inside its
+  // request. Without `sql` there is no such section, so accepting them would consume input that
+  // changes nothing (a `--format json | jq` pipeline would get dense text with no diagnostic).
+  // Refusing keeps the two front doors answering identically — it declines a call rather than
+  // re-routing the flags to the producers, which would make the CLI answer differently from the
+  // MCP `batch` tool.
+  const joinOnly = sql === undefined ? joinOnlyFlagsUsed(format, verbosity, returnMode) : undefined;
+  if (joinOnly !== undefined) {
+    return {
+      ok: false,
+      message: `${joinOnly} applies to the --sql join output only; without --sql it would be ignored. Put per-producer render flags inside each request ({"name":…,"args":…,"format":"json"}).`,
+    };
+  }
   return {
     ok: true,
     plan: {
@@ -135,7 +152,12 @@ export function parseBatchCommand(
     verbosity: flagValue(args, '--verbosity'),
     root,
   };
-  const issue = flagIssue(args, [...BATCH_VALUE_FLAGS]);
+  const issue = flagIssue(args, {
+    value: [...BATCH_VALUE_FLAGS],
+    consumed: (Object.keys(flags) as (keyof ComposeFlags)[])
+      .filter((k) => flags[k] !== undefined)
+      .map((k) => (k === 'returnMode' ? '--return' : `--${k}`)),
+  });
   if (issue !== undefined) return { ok: false, message: issue };
   if (args.length > 1) {
     return { ok: false, message: `unexpected argument(s): ${args.slice(1).join(', ')}` };
@@ -145,6 +167,23 @@ export function parseBatchCommand(
   return parseComposeArgs(rawJson, flags);
 }
 
+/** Which join-output-only key was supplied, for the no-sql refusal above. `undefined` = none. */
+function joinOnlyFlagsUsed(
+  format: string | undefined,
+  verbosity: string | undefined,
+  returnMode: string | undefined,
+): string | undefined {
+  const used = [
+    format !== undefined ? '--format' : undefined,
+    verbosity !== undefined ? '--verbosity' : undefined,
+    returnMode !== undefined ? '--return' : undefined,
+  ].filter((f): f is string => f !== undefined);
+  return used.length === 0 ? undefined : used.join(', ');
+}
+
+/** The json keys a flag can also spell, mapped to that flag's value. Exhaustive over `CONFLICT_KEYS`
+ *  and `undefined` for anything else — a `default:` arm returning some field would make an unrelated
+ *  key read as a conflict with it. */
 function flagOf(flags: ComposeFlags, key: string): string | undefined {
   switch (key) {
     case 'sql':
@@ -155,13 +194,17 @@ function flagOf(flags: ComposeFlags, key: string): string | undefined {
       return flags.format;
     case 'verbosity':
       return flags.verbosity;
-    default:
+    case 'root':
       return flags.root;
+    default:
+      return undefined;
   }
 }
 
-/** Dispatch a plan and render it exactly as the MCP `batch` tool does (`renderBatch`), so the two
- *  surfaces answer the same call with the same bytes. */
+/** Dispatch a plan and render it through the same `renderBatch` the MCP `batch` tool uses, so a
+ *  composed call answers identically on either front door. (The MCP-transport concerns stay out of
+ *  this path by design: the §12 seam cap and the self-staleness banner are the MCP facade's, and
+ *  neither applies to a one-shot process that is never behind its own source.) */
 export async function runCompose(
   orchestrator: OrchestratorApi,
   cwd: string,
@@ -174,6 +217,22 @@ export async function runCompose(
     format: plan.format,
     verbosity: plan.verbosity,
   });
+  return { stdout: [body], stderr: [], code: exitCode(outcome.results) };
+}
+
+/** Dispatch one plain op. Renders through the SAME `renderResults` every other dispatch path uses
+ *  (MCP per-op, MCP batch, CLI batch, CLI op-sql) rather than re-deriving the error/json/text
+ *  branch inline: a second wiring of one responsibility is where a later render change reaches
+ *  three paths and silently misses the fourth — and this is the highest-traffic command of all. */
+export async function runOp(
+  orchestrator: OrchestratorApi,
+  cwd: string,
+  root: string | undefined,
+  request: OpRequest,
+): Promise<CliOutcome> {
+  const outcome = await orchestrator.request(cwd, root, [request]);
+  if (!outcome.ok) return { stdout: [], stderr: [outcome.message], code: 1 };
+  const body = renderResults(outcome.results, request.format, request.verbosity);
   return { stdout: [body], stderr: [], code: exitCode(outcome.results) };
 }
 
@@ -197,21 +256,4 @@ export async function runOpSql(
  *  answer, and a failed sql producer produces exactly that on the synthetic `sql` record. */
 function exitCode(results: readonly OpResult[]): number {
   return results.some((r) => 'error' in r) ? 1 : 0;
-}
-
-/** The non-op surfaces an agent reaches for as `codemaster op <x>` (t-141874). `batch` and `status`
- *  are not unknown — they exist, they are just not dispatched through `op`, and answering "unknown
- *  op 'batch'" is true about this route and FALSE about the tool (§3.6). Names the form that works
- *  here; it does not recommend a surface. */
-const NON_OP_SURFACES: Readonly<Record<string, string>> = {
-  batch:
-    "'batch' is not an op — it is a composition surface, dispatched on its own. Here: " +
-    "codemaster batch '<json-requests>' [--sql '<SELECT>']; a single op composes with " +
-    "codemaster op <name> '<json-args>' --sql '<SELECT>'.",
-  status:
-    "'status' is not an op — it is the per-repo manifest. Here: codemaster status [--op <name>].",
-};
-
-export function nonOpSurfaceMessage(name: string): string | undefined {
-  return NON_OP_SURFACES[name];
 }

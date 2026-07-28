@@ -10,12 +10,15 @@
 import type { OpRequest } from '../ops/contracts.ts';
 import type { Verbosity } from '../core/result.ts';
 import { enumFlag, flagIssue, flagValue, hasFlag } from './flags.ts';
-import { nonOpSurfaceMessage } from './compose.ts';
+import { nonOpSurfaceMessage } from './surfaces.ts';
 
 export const OP_USAGE =
   "usage: codemaster op <name> [json-args] [--root <dir>] [--format text|json] [--apply] [--summaryOnly] [--verbosity terse|normal|full] [--sql '<SELECT>'] [--return sql|all]\n";
 
-const OP_VALUE_FLAGS = ['--root', '--format', '--verbosity', '--sql', '--return'];
+const OP_FLAGS = {
+  value: ['--root', '--format', '--verbosity', '--sql', '--return'],
+  bool: ['--apply', '--summaryOnly'],
+};
 
 export type OpCommandParse =
   | {
@@ -57,7 +60,17 @@ export function parseOpCommand(args: string[]): OpCommandParse {
 
   // Every KNOWN flag is now spliced out; any residual `--`-token is unread input → reject before
   // the op runs, so a typo'd flag never yields a misleading "success" over unintended defaults.
-  const issue = flagIssue(args, OP_VALUE_FLAGS);
+  // `consumed` is what these reads actually took, so a leftover copy is reported as a duplicate
+  // from observation rather than guessed from argv shape.
+  const issue = flagIssue(args, {
+    ...OP_FLAGS,
+    consumed: [
+      ...(verbosity !== undefined ? ['--verbosity'] : []),
+      ...(format !== undefined ? ['--format'] : []),
+      ...(sql !== undefined ? ['--sql'] : []),
+      ...(returnMode !== undefined ? ['--return'] : []),
+    ],
+  });
   if (issue !== undefined) return bad(issue);
   // …so `args` holds only positionals. The op takes at most ONE (the JSON args); a second bareword
   // is stray input → reject LOUDLY, never drop it (§3, positional half — t-865108).

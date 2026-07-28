@@ -18,10 +18,8 @@ import { loadConfig } from './support/config-load/load.ts';
 import { isOk } from './common/result/narrow.ts';
 import { builtinPlugins } from './daemon/builtin-plugins.ts';
 import { builtinOps } from './ops/builtins.ts';
-import { renderResult, renderResultJson } from './format/render/render-result.ts';
 import { renderStatus } from './format/render/render-status.ts';
 import { serveMcp } from './mcp/server.ts';
-import { dispatchErrorLine } from './mcp/render-dispatch-error.ts';
 import { defaultUsageLogger } from './support/usage-log/default.ts';
 import { serveDaemon } from './daemon/daemon-server.ts';
 import { connectOrSpawnDaemon } from './daemon/connect-or-spawn.ts';
@@ -34,11 +32,12 @@ import { pidfilePathFor } from './support/pidfile/write.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
-import { argValue, flagIssue, flagValue, hasFlag } from './cli/flags.ts';
+import { flagIssue, flagValue, hasFlag } from './cli/flags.ts';
 import {
   BATCH_USAGE,
   parseBatchCommand,
   runCompose,
+  runOp,
   runOpSql,
   type CliOutcome,
 } from './cli/compose.ts';
@@ -115,9 +114,11 @@ async function main(): Promise<number> {
 
   const args = process.argv.slice(2);
   // `--root` is a position-free GLOBAL flag: extract it from the whole argv BEFORE shifting the
-  // subcommand, so `--root <dir> op …` parses as well as `op … --root <dir>` (t-713862). argValue
-  // splices it wherever it sits, so the shift below always lands on the real subcommand token.
-  const root = argValue(args, '--root');
+  // subcommand, so `--root <dir> op …` parses as well as `op … --root <dir>` (t-713862). Read with
+  // `flagValue` like every other value flag — read with the space-form-only `argValue` it was the
+  // ONE flag that rejected its own `=` spelling, so `--format=json` worked and `--root=/x` did not.
+  // It splices wherever it sits, so the shift below always lands on the real subcommand token.
+  const root = flagValue(args, '--root');
   const command = args.shift();
 
   switch (command) {
@@ -257,7 +258,14 @@ async function main(): Promise<number> {
       const op = flagValue(args, '--op');
       // `--root` (extracted globally above) + the render dials are the only flags `status` accepts.
       // Anything else `--`-prefixed is unread input — reject, never drop (§3 silent-swallow).
-      const issue = flagIssue(args, ['--root', '--op']);
+      const issue = flagIssue(args, {
+        value: ['--root', '--op'],
+        bool: ['--full', '--brief'],
+        consumed: [
+          ...(root !== undefined ? ['--root'] : []),
+          ...(op !== undefined ? ['--op'] : []),
+        ],
+      });
       if (issue !== undefined) {
         process.stderr.write(
           `${issue}\nusage: codemaster status [--root <dir>] [--full] [--brief] [--op <name>]\n`,
@@ -276,36 +284,20 @@ async function main(): Promise<number> {
         process.stderr.write(parsed.message);
         return 2;
       }
-      const { request, verbosity: v, format, sql, returnMode } = parsed;
+      const { request, sql, returnMode } = parsed;
       const orchestrator = buildOrchestrator();
-      if (sql !== undefined) {
-        const composed = await runOpSql(orchestrator, process.cwd(), root, request, {
-          sql,
-          ...(returnMode !== undefined ? { return: returnMode } : {}),
-        });
-        return await emit(composed, orchestrator);
-      }
-      const outcome = await orchestrator.request(process.cwd(), root, [request]);
-      if (!outcome.ok) {
-        process.stderr.write(`${outcome.message}\n`);
-        await orchestrator.dispose();
-        return 1;
-      }
-      // A dispatch error (unknown_op / bad_args / op_threw / unavailable) is a request-level
-      // NON-result: `dispatchErrorLine` (SHARED with the MCP path, no parallel serializer) emits a
-      // valid JSON envelope under json, else the dense `DISPATCH` line. It
-      // also flips the exit code non-zero (§3, t-337633) — the CLI mirror of the MCP `isError:true`
-      // — so a `--format json | jq` consumer never reads a non-result on a success exit code. A
-      // structured ok:false ToolFailure stays a JSON success-exit answer (it's an honest result).
-      let dispatchFailed = false;
-      for (const r of outcome.results) {
-        if ('error' in r) {
-          out(dispatchErrorLine(r.error, format));
-          dispatchFailed = true;
-        } else out(format === 'json' ? renderResultJson(r.result) : renderResult(r.result, v));
-      }
-      await orchestrator.dispose();
-      return dispatchFailed ? 1 : 0;
+      // One render wiring for every dispatch path (`cli/compose.ts`): a dispatch error renders as a
+      // valid JSON envelope under json / the dense `DISPATCH` line otherwise, and flips the exit
+      // code non-zero (§3, t-337633) — the CLI mirror of the MCP `isError:true` — while a
+      // structured ok:false ToolFailure stays a success-exit answer (it is an honest result).
+      const composed =
+        sql === undefined
+          ? await runOp(orchestrator, process.cwd(), root, request)
+          : await runOpSql(orchestrator, process.cwd(), root, request, {
+              sql,
+              ...(returnMode !== undefined ? { return: returnMode } : {}),
+            });
+      return await emit(composed, orchestrator);
     }
     case 'batch': {
       // The composition surface (§11) on the one-shot path: many ops in one dispatch, optionally
