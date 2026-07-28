@@ -159,7 +159,9 @@ Engine написан **один раз, transport-agnostic**.
   (`find_unused_scss_classes` зовёт `ts.imports`, `ts.symbolAccesses`, `scss.classes` и
   диффит).
 - **L4 — Daemon (`src/daemon/`)** — оркестратор: routing, lifecycle, `ProjectHost`.
-- **L5 — MCP (`src/mcp/`)** — фасад: по инструменту на op + status + batch.
+- **L5 — фронт-двери (`src/mcp/`, `src/cli/`)** — MCP-фасад (по инструменту на op + status +
+  batch) и CLI (`codemaster op` / `batch`, `--sql`). Обе тонкие и ходят через один dispatch:
+  ни своей валидации, ни своего конверта.
 
 **Почему плоская федерация, а не общий граф:** плагины не вязнут в общей invalidation-каскаде
 (каждая инвалидация локальна); framework-плагины используют свои нативные типы вместо
@@ -445,6 +447,7 @@ codemaster/
     plugins/<id>/            — доменные плагины
     ops/                     — публичные op'ы, композят плагины
     mcp/                     — MCP фасад (per-op инструменты + status + batch)
+    cli/                     — CLI фронт-дверь (op-command, compose: batch + --sql)
     daemon/                  — orchestrator, lifecycle, host
     format/                  — dense rendering Result<T>
   test/

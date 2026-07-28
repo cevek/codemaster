@@ -67,6 +67,16 @@ explicit (`unresolved` / `partial` / `dynamic`); partial or failed work is repor
 disguised as complete. Type/semantic facts come **only** from the live Language Service,
 never a snapshot. (§3.)
 
+A doubt established while RESOLVING a target belongs on the envelope (`Result.disclosures`,
+§3.4/§3.6), not in one op's `data`: state it once at the resolve and every op answering about that
+target inherits it — a per-op obligation is one an op can silently forget. A resolution that FAILED
+is not disclosed but returned as a failure; an `ok` shaped like a proven absence is worse than an
+incomplete answer.
+
+A refusal names a call the agent can run **here** (`ops/guard/navigate.ts`, §9) — another op with
+different args, not a config edit or a daemon restart it may have no access to. Where no cheaper
+in-tool path exists, say that outright; never present an invented near-equivalent as the answer.
+
 ## Resilience — never crash, never hang
 
 Every call to an external tool — the TS LanguageService, git, ast-grep, prettier, the
@@ -154,7 +164,9 @@ within; guard the edges.
 Drive codemaster against its own tree from the CLI — same front door as MCP, no rebuild
 (Node strips types): `node src/bin.ts status` and `node src/bin.ts op <name> '<json-args>'`
 (e.g. `node src/bin.ts op find_usages '{"name":"Orchestrator"}'`). Each invocation is a
-fresh one-shot process, so it always reflects the current source.
+fresh one-shot process, so it always reflects the current source. Composition is here too —
+`node src/bin.ts batch '<json-requests>' --sql '<SELECT>'`, and `--sql` on a single `op` — so
+working on current source costs no expressiveness (§5-L5).
 
 A **long-lived** daemon (the singleton the MCP bridge connects to) does **not** — it serves
 the behavior it spawned with. So after you edit `src/`, the running daemon is stale.

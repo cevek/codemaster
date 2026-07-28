@@ -39,6 +39,10 @@ The tool-list is the static union of every op (per-connection); an op whose plug
 active for the resolved repo answers with an honest `unavailable`. `status` is the per-repo
 deep dive (notes, concepts).
 
+The CLI is the second front door onto the same dispatch — `codemaster op <name> '<json-args>'`,
+`codemaster batch '<json-requests>'`, both with `--sql '<SELECT>'` — so composition exists on either
+surface.
+
 ## Status
 
 Early scaffold. The full design lives in **[ARCHITECTURE.md](ARCHITECTURE.md)**;

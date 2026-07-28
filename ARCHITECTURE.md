@@ -120,7 +120,9 @@ restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-targ
 
   The engine is written **once, transport-agnostic**; flipping the mode never touches engine code.
 
-- **CLI** — same front door, for humans/debugging.
+- **CLI** — the second front door onto the same orchestrator (`codemaster op` / `batch`, with
+  `--sql`), for humans/debugging and for the one-shot always-current-source path; it carries the
+  same composition surface as MCP (§5-L5).
 - **IPC** — local socket, **newline-delimited JSON** — readable while we debug the tool (§18).
 
 The boundary sits where data flow is **thin** — between workspaces (which share nothing)
@@ -167,10 +169,16 @@ This is the section that the rest of the design serves.
    adapter plugin) — so an adapter-inferred relationship is never mistaken for a proven
    structural fact.
 
-4. **No silent truncation.** Capped result sets always report
-   `{ shown, total, totalIsLowerBound?, hint }` — and when `total` is itself a floor the producer
-   could not finish counting, it says so and renders as `≥N` (§12). Truncation that looks like
-   completeness is a form of lying.
+4. **No silent truncation — including a cut UPSTREAM of the answer.** Capped result sets always
+   report `{ shown, total, totalIsLowerBound?, hint }` — and when `total` is itself a floor the
+   producer could not finish counting, it says so and renders as `≥N` (§12). A cut the answer's own
+   counters cannot express — the name→declaration candidate page sliced before the target was even
+   resolved — rides the envelope instead, as `Result.disclosures: Disclosure[]`
+   ([`src/core/result.ts`](src/core/result.ts)): a closed `UnsafeClaim` vocabulary naming WHAT THE
+   ANSWER MAY NOT BE READ AS CLAIMING (`target-is-the-only-symbol-of-this-name`), never the upstream
+   EVENT that made it unsafe — the cause and the remedy live in the entry's `note`, in prose, for the
+   agent. Truncation that looks like completeness is a form of lying; so is a confident count over a
+   target we may have mis-picked.
 
 5. **Freshness is verified on read, never assumed from the watcher.** The honesty
    guarantee does **not** ride on the file watcher — watchers miss events, and the
@@ -200,6 +208,31 @@ This is the section that the rest of the design serves.
    operation"), `data` empty — never an exception that escapes to the agent, never a guessed
    result in its place. The daemon stays up; the agent gets an honest "couldn't", not a
    stack trace or a fabrication.
+
+   **Disclosure is a property of the RESOLUTION, not of an op's payload.** A claim established
+   where the target was resolved (the `ts` plugin's resolve chokepoint,
+   [`plugins/ts/disclose-resolution.ts`](src/plugins/ts/disclose-resolution.ts) — plus the
+   `mergeDeclarations` resolver, which resolves outside it and states the same claim itself) is
+   carried by a request-scoped ambient ledger
+   ([`support/disclosure/ledger.ts`](src/support/disclosure/ledger.ts) — `AsyncLocalStorage`, never a
+   module global: one process hosts several engines whose ops interleave, and attaching one repo's
+   doubt to another's answer is the same lie inverted) and stamped onto the envelope by the
+   dispatcher ([`daemon/engine.ts`](src/daemon/engine.ts) `runOne` — the tree's ONLY `op.run` call
+   site, so no execution path slips past the stamp). An envelope assembled OVER other envelopes (the
+   `sql` join, the cross-root join) forwards the channel through
+   [`common/result/merge-disclosures.ts`](src/common/result/merge-disclosures.ts); a factory that
+   forwarded `freshness` and `truncated` but not this would drop the claim exactly where an uncapped
+   producer feeds a `NOT IN`. So every op answering about one target says the SAME thing about it; a
+   NEW op inherits the claim by being dispatched, never by remembering to consume it; and two ops can
+   never report contradictory confidence about one resolution. Stamped on BOTH arms (a `0`-shaped
+   miss reads as absence just as a success does), merged never overwritten, and invisible when empty
+   (an op that discloses nothing gets a byte-identical envelope). The inverse is enforced just as
+   hard: an EXACT target (`symbolId` at its recorded position / `file:line:col` / `name+file`) ranks
+   nothing, so it inherits no doubt — dressing a complete answer as partial is the same lie inverted.
+   The WRITE path does not disclose but REFUSE: a mutation may not ride an ambiguity gate that
+   silently did not run (§7). And a resolution that FAILED is not disclosed but returned as a
+   failure: an op may not convert a "couldn't determine" into an `ok` answer shaped like a proven
+   absence.
 
 7. **Self-honesty harness** (see §16): every plugin is tested against an independent
    oracle for its domain; every cross-plugin op is tested for correctness on assembled
@@ -288,7 +321,9 @@ Bottom → top. Imports flow downward only.
 
 - **`brands`** — `RepoRelPath`, `Glob`, `RepoId`, `FileVersion` — branded primitives (§19).
 - **`span`** — `Loc`, `Span`, `Confidence`, `Provenance` — proof primitives.
-- **`result`** — `Result<T>` envelope: `Fact`, `FreshnessNote`, `ToolFailure`, `Truncation`.
+- **`result`** — `Result<T>` envelope: `Fact`, `FreshnessNote`, `ToolFailure`, `Truncation`,
+  `Disclosure` + the closed `UnsafeClaim` union (resolve-time claims the answer does NOT support,
+  §3.4/§3.6).
 - **`ids`** — `SymbolId` (module-routed encoding) + proof-carrying rebind (§6).
 - **`plugin`** — the `Plugin` interface + `PluginRegistry` — the single contract every
   domain module obeys.
@@ -317,7 +352,9 @@ subfolder reaches ~5 files it gets split into sub-subfolders.
 Initial topics (each populated as Phase 0+ work demands):
 
 - **`result/`** — `Result.ok` / `Result.fail` / `Result.partial` constructors;
-  `isOk` / `isFailure` narrowers; `mergeFreshness` / `combineFailures` aggregators.
+  `isOk` / `isFailure` narrowers; `mergeFreshness` / `combineFailures` aggregators, plus
+  `mergeDisclosures` (union the resolve-time claims of several envelopes — the `sql`/cross-root
+  joins, which assemble a new envelope over producers' results).
 - **`ids/`** — `SymbolId` codec (encode/decode the plugin-prefix-routed format).
 - **`span/`** — `contains` / `intersects` / `equals`; `extractText` (1-based `Loc` ↔
   0-based offset bridge — the §16 invariant 1 hotspot).
@@ -337,6 +374,15 @@ Initial topics (each populated as Phase 0+ work demands):
   (`DebugSystem.configure` consumes this, §13).
 - **`lru/`** — generic LRU map, used by the orchestrator's memory governor (§9) and
   anything else that needs bounded caching.
+- **`condition/`** — the domain-neutral per-site enclosing-condition chain contract + its one
+  shared renderer.
+- **`shape-tag/`** — the `~shape` render-dispatch vocabulary (§12).
+- **`truncate/`** — the §3.4 truncation chokepoint (`elideString` / `elideType` + the `CapId`
+  registry, `capList`, `nameWithMore`, `capOpNames`) + `cap-response` (the §12 MCP-seam
+  total-size cap).
+- **`hash/`** — FNV-1a, for rollups and short stable keys (never security).
+- **`glob/`** — glob matching over `RepoRelPath`.
+- **`json/`** — the `JsonValue` zod schema (boundary validation).
 
 ### L1 — Support (external-tool wrappers)
 
@@ -350,6 +396,13 @@ gets its own subfolder; same "one operation per file" rule as `common/`.
 - **`fs/`** — recursive file walking with a built-in ignore set (the **non-git fallback** — git
   `ls-files` is the `.gitignore`-aware listing the engine prefers); `realpath` canonicalization;
   `stat` → `FileFingerprint`.
+- **`disclosure/`** — the request-scoped disclosure ledger (`disclose` at the producer,
+  `runWithDisclosures` at the dispatcher): ambient bookkeeping that carries a resolve-time
+  `Disclosure` to the envelope of whatever op is answering (§3.4/§3.6). It sits here rather than in
+  `common/` for the same reason the debug `req#N` ALS does: `common/` is pure logic over `core/`
+  types, and per-request mutable state is not that.
+- The remaining seams follow the same rule, one folder per tool — `debug/`, `config-load/`,
+  `watch/`, `sql/`, `text-search/`, `transport/`, `usage-log/`, `watchdog/` (§15 lists them all).
 
 > **Every tool that interprets the project runs the project's _own_ version** —
 > `typescript` (inside `plugins/ts`) and `tsconfig` are resolved from the inspected repo's
@@ -699,7 +752,11 @@ returns a preview, apply commits writes (§7).
 peek into TS LS state directly; it calls `ts.renameSites(target, to)` and receives a
 `Result`. This is what keeps plugins replaceable and the trust contract enforceable —
 every `Result<T>` envelope's proof spans, freshness, and `ToolFailure` come up through
-plugin boundaries, not from internal pokes.
+plugin boundaries, not from internal pokes. One channel is plugin-PRODUCED but deliberately does
+not ride the return value: a resolve-time `Disclosure` (§3.4/§3.6) is stated at the plugin's resolve
+chokepoint into a request-scoped ledger and stamped on the envelope by the dispatcher. The op
+neither consumes nor forwards it — which is precisely why no op can answer about a doubtful target
+and stay silent, and why a new op needs no wiring to inherit the claim.
 
 A small number of ops ship by default:
 
@@ -742,9 +799,14 @@ This list grows; the **dispatch shape never does** — see §11.
 - Memory governor across engines.
 - Plugin discovery + DAG validation at engine init.
 
-### L5 — MCP facade
+### L5 — Front-door facades
 
-[`src/mcp/`](src/mcp/) — exposes **one tool per op** plus `status` and `batch` (§11):
+Two front doors, one dispatch path: [`src/mcp/`](src/mcp/) (the agent surface) and
+[`src/cli/`](src/cli/) (the one-shot `codemaster …` surface). Both are thin — they parse a request,
+hand it to the orchestrator, and render the `Result`; neither owns engine capability, a second
+validator, or an envelope of its own.
+
+The MCP facade exposes **one tool per op** plus `status` and `batch` (§11):
 
 - `<op>({ ...args, ...flags })` — one MCP tool per op (`find_usages`, `rename_symbol`, …),
   tool-name = op-name; args + flags are flat (no `name`/`args` envelope). The `inputSchema`
@@ -756,6 +818,18 @@ Each op is a first-class tool, its capability permanently in the agent's tool-li
 tool-list is the static **union** of every op (per-connection); an op whose plugin isn't
 active for the resolved repo dispatches to an honest `unavailable` (no `tools/list_changed`
 churn). `status` carries the per-repo deep dive (notes, concepts).
+
+**CLI parity — the composition features exist on BOTH doors.** `codemaster op <name> '<json-args>'`,
+`codemaster batch '<json-requests>'` and the `--sql '<SELECT>'` / `--return sql|all` flags carry the
+same requests as their MCP counterparts, validated by the SAME `batchToolSchema`, normalized by the
+SAME intake, executed through the SAME `orchestrator.request(…)` and rendered by the SAME
+`renderBatch` / `renderResults` ([`cli/compose.ts`](src/cli/compose.ts)). That reuse is what carries
+the envelope's honesty channels (disclosures / freshness / truncation, §3.4/§3.6) to stdout without
+anyone forwarding them by hand — a CLI that assembled its own envelope would drop exactly them.
+Parity is the point, not a recommendation: an agent whose MCP connection is healthy has no reason to
+leave it (a one-shot pays cold start per call), and one on the CLI by necessity — a
+codemaster-editing agent, for whom the long-lived daemon serves pre-edit code (§3.6 self-staleness)
+— no longer loses composition to get freshness.
 
 ---
 
@@ -983,10 +1057,12 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   than the semantic guard's `searchWarmMaxFiles` because it gates the accurate peak, not the surface;
   codemaster ~629 passes; backoffice2's pruned peak ~6107 files / ~1 GB passes, its un-pruned fan-out
   ~18k refuses — calibrated against a measured file→RSS curve, conservative because an OOM kills the
-  daemon) the op REFUSES with
-  an honest, actionable redirect (browse via `symbols_overview`, then a targeted
-  `find_definition`/`find_usages`; or `search_symbol {syntactic:true}` for an OOM-safe fuzzy scan)
-  instead of warming — never a crash, never a silent squat. Gating the peak un-refuses the now-safe
+  daemon) the op REFUSES to warm and names the calls that answer the same
+  question here ([`ops/guard/navigate.ts`](src/ops/guard/navigate.ts)): `search_symbol
+{syntactic:true}` — the same fuzzy search over the AST alone — then `symbols_overview {query}`.
+  It deliberately does NOT name a bare-name `find_usages`/`find_definition`: wherever this threshold
+  trips, a repo-wide fan is exactly what cannot run, so a redirect there would be one refusal
+  pointing at the next. Never a crash, never a silent squat. Gating the peak un-refuses the now-safe
   pruned loose-root case (the total-surface gate over-refused it) while still refusing a `references`
   fan-out that would OOM (no t-333163 regression). Scope is exactly the risky warm-with-a-cheap-
   alternative op: `search_symbol {syntactic:true}` is the sanctioned no-warm escape (never gated) and
@@ -1005,10 +1081,13 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   the child absorbs the fatal (§2). The count and threshold are the auto-escalation decision's, BY
   CONSTRUCTION — one `estimateSourceFileCount` + one `ts.searchWarmMaxFiles` expression, not a second
   implementation — so the two can disagree only inside the spawn memo window, and only in the safe
-  direction. The refusal names the ONE cause that left this workspace in-process (mode pinned by
-  `daemon.autoEscalate:false` or an explicit `isolation`, no process-host factory in this build, a
-  failed escalation fork, a size measured within budget at spawn, an unmeasurable size) with its
-  remedy (§3.6). **`force:true` does NOT override it** — forcing the warm here kills the process the
+  direction. The refusal leads with a runnable redirect
+  ([`ops/guard/navigate.ts`](src/ops/guard/navigate.ts) — an op+args that answers the same question
+  with no program build and no fan), then names the ONE cause that left this workspace in-process
+  (mode pinned by `daemon.autoEscalate:false` or an explicit `isolation`, no process-host factory in
+  this build, a failed escalation fork, a size measured within budget at spawn, an unmeasurable size)
+  with its remedy, explicitly labelled as needing config/daemon access the caller may not have
+  (§3.6). **`force:true` does NOT override it** — forcing the warm here kills the process the
   agent is talking to, and §1 ranks a crash below a wrong answer; where forcing IS safe (a
   process-mode child) the guard never runs. The guard is wired call-site by call-site at each op's
   entry, ahead of any resolve/warm; the structural seam that would make coverage automatic rather
@@ -1016,6 +1095,27 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   (rename / change_signature / move / extract) warm and fan the same way and are unguarded
   (t-972931), as are the i18n dead-key ops (`find_unused_i18n_keys` / `find_missing_i18n_keys` —
   t-004414).
+- **One home for "what answers this here" ([`ops/guard/navigate.ts`](src/ops/guard/navigate.ts)).**
+  Four surfaces decline a semantic fan — the fan-out guard, `search_symbol`'s pre-warm size guard,
+  that op's deadline branch, and `daemon/process-host.ts`'s `failAll` (an engine that died or
+  overran) — and none writes its own redirect prose: one claim, one home. The rule the table
+  enforces is that a refusal names a CALL THE AGENT CAN MAKE RIGHT NOW, against this same repo in
+  this same session. The usual reader is an agent inside someone else's repository: it can make
+  another call, and it can neither restart a machine-global daemon nor write config into a repo it
+  does not own — so config / isolation / restart remedies are never the headline, another op with
+  different args is. Safety is STRUCTURAL, not measured: the orientation calls
+  (`symbols_overview`, `search_symbol {syntactic:true}`) build no program and warm no LS (§5-L2) and
+  no guard gates them; a file-pinned call is single-program-exact and never reaches the repo-wide
+  fan.
+  **Two triggers, two escape sets — the distinction that makes the table honest.** Under `guard` an
+  op DECLINED before doing any work, and it declined over ADDRESSING, so re-pinning the same op with
+  a `file` provably escapes it (that re-pin still builds a program — it is exact, not free). Under
+  `died` the engine actually ran out of memory or was killed running this op, and addressing changes
+  nothing: a file-pinned trace OOMs exactly as the bare-name one does, so every call that would
+  build a program is dropped and only the no-program calls survive. Where nothing survives, the
+  refusal says so — "no cheaper in-tool path to this question" plus the orientation calls that still
+  work — rather than presenting an invented near-equivalent as the answer (§3.6). The point the
+  agent must come away with is that the REPO is not dead, only one op is.
 - **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
   With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
   `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
@@ -1166,7 +1266,8 @@ daemon restart` — the management verbs, §2).
   in order. Reads run against per-plugin freshness checked once at batch entry, so all
   ops in the batch see a consistent view per plugin (each plugin pins its state at
   batch entry; there is no single global version across all plugins). A batch (or a single
-  per-op tool call) may carry **`sql`**: each request is aliased (`as`), its tabular projection
+  per-op tool call — or the CLI's `--sql`, §5-L5) may carry **`sql`**: each request is aliased
+  (`as`), its tabular projection
   (`OpDefinition.table`) is loaded into an **ephemeral in-memory SQLite database that
   lives only for that call**, and one read-only `SELECT` runs across the aliased tables —
   relational algebra (anti-joins, negations, aggregates) over op outputs without the agent
@@ -1213,10 +1314,14 @@ one-line legend + sectioned summary). Rules:
   the verdict — keep insertion-order rendering, or move this guarantee behind an explicit field
   ordering. **The verdict-first contract orders keys WITHIN `data`; the envelope-seam cap is a
   separate guarantee** — the renderer caps only the `data` region and reserves the envelope's
-  honesty channels (truncation / handle-rebind / freshness) against the budget so they ALWAYS
-  survive the cut, never trimmed off the tail (dropping a `freshness: UNVERIFIED` or a partial
-  handle rebind is the silent-stale / §6-misidentification lie). Debug (a dev trace, not an
-  honesty channel) is the only segment the cap may drop.
+  honesty channels (disclosures / truncation / handle-rebind / freshness / intake) against the
+  budget so they ALWAYS survive the cut, never trimmed off the tail (dropping a
+  `freshness: UNVERIFIED`, a partial handle rebind, or a `!! CANNOT CLAIM` is the silent-stale /
+  §6-misidentification / false-confidence lie). **Disclosures lead the tail**: they qualify what the
+  WHOLE answer may be read as asserting (its target may not be the symbol the agent meant), where
+  truncation qualifies only the listed set; entries sharing one claim collapse to a single line
+  listing their targets, so a 20-target op does not spend the reserved budget restating one fact.
+  Debug (a dev trace, not an honesty channel) is the only segment the cap may drop.
 - **Two-tier size cap — the per-op char cap AND a UNIVERSAL MCP-seam total cap (§3.4, task
   t-287999).** The per-op renderer caps its `data` region at `RENDER_CHAR_CAP` (verdict-first, above)
   — but that is per-data-region and char-based, so it does NOT bound TOTAL response size (multi-byte
@@ -1461,7 +1566,7 @@ codemaster/
       brands.ts              # branded primitives: RepoRelPath, Glob, RepoId, FileVersion
       json.ts                # JsonValue — closed shape, never `unknown`
       span.ts                # Loc, Span, Confidence, Provenance — proof primitives
-      result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure)
+      result.ts              # proof-carrying envelope (Fact, FreshnessNote, ToolFailure, Truncation, Disclosure/UnsafeClaim)
       ids.ts                 # SymbolId (plugin-routed) + proof-carrying rebind
       op-example.ts          # canonical op example shape (status anti-drift)
       plugin.ts              # Plugin interface + PluginRegistry (the DAG manifest)
@@ -1470,7 +1575,7 @@ codemaster/
     config/
       config.ts              # CodemasterConfig + defineConfig
     common/                  # L0.5 — pure logic over core types, no I/O; topical subfolders
-      result/                # ok/fail/partial constructors; isOk/isFailure; freshness merge
+      result/                # ok/fail/partial constructors; isOk/isFailure; freshness merge; merge-disclosures (§3.4/§3.6)
       ids/                   # SymbolId codec (encode/decode plugin-prefix-routed format)
       span/                  # contains/intersects/equals; text-at-span + Loc↔offset bridge
       confidence/            # worstOf and per-hop reducers
@@ -1489,6 +1594,7 @@ codemaster/
     support/                 # L1 — external-tool wrappers; per-tool subfolders
       git/                   # rev-parse HEAD, porcelain, diff --name-only, ls-files (+ --ignored sync; + ls-source-files.ts: ls-files --recurse-submodules ∪ --others --exclude-standard for the no-program syntactic scan), blame, log
       fs/                    # walking (non-git fallback); realpath canonicalization; stat
+      disclosure/            # request-scoped disclosure ledger: disclose() at the producer, runWithDisclosures() at the dispatcher (§3.4/§3.6)
       debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
       watch/                 # watcher seam (tests inject a fake) + chokidar adapter
@@ -1499,7 +1605,7 @@ codemaster/
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition + declaration-first)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition + declaration-first; disclose-resolution.ts: the resolve-time §3.4 envelope disclosure)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1510,7 +1616,9 @@ codemaster/
     ops/                     # L3 — public, named, parameterized ops (compose plugins)
       contracts.ts           # OpRequest, OpResult, DispatchError, OpFlags, Batch
       intake/                # liberal arg-intake (§7 Postel): aliases, coercions, flag-lift — invisible normalizer before the canonical zod gate
-      guard/                 # semantic-fanout-guard.ts + fan-capable.ts — the in-process OOM refusal (§9)
+      guard/                 # semantic-fanout-guard.ts + fan-capable.ts (the in-process OOM refusal, §9)
+                             # + navigate.ts (the shared "what answers this here" redirect table — also rendered by
+                             #   search_symbol's pre-warm guard and daemon/process-host's oom/timeout path)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
       search-symbol.ts  source.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
@@ -1518,6 +1626,7 @@ codemaster/
       impact.ts  impact-type-error.ts  affected.ts  …
     daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap) + call-telemetry.ts / inflight-ops.ts (§13 crash breadcrumbs)
+    cli/                     # L5 — the CLI front door: op-command.ts (argv → OpRequest), compose.ts (batch + --sql, the same schema/normalizer/renderer the MCP surface uses), flags.ts, surfaces.ts (the non-op names batch/status, §3.6)
     format/                  # dense formatter, codes, json mode
       render/                # condenseSpans (thin ~shape dispatcher), render-result/-dense/-source
         shapes/              # per-domain ~shape renderers + Record<ShapeTag> registry (§12)
@@ -1614,6 +1723,17 @@ misses). The harness rests on invariants that do:
 7. **Plugin DAG honesty** — the `PluginRegistry` refuses cyclic deps at init; tested by
    feeding it a small cyclic DAG and asserting the failure shape (an op-time crash would
    be lying about plugin capability).
+8. **Envelope-disclosure agreement** _(guards the §3.4/§3.6 resolve-time channel)_ — every op
+   answering about ONE resolved target carries the IDENTICAL `Result.disclosures` entry. The oracle
+   is the fixture's construction, never another codemaster answer: the repo DECLARES N same-named
+   symbols, so "this is the only symbol of that name" is unsupportable for all of them equally, and
+   the assertion is cross-op EQUALITY — a per-op verdict cannot satisfy it by accident. Four negative
+   arms carry the same weight: an EXACT target inherits nothing (false partiality is the same lie
+   inverted), an upstream cut that hid no same-named declaration discloses nothing (the CLAIM, not
+   the EVENT), a neighbouring request in one batch never inherits another's claim (bleed is the
+   ambient ledger's characteristic failure), and a name the cut hid ENTIRELY fails rather than
+   answering `found:0` (a laundered "couldn't" is a proven absence the repo never established).
+   `test/differential/envelope-disclosure.test.ts`, `test/unit/disclosure-ledger.test.ts`.
 
 **Determinism (an architecture requirement).** Scenario tests must not `sleep`. The
 daemon takes injectable seams: a `clock` (no `Date.now`), a `watcher` interface (tests
