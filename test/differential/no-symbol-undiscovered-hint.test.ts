@@ -60,12 +60,14 @@ const RESOLVES_WITH_TWIN = {
 };
 
 const HINT = /nested tsconfig\(s\) are NOT loaded as programs \(web\/tsconfig\.json\)/;
-// The success-branch floor names the config too, but frames it as a possibly-WRONG resolution.
-const DEF_FLOOR = /repo tsconfig\(s\) NOT loaded as programs \(web\/tsconfig\.json\)/;
+// The success branch names the config too, framed as a possibly-WRONG resolution: it is the same
+// unsafe CLAIM the cut-candidate cause raises, so it is stated in the same place and vocabulary.
+const DEF_FLOOR = /tsconfig\(s\) are NOT loaded as programs \(web\/tsconfig\.json\)/;
 
 interface OkFloor {
   ok: boolean;
   data: { complete?: boolean; undiscoveredPrograms?: string[]; notes?: string[] };
+  disclosures?: { unsafe: string; target: string; note: string }[];
 }
 function okData(r: unknown): OkFloor {
   const res = (r as { result: OkFloor }).result;
@@ -167,10 +169,23 @@ test('find_definition SUCCESS floor (t-673978): a name that resolves in the prim
       ['web/tsconfig.json'],
       'names the unloaded config',
     );
+    // The claim is STATED — in prose the agent reads as a verdict — on the ENVELOPE, once, where
+    // every op answering about this target inherits it rather than each restating it. The note that
+    // used to sit in `data.notes` said the same sentence a line away from this one.
+    assert.deepEqual(
+      (res.disclosures ?? []).map((d) => d.unsafe),
+      ['target-is-the-only-symbol-of-this-name'],
+      'the claim is stated, not only encoded in fields',
+    );
     assert.match(
-      (res.data.notes ?? []).join('\n'),
+      (res.disclosures ?? [])[0]?.note ?? '',
       DEF_FLOOR,
-      'the !! note names the unloaded config',
+      'and the claim names the unloaded config that could hide the twin',
+    );
+    assert.equal(
+      res.data.notes,
+      undefined,
+      'and it is NOT restated in the payload — one claim, one home',
     );
 
     // Byte-identical NEGATIVE #1: the SAME repo, addressed by POSITION — exact, no cross-program
