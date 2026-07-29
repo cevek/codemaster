@@ -42,6 +42,13 @@ Fields: core (`status priority parent depends_on tags`) + project custom fields 
 
 Don't forget `git commit` after create/update tasks.
 
+**In a git worktree, use the `tm` CLI from THAT worktree, not a shared MCP server.** The server
+resolves the project by walking up from ITS OWN cwd, fixed when it started — so an agent in a
+worktree reads the checkout the server was launched in. Tasks created since your branch was cut
+are simply absent, which is indistinguishable from "no such task", and a write would land in the
+other checkout's file and still answer with a success envelope. Responses do not name the root
+they answered from, so there is nothing to compare.
+
 ## codemaster
 
 **codemaster** — a stateful, always-on **codebase inspector** for TS/React repos, built for
