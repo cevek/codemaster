@@ -56,9 +56,10 @@ The job sets `CODEMASTER_REQUIRE_RG=1` and installs + verifies ripgrep, so the `
 distinctness oracle (`test/helpers/ripgrep.ts`) **fails loud** if `rg` is missing rather than
 honest-skipping — locally a missing `rg` still skips that cross-check (see §16).
 
-**Pre-push (optional, convenience):** `.husky/pre-push` runs `npm test` so a red suite never
-reaches the remote; `.husky/pre-commit` runs `lint-staged`. Both are local fast gates,
-skippable with `git push --no-verify`; CI is the authoritative one.
+**Local hooks (optional, convenience):** `.husky/pre-push` runs `npm test` so a red suite never
+reaches the remote — a fast local gate, skippable with `git push --no-verify`; CI is the
+authoritative one. Commit time is untouched: what you staged is what lands, so run `fix-and-check`
+yourself, and CI's non-mutating `prettier --check` is what catches a tree you didn't.
 
 ## Prime directive — never lie
 

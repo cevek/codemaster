@@ -44,15 +44,6 @@
     "test:timing": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \"test/**/*.test.ts\"",
     "prepare": "husky"
   },
-  "lint-staged": {
-    "src/**/*.ts": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "**/*.{json,md,js,mjs,cjs,yml,yaml}": [
-      "prettier --write"
-    ]
-  },
   "keywords": [
     "codebase",
     "inspector",
@@ -89,7 +80,6 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "husky": "^9.1.7",
     "knip": "^6.15.0",
-    "lint-staged": "^16.4.0",
     "typescript-eslint": "^8.60.0"
   }
 }
