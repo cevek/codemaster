@@ -3,7 +3,7 @@ id: t-544207
 title: Run the semantic fan-out guard in process-mode too (force-overridable), so an oversized repo gets a fast honest refusal instead of a ~31 s OOM
 status: backlog
 priority: medium
-parent: t-754922
+parent: t-031282
 depends_on:
   - t-396905
 tags:
