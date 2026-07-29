@@ -12,18 +12,11 @@
 // to an honest "speaks an older protocol — restart" rather than a misreport.
 
 import type { Clock } from '../common/async/clock.ts';
-import type { Transport, TransportConnection } from '../support/transport/seam.ts';
-import type { DaemonInfo } from './orchestrator-api.ts';
+import type { Transport } from '../support/transport/seam.ts';
 import { connectOrSpawnDaemon, tryConnect } from './connect-or-spawn.ts';
 import { forceRecoverDaemon, type ForceRecoverResult } from './force-recover.ts';
-import { SHUTTING_DOWN_CODE } from './protocol.ts';
-import {
-  awaitClose,
-  awaitReply,
-  daemonInfoEnvelope,
-  fmtUptime,
-  shutdownEnvelope,
-} from './manage-io.ts';
+import { awaitClose, fmtUptime, shutdownEnvelope } from './manage-io.ts';
+import { awaitRelease, describe, fetchInfo, releaseMs, replyMs } from './manage-probe.ts';
 
 export interface DaemonManageDeps {
   transport: Transport;
@@ -41,6 +34,9 @@ export interface DaemonManageDeps {
   replyDeadlineMs?: number;
   /** Bounded await-close deadline for `stop` (ms). Default 10000. */
   stopTimeoutMs?: number;
+  /** Bounded wait for a DRAINING daemon to release the socket before `start` spawns (ms).
+   *  Default 5000. */
+  releaseTimeoutMs?: number;
   /** Spawn budget forwarded to `connectOrSpawnDaemon` (ms). */
   spawnTimeoutMs?: number;
 }
@@ -53,9 +49,7 @@ export interface ManageResult {
   lines: string[];
 }
 
-const DEFAULT_REPLY_MS = 5000;
 const DEFAULT_STOP_MS = 10_000;
-const replyMs = (d: DaemonManageDeps): number => d.replyDeadlineMs ?? DEFAULT_REPLY_MS;
 const stopMs = (d: DaemonManageDeps): number => d.stopTimeoutMs ?? DEFAULT_STOP_MS;
 
 /** Dispatch a management verb. `serve` (the internal long-lived daemon) is NOT here — it needs an
@@ -96,11 +90,13 @@ async function daemonStatus(deps: DaemonManageDeps): Promise<ManageResult> {
           `find the pid: pgrep -f 'codemaster.*daemon'`,
         ],
       };
-    if (info.kind === 'shutting-down')
+    if (info.kind === 'shutting-down' || info.kind === 'closed')
       return {
         code: 0,
         lines: [
-          `daemon is shutting down (it answered, then began teardown) — socket: ${deps.socketPath}`,
+          info.kind === 'shutting-down'
+            ? `daemon is shutting down (it answered, then began teardown) — socket: ${deps.socketPath}`
+            : `daemon is exiting (it accepted the connection, then closed it without replying) — socket: ${deps.socketPath}`,
           'the next request spawns a fresh one; re-run `codemaster daemon status` to see it',
         ],
       };
@@ -126,21 +122,41 @@ async function daemonStatus(deps: DaemonManageDeps): Promise<ManageResult> {
 }
 
 async function daemonStart(deps: DaemonManageDeps): Promise<ManageResult> {
-  const existing = await tryConnect(deps.transport);
-  if (existing !== undefined) {
-    try {
-      const info = await fetchInfo(existing, deps);
-      if (info.kind === 'ok')
-        return {
-          code: 0,
-          lines: [
-            `daemon already running (pid=${info.info.pid}, uptime=${fmtUptime(info.info.uptimeMs)})`,
-          ],
-        };
-      return { code: 0, lines: [`daemon already running (info unavailable — ${describe(info)})`] };
-    } finally {
-      await existing.close();
-    }
+  const probe = await awaitRelease(deps);
+  switch (probe.kind) {
+    case 'serving':
+      return {
+        code: 0,
+        lines: [
+          `daemon already running (pid=${probe.info.pid}, uptime=${fmtUptime(probe.info.uptimeMs)})`,
+        ],
+      };
+    case 'legacy':
+      return {
+        code: 0,
+        lines: [
+          'daemon already running (speaks an older protocol) — run `codemaster daemon restart` to pick up this version',
+        ],
+      };
+    case 'wedged':
+      // It holds the socket, so a spawn would lose the bind race and exit silently. Refuse, and
+      // name the verb that CAN recover it (restart escalates to a pidfile-targeted kill).
+      return {
+        code: 1,
+        lines: [
+          `daemon running but UNRESPONSIVE (no reply in ${replyMs(deps)}ms) — not spawning a second one (it still holds the socket)`,
+          'recover it: `codemaster daemon restart`',
+        ],
+      };
+    case 'draining':
+      return {
+        code: 1,
+        lines: [
+          `daemon is still shutting down after ${releaseMs(deps)}ms and has not released the socket — re-run \`codemaster daemon start\``,
+        ],
+      };
+    case 'none':
+      break;
   }
   const conn = await connectOrSpawnDaemon({
     transport: deps.transport,
@@ -157,7 +173,16 @@ async function daemonStart(deps: DaemonManageDeps): Promise<ManageResult> {
   try {
     const info = await fetchInfo(conn, deps);
     if (info.kind === 'ok') return { code: 0, lines: [`daemon started (pid=${info.info.pid})`] };
-    return { code: 0, lines: [`daemon started (pid unavailable — ${describe(info)})`] };
+    // Connected, but nothing confirmed it is SERVING — the connect may have landed on a daemon
+    // mid-teardown rather than the one we spawned. Reporting success here is what makes `restart`
+    // claim a fresh daemon while none is running (§3.6): a start is claimed only when a daemon
+    // answered as live. The wording claims no spawn either — the connect may have pre-empted it.
+    return {
+      code: 1,
+      lines: [
+        `connected to the socket, but nothing there confirmed it is serving (${describe(info)}) — run \`codemaster daemon status\``,
+      ],
+    };
   } finally {
     await conn.close();
   }
@@ -169,6 +194,11 @@ async function daemonStop(deps: DaemonManageDeps): Promise<ManageResult> {
   // Read the pid first (for the honest "kill manually" fallback) — bounded; an old daemon answers
   // with an error reply (unsupported), so pid stays undefined but stop still proceeds.
   const info = await fetchInfo(conn, deps);
+  if (info.kind === 'closed')
+    // The link dropped before it answered — this daemon was already exiting. Sending `shutdown`
+    // into a dead socket and then awaiting a close that already happened would spend the whole
+    // stop budget and escalate to a force-kill of a pid that is on its way out (§3.6).
+    return { code: 0, lines: ['no daemon running (it was already exiting)'] };
   const pid = info.kind === 'ok' ? info.info.pid : undefined;
   // Confirmation is the connection CLOSING (listener torn down + socket unlinked) — register the
   // close-await BEFORE sending shutdown so we never miss a fast close.
@@ -261,37 +291,3 @@ async function daemonRestart(deps: DaemonManageDeps): Promise<ManageResult> {
 }
 
 const RECONNECT_NOTE = 'any connected MCP clients must reconnect (the shared daemon is gone)';
-
-type InfoOutcome =
-  | { kind: 'ok'; info: DaemonInfo; sourceStale: boolean }
-  | { kind: 'timeout' }
-  | { kind: 'shutting-down' }
-  | { kind: 'unsupported'; message: string };
-
-/** Send one `daemon-info` request and await its reply, deadline-bounded. An error reply (an old
- *  daemon that doesn't know the kind) maps to `unsupported`, never a throw — EXCEPT the one error a
- *  current daemon deliberately sends: a connect that lands after teardown began is answered with the
- *  `SHUTTING_DOWN_CODE` refusal, and reading that as "old code" would print a confident, wrong
- *  diagnosis (§3.6). Branch on the code, never the prose. */
-async function fetchInfo(conn: TransportConnection, deps: DaemonManageDeps): Promise<InfoOutcome> {
-  const id = 1;
-  const outcome = await awaitReply(conn, deps.clock, daemonInfoEnvelope(id), id, replyMs(deps));
-  if (outcome.kind === 'timeout') return { kind: 'timeout' };
-  const reply = outcome.reply;
-  if (reply.kind === 'daemon-info')
-    return { kind: 'ok', info: reply.info, sourceStale: reply.sourceStale };
-  if (reply.kind === 'error') {
-    if (reply.message.startsWith(SHUTTING_DOWN_CODE)) return { kind: 'shutting-down' };
-    return { kind: 'unsupported', message: reply.message };
-  }
-  return { kind: 'unsupported', message: `unexpected reply kind ${reply.kind}` };
-}
-
-const describe = (o: InfoOutcome): string =>
-  o.kind === 'timeout'
-    ? 'unresponsive'
-    : o.kind === 'shutting-down'
-      ? 'shutting down'
-      : o.kind === 'unsupported'
-        ? 'speaks an older protocol'
-        : 'ok';

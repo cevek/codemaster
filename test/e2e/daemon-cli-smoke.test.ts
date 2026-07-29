@@ -56,18 +56,22 @@ const diag = (r: VerbResult): string =>
 
 /** Bounded poll for the LIFECYCLE fact that a restart bound a FRESH daemon: re-query `status` until it
  *  reports a pid different from `oldPid` (or the budget runs out). Load-independent — it reads the
- *  daemon's actual identity, not the restart verb's own (flush-racy) stdout. Returns the observed pid. */
+ *  daemon's actual identity, not the restart verb's own (flush-racy) stdout.
+ *
+ *  Carries the last `status` back with the pid: FOUR distinct outcomes print no `pid=` (none
+ *  running · UNRESPONSIVE · exiting · older protocol), so a bare `undefined` names none of them and
+ *  a CI failure can't be diagnosed from the log. The state itself is the diagnostic. */
 async function waitForFreshPid(
   env: Record<string, string>,
   oldPid: string | undefined,
   budgetMs: number,
-): Promise<string | undefined> {
+): Promise<{ pid: string | undefined; last: VerbResult }> {
   const start = Date.now();
   for (;;) {
     const s = await runVerb('status', env);
     const pid = /pid=(\d+)/.exec(s.out)?.[1];
-    if (pid !== undefined && pid !== oldPid) return pid;
-    if (Date.now() - start >= budgetMs) return pid;
+    if (pid !== undefined && pid !== oldPid) return { pid, last: s };
+    if (Date.now() - start >= budgetMs) return { pid, last: s };
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -132,10 +136,13 @@ test('daemon CLI: status → start → status → stop → status → restart ov
     // "stopped then started" WORDING is pinned deterministically in test/unit/daemon-manage.test.ts.
     const restart2 = await runVerb('restart', env);
     assert.equal(restart2.code, 0, diag(restart2));
-    const freshPid = await waitForFreshPid(env, livePid, 5000);
+    // The budget outlasts one full daemon-info reply deadline, so a single slow/unresponsive probe
+    // cannot consume the whole poll and leave the outcome unexplained.
+    const fresh = await waitForFreshPid(env, livePid, 15_000);
     assert.ok(
-      freshPid !== undefined && freshPid !== livePid,
-      `restart bound a fresh daemon (was ${livePid}, now ${freshPid})`,
+      fresh.pid !== undefined && fresh.pid !== livePid,
+      `restart bound a fresh daemon (was ${livePid}, now ${fresh.pid})\n` +
+        `--- restart ---\n${diag(restart2)}\n--- last status ---\n${diag(fresh.last)}`,
     );
   } finally {
     await runVerb('stop', env).catch(() => undefined);

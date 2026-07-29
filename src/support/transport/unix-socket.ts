@@ -59,7 +59,13 @@ function wrapSocket(raw: net.Socket): TransportConnection {
       if (!closed) raw.write(encodeLine(message));
     },
     onMessage: (handler) => void (onMessage = handler),
-    onClose: (handler) => void (onClose = handler),
+    onClose(handler) {
+      onClose = handler;
+      // A close that already happened is delivered at once. A handler registered after the fact
+      // otherwise never fires, and an await-close (`manage-io`) then burns its whole deadline on a
+      // link that is PROVABLY dead — a fabricated "unresponsive" over an honest "gone" (§1/§3.6).
+      if (closeNotified) handler();
+    },
     onError: (handler) => void (onError = handler),
     close() {
       if (closed) return Promise.resolve();

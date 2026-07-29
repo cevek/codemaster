@@ -100,6 +100,34 @@ test('transport: a corrupt (undecodable) line closes the link honestly (no crash
   });
 });
 
+// A close is a FACT about the link, not an event you had to be subscribed for. The oracle is the
+// real socket: the peer really is gone (the server destroyed it and we awaited that), so a handler
+// registered afterwards must still learn it. Missing it makes every await-close on that link run to
+// its full deadline and then report a timeout — "unresponsive" asserted about a provably dead
+// daemon (§1/§3.6). The management verbs read exactly this ordering when they probe a daemon that
+// is on its way out.
+test('transport: a close handler registered AFTER the close still fires (never a missed close)', async () => {
+  await withServer(async (server, _sockPath, connect) => {
+    const accepted = new Promise<TransportConnection>((resolve) => server.onConnection(resolve));
+    const client = await connect();
+    const serverSide = await accepted;
+    // Prove the client link is already down before anyone subscribes: await the close on a
+    // DIFFERENT (early) registration, then register a second handler on the same connection.
+    const firstSaw = new Promise<void>((resolve) => client.onClose(resolve));
+    await serverSide.close();
+    await firstSaw;
+
+    const late = await new Promise<'fired' | 'missed'>((resolve) => {
+      const timer = setTimeout(() => resolve('missed'), 1000);
+      client.onClose(() => {
+        clearTimeout(timer);
+        resolve('fired');
+      });
+    });
+    assert.equal(late, 'fired', 'a late-registered close handler is told the link is already gone');
+  });
+});
+
 test('transport: close() unlinks the socket; a later connect refuses (recovery path)', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'cm-sock-'));
   const sockPath = socketPath('test', dir);

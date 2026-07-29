@@ -8,10 +8,20 @@ import type { JsonValue } from '../core/json.ts';
 import type { TransportConnection } from '../support/transport/seam.ts';
 import { parseWireReply, type WireReply } from './protocol.ts';
 
-export type ReplyOutcome = { kind: 'reply'; reply: WireReply } | { kind: 'timeout' };
+export type ReplyOutcome =
+  | { kind: 'reply'; reply: WireReply }
+  | { kind: 'timeout' }
+  | { kind: 'closed' };
 
 /** Single in-flight request/reply, correlated by id, bounded by a deadline. A corrupt or
- *  unmatched line is ignored (the deadline is the backstop), never thrown into the transport. */
+ *  unmatched line is ignored (the deadline is the backstop), never thrown into the transport.
+ *
+ *  Three outcomes, because a dead link and a wedged one are different facts about the daemon and
+ *  carry different remedies (§3.6). A link that CLOSES can never deliver the reply, so waiting out
+ *  the deadline on it would both stall the caller for nothing (§1) and then report `timeout` —
+ *  "running but unresponsive", the confident opposite of "it was exiting". A daemon in teardown
+ *  still ACCEPTS (the kernel completes a connect into its backlog a beat before the listener
+ *  closes), so this is the ordinary shape of probing one, not an exotic race. */
 export function awaitReply(
   conn: TransportConnection,
   clock: Clock,
@@ -21,18 +31,19 @@ export function awaitReply(
 ): Promise<ReplyOutcome> {
   return new Promise<ReplyOutcome>((resolve) => {
     let settled = false;
-    const cancel = clock.schedule(deadlineMs, () => {
+    const settle = (outcome: ReplyOutcome): void => {
       if (settled) return;
       settled = true;
-      resolve({ kind: 'timeout' });
-    });
+      cancel();
+      resolve(outcome);
+    };
+    const cancel = clock.schedule(deadlineMs, () => settle({ kind: 'timeout' }));
+    conn.onClose(() => settle({ kind: 'closed' }));
     conn.onMessage((raw) => {
       if (settled) return;
       const parsed = parseWireReply(raw);
       if (!parsed.ok || parsed.value.id !== id) return;
-      settled = true;
-      cancel();
-      resolve({ kind: 'reply', reply: parsed.value });
+      settle({ kind: 'reply', reply: parsed.value });
     });
     conn.send(envelope);
   });

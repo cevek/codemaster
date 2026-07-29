@@ -83,7 +83,19 @@ start|stop|restart|status`, spec-daemon-cli) give a bounded socket-probe `status
   unanswered past the deadline, `stop`/`restart` **escalate to a pidfile-targeted SIGTERM→SIGKILL**
   (SIGKILL is the real backstop — a sync-spin can't service SIGTERM), guarded against a recycled pid
   by socket-identity + a re-read + a liveness check, then `restart` respawns through the SAME
-  bind-or-connect convergence (never a bespoke unlink-then-spawn, §19). Independently, on the read
+  bind-or-connect convergence (never a bespoke unlink-then-spawn, §19). Every verb probes for
+  **SERVING, not for connectivity**: a daemon committed to exit still ACCEPTS (the kernel completes
+  a connect into its backlog until the listener closes), so a bare connect cannot tell a live daemon
+  from the one being replaced. The probe is a closed verdict — `serving` / `legacy` (answers, older
+  protocol) / `wedged` (accepted, no reply within the deadline) / `draining` (the teardown refusal,
+  or the link dropped before answering) / `none` — and each verb acts on the verdict, not on the
+  connect: `start` waits a `draining` daemon out (bounded) before spawning, refuses to spawn into a
+  socket a `wedged`/`draining` daemon still holds (a spawn there loses the bind race and dies
+  silently), and claims a start ONLY when a daemon answered as live — a `restart` reporting success
+  with nothing running is the §3.6 lie this verdict exists to prevent. `draining` is distinguishable
+  at all because a link that CLOSES settles the await-reply at once instead of running out its
+  deadline (a closed link can never deliver the reply, and reporting `timeout` — "unresponsive" —
+  about a daemon provably gone is that same lie with the opposite remedy). Independently, on the read
   path a **bridge**, on a reply-timeout, fires one short `daemon-info` liveness ping to tell a
   busy-but-alive daemon from an UNRESPONSIVE front door and steers the agent to `codemaster daemon
 restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-target HINT, never a

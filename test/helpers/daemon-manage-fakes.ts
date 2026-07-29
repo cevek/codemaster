@@ -48,18 +48,61 @@ export function fakeConnection(
 ): TransportConnection {
   let onMsg: (m: JsonValue) => void = () => undefined;
   let onCloseCb: () => void = () => undefined;
+  let closeNotified = false;
+  const notifyClose = (): void => {
+    if (closeNotified) return;
+    closeNotified = true;
+    onCloseCb();
+  };
   return {
     send(envelope) {
       onSend(
         envelope as unknown as Envelope,
         (reply) => queueMicrotask(() => onMsg(reply)),
-        () => queueMicrotask(() => onCloseCb()),
+        () => queueMicrotask(notifyClose),
       );
     },
     onMessage: (h) => void (onMsg = h),
-    onClose: (h) => void (onCloseCb = h),
+    // Mirrors the real transport: a close that already happened is delivered to a handler
+    // registered afterwards. A fake that silently dropped it would let a verb pass here while
+    // waiting out its deadline against a real socket — the fake must model the invariant, not
+    // depend on the registration order happening to be favourable.
+    onClose(h) {
+      onCloseCb = h;
+      if (closeNotified) h();
+    },
     onError: () => undefined,
     close: () => Promise.resolve(),
+  };
+}
+
+/** A link that is ALREADY dead when the verb receives it — the shape a connect into a dying
+ *  daemon's accept backlog produces (it completes, then the daemon exits without ever reading).
+ *  Mirrors the real transport: a close handler registered after the fact is told at once, so the
+ *  verb learns "gone" instead of waiting out its deadline and reporting "unresponsive". */
+export function closedConnection(): TransportConnection {
+  return {
+    send: () => undefined, // a dead socket swallows the write
+    onMessage: () => undefined, // no reply can ever arrive
+    onClose: (h) => queueMicrotask(h),
+    onError: () => undefined,
+    close: () => Promise.resolve(),
+  };
+}
+
+/** A transport handing out one connection per `connect()` in order (`undefined` = ENOENT, no
+ *  daemon); past the end it repeats the last entry. Models a socket whose occupant CHANGES across
+ *  a verb's probes — a daemon exiting, then a fresh one binding. */
+export function transportSequence(conns: (TransportConnection | undefined)[]): Transport {
+  let i = 0;
+  return {
+    listen: () => Promise.reject(new Error('listen unused in manage tests')),
+    connect: () => {
+      const c = i < conns.length ? conns[i++] : conns[conns.length - 1];
+      return c === undefined
+        ? Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
+        : Promise.resolve(c);
+    },
   };
 }
 
