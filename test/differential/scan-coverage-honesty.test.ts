@@ -206,9 +206,20 @@ test('an expired budget: the PARTIAL note counts FILES, never claims a finished 
     const data = r.result.data as ScanData;
     const n = notes(data);
     assert.match(n, /PARTIAL SCAN/, 'the cut is disclosed');
+    // A cut this early leaves BOTH counters at 0, so this arm pins the note's SHAPE, not the
+    // walked-vs-in-scope denomination — discriminating those needs a mid-walk cut (t-979112).
     assert.match(n, /walking 0 of \d+ in-scope file\(s\)/, 'the shortfall is denominated in FILES');
-    // The three fabrications the file-denominated counters exist to prevent.
-    assert.ok(!/were walked across/.test(n), `must not claim files were walked: ${n}`);
+    // The empty-scan remedy states the cause that FIRED. Pinned positively, because the two
+    // alternatives it must not print — "no scannable file exists here" and "your glob matched
+    // nothing" — are claims about a file set the cut never looked at, and each carries a lever
+    // that cannot move this outcome (§3.6 / t-259465).
+    assert.match(
+      n,
+      /wall-clock budget expired BEFORE any program in the fan could be consulted/,
+      `the empty scan names the deadline, not a fabricated file-set cause: ${n}`,
+    );
+    // The other fabrications a cut walk must not commit — each is a wording the op DOES emit on its
+    // own cause, so a note assembled from the wrong cause reddens here.
     assert.ok(
       !/the shortfall is the budget/.test(n),
       `a deadline cut is not the limit budget — different cause, different remedy: ${n}`,
