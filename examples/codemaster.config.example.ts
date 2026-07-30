@@ -59,7 +59,11 @@ export default defineConfig({
     autoEscalate: true,
     idleEvictionMinutes: 30,
     pathExistenceSweepSeconds: 60,
-    // Child heap ceiling in MB for 'process' mode (ignored in-process); default ≥ Node's ~4 GB.
-    maxOldSpaceMB: 4096,
+    // LEAVE `maxOldSpaceMB` UNSET unless you mean to override the machine. Unset = derived from THIS
+    // box: half its RAM within [4096, 8192] MB, so a 6k-file monorepo (~5.2 GB live for one
+    // checker-backed query) can actually be answered. Set, it is used VERBATIM — a bigger number on a
+    // box with the RAM to spare, or a SMALLER one to cap a child on a busy machine. Above whichever
+    // ceiling applies the child OOMs honestly (the daemon survives). Ignored in 'in-process' mode.
+    //   maxOldSpaceMB: 12288,
   },
 });

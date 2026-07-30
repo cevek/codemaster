@@ -34,6 +34,11 @@ export interface ProcessHostDeps {
   /** Called once when the child is gone (crash / OOM / dispose / timeout-kill) so the
    *  orchestrator evicts the slot and the next request respawns. */
   onExit: () => void;
+  /** One rendered phrase naming the child's heap ceiling and how to move it (`heap-ceiling.ts`
+   *  `describeCeiling`), quoted in an OOM failure: `code=134` alone cannot tell "too big for this
+   *  machine" from "too big for the number we picked", and only the latter has a remedy (§3.6).
+   *  Optional so a fake-child test need not state one — absent, the cause reads as it did. */
+  heapCeiling?: string;
 }
 
 type DeadReason = 'crash' | 'oom' | 'timeout';
@@ -148,10 +153,18 @@ export async function createProcessHost(
   // importing L3 is downward, and the table stays the single home of the claim.
   function failAll(reqs: readonly OpRequest[], s: Extract<Settled, { ok: false }>): OpResult[] {
     const tool = s.reason === 'timeout' ? 'timeout' : s.reason === 'oom' ? 'oom' : 'engine-process';
+    // On an OOM the ceiling is part of the CAUSE, not decoration: the same `code=134` means one thing
+    // at a box-derived ceiling (this repo needs more than this machine gives one child) and another
+    // at a configured one (a number someone chose, and can raise). Only stated where it is load-bearing
+    // — a timeout or a bare exit says nothing about the heap, so quoting it there would imply a
+    // diagnosis we do not have (§3.6).
+    const ceiling = deps.heapCeiling !== undefined ? `, ${deps.heapCeiling}` : '';
     const cause =
       s.reason === 'timeout'
         ? `isolated engine did not reply in ${deps.requestDeadlineMs}ms — killed it`
-        : `isolated engine process ${s.reason === 'oom' ? 'ran out of memory' : 'exited'} (${s.detail})`;
+        : s.reason === 'oom'
+          ? `isolated engine process ran out of memory (${s.detail}${ceiling})`
+          : `isolated engine process exited (${s.detail})`;
     // Only an OOM earns "cannot complete on this repo": the heap was exhausted, and a retry does the
     // same thing again. A deadline overrun is not proof of impossibility and a crash is weaker still
     // — those say what happened to THIS call and nothing about the next one.

@@ -37,3 +37,10 @@ Cold cross-program `find_usages` on backoffice2 OOMs at 4 GB **regardless of the
 That kills lever A (a lower default child heap): the ceiling is shared by the whole child, so it would be paid by the ops that DO work on such a repo, in exchange for ~20 s on a path that fails either way.
 
 The residual — refusing that fan-out class fast instead of after ~31 s — is a different claim and is tracked separately (see the process-mode fan-out guard task, which depends on t-396905 for the correct memory model).
+
+
+**Superseded on the ceiling number by t-811950.** The fast-failure finding above stands (the honest
+OOM lands in ~31 s, nothing to calibrate for latency). What no longer holds is "the heap ceiling stays
+at its 4096 MB default": a fixed 4096 IS Node's own default limit on a 32 GB box (~4144 MB), so the
+flag raises nothing, and the same call answers at a 5632 MB ceiling (~5.2 GB live heap). The ceiling is
+now derived from the box (`src/daemon/heap-ceiling.ts`).

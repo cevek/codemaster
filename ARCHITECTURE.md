@@ -1094,8 +1094,10 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   `config.ts.searchWarmPeakMaxFiles` (default 9000 post-pruning peak files — its OWN threshold, higher
   than the semantic guard's `searchWarmMaxFiles` because it gates the accurate peak, not the surface;
   codemaster ~629 passes; backoffice2's pruned peak ~6107 files / ~1 GB passes, its un-pruned fan-out
-  ~18k refuses — calibrated against a measured file→RSS curve, conservative because an OOM kills the
-  daemon) the op REFUSES to warm and names the calls that answer the same
+  ~18k refuses — calibrated against a measured file→RSS curve, conservative because an in-process OOM
+  kills the daemon; this guard reads no isolation signal, so it applies that same threshold inside an
+  escalated child, whose ceiling is the larger box-derived one — the mismatch is tracked as t-283990)
+  the op REFUSES to warm and names the calls that answer the same
   question here ([`ops/guard/navigate.ts`](src/ops/guard/navigate.ts)): `search_symbol
 {syntactic:true}` — the same fuzzy search over the AST alone — then `symbols_overview {query}`.
   It deliberately does NOT name a bare-name `find_usages`/`find_definition`: wherever this threshold
@@ -1165,9 +1167,55 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   instead of guessing. Escape hatch: `daemon.autoEscalate: false` pins the mode.
   **The guarantee is crash-SAFETY, not capability.** A fan-out too big for the child's heap comes
   back as an honest `ToolFailure{oom}` with the daemon alive and every other workspace untouched —
-  it does not make that op succeed. The memo's known gap: a repo that outgrows its cached count
+  it does not make that op succeed. What escalation MUST not do is manufacture that failure: the
+  child's heap ceiling is the next bullet, and a ceiling below what the box can serve turns "too big
+  for this machine" into "too big for a number we picked", which is a refusal the repo never earned.
+  The memo's known gap: a repo that outgrows its cached count
   stays in-process until the daemon restarts, where the fan-out guard's own fresh count covers the
   read ops (and not the mutating ones, above).
+- **A `process`-mode child's heap ceiling is derived from the BOX** ([`daemon/heap-ceiling.ts`](src/daemon/heap-ceiling.ts)) —
+  every such child, auto-escalated or explicitly pinned. `--max-old-space-size` is
+  `config.daemon.maxOldSpaceMB` used VERBATIM if set, else half the machine's total RAM held within
+  `[4096, 8192]` MB. A FIXED default cannot do this job: 4096 is Node's own default limit on a 32 GB box
+  (~4144 MB), so passing it raises nothing — the flag is applied and the ceiling is unchanged, which is
+  why the number comes from the box and not from a constant. Three decisions, each load-bearing:
+  - **Not the file count**, though escalation already measured it. Measured on a 6.1k-file pnpm
+    monorepo: parse+bind of its primary program costs ~0.14 MB/file, a checker-backed `find_usages`
+    over the SAME program ~0.85 MB/file — so one `files × k` fabricates a precision that does not
+    exist, and an under-prediction reproduces the very defect (an OOM ~1.1 GB below the need). The
+    count's job is the escalation TRIGGER; the ceiling's question — how much of this machine may one
+    workspace claim — is answered only by the machine.
+  - **Total RAM, not free RAM.** A ceiling read off free memory differs between two spawns of one
+    repo, so the identical call refuses under load and answers when idle — §3.6 in resource clothing.
+    An honest cap has to be reproducible. "The box" is the HOST reading reduced to the cgroup limit
+    when one is in force (`os.totalmem()` reports the host even inside a memory-limited container):
+    a ceiling the kernel will not honor buys a `SIGKILL`, which the daemon can only report as
+    `crash`, in place of V8's own recognizable heap OOM. That reduction changes the outcome only for a
+    limit in the ~8–16 GB band — below it the floor takes over, so a container smaller than ~8 GB still
+    gets 4096 and remains kernel-killable (a residual the floor deliberately does not trade away:
+    half of a small container is a heap where repos that fit today would start failing).
+  - **The cap, not the box, binds from 16 GB up** — so this is not "the ceiling reflects the
+    hardware". The RAM term lifts the floor on real dev machines (a 16 GB laptop clears the measured
+    ~5.2 GB need; a quarter-share would have left it at 4096); the 8192 cap is a POLICY bound stopping
+    ONE runaway child from claiming the machine and pushing it into swap, which under §1 is worse than
+    either a crash or a refusal because thrash stalls every workspace instead of failing one op. It does
+    NOT bound the AGGREGATE — engines are capped by count (`maxEngines`), not RSS, so several
+    concurrently-heavy escalated children can still exceed the box; that is the roadmap cross-engine RSS
+    governor's job (below). A bigger box raises the per-child ceiling explicitly through
+    `daemon.maxOldSpaceMB`. The floor is the historical default, so no small machine regresses — and
+    on an 8 GB box that 6.1k-file class stays honestly unanswerable, a stated cap rather than an
+    oversight.
+
+  Scope: this is the CHILD's ceiling, and the two pre-warm guards relate to it differently. The
+  semantic fan-out guard is isolation-GATED (it fires only while the engine is `in-process`, where the
+  heap is the daemon's own Node default), so the child ceiling never enters its reasoning.
+  `search_symbol`'s pre-warm peak guard is isolation-BLIND by design — it also refuses a
+  memory-SQUATTING warm for a throwaway discovery query, which is isolation-independent — so it fires
+  inside an escalated child too, at a threshold whose calibration assumes the daemon's default heap.
+  Raising the child ceiling neither relaxes nor re-calibrates either guard, and the resulting mismatch
+  for the peak guard (a child with up to 8192 MB refused by a 9000-file threshold pinned to ~4 GB) is
+  open work, tracked as t-283990.
+
 - **Idle-TTL eviction** — after `daemon.idleEvictionMinutes` with no requests, the
   orchestrator **disposes the engine**: in `process` mode that kills the child process and
   the OS reclaims everything (plugin states + LS) at once; in `in-process` mode it drops
@@ -1181,7 +1229,8 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   `repoRoot` covers the case where an agent calls into a deleted worktree.
 - **Memory governor** — an **engine-count** LRU budget is built (`maxEngines`): past it the
   orchestrator evicts the least-recently-used workspace. The per-engine `--max-old-space-size`
-  bound (set at fork in `process` mode) is the built RAM ceiling per child; an OOM there kills only
+  bound (set at fork in `process` mode, resolved from the box — see the escalated-child ceiling above)
+  is the built RAM ceiling per child; an OOM there kills only
   that child (honest `ToolFailure`, daemon survives), not the box. A cross-engine **RSS-based**
   governor (evict the LRU workspace when total RSS crosses a machine budget — meaningful in
   `process` mode, where each child's RSS is separately measurable/killable) is roadmap.
@@ -1211,7 +1260,8 @@ AND the auto-escalation one — + `searchWarmPeakMaxFiles`, the `search_symbol` 
 template-literal handling), `scss` (module globs, import style), `schema` (entrypoint,
 generator), `plugins` (which framework plugins to enable, autodetect overrides), `output`
 (verbosity, limits), `daemon` (isolation mode, `autoEscalate` §9, idle eviction, path-existence sweep interval,
-`maxOldSpaceMB` process-mode child heap ceiling §9, `opDeadlineSeconds` per-op wall-clock budget §1/§19), `debug`
+`maxOldSpaceMB` process-mode child heap ceiling — used verbatim, overriding the box-derived default §9,
+`opDeadlineSeconds` per-op wall-clock budget §1/§19), `debug`
 (trace namespaces, log cap). The file is loaded and **validated with zod** — an unknown
 key or wrong type fails fast with a pointed message, not a deep crash. With no config at
 all it still works: `codemod` / text-search drive off git `ls-files` (the `.gitignore`-aware
@@ -1665,7 +1715,7 @@ codemaster/
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
-    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, heap-ceiling.ts child heap ceiling §9, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap) + call-telemetry.ts / inflight-ops.ts (§13 crash breadcrumbs)
     cli/                     # L5 — the CLI front door: op-command.ts (argv → OpRequest), compose.ts (batch + --sql, the same schema/normalizer/renderer the MCP surface uses), flags.ts, surfaces.ts (the non-op names batch/status, §3.6)
     format/                  # dense formatter, codes, json mode
@@ -1933,10 +1983,13 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   child's `import.meta.url` base is codemaster's own source (same as the parent) even under a global
   / `npx` install, it resolves the SAME bundled `typescript` as the parent — no project-TS-resolution
   seam is needed at the current stage (the aspirational resolve-from-project-root TS is §5-L2
-  roadmap). `--max-old-space-size` is appended to the child's inherited `execArgv` at fork (default ≥
-  Node's own ~4 GB, `config.daemon.maxOldSpaceMB` overrides) — a warm that would OOM the shared
-  daemon dies in the child instead (t-167395), and the daemon settles the pending request as an
-  honest `ToolFailure` (oom-hinted on a SIGABRT/134 signature) and respawns on the next request.
+  roadmap). `--max-old-space-size` is appended LAST to the child's inherited `execArgv` at fork (V8
+  takes the last occurrence, so it wins over a flag the parent itself carries) — a warm that would OOM
+  the shared daemon dies in the child instead (t-167395), and the daemon settles the pending request
+  as an honest `ToolFailure` (oom-hinted on a SIGABRT/134 signature) and respawns on the next request.
+  Its value is the §9 box-derived ceiling (`daemon/heap-ceiling.ts`), NOT a fixed number — 4096 IS
+  Node's own default limit on a 32 GB box (~4144 MB), so a flag of 4096 raises nothing: an escalated
+  repo would die at exactly the ceiling it has unflagged, with the mechanism applied and inert.
   The child's `stdio[2]` is PIPED, not inherited, and relayed line-by-line into the repo's own
   `child-stderr.log` (§13).
   Orphan-child reaping is `process.on('disconnect')` in the child: a `SIGKILL`ed orchestrator drops

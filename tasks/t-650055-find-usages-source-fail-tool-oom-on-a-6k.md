@@ -38,7 +38,9 @@ All four: `FAIL tool=oom`. Two distinct defects.
 
 An exact SymbolId is the cheapest possible target, and `source` is "print this declaration" — yet both
 OOM, because the cost is the WHOLE-PROGRAM WARM, not the query. The heap ceiling half of this is a
-separate task (auto-escalated child gets the default ~4 GB). What remains here is structural: the target
+separate task (t-811950 — the child ceiling is derived from the box, so on a 16 GB+ machine these
+three calls answer; the structural half below is what a smaller box, or a bigger repo, still needs).
+What remains here is structural: the target
 lives in ONE program (`apps/emr`), and answering it warms every discovered program.
 
 Asked for, and architecturally consistent with the floor vocabulary we already ship:

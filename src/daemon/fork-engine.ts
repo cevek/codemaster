@@ -31,8 +31,10 @@ export interface ForkEngineOpts {
   root: string;
   stateDir: string;
   version: string;
-  /** Child heap ceiling (MB) — appended to the inherited `execArgv` so type-stripping and any
-   *  other parent flags survive (replacing the list would drop them — a prod-only footgun). */
+  /** Child heap ceiling (MB), resolved by `heap-ceiling.ts` (config verbatim, else box-derived) —
+   *  appended to the inherited `execArgv` so type-stripping and any other parent flags survive
+   *  (replacing the list would drop them — a prod-only footgun). Appended LAST, so it wins over any
+   *  `--max-old-space-size` the parent itself was started with (V8 takes the last occurrence). */
   maxOldSpaceMB: number;
   /** Test socket-dir seam, forwarded so a spawned child shares the parent's endpoint config. */
   sockDir: string | undefined;

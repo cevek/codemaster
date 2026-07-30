@@ -106,8 +106,14 @@ export interface DaemonConfig {
   pathExistenceSweepSeconds?: number;
   /** `process`-mode only: the child engine's heap ceiling (`--max-old-space-size`, MB, §9). A
    *  warm that exceeds it OOMs the child honestly — the daemon stays up — instead of the shared
-   *  daemon (t-167395). Default ≥ Node's own ~4 GB, so a legitimately large repo isn't killed
-   *  needlessly. Ignored in `in-process` mode. */
+   *  daemon (t-167395). Set here, the number is used VERBATIM (never clamped).
+   *  With none set the default is derived from the BOX — half its RAM (the host reading, reduced to a
+   *  cgroup limit where one applies), held within [4096, 8192] MB (`daemon/heap-ceiling.ts`). A FIXED
+   *  default cannot serve: 4096 IS Node's own default limit on a 32 GB box (~4144 MB), so a flag of
+   *  4096 raises nothing — an escalated 6.1k-file monorepo then dies at the ceiling it has unflagged,
+   *  ~1.1 GB below its measured need (~5.2 GB live for one checker-backed query). Above the resolved
+   *  ceiling the child still OOMs honestly — the cap is a cap; raise it here on a box with the RAM to
+   *  spare. Ignored in `in-process` mode. */
   maxOldSpaceMB?: number;
   /** Per-op cooperative wall-clock budget in SECONDS (§1 never-hang). A synchronous TS op that
    *  polls the budget (`impact`, `find_unused_exports`, a large `find_usages`) degrades to an

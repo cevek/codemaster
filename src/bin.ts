@@ -73,6 +73,9 @@ function buildOrchestrator(): Orchestrator {
       version: VERSION,
       requestDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
       sockDir: process.env['CODEMASTER_SOCK_DIR'],
+      // §13: trace the child's resolved heap ceiling like its sibling isolation decision, so which
+      // ceiling a child got is greppable rather than only visible in `ps`.
+      trace: debug.ns('daemon'),
     }),
   });
 }
@@ -162,8 +165,9 @@ async function main(): Promise<number> {
       }
       if (verb === 'serve-engine') {
         // The INTERNAL process-mode engine child (§2/§9), forked by `createProcessHost`. Hosts
-        // ONE workspace engine over the fork IPC channel; its heap is bounded by the parent's
-        // `--max-old-space-size`, so a warm that would OOM the shared daemon dies HERE instead.
+        // ONE workspace engine over the fork IPC channel; its heap is bounded by the
+        // `--max-old-space-size` the parent APPENDS at fork (§9 `heap-ceiling.ts` — the parent
+        // carries no such flag itself), so a warm that would OOM the shared daemon dies HERE instead.
         // Config (root/stateDir/version) arrives via env from `forkEngineChild`.
         const engineRoot = process.env['CODEMASTER_ENGINE_ROOT'];
         if (engineRoot === undefined) {
