@@ -189,3 +189,58 @@ strict-primary-owned file must NOT be reported and the lax-owned one must be —
 target type across every program's files, or let the lax sibling claim a src file, goes red. Both cold
 oracles (`coldAssignableLiterals` per config) assert the two configs genuinely disagree, so the fixture
 can discriminate at all.
+
+
+## Post-review hardening (adversarial review found two further completeness lies in the fix itself)
+
+Both were structurally provable, both invisible to the suite that shipped with the fan:
+
+1. **The fallback-only floor deduped against the POST-path-filter set.** On a no-root repo, any file
+   the CALLER's glob excluded was reported as "covered by NO tsconfig" — a false cause (a real
+   tsconfig covers it) with an inert remedy ("add a tsconfig"), i.e. the t-259465 defect inside the
+   module written to prevent it. It also forced `complete:false` on every scoped call, suppressing the
+   verdict the scan had earned. A file is fallback-only iff no RESOLVED fan program CONTAINS it, so
+   the dedup set is the PRE-filter one.
+
+2. **A program the per-program `resolve` skipped was invisible in the coverage.** T vacuous /
+   non-union under a sibling's own options is a correct SKIP (judging its files against a type it does
+   not have would flood), but the skip appeared in no field, so `scanCompleteness` said `complete` and
+   the answer printed "the scan was COMPLETE, so this is a verdict" over a fan it had silently
+   reduced — the same shape as the original bug, through another door. Now recorded
+   (`ScanCoverage.skipped`, a closed reason union), demoting the answer, projected into the scope as
+   `programsSkipped`, with its own remedy (neither the budget nor a missing config).
+
+Also: the deadline is polled in the PROGRAM loop, not only the file loop (N checker warms could
+outlive the whole budget before it was consulted) — and when the deadline empties the fan entirely the
+op no longer answers "T resolves to no checkable type anywhere", a claim about the TARGET it never
+established, but an honest `partial{timeout}`. Every shortfall is denominated in FILES: `candidates`
+is counted only inside files the walk opened, so after a cut `examined of candidates` reads `0 of 0` —
+an exhausted sweep — and `Truncation.totalIsLowerBound` + a `≥` now mark that total as the floor it is
+(§12). The three-state gate keys on DID-WE-FINISH, not `examined === 0`: a finished walk over a repo
+holding no candidate has established absence and states its verdict, because dressing a complete
+answer as partial is the same lie inverted (§3.6). The sql/table surface was still emitting the
+REPLACED cap wording beside the new budget note — two vocabularies for one fact on the second surface
+— and now forwards the scope and states nothing of its own.
+
+The negative test was strengthened where it did not discriminate the mutation its comment claimed: a
+fan that hoisted ONE `resolve` would still LIST the sibling site (judging a lax-program node with the
+strict checker yields `any` → a `dynamic` site), so the assertion is now on the site's CONFIDENCE
+(`certain` under a correct per-program resolve), not its presence.
+
+Suite: 11 tests across `scan-fanout-honesty` (the fan + the verdict-leak negative),
+`scan-coverage-honesty` (the five-cause vocabulary, incl. the deadline cut, a no-tsconfig repo, and a
+complete zero-candidate scan) and `scan-narrowing-honesty` (the two defects above). Full `npm test`
+1407 pass / 0 fail, `fix-and-check` green.
+
+## Residuals filed, not fixed here
+
+- **t-312854** (UNVERIFIED) — `discrimination_sites` re-resolves T per program for the identity gate
+  but derives `covers`/`missing` from the type authority's discriminant domain, so a sibling whose T
+  carries a constituent the authority lacks under-reports the exhaustiveness gap. The residual of the
+  per-program-resolve invariant, not a separate design question.
+- **t-043728** — `TsProgram` exposes no `configPath`, so the fallback-primary exclusion rests on
+  display-label string equality (`label !== '(no tsconfig)'`). Sound today and pinned by a behaviour
+  test, but a label reword silently re-admits an unsound type authority. Deferred because
+  `queryable-program.ts` was held by a concurrent track.
+- **t-155425** closed by this change rather than actioned: it asked to reword the "primary program
+  only" note, which the fan removed outright.

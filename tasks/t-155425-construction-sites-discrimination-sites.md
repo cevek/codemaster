@@ -1,7 +1,7 @@
 ---
 id: t-155425
 title: construction_sites / discrimination_sites op-notes say "primary program only" — imprecise in a no-root repo (now the deepest-enclosing member program)
-status: backlog
+status: done
 priority: low
 type: doc
 complexity: S
