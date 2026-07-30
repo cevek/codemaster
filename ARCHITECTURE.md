@@ -1398,15 +1398,21 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   remedy**: a CLI one-shot (`node src/bin.ts op <name> '<json>'`) is fresh by construction (§5-L5)
   and needs no restart. A restart-only remedy is one no dogfooder can afford per QUESTION (a
   restart discards the warm LS the daemon exists to amortize), so the cheap path is named first. (3) **What the restart does HERE**, which is the one
-  thing the banner discriminates on: under a **daemon**-backed bridge it is machine-wide (it drops
-  every connection's warm state, including third parties who staled nothing), and under
-  **`--in-process`** serving there is no daemon at all, so `codemaster daemon restart` is a plain
-  no-op and is named as an inert lever, never as an action (naming a lever that cannot change the
-  outcome is the CONTRIBUTING refusal doctrine's cardinal case — `ops/guard/navigate.ts`). The
+  thing the banner discriminates on: under a **daemon**-backed bridge it works but takes the reader's
+  own session with it — the daemon exits, the socket closes and `RemoteOrchestrator` latches closed
+  (every later call answers "never sent — reconnect and retry"), so the RECONNECT is named as part
+  of the remedy — and it is machine-wide besides, dropping every connection's warm state including
+  third parties who staled nothing. Under **`--in-process`** serving the daemon verb cannot reach
+  this server at all, so it is named as the lever that will not help, never as an action (naming a
+  lever that cannot change the outcome is the CONTRIBUTING refusal doctrine's cardinal case —
+  `ops/guard/navigate.ts`). That clause stays scoped to THIS process rather than claiming the
+  machine has no daemon: `--in-process` bypasses the socket, a singleton may well be serving other
+  agents, and a reader who ran the verb "because it is inert" would evict their warm state. The
   serving mode is passed in by the composition root (`bin.ts` — it alone knows the topology; the
   daemon process hosts a LOCAL orchestrator, so deriving it from `OrchestratorApi` would answer
-  `in-process` for a client talking to a daemon) and is a REQUIRED option, so no call site can
-  default into the wrong remedy. The banner deliberately does NOT discriminate the AUDIENCE: a
+  `in-process` for a client talking to a daemon) and is a REQUIRED option, so no call site can OMIT
+  it; against a MIS-wiring the guard is behavioural, a real-bin bridge smoke
+  (`test/e2e/stale-banner-topology-smoke.test.ts`) that reads the banner off the wire. The banner deliberately does NOT discriminate the AUDIENCE: a
   codemaster worktree lives outside the serving process's own source tree, so an "is the caller
   inside our `src/`" test labels the codemaster-editing agent a stranger and withholds exactly the
   remedy it needs; the criterion ("editing codemaster?") is stated for the reader to apply instead.

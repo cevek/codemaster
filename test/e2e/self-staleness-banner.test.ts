@@ -109,9 +109,13 @@ test('the remedy on the wire follows the TOPOLOGY, not the wording (t-034392 fin
   const inProcess = await ask(await wire(() => true, 'in-process'));
 
   assert.notEqual(daemon, inProcess, 'the two topologies must not answer identically');
-  assert.match(daemon, /codemaster daemon restart/, 'daemon-backed: the restart is real');
-  assert.match(inProcess, /`daemon restart` is a no-op \(no daemon/, 'in-process: named as inert');
-  assert.match(inProcess, /only this server's restart/, 'in-process: and what WOULD fix it');
+  assert.match(
+    daemon,
+    /codemaster daemon restart`\+reconnect/,
+    'daemon-backed: restart + reconnect',
+  );
+  assert.match(inProcess, /`daemon restart` won't touch this server/, 'in-process: named as inert');
+  assert.match(inProcess, /only its own restart/, 'in-process: and what WOULD fix it');
   // The one-shot is the lever BOTH readers can pull in-session — it is what a restart-only banner
   // never told the dogfooders, and under `in-process` it is the only one the reader can pull at all.
   for (const body of [daemon, inProcess]) assert.match(body, /node src\/bin\.ts op/);
@@ -126,5 +130,5 @@ test('the banner answers the external reader: the DATA is fresh, the analysis co
     (await client.callTool({ name: 'find_definition', arguments: { q: 'X' } })) as CallToolResult,
   );
   assert.match(body, /re-read fresh/, 'says the inspected repo is NOT what is stale');
-  assert.match(body, /ANALYSIS code is old/, 'and says what IS stale instead');
+  assert.match(body, /ANALYSIS is old/, 'and says what IS stale instead');
 });

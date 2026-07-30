@@ -139,12 +139,12 @@ test('banner carries all THREE facts, in both topologies (t-034392 / t-793745)',
     const line = sourceStaleBanner(serving);
     assert.match(line, /^!! /, `${serving}: leads with the !! honesty marker`);
     assert.match(line, /re-read fresh/, `${serving}: says the inspected repo is NOT stale`);
-    assert.match(line, /ANALYSIS code is old/, `${serving}: says WHAT is stale instead`);
+    assert.match(line, /ANALYSIS is old/, `${serving}: says WHAT is stale instead`);
     assert.match(line, /node src\/bin\.ts op/, `${serving}: names the one-shot remedy`);
   }
 });
 
-test('the two topologies say DIFFERENT things about restart — and neither offers a no-op lever', () => {
+test('the two topologies say DIFFERENT things about restart — each true where it prints', () => {
   const daemon = sourceStaleBanner('daemon');
   const inProcess = sourceStaleBanner('in-process');
   // The discrimination must be REAL: two variants that render the same string would pass any
@@ -154,14 +154,27 @@ test('the two topologies say DIFFERENT things about restart — and neither offe
   // it discards every connection's warm state, including third parties who staled nothing).
   assert.match(daemon, /codemaster daemon restart/);
   assert.match(daemon, /every connection/);
-  // in-process: there IS no daemon, so the restart is named as the lever that does NOTHING —
-  // never as an action. Offering an inert remedy in the most-read place is the defect fixed here.
-  assert.match(inProcess, /no daemon/);
-  assert.match(inProcess, /no-op/);
-  // ...and it still says what WOULD fix it, so "inert" never reads as "nothing can". The claim is
-  // bounded to what is true: restarting this server works, it is just not the reader's action.
-  assert.match(inProcess, /only this server's restart/);
-  assert.doesNotMatch(inProcess, /codemaster daemon restart`? (?:picks|to pick|and)/);
+  // The restart takes the reader's OWN session down with it: the daemon exits, the bridge's socket
+  // closes and the remote orchestrator latches closed (`daemon/remote-orchestrator.ts` — every later
+  // call answers "never sent, reconnect and retry"). A remedy that leaves the reader unable to ask
+  // again is not the whole remedy, so the reconnect is named as part of it.
+  assert.match(daemon, /\+reconnect/);
+  // in-process: the daemon verb cannot reach THIS server, so it is named as the lever that will not
+  // help — never as an action. The claim stays scoped to this process: `--in-process` bypasses the
+  // socket, it does not prove the machine has no singleton, and a reader who ran the verb "because
+  // it is inert" would evict some other agent's warm state.
+  assert.match(inProcess, /won't touch this server/);
+  assert.doesNotMatch(
+    inProcess,
+    /no daemon\b/,
+    'never a claim about the machine, only this server',
+  );
+  // ...and it still says what WOULD fix it, so "will not help" never reads as "nothing can".
+  assert.match(inProcess, /only its own restart/);
+  // A regression that pasted the daemon clause into this arm would claim a working lever where
+  // none reaches this server — so assert the daemon arm's own promise is absent here, by the words
+  // that carry it ("fixes it"), not by a pattern the in-process text could never have matched.
+  assert.doesNotMatch(inProcess, /fixes it/);
 });
 
 test('banner stays within its per-response budget (it prefixes EVERY stale answer)', () => {

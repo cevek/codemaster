@@ -188,12 +188,15 @@ own shorter line — it answers a human asking about the daemon, not an agent re
 **The banner names the one-shot above as the in-place remedy, and it is the one to reach for**: it
 answers on current source in ~2 s and costs nobody their warm state. The alternatives are worse or
 absent, which is why the banner states which topology you are in rather than one blanket
-instruction: `codemaster daemon restart` works only for the daemon-backed bridge, and there it is
-**machine-wide** — it discards the warm LS of every agent on that daemon, including repos that
-staled nothing (a bridge _reconnect_ is not an alternative: it re-attaches to the SAME stale daemon
-on the same socket). Under `mcp --in-process` there is no daemon at all, so that command is a plain
-no-op and only restarting the MCP client picks up the edit. The signal degrades silently to off
-where the source tree can't be located (a global / `npx` install — §19), never a false positive.
+instruction. `codemaster daemon restart` works only for the daemon-backed bridge, and there it costs
+twice: **your own session** (the daemon exits, your bridge's link latches closed — you must
+reconnect before you can ask again; a reconnect on its own is no remedy, it re-attaches to the SAME
+stale daemon on the same socket) and **every other agent's** warm LS on that machine-wide daemon.
+Under `mcp --in-process` the daemon verb does not reach your server at all — only that server's own
+restart picks the edit up, which is your MCP client's action, not yours; and the verb is not
+therefore harmless, since a singleton may be serving other agents whose warm state it would evict.
+The signal degrades silently to off where the source tree can't be located (a global / `npx`
+install — §19), never a false positive.
 
 Its wording has ONE home (`format/render/render-status.ts` `sourceStaleBanner`), shared by `status`
 and the MCP prefix, and its serving mode is a REQUIRED option on `serveMcp` — a remedy that cannot

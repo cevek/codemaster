@@ -33,25 +33,30 @@ export type ServingMode = 'daemon' | 'in-process';
  *     Without this an external reader cannot tell whether the answer in hand is degraded.
  *  2. The CHEAP remedy — a CLI one-shot is fresh by construction (~2 s, measured) and needs no
  *     restart. Naming only the restart taught dogfooders to leave the tool for grep.
- *  3. WHAT the restart actually does HERE — under `daemon` it works and is machine-wide (it discards
- *     every connection's warm LS, including third parties who did not stale anything), under
- *     `in-process` it is a plain NO-OP (there is no daemon to restart; only restarting THIS server
- *     un-stales it, which is the MCP client's action, not the reader's). A lever that cannot change the
- *     outcome is not a remedy at all, and this is the most-read place the tool has
- *     (`ops/guard/navigate.ts` states the same rule for refusals: name a lever that works HERE). */
+ *  3. WHAT the restart actually does HERE — under `daemon` it works, but it costs the reader their
+ *     own session too: the restart drops the socket and `RemoteOrchestrator` latches closed, so a
+ *     RECONNECT is part of the remedy, not an afterthought, and every OTHER connection pays for it
+ *     with its warm LS. Under `in-process` the daemon verb cannot reach this server at all — only
+ *     this server's own restart un-stales it, which is the MCP client's action, not the reader's.
+ *     A lever that cannot change the outcome is not a remedy, and this is the most-read place the
+ *     tool has (`ops/guard/navigate.ts` states the same rule for refusals: name a lever that works
+ *     HERE). */
 export function sourceStaleBanner(serving: ServingMode): string {
   // The one-shot leads in BOTH variants: it is the remedy the READER can execute in-session, whoever
-  // they are. The restart clause then states what that lever does here — it is never suppressed (a
-  // daemon restart genuinely works, and hiding it would be the §3.6 lie inverted) and never
-  // recommended (its cost falls on connections the reader cannot see). Neither variant claims to be
-  // the only fix: under `in-process` restarting the server does work, it is just not the reader's
-  // to do — an absolute this line cannot support is the same defect in the opposite direction.
+  // they are. The restart clause then states what that lever does here — never suppressed (a daemon
+  // restart genuinely works, and hiding it would be the §3.6 lie inverted) and never recommended
+  // (its cost falls on connections the reader cannot see, and on their own session).
+  //
+  // Neither clause claims more than this process can know. The `in-process` arm says the verb will
+  // not touch THIS server — not that no daemon exists: `--in-process` bypasses the socket, it does
+  // not imply the machine has no singleton, and a reader who ran the verb "because it is inert"
+  // would evict some other agent's warm LS.
   const remedy =
     serving === 'daemon'
-      ? '. `codemaster daemon restart` fixes it but hits every connection.'
-      : "; `daemon restart` is a no-op (no daemon; only this server's restart).";
+      ? '. `codemaster daemon restart`+reconnect fixes it; hits every connection.'
+      : "; `daemon restart` won't touch this server — only its own restart will.";
   return (
-    '!! PRE-EDIT codemaster (src/ moved since start): your repo is re-read fresh, the ANALYSIS code is old. ' +
+    '!! PRE-EDIT codemaster (src/ moved since start): your data is re-read fresh, the ANALYSIS is old. ' +
     "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s" +
     remedy
   );

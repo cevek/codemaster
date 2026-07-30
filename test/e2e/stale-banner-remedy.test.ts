@@ -9,12 +9,11 @@
 // correct relative to a checkout root, or if the `op` subcommand stops answering — none of which a
 // wording assertion could see.
 //
-// It also pins the banner's own claim about that command: `one-shot, current src`. A one-shot
-// process fingerprints its own source at start, so it can never be behind it. That is proven on the
-// surface that CAN print the banner — the CLI `status` render, which calls `renderStatus` and would
-// emit the line if the tracker ever said stale. Asserting its absence in an `op` response would
-// prove nothing: that path never touches the banner code at all, so the assertion would be green
-// under every mutation, including one that broke one-shot freshness outright.
+// What it deliberately does NOT try to prove is the banner's `current src` claim. A one-shot's
+// staleness baseline IS its own start, so `spawn == current` holds by construction and no assertion
+// on its output can falsify the claim — a "the one-shot printed no banner" check is a tautology
+// wherever it is placed (`test/unit/self-staleness.test.ts` says the same about the real
+// fingerprinter). The claim is carried by the architecture, not by a test pretending to guard it.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,17 +68,6 @@ test('the banner names a command that RUNS — extracted from the text and execu
     // It answered the question that was asked (exit 0 alone would also be true of a usage banner).
     assert.match(out, /findMeHere/, `the named command did not answer: ${out}`);
     assert.match(out, /src\/index\.ts/, 'the answer carries its proof span');
-
-    // ...and the banner's "current src" claim holds. Checked on `status`, the one-shot surface that
-    // RENDERS the banner (`renderStatus`): its absence there is produced by the staleness tracker
-    // answering false, so a one-shot that somehow served pre-edit code would turn this red.
-    const status = execFileSync('node', [script, 'status', '--root', p.root], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      timeout: 120_000,
-    });
-    assert.match(status, /^codemaster v/, 'the status manifest rendered');
-    assert.doesNotMatch(status, /PRE-EDIT codemaster/, 'a one-shot is fresh by construction');
   } finally {
     await p.dispose();
   }
