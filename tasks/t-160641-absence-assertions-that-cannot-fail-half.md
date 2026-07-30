@@ -2,7 +2,7 @@
 id: t-160641
 title: "Absence assertions that cannot fail: half of codemaster's honesty-channel tests assert a marker is missing from a surface with no code path to it — green under every mutation, and the tell is mechanical"
 status: backlog
-priority: high
+priority: urgent
 parent: t-532530
 type: infra
 complexity: M
@@ -55,3 +55,25 @@ reviewable in the rest.
 Audit the existing negative assertions over honesty-channel markers (refusal prose, floor notes, banners,
 guard tails) against the tell above; convert or delete the vacuous ones; where a positive-surface arm exists,
 move the absence there. A deleted vacuous test is a gain — it removes a false claim of coverage.
+
+## Second independent instance in the SAME wave — raising to urgent
+
+Two workers, two tracks, two different mechanisms, one property: **assertions that cannot fail.**
+
+- **Track D (the banner):** an absence assertion on a surface with no code path to the marker — green under
+  every input, and the file header claimed it as proof. (The case above.)
+- **Track B (no-program `source`), found by mutation testing rather than by review:** on one commit's own
+  lines, **8 of 9 mutants stayed green**; separately, a mutant that ERASED AN ENTIRE MESSAGE STRING passed
+  12/12. Two of that track's five review rounds produced BLOCKs located *in the tests* — the strings the
+  author had written were pinned by nothing.
+
+So the defect is not "one worker wrote one weak test". Within a single wave, a suite that looks well-covered
+turned out to be unable to redden on two unrelated surfaces, and the two were found by different means (an
+adversarial reviewer; a mutation table). Whatever fraction of the suite this is, it is not small enough to
+treat as anecdote — and every green run in the meantime carries a claim of coverage it does not hold.
+
+## What raising the priority buys
+
+The mechanical tell (below) is cheap and applies today; the mutation table is the general instrument and is
+already being run by hand in tracks. Both should exist as something a change can be checked against, before
+more honesty-channel prose accumulates assertions that document intent and enforce nothing.
