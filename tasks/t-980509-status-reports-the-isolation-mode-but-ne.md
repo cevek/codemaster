@@ -76,3 +76,19 @@ The hook is not codemasters code, but it has no way to ask: there is no cheap, r
 actually answer on THIS repo, and why not the others" surface — `status` costs an engine spawn and reports the
 isolation MODE without the evidence. Any orchestration layer (hook, wrapper, another agent) needs the same
 answer, so this is the consumer that makes this task externally visible rather than a convenience.
+
+## Field evidence: the ceiling had to be read with `ps`, and the oom failure could not say which wall was hit
+
+Filed while measuring the escalated child's heap requirement on a 6.1k-file monorepo (t-811950) — every
+question about codemaster's OWN runtime state had to be answered from outside the tool.
+
+1. `status` reports plugins, ops and freshness, but not: whether this workspace is hosted `in-process` or in
+   a `process` child, WHY (the `IsolationReason` the engine already carries), or what heap ceiling that child
+   got. All three exist as structured values at spawn. Obtaining the ceiling required
+   `ps -Ao command | grep serve-engine` → `node --max-old-space-size=8192 … daemon serve-engine`. A tool that
+   can be asked about a repo cannot be asked about itself.
+2. After `FAIL tool=oom — isolated engine process ran out of memory (code=null signal=SIGABRT)` the agent
+   cannot distinguish "this repo needs more memory than the machine gives one child" (no remedy) from "more
+   than the number in someone's config" (a one-line change). `code=134` carries neither. Partially closed by
+   t-811950, which now cites the ceiling and its cause (`configured|box|cap|floor`) in the oom refusal — the
+   `status` half remains open here.
