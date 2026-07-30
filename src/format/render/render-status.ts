@@ -21,8 +21,11 @@ import { CONCEPTS_LINES } from './concepts.ts';
 export type ServingMode = 'daemon' | 'in-process';
 
 /** The self-staleness banner (§3.6 applied to the tool itself): codemaster's OWN `src/**` moved
- *  since this process started, so it answers with code older than its checkout. ONE home, shared by
- *  `status` (first line) and the MCP op/batch prefix, so the two surfaces cannot drift.
+ *  since this process started, so it answers with code older than its checkout. ONE home for the two
+ *  AGENT-facing surfaces — `status` (first line) and the MCP op/batch prefix — so they cannot drift.
+ *  (The `codemaster daemon status` management verb states its own, shorter line: a human typed that
+ *  command about the daemon, so the audience and the remedy are right by construction and the
+ *  one-shot clause below would be noise there.)
  *
  *  Three facts, none droppable (t-034392 / t-793745):
  *  1. WHAT is stale — the analysis code, not the inspected repo: files are still re-read per call
@@ -30,21 +33,25 @@ export type ServingMode = 'daemon' | 'in-process';
  *     Without this an external reader cannot tell whether the answer in hand is degraded.
  *  2. The CHEAP remedy — a CLI one-shot is fresh by construction (~2 s, measured) and needs no
  *     restart. Naming only the restart taught dogfooders to leave the tool for grep.
- *  3. WHAT the restart actually does HERE — machine-wide under `daemon` (it discards every
- *     connection's warm LS, including third parties who did not stale anything), and a plain NO-OP
- *     under `in-process` (there is no daemon to restart). A remedy that cannot change the outcome
- *     is the defect this banner used to ship, in the most-read place the tool has
+ *  3. WHAT the restart actually does HERE — under `daemon` it works and is machine-wide (it discards
+ *     every connection's warm LS, including third parties who did not stale anything), under
+ *     `in-process` it is a plain NO-OP (there is no daemon to restart; only restarting THIS server
+ *     un-stales it, which is the MCP client's action, not the reader's). A remedy that cannot change
+ *     the outcome is the defect this banner used to ship, in the most-read place the tool has
  *     (`ops/guard/navigate.ts` states the same rule for refusals: name a lever that works HERE). */
 export function sourceStaleBanner(serving: ServingMode): string {
-  // The one-shot leads in BOTH variants: it is the only remedy the reader can execute in-session.
-  // Under `in-process` it is also the ONLY one that exists — so the restart is named there as the
-  // lever that does nothing, never as an alternative (naming it as one is the t-259465 defect).
+  // The one-shot leads in BOTH variants: it is the remedy the READER can execute in-session, whoever
+  // they are. The restart clause then states what that lever does here — it is never suppressed (a
+  // daemon restart genuinely works, and hiding it would be the §3.6 lie inverted) and never
+  // recommended (its cost falls on connections the reader cannot see). Neither variant claims to be
+  // the only fix: under `in-process` restarting the server does work, it is just not the reader's
+  // to do — an absolute this line cannot support is the same defect in the opposite direction.
   const remedy =
     serving === 'daemon'
-      ? '. Else none: `codemaster daemon restart` hits every connection.'
-      : ' — the only fix here: no daemon, so `daemon restart` is a no-op.';
+      ? '. `codemaster daemon restart` fixes it but hits every connection.'
+      : "; `daemon restart` is a no-op (no daemon; only this server's restart).";
   return (
-    '!! PRE-EDIT codemaster (own src/ moved since start): your repo is re-read fresh, the ANALYSIS code is old. ' +
+    '!! PRE-EDIT codemaster (src/ moved since start): your repo is re-read fresh, the ANALYSIS code is old. ' +
     "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s" +
     remedy
   );

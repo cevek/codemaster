@@ -110,13 +110,10 @@ test('the remedy on the wire follows the TOPOLOGY, not the wording (t-034392 fin
 
   assert.notEqual(daemon, inProcess, 'the two topologies must not answer identically');
   assert.match(daemon, /codemaster daemon restart/, 'daemon-backed: the restart is real');
-  assert.match(
-    inProcess,
-    /no daemon, so `daemon restart` is a no-op/,
-    'in-process: named as inert',
-  );
+  assert.match(inProcess, /`daemon restart` is a no-op \(no daemon/, 'in-process: named as inert');
+  assert.match(inProcess, /only this server's restart/, 'in-process: and what WOULD fix it');
   // The one-shot is the lever BOTH readers can pull in-session — it is what a restart-only banner
-  // never told the dogfooders, and under `in-process` it is the only remedy that exists.
+  // never told the dogfooders, and under `in-process` it is the only one the reader can pull at all.
   for (const body of [daemon, inProcess]) assert.match(body, /node src\/bin\.ts op/);
 });
 

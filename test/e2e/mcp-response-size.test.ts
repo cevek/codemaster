@@ -236,7 +236,8 @@ test('STALE + over-cap text: the staleness banner survives the cut (it is a pref
   try {
     const client = await wire(p);
     // Three json find_usages sections (~26KB each) — the same over-cap batch as above, now with the
-    // banner in front of it. The cap trims the TAIL, so the marker must still lead the response.
+    // banner in front of it. The STRUCTURED aggregator caps at a whole-section boundary here, and
+    // the banner precedes section [0], so it must still lead the response.
     const req = { name: 'find_usages', args: { name: 'Button' }, format: 'json' };
     const r = (await client.callTool({
       name: 'batch',
@@ -245,7 +246,10 @@ test('STALE + over-cap text: the staleness banner survives the cut (it is a pref
     const body = textOf(r);
     assert.ok(frameBytes(r) < HARNESS_CEILING_BYTES, 'capped under the real ceiling');
     assert.ok(body.startsWith('!! PRE-EDIT codemaster'), 'the banner still LEADS the capped body');
-    assert.match(body, /OUTPUT CAPPED/, 'and the response really was over the cap');
+    assert.match(body, /!! OUTPUT CAPPED — \d+ more section\(s\) omitted/, 'really was over the cap');
+    // Same discriminator as the fresh sibling: the +~250-byte banner must not push the aggregate
+    // past the blind seam, which would mid-chop the last surviving json section.
+    assert.ok(!body.includes(CAP_MARKER), 'the structured section cap fired, not the blind seam');
   } finally {
     await p.dispose();
   }

@@ -10,8 +10,11 @@
 // wording assertion could see.
 //
 // It also pins the banner's own claim about that command: `one-shot, current src`. A one-shot
-// process fingerprints its own source at start, so it can never be behind it — proven here by the
-// absence of the banner in the subprocess's own output, not by inference.
+// process fingerprints its own source at start, so it can never be behind it. That is proven on the
+// surface that CAN print the banner — the CLI `status` render, which calls `renderStatus` and would
+// emit the line if the tracker ever said stale. Asserting its absence in an `op` response would
+// prove nothing: that path never touches the banner code at all, so the assertion would be green
+// under every mutation, including one that broke one-shot freshness outright.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -66,9 +69,17 @@ test('the banner names a command that RUNS — extracted from the text and execu
     // It answered the question that was asked (exit 0 alone would also be true of a usage banner).
     assert.match(out, /findMeHere/, `the named command did not answer: ${out}`);
     assert.match(out, /src\/index\.ts/, 'the answer carries its proof span');
-    // ...and the banner's "current src" claim holds: a one-shot cannot be behind its own source,
-    // so it must not carry the staleness marker it just advised its reader to escape.
-    assert.doesNotMatch(out, /PRE-EDIT codemaster/, 'a one-shot is fresh by construction');
+
+    // ...and the banner's "current src" claim holds. Checked on `status`, the one-shot surface that
+    // RENDERS the banner (`renderStatus`): its absence there is produced by the staleness tracker
+    // answering false, so a one-shot that somehow served pre-edit code would turn this red.
+    const status = execFileSync('node', [script, 'status', '--root', p.root], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 120_000,
+    });
+    assert.match(status, /^codemaster v/, 'the status manifest rendered');
+    assert.doesNotMatch(status, /PRE-EDIT codemaster/, 'a one-shot is fresh by construction');
   } finally {
     await p.dispose();
   }

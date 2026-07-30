@@ -158,13 +158,18 @@ test('the two topologies say DIFFERENT things about restart — and neither offe
   // never as an action. Offering an inert remedy in the most-read place is the defect fixed here.
   assert.match(inProcess, /no daemon/);
   assert.match(inProcess, /no-op/);
+  // ...and it still says what WOULD fix it, so "inert" never reads as "nothing can". The claim is
+  // bounded to what is true: restarting this server works, it is just not the reader's action.
+  assert.match(inProcess, /only this server's restart/);
   assert.doesNotMatch(inProcess, /codemaster daemon restart`? (?:picks|to pick|and)/);
 });
 
 test('banner stays within its per-response budget (it prefixes EVERY stale answer)', () => {
   // §12 tokens-are-scarce: this line is prepended to every op/batch/status response for as long as
-  // the source is behind, so its size is a standing tax, not a one-off. 250 chars is the agreed
-  // ceiling; a fact added later must displace prose, not widen the channel.
+  // the source is behind, so its size is a standing tax, not a one-off. 250 CHARS is the agreed
+  // ceiling (a couple of multi-byte glyphs put the serialized cost a few bytes above it — the
+  // budget is about token/read cost, not the §12 seam, which measures bytes and has ~15KB of
+  // headroom here). A fact added later must displace prose, not widen the channel.
   for (const serving of ['daemon', 'in-process'] as const) {
     const len = sourceStaleBanner(serving).length;
     assert.ok(len <= 250, `${serving}: banner is ${len} chars (budget 250)`);
