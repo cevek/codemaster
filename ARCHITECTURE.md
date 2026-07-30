@@ -742,8 +742,12 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   same-scope same-name IS one symbol). The scope test therefore has to name every construct that BINDS —
   a loop header and a `catch` clause bind their own variable, a function binds its parameters — since each
   omission merges two sibling regions into one symbol; and an EXPANDO assignment (`Foo.bar = …`) binds
-  nothing at all, so the assignment TARGET joins the scope key rather than the enclosing region. A `file+line` line holding several declarations is likewise a pick-list, as on
-  the checker path. The body span is derived from the declaration NODE (the surface hands it over), not
+  nothing at all, so the assignment TARGET joins the scope key rather than the enclosing region. The
+  refusal then names the cause that FIRED, carried as counts rather than one label — a set holding
+  `P.tri = 1`, `Q.tri = 2` and `const tri = 3` is BOTH on different objects and partly on no object, and a
+  single label suppresses one of those — and each caveat rides its own observation: "this may be one symbol
+  in several regions" belongs to a region boundary, not beside two assignments on different objects. A
+  `file+line` line holding several declarations is likewise a pick-list, as on the checker path. The body span is derived from the declaration NODE (the surface hands it over), not
   from the position-only `declarationNodeOf` walk. §6 holds: a moved handle is `rebound` with
   `confidence:'partial'`, and `gone` is withheld for a name merely absent from the scanned surface — this
   surface cannot see an outside-root include, so asserting removal off it would be the §3.4 lie (a
