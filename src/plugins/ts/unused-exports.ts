@@ -39,8 +39,25 @@ export type UnusedExportsView = {
   unused: UnusedExportView[];
   /** Candidate exports actually examined (`findReferences` run). */
   scannedExports: number;
+  /** Candidate exports ENUMERATED — the denominator of `scannedExports`. Present unconditionally,
+   *  unlike `truncated` (which appears only once some candidate went unexamined): a numerator whose
+   *  denominator materializes only on a shortfall is one a reader must guess at in the common case,
+   *  which is the misread this pair exists to close. */
+  candidateExports: number;
   /** In-scope source files walked for candidates. */
   scannedFiles: number;
+  /** Source files the walked program holds BEFORE `pathInclude`/`pathExclude` — the denominator of
+   *  `scannedFiles`, and the discriminator between the two ways an empty walk arises:
+   *  `scannedFiles === 0 ∧ eligibleFiles > 0` proves the PATH FILTER emptied a populated program
+   *  (fixing the globs is the lever), while `eligibleFiles === 0` proves the program itself covers
+   *  no source (no glob can be widened into it — naming one would be the §3.6 inert lever).
+   *  Machine-readable for that reason: two empty walks whose remedies differ must not be
+   *  distinguishable only by reading prose. */
+  eligibleFiles: number;
+  /** The program whose files were ENUMERATED for candidates (the primary). Candidate enumeration is
+   *  single-program; only the per-candidate USAGE search fans out (`classifyExport`). Carried so the
+   *  op can name what was walked — a bare `files=4` reads as "scanned the repo". */
+  walkedProgram: string;
   /** Set when a computed `import(expr)` exists anywhere — it could load any module, so every
    *  otherwise-`certain` claim is demoted (the i18n-degraded precedent). */
   computedDynamicImport: boolean;
@@ -105,7 +122,10 @@ export function findUnusedExports(
     return {
       unused: [],
       scannedExports: 0,
+      candidateExports: 0,
       scannedFiles: 0,
+      eligibleFiles: 0,
+      walkedProgram: programLabel(host),
       computedDynamicImport: false,
       programUnavailable: true,
     };
@@ -171,7 +191,10 @@ export function findUnusedExports(
   return {
     unused,
     scannedExports: scanned,
+    candidateExports: candidates.length,
     scannedFiles,
+    eligibleFiles: projectFiles.length,
+    walkedProgram: programLabel(host),
     computedDynamicImport: edges.computedDynamicImport,
     ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
     // `examined` is what was ACTUALLY scanned (`scanned`), not the cap slice — a timeout that cut
@@ -182,6 +205,19 @@ export function findUnusedExports(
       : {}),
     ...(timedOut ? { timedOut: true } : {}),
   };
+}
+
+/** The label of the program whose files this walk enumerates — `programLabels()` is documented
+ *  primary-first, and the primary IS the enumerated program (`host.service.getProgram()`).
+ *  Wrapped because the labels come from repo discovery (a filesystem read, §3.6): a failure there
+ *  must cost the answer its NAME, never the scan itself, and an unnamed scope says so rather than
+ *  guessing a config path. */
+function programLabel(host: TsProjectHost): string {
+  try {
+    return host.programLabels()[0] ?? '(unnamed program)';
+  } catch {
+    return '(program label unavailable)';
+  }
 }
 
 /** A scope predicate over the declaration file's repo-relative path. Usage discovery still

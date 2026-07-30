@@ -16,20 +16,7 @@ import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
-import { NOT_A_VERDICT_MARKER } from './scan-coverage.ts';
-
-/** The empty-WALK marker (§3.4), shown as the first data field + an sql note whenever the scan
- *  opened no file at all: `unused (0)` is then "nothing was examined", not "no export is dead".
- *
- *  ONE key for both causes, because they are mutually exclusive by construction and a consumer that
- *  had to probe two keys to learn whether a verdict exists is the defect this closes. The CAUSE — and
- *  with it the one lever that can change the outcome (§3.6) — lives in the text: a scope filter that
- *  matched nothing is fixed by fixing the globs; a program covering no source file cannot be widened
- *  by any glob, so naming `pathInclude` there would be an inert lever. */
-const notAVerdictWarning = (filterSet: boolean): string =>
-  filterSet
-    ? `${NOT_A_VERDICT_MARKER} — pathInclude/pathExclude matched 0 files — nothing was examined; this is NOT proof that no exports are dead. Check your path(s)/glob(s) against actual file paths.`
-    : `${NOT_A_VERDICT_MARKER} — the program covers 0 source files, so no export was examined and nothing about dead exports was established: this is an EMPTY SCAN, not an empty RESULT. No scope filter was set, so widening one cannot help — check that the project's tsconfig \`include\`/\`files\` actually covers its sources (a target under another package? pass \`root:\`).`;
+import { notAVerdictWarning, unusedExportsScope } from './unused-exports-scope.ts';
 
 const findUnusedExportsTable: TableSpec<JsonValue> = {
   columns: [
@@ -57,6 +44,12 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
   },
   notes(data) {
     const out: string[] = [];
+    // The scope + its denominators reach the sql/table surface too — that surface renders no `scanned`
+    // block, so without this it would see a bare row set with nothing saying what was walked, which is
+    // the exact defect on the other surface (§3.4). Sourced from the same data field the dense render
+    // shows, never a re-derived string.
+    const scope = (data as { scanned?: { scope?: string[] } }).scanned?.scope;
+    if (scope !== undefined && scope.length > 0) out.push(`scanned — ${scope.join(' · ')}`);
     if ((data as { computedDynamicImport?: boolean }).computedDynamicImport === true) {
       out.push(
         'a computed import(expr) exists in the repo — it could load any module, so every claim here is demoted to partial.',
@@ -164,9 +157,9 @@ export const findUnusedExportsOp = defineOp({
       // empty the walk (a degenerate `include`, a program covering no source, is another and was the
       // false-clean this gate missed). `scannedExports===0` is deliberately NOT the trigger — real
       // files in scope that export nothing are a finished walk, and flagging them would dress a
-      // complete answer as partial, the same lie inverted.
-      const filterSet = args.pathInclude !== undefined || args.pathExclude !== undefined;
-      const notAVerdict = view.scannedFiles === 0 ? notAVerdictWarning(filterSet) : undefined;
+      // complete answer as partial, the same lie inverted. WHICH cause is read off the file set
+      // (`eligibleFiles`), never off whether a filter arg was passed — see `unused-exports-scope`.
+      const notAVerdict = view.scannedFiles === 0 ? notAVerdictWarning(view) : undefined;
       const data = {
         ...(notAVerdict !== undefined ? { notAVerdict } : {}),
         // `programs:` verdict-first (§12): what the lever loaded / left floored / couldn't find,
@@ -174,7 +167,19 @@ export const findUnusedExportsOp = defineOp({
         ...lever.fields,
         ...(lever.notes.length > 0 ? { notes: lever.notes } : {}),
         unused: view.unused.map((u) => tag('unused-export', u)),
-        scanned: { exports: view.scannedExports, files: view.scannedFiles },
+        // The walk's scope, stated positively (§3.4): the prose pairs lead — they carry the
+        // denominators AND the name of what was walked, which is what stops `files=4` being read as
+        // "scanned the repo" — and the counters follow, machine-readable, so a consumer that never
+        // parses prose can still tell a filter-emptied walk (`eligibleFiles > 0`) from a program
+        // that holds no source (`eligibleFiles === 0`). Two causes, two levers, distinguishable
+        // without a regex over the marker's text.
+        scanned: {
+          scope: unusedExportsScope(view),
+          exports: view.scannedExports,
+          candidateExports: view.candidateExports,
+          files: view.scannedFiles,
+          eligibleFiles: view.eligibleFiles,
+        },
         ...(view.computedDynamicImport ? { computedDynamicImport: true } : {}),
         ...(view.undiscoveredPrograms !== undefined
           ? { undiscoveredPrograms: view.undiscoveredPrograms }

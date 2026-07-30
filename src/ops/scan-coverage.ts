@@ -42,6 +42,12 @@ const MAX_NAMED = 3;
  *  never diverge: an agent that learns this marker in one answer must recognise it in the next. */
 export const NOT_A_VERDICT_MARKER = '!! NOT A VERDICT';
 
+/** The doctrine the marker stands for, in one clause — the fact that an unexamined scope and an
+ *  examined-and-empty one are different findings. Shared for the same reason the marker is: it is the
+ *  SAME utterance wherever it appears (the surrounding cause and remedy are not, and are written
+ *  per-op), and a reader who learns it in one answer must meet the identical words in the next. */
+export const EMPTY_SCAN_DOCTRINE = 'this is an EMPTY SCAN, not an empty RESULT';
+
 /** The three states a scan's emptiness can be in. Only `complete` licenses a semantic verdict
  *  ("no literal is assignable to T"); `nothing-walked` licenses NO claim about T whatsoever.
  *
@@ -233,7 +239,7 @@ export function scanEmptinessNote(
   if (siteCount > 0) return undefined;
   switch (scanCompleteness(coverage, undiscovered)) {
     case 'nothing-walked':
-      return `${NOT_A_VERDICT_MARKER} — 0 file(s) were walked, so no ${subject.candidate} was checked and nothing about ${subject.subject} was established: this is an EMPTY SCAN, not an empty RESULT. ${emptyScanRemedy(coverage)}`;
+      return `${NOT_A_VERDICT_MARKER} — 0 file(s) were walked, so no ${subject.candidate} was checked and nothing about ${subject.subject} was established: ${EMPTY_SCAN_DOCTRINE}. ${emptyScanRemedy(coverage)}`;
     case 'incomplete':
       return `no ${subject.noun} among the ${coverage.examined} ${subject.candidate}(s) checked in the ${coverage.walkedFiles} file(s) walked — the scan is INCOMPLETE (see the floor note(s) below), so this is NOT proof ${subject.negation}.`;
     case 'complete':

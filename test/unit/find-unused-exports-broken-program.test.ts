@@ -29,6 +29,9 @@ const hostWithoutProgram = (): TsProjectHost =>
     service: { getProgram: () => undefined },
     relOf: (f: string) => f,
     undiscoveredProgramLabels: () => [],
+    // Discovery still answers — a missing Program is not a missing config, and the view names the
+    // program it could not build rather than reporting an anonymous nothing.
+    programLabels: () => ['tsconfig.json'],
   }) as unknown as TsProjectHost;
 
 /** An op context over a `ts` plugin that returns exactly `view` — the seam the op reads. `daemon` is
@@ -47,10 +50,17 @@ function ctxWithView(view: UnusedExportsView): OpContext {
   return { plugins: registry, flags: {}, opName: 'find_unused_exports' };
 }
 
+/** A walk that RAN and found nothing to walk — every counter zero, including the pre-filter
+ *  `eligibleFiles` that discriminates the two empty-walk causes (t-780551). That is precisely why the
+ *  `programUnavailable` flag has to exist: this view and a scan that never happened are otherwise
+ *  identical in every field. */
 const EMPTY_SCAN: UnusedExportsView = {
   unused: [],
   scannedExports: 0,
+  candidateExports: 0,
   scannedFiles: 0,
+  eligibleFiles: 0,
+  walkedProgram: 'tsconfig.json',
   computedDynamicImport: false,
 };
 
@@ -60,8 +70,13 @@ test('engine: no Program flags `programUnavailable` — it does not return a zer
   // The counters are all zero here, which is exactly why the flag has to exist: without it this view
   // is byte-identical to a walked-but-empty scan of a genuinely clean repo.
   assert.deepEqual(
-    { unused: view.unused.length, exports: view.scannedExports, files: view.scannedFiles },
-    { unused: 0, exports: 0, files: 0 },
+    {
+      unused: view.unused.length,
+      exports: view.scannedExports,
+      files: view.scannedFiles,
+      eligibleFiles: view.eligibleFiles,
+    },
+    { unused: 0, exports: 0, files: 0, eligibleFiles: 0 },
   );
 });
 

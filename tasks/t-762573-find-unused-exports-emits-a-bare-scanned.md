@@ -1,7 +1,7 @@
 ---
 id: t-762573
 title: 'find_unused_exports emits a bare scanned: exports/files counter that names no program — the same numerator-without-denominator that cost a false-diagnosis round-trip'
-status: backlog
+status: done
 priority: medium
 type: imp
 complexity: S

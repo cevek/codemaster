@@ -1,7 +1,7 @@
 ---
 id: t-780551
 title: find_unused_exports blames the path filter for an empty walk the PROGRAM emptied (inert lever)
-status: backlog
+status: done
 priority: medium
 type: bug
 complexity: S

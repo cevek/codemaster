@@ -2,13 +2,21 @@
 // is NOT proof that no exports are dead — it is "nothing was examined". The op must surface a LOUD
 // `notAVerdict` marker so an agent never reads a vacuous scan as clean and acts on it. Two causes
 // reach that state and BOTH are covered (t-000011): a `pathInclude`/`pathExclude` matching nothing,
-// and a program covering no source file at all (a degenerate `include`) — the latter carries no
-// filter, which is exactly why the old `filterSet &&` gate let it through as a false clean.
+// and a program covering no source file at all (a degenerate `include`).
 // One key for both, because a consumer that must probe two keys to learn whether a verdict exists
-// is the defect this closes; the CAUSE and its own lever live in the text.
+// is the defect that closes; WHICH cause it was is a separate question with a separate answer —
+// see below.
 // The honest whole-repo zero (no filter, real files walked, really no dead exports) must NOT carry
 // the marker. Oracle = a fixture whose file set is fixed by construction: a real dead export exists,
 // so a 0-files result can ONLY mean the walk missed it.
+//
+// t-780551 — the CAUSE is read off the FILE SET, never off whether a filter arg was passed. The two
+// causes have two different levers (fix the globs / fix the tsconfig), so blaming the filter for a
+// program that holds no source names a lever no value of which could have helped — the inert-lever
+// defect (t-259465) inside the message written to prevent it. Covered three ways: the degenerate
+// program WITH a filter (where arg-presence and file-set disagree), the empty-array filter (which the
+// scope predicate never even applies), and the machine discriminator (`eligibleFiles`) that must let
+// a consumer tell the causes apart WITHOUT reading the prose.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +25,13 @@ import { project } from '../helpers/project.ts';
 type Unused = { name: string; confidence: string };
 type WarnView = {
   unused: Unused[];
-  scanned: { exports: number; files: number };
+  scanned: {
+    scope: string[];
+    exports: number;
+    candidateExports: number;
+    files: number;
+    eligibleFiles: number;
+  };
   notAVerdict?: string;
 };
 
@@ -38,10 +52,13 @@ test('find_unused_exports: a pathInclude matching 0 files warns (NOT a false cle
       typeof data.notAVerdict === 'string' && data.notAVerdict.length > 0,
       'a vacuous filter raises the loud warning',
     );
+    // The denominator is part of the claim, not decoration: "matched 0 of the 2 file(s) the program
+    // holds" is what proves the filter — and not the program set — emptied the walk. A looser
+    // `/0/` would pass over a message that named no denominator at all.
     assert.match(
       data.notAVerdict ?? '',
-      /0 files/i,
-      'the warning states the filter matched 0 files',
+      /0 of the \d+ source file/i,
+      'the warning states the filter matched 0 of the files the program actually holds',
     );
     assert.match(
       data.notAVerdict ?? '',
@@ -88,19 +105,22 @@ test('find_unused_exports: a filter matching REAL files raises no false warning'
   }
 });
 
+/** A program whose own `include` covers nothing, beside a source file holding a real dead export.
+ *  Oracle by construction: `dead` IS exported and imported by nobody, so a truthful whole-repo scan of
+ *  these sources reports exactly one dead export. A `0` here can therefore ONLY mean nothing was
+ *  walked — never "the repo is clean". */
+const DEGENERATE = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true},"include":[]}',
+  'src/lib.ts': 'export const dead = 1;\n',
+};
+
 // t-000011 — the half no filter can explain. The program's own `include` covers nothing, so the walk
-// opens 0 files with NO filter set: under the old `filterSet &&` gate this printed a bare `unused (0)
-// scanned exports=0 files=0`, i.e. "no dead exports" over a scan that never happened. Its remedy is
-// also different in kind — no glob can be widened into a program that covers no source — so the
-// marker must name the tsconfig, not `pathInclude` (an inert lever is the §3.6 defect next door).
+// opens 0 files with NO filter set, and a bare `unused (0) scanned exports=0 files=0` would read as
+// "no dead exports" over a scan that never happened. Its remedy is also different in kind — no glob
+// can be widened into a program that covers no source — so the marker must name the tsconfig, not
+// `pathInclude` (an inert lever is the §3.6 defect next door).
 test('find_unused_exports: a program covering 0 source files is NOT a verdict (no filter to blame)', async () => {
-  const p = await project({
-    // Oracle by construction: `dead` IS exported and imported by nobody, so a truthful whole-repo
-    // scan of these sources would report exactly one dead export. A `0` here can therefore ONLY mean
-    // nothing was walked — never "the repo is clean".
-    'tsconfig.json': '{"compilerOptions":{"strict":true},"include":[]}',
-    'src/lib.ts': 'export const dead = 1;\n',
-  });
+  const p = await project(DEGENERATE);
   try {
     const r = await p.op('find_unused_exports', {});
     assert.ok(
@@ -122,11 +142,105 @@ test('find_unused_exports: a program covering 0 source files is NOT a verdict (n
     );
     assert.doesNotMatch(
       data.notAVerdict ?? '',
-      /Check your path\(s\)/i,
-      'and NOT the filter remedy, which is inert when no filter was set',
+      /pathInclude\/pathExclude matched/i,
+      'and NOT the filter remedy, which no glob value could satisfy here',
     );
   } finally {
     await p.dispose();
+  }
+});
+
+// t-780551 — the case where arg-presence and the file set DISAGREE, which is the whole defect: a
+// filter rides along, so an arg-presence gate blames the glob, while the program holds no file any
+// glob could have matched. The cause must be read off the file set, so this answer has to be the
+// tsconfig one — identical to the no-filter arm above.
+test('find_unused_exports: a degenerate program WITH a pathInclude still blames the program, not the glob', async () => {
+  const p = await project(DEGENERATE);
+  try {
+    const r = await p.op('find_unused_exports', { pathInclude: ['src/**'] });
+    assert.ok('result' in r && r.result.ok, 'op succeeds');
+    const data = r.result.data as WarnView;
+    assert.equal(data.scanned.files, 0, 'nothing was walked');
+    assert.equal(data.scanned.eligibleFiles, 0, 'because the program holds no source file at all');
+    assert.match(data.notAVerdict ?? '', /NOT A VERDICT/, 'the verdict is refused');
+    assert.match(
+      data.notAVerdict ?? '',
+      /covers 0 source files/i,
+      'the message names the cause that actually emptied the walk',
+    );
+    assert.match(data.notAVerdict ?? '', /tsconfig/i, 'and the lever that can change it');
+    // The load-bearing negative: `src/**` is a glob that matches the file on disk, so an answer
+    // telling the caller to fix their globs is telling them to fix something that is not wrong and
+    // cannot help. Reverting the branch to `filterSet` prints exactly that.
+    assert.doesNotMatch(
+      data.notAVerdict ?? '',
+      /pathInclude\/pathExclude matched/i,
+      'it must NOT blame the filter — no glob could have matched a program with no files',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The same disagreement, from the other side: an EMPTY filter array is an arg that is present and
+// never applied (`scopePredicate` ignores a zero-length list), so arg-presence blames a glob that had
+// no effect on anything. The file set is the only discriminator that gets this right.
+test('find_unused_exports: an empty pathInclude array is not a filter — it is never blamed', async () => {
+  const p = await project(DEGENERATE);
+  try {
+    const empty = await p.op('find_unused_exports', { pathInclude: [] });
+    const none = await p.op('find_unused_exports', {});
+    assert.ok('result' in empty && empty.result.ok && 'result' in none && none.result.ok);
+    const withArg = empty.result.data as WarnView;
+    const withoutArg = none.result.data as WarnView;
+    // A filter that is never applied cannot change the answer — the two must be identical, message
+    // and counters alike.
+    assert.equal(
+      withArg.notAVerdict,
+      withoutArg.notAVerdict,
+      'an unapplied filter arg changes nothing about which cause emptied the walk',
+    );
+    assert.doesNotMatch(
+      withArg.notAVerdict ?? '',
+      /pathInclude\/pathExclude matched/i,
+      'and it is never named as the cause',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The oracle the prose cannot satisfy: strip every string from the two empty-walk answers and a
+// consumer must STILL be able to tell the causes apart, because their remedies differ. `eligibleFiles`
+// — the file set before the path filter — is that discriminator; a prose-only distinction would make
+// the cause reachable only by regexing a message.
+test('find_unused_exports: the two empty-walk causes differ MACHINE-readably, not just in prose', async () => {
+  const degenerate = await project(DEGENERATE);
+  const populated = await project(FIXTURE);
+  try {
+    const emptyProgram = await degenerate.op('find_unused_exports', { pathInclude: ['src/**'] });
+    const emptyFilter = await populated.op('find_unused_exports', {
+      pathInclude: ['src/does-not-exist/**'],
+    });
+    assert.ok('result' in emptyProgram && emptyProgram.result.ok);
+    assert.ok('result' in emptyFilter && emptyFilter.result.ok);
+    const a = (emptyProgram.result.data as WarnView).scanned;
+    const b = (emptyFilter.result.data as WarnView).scanned;
+
+    // Both walked nothing — that much they share, which is why the shared fields cannot discriminate.
+    assert.equal(a.files, 0);
+    assert.equal(b.files, 0);
+    // And this is what tells them apart without reading a word.
+    assert.equal(a.eligibleFiles, 0, 'the program held no source file to begin with');
+    assert.ok(b.eligibleFiles > 0, 'the program held source files; the filter rejected them all');
+    assert.notEqual(
+      a.eligibleFiles,
+      b.eligibleFiles,
+      'two causes with two different levers must not be machine-indistinguishable',
+    );
+  } finally {
+    await degenerate.dispose();
+    await populated.dispose();
   }
 });
 

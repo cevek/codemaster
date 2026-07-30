@@ -633,10 +633,23 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   definition when a same-named symbol may live unindexed (§3.4/§3.6). **An EMPTY WALK is not an empty
   result** (§3.4): `find_unused_exports` refuses the verdict whenever it walked 0 files — a scope filter
   that matched nothing, or a program covering no source file — leading with the shared
-  `!! NOT A VERDICT` marker (`ops/scan-coverage.ts`, one wording for every op that reaches that state)
-  under ONE key whose text names the cause's own lever, since no glob can be widened into a program that
-  covers nothing; and when the LS produced no Program AT ALL it FAILS (`ToolFailure{ts-ls}`) rather than
-  reporting the clean repo a bare `unused (0) scanned 0` read as. (`find_definition`'s floor fires
+  `!! NOT A VERDICT` marker + `EMPTY_SCAN_DOCTRINE` (`ops/scan-coverage.ts`, one wording for every op
+  that reaches that state) under ONE key whose text names the cause's own lever, since no glob can be
+  widened into a program that covers nothing; and when the LS produced no Program AT ALL it FAILS
+  (`ToolFailure{ts-ls}`) rather than reporting the clean repo a bare `unused (0) scanned 0` read as.
+  **WHICH cause it was is read off the FILE SET, never off whether a filter arg was passed**
+  ([`ops/unused-exports-scope.ts`](src/ops/unused-exports-scope.ts)): the walk carries `eligibleFiles`
+  — the program's source files BEFORE `pathInclude`/`pathExclude` — so `0` proves the program itself
+  covers nothing (naming a glob there is an inert lever, §3.6 / t-259465) and `>0` proves the filter
+  emptied a populated program. Arg-presence is wrong in both directions: a filter rides along a
+  degenerate `include`, and a `pathInclude: []` is an arg the scope predicate never applies. The
+  discriminator is a COUNTER, not the prose, so two empty walks with two different remedies are
+  distinguishable without regexing a message. The same pair denominates the answer's positive scope:
+  `scanned.scope` states `<program>: N of M in-scope source file(s) walked, X of Y export(s) examined`
+  — a bare `files=4` is read as "scanned the repo" — plus the walk's own limit as a RULE with no
+  invented count, since candidate enumeration is single-program while usage for each candidate dead
+  there is re-searched per-candidate across the programs containing its declaration file (an export
+  declared ONLY in another program is not a candidate at all — open work). (`find_definition`'s floor fires
   ONLY on a name-WITHOUT-a-file-pin: a `symbolId`/position/`name`+`file` target is an EXACT resolution
   where a cross-program twin is irrelevant, so it stays byte-identical — a floor there would dress a
   complete answer as partial.) **File-driven nearest-config discovery (read path).** Beyond
@@ -1877,7 +1890,8 @@ codemaster/
                              # + navigate.ts (the shared "what answers this here" redirect table — also rendered by
                              #   search_symbol's pre-warm guard and daemon/process-host's oom/timeout path)
       lower-bound-note.ts    # the shared undiscovered-program floor prose (find_usages / importers_of)
-      scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2) + the `!! NOT A VERDICT` empty-walk marker every op reaching that state prints (find_unused_exports too)
+      scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2) + the `!! NOT A VERDICT` marker / `EMPTY_SCAN_DOCTRINE` every op reaching that state prints (find_unused_exports too)
+      unused-exports-scope.ts # find_unused_exports' own walk vocabulary (§5-L2): the file-set discriminator between its two empty-walk causes + the denominated, program-named scope of a single-program walk
       trace-type-widening-scope.ts  # the same doctrine on the REFERENCE unit — trace_type_widening's scope + floor notes (§5-L2)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts  discrimination-sites.ts
       search-symbol.ts  source.ts  source-syntactic.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts  trace-type-widening.ts
