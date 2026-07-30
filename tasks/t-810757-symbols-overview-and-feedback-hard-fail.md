@@ -74,3 +74,46 @@ node src/bin.ts op feedback '{"kind":"wish","title":"probe","detail":"probe"}'
 ```
 
 Цена промаха измерима: в `~/.codemaster/usage/fail.jsonl` лежит потерянная запись (ts=1785177088031, cwd=/Users/cody/Dev/control-plane) — агент на Spring Boot репо (924 `.java`, ~108k LOC) написал развёрнутый wish на JVM-поддержку с разбором пяти задач, ложащихся 1:1 на существующие опы (`find_usages{groupBy:'enclosing'}` для Lombok `.builder()`, `impact` для `@Entity`, `impact_type_error` для nullability при миграции на Kotlin). Текст уцелел только в `fail.jsonl`, до inbox не дошёл — то есть отказ систематически смещает inbox в сторону репо, где всё и так работает.
+
+## Repro matrix on current main — the premise was wider than the fact
+
+Real `/tmp` workspaces through the real binary (A = non-git + TS; B = git + non-TS; C = neither):
+
+| | symbols_overview | search_symbol{syntactic} | source{syntactic} | feedback | status |
+|---|---|---|---|---|---|
+| A | FAIL tool=git | FAIL tool=git | FAIL tool=git | **ok** | ok (freshness=mtime-walk) |
+| B | refusal "no TS project" | refusal | refusal | **refusal** | ok (workspaceError) |
+| C | FAIL tool=git | FAIL tool=git | FAIL tool=git | **ok** | ok |
+
+So `feedback` does NOT fail wherever git is missing: `looksLikeTsProject` deliberately does not false-reject a
+non-git root (`git ls-files` fails → `return true`). It fails in exactly ONE class — **a git repo with no TS**
+(the Spring-Boot shape already visible in `fail.jsonl`). The second-order harm stands unchanged, but it is
+narrower than this task's title implies, and the title should be read against this table.
+
+## Two causes, both single points
+
+**A/C** — not `symbols_overview` itself but the shared surface: `plugins/ts/syntactic-surface.ts::surfaceSources`
+→ `gitSourceFilesSync`, plus the cache key `syntactic-cache.ts::computeSurfaceKey` (`git rev-parse` +
+`git status --porcelain`). Those are the ONLY git dependencies of the whole no-program path (`configMembership`
+is host-free, glob-based) — so three ops are fixed at one point.
+
+**B** — `daemon/orchestrator.ts:276` `tsProjectRefusal` cuts at ENGINE SPAWN, before anyone knows which op was
+requested. `feedback` declares `requires: []` and touches only `ctx.daemon` (nowMs/version/root/stateDir/
+plugins/opNames): no program, no LS, no plugin.
+
+**Hygiene, confirmed:** `runGitSync` (`support/git/run.ts`) sets no `stdio`, so stderr is inherited by the
+parent and `fatal: not a git repository` prints three times outside the debug subsystem — which CONTRIBUTING
+forbids.
+
+## Decision recorded at the plan gate
+
+Walk-fallback, not a refusal. The decisive argument is not "this op is special": §10 already degrades the TS
+program's file set on a non-git root, and §3.5/§19 already degrade freshness to a bounded mtime-walk (which
+`status` prints in A/C). The syntactic surface is the ONLY component that hard-FAILs instead of degrading —
+so the anomaly is the current behaviour, not the proposed one. A refusal here would also make the redirect
+table inert, since other ops' refusals send the agent to exactly these two ops as the ones that answer
+anywhere.
+
+The scope statement must change WITH the mechanism, in both directions — including the under-inclusion nobody
+would guess: the git listing deliberately does NOT filter by name, while `walkFiles` does, so a real source
+file under `build/` is visible in a git repo and invisible in the fallback.
