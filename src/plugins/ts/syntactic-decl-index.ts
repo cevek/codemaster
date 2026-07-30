@@ -200,14 +200,23 @@ export function isTopLevel(site: DeclSite): boolean {
 }
 
 /** What separated a candidate set that did NOT collapse — so the message can name the cause that FIRED
- *  instead of a plausible one. Derived from WHICH PART of the scope key diverged, never re-inferred: the
- *  key has two parts and both can differ, so a two-valued guess mislabels the mixed case.
- *   - `'scope'` — the declarations bind in different regions;
- *   - `'expando-target'` — all are property assignments, on different objects, in ONE region;
- *   - `'expando-vs-plain'` — one is a property assignment and another is not, in one region (a
- *     `Foo.tag = 1` beside a `const tag`); calling THAT "different objects" names an object the second
- *     declaration does not have. */
-export type RivalCause = 'scope' | 'expando-target' | 'expando-vs-plain';
+ *  instead of a plausible one. Derived from WHICH PART of the scope key diverged, never re-inferred.
+ *
+ *  `'scope'`: the declarations bind in different regions. `'assignment-target'`: they share a region and
+ *  were separated by the property they are assigned to — carried as COUNTS rather than a label because
+ *  several facts can hold at once. A three-member set (`P.tri = 1`, `Q.tri = 2`, `const tri = 3`) is BOTH
+ *  "on different objects" AND "one of them on no object", and any single label suppresses one of those;
+ *  two numbers state it exactly. Naming an object a plain `const` does not have is the fabricated-cause
+ *  defect this shape exists to prevent (§3.6). */
+export type RivalCause =
+  | { readonly kind: 'scope' }
+  | {
+      readonly kind: 'assignment-target';
+      /** Distinct assignment objects among the members that HAVE one (≥1). */
+      readonly objects: number;
+      /** Does at least one member declare no property at all (a plain `const`)? */
+      readonly plain: boolean;
+    };
 
 /** One symbol (with the rest of its own declarations), or a set of candidates no address picked between.
  *
@@ -235,12 +244,14 @@ export function collapseByScope(real: readonly DeclSite[]): Collapsed | undefine
   const scopes = new Set(keys.map((k) => k.scope));
   const targets = new Set(keys.map((k) => k.target));
   if (scopes.size === 1 && targets.size === 1) return { one: first, merged: group.slice(1) };
-  // The cause is READ OFF the diverging part, not guessed from the scope nodes: a set holding one expando
-  // and one plain declaration in the same region diverges on `target` too, and reporting that as
-  // "different objects" names an object the plain declaration does not have (§3.6).
-  const cause: RivalCause =
-    scopes.size > 1 ? 'scope' : targets.has(undefined) ? 'expando-vs-plain' : 'expando-target';
-  return { rivals: group, cause };
+  // The cause is READ OFF the diverging part, not guessed from the scope nodes, and it reports COUNTS so a
+  // set where several facts hold at once cannot have one of them suppressed (§3.6).
+  if (scopes.size > 1) return { rivals: group, cause: { kind: 'scope' } };
+  const objects = new Set([...targets].filter((t): t is string => t !== undefined));
+  return {
+    rivals: group,
+    cause: { kind: 'assignment-target', objects: objects.size, plain: targets.has(undefined) },
+  };
 }
 
 /** The declaration node whose text IS the body to print. We already HAVE the declaration node (it came

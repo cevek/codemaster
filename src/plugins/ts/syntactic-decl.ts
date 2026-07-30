@@ -164,22 +164,12 @@ function byNameInFile(
 }
 
 function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
-  const hits = index.named(name);
-  const real = hits.filter((d) => !d.alias);
-  const files = new Set(real.map((d) => d.rel));
-  if (files.size > 1) {
-    // The identity question a bare name cannot settle — and the scan is COMPLETE under the root, so this
-    // really is >1 declaration, not a ranking artefact. The list IS the remedy: each candidate prints as
-    // a paste-able SymbolId.
-    // Several FILES. The message keys its wording on `fileCount` first, so the cause is not consulted —
-    // but it is derived rather than asserted, so a reordering there cannot turn a stale literal into a
-    // false claim.
-    const collapsed = collapseByScope(real);
-    const cause: RivalCause =
-      collapsed !== undefined && 'rivals' in collapsed ? collapsed.cause : 'scope';
-    return { miss: rivalsMessage(name, real, index.rootTag, files.size, cause) };
-  }
-  return fromCandidates(hits, index.rootTag, () => noSuchNameOnSurface(name));
+  // No cross-file special case: two files are two scope KEYS (the key is rooted at the file), so
+  // `collapseByScope` already reports them as rivals — over the very set it describes. A separate branch
+  // here derived its cause from one set and printed another, which is how a description comes to name a
+  // subset of the candidates it lists. The scan is COMPLETE under the root, so a pick-list here really is
+  // >1 declaration, never a ranking artefact.
+  return fromCandidates(index.named(name), index.rootTag, () => noSuchNameOnSurface(name));
 }
 
 function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutcome {
@@ -231,9 +221,10 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
     // The candidates were gathered by name across the surface, so `collapseByScope` is what knows how
     // they diverged — asking it keeps this path's description identical to the name path's.
     const collapsed = collapseByScope(elsewhere);
-    const cause: RivalCause =
-      collapsed !== undefined && 'rivals' in collapsed ? collapsed.cause : 'scope';
-    return { miss: handleRivals(name, id, elsewhere, index.rootTag, cause) };
+    if (collapsed !== undefined && 'rivals' in collapsed) {
+      return { miss: handleRivals(name, id, collapsed.rivals, index.rootTag, collapsed.cause) };
+    }
+    return { miss: handleRivals(name, id, elsewhere, index.rootTag, { kind: 'scope' }) };
   }
   // NO `{status:'gone'}` for a name merely absent from the surface: §6 scopes that claim to "absent in
   // this workspace root", and this scan does not cover a tsconfig include reaching OUTSIDE the root.
@@ -267,15 +258,13 @@ function fromCandidates(
   }
   if ('rivals' in collapsed) {
     const first = collapsed.rivals[0];
-    return {
-      miss: rivalsMessage(
-        first?.name ?? 'this name',
-        collapsed.rivals,
-        rootTag,
-        new Set(collapsed.rivals.map((d) => d.rel)).size,
-        collapsed.cause,
-      ),
-    };
+    const description = rivalsDescription(
+      first?.name ?? 'this name',
+      collapsed.rivals,
+      rootTag,
+      collapsed.cause,
+    );
+    return { miss: `${description}, so ${PICK_ONE}` };
   }
   return {
     resolved: {
@@ -320,53 +309,70 @@ function rebound(
 
 // ── miss messages (each names what this path cannot do, and where the answer is) ───────────────
 
+const MERGE_CAVEAT =
+  'this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker)';
+
+/** The remedy, stated once wherever a pick-list is the answer. Shared so a COMPOSED message cannot carry
+ *  it twice, or carry a caller's own paraphrase of it beside it. */
+const PICK_ONE = 'pick the one you mean: pass one of these SymbolIds, or name+file / file:line:col';
+
+/** WHAT was observed, and the caveat that observation licenses.
+ *
+ *  The MERGE caveat rides only the region-based observations: a `namespace` / `declare global` merge and a
+ *  function-scoped `var` are ways ONE symbol occupies several regions, so citing them beside two
+ *  assignments on different objects would explain the answer with an irrelevance. And where a member is
+ *  NOT a property assignment, the caveat may not speak of "which object each belongs to" — one of them has
+ *  no object, which is the fabricated-cause defect one clause further along. Both facts of a mixed set are
+ *  reported when both hold: a 2-and-1 set is on different objects AND has a member on no object, and
+ *  stating only one of those is the understatement a single label forced. */
+function describeRivalCause(
+  cause: RivalCause,
+  fileCount: number,
+): { text: string; caveat: string } {
+  if (fileCount > 1) return { text: `in ${fileCount} files`, caveat: MERGE_CAVEAT };
+  if (cause.kind === 'scope') {
+    return { text: 'in different scopes of one file', caveat: MERGE_CAVEAT };
+  }
+  const parts = [
+    cause.objects > 1 ? `${cause.objects} on different objects (as written)` : undefined,
+    cause.plain ? 'at least one not a property assignment at all' : undefined,
+  ].filter((x): x is string => x !== undefined);
+  return {
+    text: `as property assignments in one scope of one file${parts.length > 0 ? ` — ${parts.join(', and ')}` : ''}`,
+    caveat: cause.plain
+      ? 'this path resolves neither which object a property assignment belongs to nor whether the others are the same symbol (that needs the checker)'
+      : 'this path does not resolve which object each belongs to (that needs the checker)',
+  };
+}
+
 /** Candidates no address has chosen between; the list IS the remedy.
  *
  *  It states what was OBSERVED and never a verdict on identity. Neither observation proves distinctness:
  *  across files, a `declare module` augmentation is one symbol declared twice; within one file, so are two
  *  `declare global` blocks, two `namespace` bodies, and a function-scoped `var` in two blocks. Telling
- *  those from two symbols needs the checker this path does without — so claiming "these are different
- *  symbols" would be a verdict off an observation that does not carry it. The cause named is the one that
- *  actually fired (`RivalCause`): an expando pair shares its scope and was separated by its assignment
- *  TARGET, so reporting a scope boundary there would invent a cause (§3.6). */
-function rivalsMessage(
+ *  those from two symbols needs the checker this path does without, so claiming "these are different
+ *  symbols" would be a verdict off an observation that does not carry it. Returns the DESCRIPTION only —
+ *  each caller appends the remedy once, in its own voice. */
+function rivalsDescription(
   name: string,
   rivals: readonly DeclSite[],
   rootTag: string,
-  fileCount: number,
   cause: RivalCause,
 ): string {
   const ids = nameWithMore(
     rivals.map((d) => idOf(d, rootTag)),
     CANDIDATE_PREVIEW,
   );
-  // WHAT was observed, per cause. Only the region-based causes carry the merge caveat: a `namespace` /
-  // `declare global` merge and a function-scoped `var` are ways ONE symbol occupies several regions, and
-  // citing them beside an expando pair would explain the answer with an irrelevance.
-  const where =
-    fileCount > 1
-      ? { text: `in ${fileCount} files`, mergeable: true }
-      : cause === 'expando-target'
-        ? {
-            text: 'as property assignments on different objects (as written) in one file',
-            mergeable: false,
-          }
-        : cause === 'expando-vs-plain'
-          ? {
-              text: 'one as a property assignment and one not, in one scope of one file',
-              mergeable: false,
-            }
-          : { text: 'in different scopes of one file', mergeable: true };
-  const caveat = where.mergeable
-    ? 'this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker), so pick the one you mean'
-    : 'this path does not resolve which object each belongs to (that needs the checker), so pick the one you mean';
-  return `${rivals.length} declarations named '${name}' ${where.text} (${ids}) — ${caveat}: pass one of these SymbolIds, or name+file / file:line:col`;
+  const fileCount = new Set(rivals.map((d) => d.rel)).size;
+  const observed = describeRivalCause(cause, fileCount);
+  return `${rivals.length} declarations named '${name}' ${observed.text} (${ids}) — ${observed.caveat}`;
 }
 
 /** The same candidate set, reached through a stale handle. It DELEGATES the description to
- *  `rivalsMessage` rather than wording its own: stating a cause here made the two addressings contradict
- *  each other about the same two declarations (the handle path called an expando pair a scope boundary),
- *  and it dropped the caveat that the set may be one symbol. One set, one description. */
+ *  `rivalsDescription` rather than wording its own: stating a cause here made the two addressings
+ *  contradict each other about the same two declarations (the handle path called an expando pair a scope
+ *  boundary, and a cross-file pair "different scopes"), and it dropped the caveat that the set may be one
+ *  symbol. One set, one description, one remedy. */
 function handleRivals(
   name: string,
   id: string,
@@ -374,14 +380,12 @@ function handleRivals(
   rootTag: string,
   cause: RivalCause,
 ): string {
-  const fileCount = new Set(rivals.map((d) => d.rel)).size;
-  return `'${name}' (handle ${id}) is not at its recorded position, and ${rivalsMessage(
+  return `'${name}' (handle ${id}) is not at its recorded position, and there are ${rivalsDescription(
     name,
     rivals,
     rootTag,
-    fileCount,
     cause,
-  )} — pick one rather than have the handle rebound to a guess`;
+  )}, so ${PICK_ONE} — rather than have the handle rebound to a guess`;
 }
 
 function handleNotOnSurface(name: string, id: string): string {

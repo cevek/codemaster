@@ -70,6 +70,12 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
     '  set pair(v: number) { void v; }',
     '}',
   ].join('\n'),
+  // A name declared in TWO files, NEITHER of them the file a handle for it records. That is the only way
+  // to reach the handle path's workspace-wide rival arm: the own-file arm is tried first and would rebind
+  // locally, and it excludes other files by construction (`d.rel !== rel`).
+  'src/cross-a.ts': 'export const anchorOnly = 0;',
+  'src/cross-b.ts': 'export const farTwin = 1;',
+  'src/cross-c.ts': 'export const farTwin = 2;',
   'src/rivals.ts': [
     'export class Alpha {',
     '  twin() { return 1; }',

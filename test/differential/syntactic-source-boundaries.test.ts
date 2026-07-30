@@ -145,9 +145,11 @@ test('same-named declarations in DIFFERENT SCOPES are a pick-list, never a silen
     // the merge branch ship untested in both directions.
     // Three merged symbols in three different containers (file / `namespace` body / class body). NOTE what
     // this can and cannot catch: a merge assertion is MONOTONE in the container list — dropping a container
-    // makes both siblings over-climb TOGETHER, so no merge arm can red for a MISSING container (that is
-    // arm 5's job, and the rivals half of this one). What these do guard is the opposite direction, a
-    // false SPLIT of a genuine merge, in each of the three containers.
+    // makes both siblings over-climb TOGETHER, so no merge arm can red for a MISSING container. The arms
+    // that DO catch a missing one are the rival arms, and only for the containers they name (arm 5's
+    // loop / catch / switch-body / expando, and this arm's class members) — a dropped `isModuleBlock` is
+    // caught by nothing here. What these merge cases guard is the opposite direction: a false SPLIT of a
+    // genuine merge, in each of the three containers.
     for (const [name, bodyPattern] of [
       ['Both', /interface Both/],
       ['Deep', /interface Deep/],
@@ -190,13 +192,21 @@ test('a shared enclosing node is not a shared BINDING scope — loop, catch, and
       );
       // And it may state only what it OBSERVED: an expando pair shares its scope (the assignment target
       // separated it), so claiming a scope boundary there would be an invented cause.
-      const expectedCause =
-        name === 'tag'
-          ? /different objects/i
-          : name === 'mixed'
-            ? /one as a property assignment and one not/i
-            : /different scopes/i;
+      const isAssignment = name === 'tag' || name === 'mixed';
+      const expectedCause = isAssignment
+        ? name === 'tag'
+          ? /on different objects/i
+          : /not a property assignment at all/i
+        : /different scopes/i;
       assert.match(reason, expectedCause, `${name}: names the cause that actually fired`);
+      // The CAVEAT is licensed by the observation, and nothing else pins that pairing: a namespace /
+      // declare-global merge and a function-scoped `var` are ways ONE symbol spans several REGIONS, so
+      // citing them beside two assignments on different objects explains the answer with an irrelevance.
+      assert.equal(
+        /cannot tell separate symbols/i.test(reason),
+        !isAssignment,
+        `${name}: the merge caveat belongs to region causes only — got: ${reason}`,
+      );
       assert.ok(
         !/makes these different symbols/i.test(reason),
         `${name}: must not assert distinctness it cannot prove — got: ${reason}`,
@@ -221,7 +231,7 @@ test('a stale handle landing among rivals refuses with the SAME description as t
     const stale = await sourceOf(p, { symbolId: 'ts:tag@src/merged.ts:999:1' }, true);
     const byHandle = missReason(stale, 'handle');
 
-    assert.match(byHandle, /different objects/i, 'the handle path names the cause that fired');
+    assert.match(byHandle, /on different objects/i, 'the handle path names the cause that fired');
     assert.ok(
       !/different scopes/i.test(byHandle),
       `an expando pair shares its scope — must not report a boundary: ${byHandle}`,
@@ -232,7 +242,25 @@ test('a stale handle landing among rivals refuses with the SAME description as t
       byHandle.includes(shared),
       `handle refusal must carry the name path's description verbatim:\n  name:   ${byName}\n  handle: ${byHandle}`,
     );
-    assert.match(byHandle, /pick one/i, 'and still tells the agent what to do');
+    assert.match(byHandle, /pick the one you mean/i, 'and still tells the agent what to do');
+    // Exactly ONE remedy: the delegation used to leave the shared one beside the handle path's own
+    // paraphrase of it.
+    assert.equal(
+      (byHandle.match(/pass one of these SymbolIds/g) ?? []).length,
+      1,
+      `the remedy must appear once, not twice: ${byHandle}`,
+    );
+
+    // The OTHER handle arm — candidates in other FILES, which the own-file arm excludes by construction
+    // (`d.rel !== rel`), so this is the only thing that reaches it. Its recomputed file count is what the
+    // wording keys on, and reporting two files as one is the cross-file contradiction this arm pins.
+    const cross = await sourceOf(p, { symbolId: 'ts:farTwin@src/cross-a.ts:1:14' }, true);
+    const crossReason = missReason(cross, 'cross-file handle');
+    assert.match(crossReason, /in 2 files/, `must report both files: ${crossReason}`);
+    assert.ok(!/of one file/i.test(crossReason), `two files must not read as one: ${crossReason}`);
+    assert.match(crossReason, /ts:farTwin@src\/cross-b\.ts/, 'lists a candidate in one other file');
+    assert.match(crossReason, /ts:farTwin@src\/cross-c\.ts/, 'and the one in the second');
+    assert.match(crossReason, /pick the one you mean/i, 'and carries the remedy');
   } finally {
     await p.dispose();
   }
