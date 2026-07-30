@@ -1,7 +1,7 @@
 ---
 id: t-810757
 title: '`symbols_overview` and `feedback` hard-FAIL in a non-git / non-TS workspace — the two ops that exist to answer "what is here" and "this doesn''t work for me" are the ones that structurally cannot'
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
