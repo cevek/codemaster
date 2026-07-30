@@ -24,6 +24,10 @@ The `daemon` command is a sub-router. `serve` is the INTERNAL long-lived verb th
   running". Connected → a `daemon-info` request (pid, uptime, engines, warm roots, source-staleness)
   - the socket path. A daemon that accepts but never replies → honest "UNRESPONSIVE" after the
     deadline; an old daemon that rejects the new kind → "speaks an older protocol — restart".
+    The staleness line here is the verb's OWN, shorter one (`daemon/manage.ts`), not the
+    agent-facing banner (`format/render/render-status.ts`): a human typed this command about the
+    daemon, so the audience and the restart remedy are right by construction, and the banner's
+    one-shot / topology clauses would be noise.
 - **`start`** — already up → "already running (pid X)". Else `connectOrSpawnDaemon` (the same
   race-safe bind-or-connect the bridge uses) → "daemon started (pid X)"; spawn-budget overrun →
   honest "failed to start".

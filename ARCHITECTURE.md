@@ -1396,8 +1396,8 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   call (§3.5), so the answer may lack a fix newer code has but is not computed over stale data. An
   external reader otherwise cannot tell whether the answer in hand is degraded. (2) **The cheap
   remedy**: a CLI one-shot (`node src/bin.ts op <name> '<json>'`) is fresh by construction (§5-L5)
-  and needs no restart — naming only the restart taught dogfooders to leave for grep, since a
-  restart discards the warm LS per QUESTION. (3) **What the restart does HERE**, which is the one
+  and needs no restart. A restart-only remedy is one no dogfooder can afford per QUESTION (a
+  restart discards the warm LS the daemon exists to amortize), so the cheap path is named first. (3) **What the restart does HERE**, which is the one
   thing the banner discriminates on: under a **daemon**-backed bridge it is machine-wide (it drops
   every connection's warm state, including third parties who staled nothing), and under
   **`--in-process`** serving there is no daemon at all, so `codemaster daemon restart` is a plain

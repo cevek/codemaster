@@ -246,7 +246,11 @@ test('STALE + over-cap text: the staleness banner survives the cut (it is a pref
     const body = textOf(r);
     assert.ok(frameBytes(r) < HARNESS_CEILING_BYTES, 'capped under the real ceiling');
     assert.ok(body.startsWith('!! PRE-EDIT codemaster'), 'the banner still LEADS the capped body');
-    assert.match(body, /!! OUTPUT CAPPED — \d+ more section\(s\) omitted/, 'really was over the cap');
+    assert.match(
+      body,
+      /!! OUTPUT CAPPED — \d+ more section\(s\) omitted/,
+      'really was over the cap',
+    );
     // Same discriminator as the fresh sibling: the +~250-byte banner must not push the aggregate
     // past the blind seam, which would mid-chop the last surviving json section.
     assert.ok(!body.includes(CAP_MARKER), 'the structured section cap fired, not the blind seam');

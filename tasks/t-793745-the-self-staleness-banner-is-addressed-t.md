@@ -72,7 +72,7 @@ in hand. Both halves are one wording fix: who it is for, and whether the data is
 The banner no longer instructs an uninvolved reader to restart a daemon it did not stale, and it now
 states its own consequence for the answer in hand.
 
-- OWNERSHIP + consequence, in the line itself: `!! PRE-EDIT codemaster (own src/ moved since start):
+- OWNERSHIP + consequence, in the line itself: `!! PRE-EDIT codemaster (src/ moved since start):
   your repo is re-read fresh, the ANALYSIS code is old.` — the external reader's verbatim ask ("as a
   consumer I cannot tell whether that degrades the answers I am about to get") is answered by the two
   halves being stated separately: inputs current (§3.5), analysis code behind its checkout.

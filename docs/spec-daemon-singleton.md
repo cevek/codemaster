@@ -83,9 +83,11 @@ length-asserted at bind to stay under `sun_path`'s ~104/108-byte limit. A `Trans
 - **Self-staleness banner preserved.** The `src/**` fingerprint that drives the staleness banner
   (spec-status-as-the-doc, §3.6) is taken at **daemon** spawn; reconnecting a bridge does
   not refresh it (the daemon is the long-lived code) — so the banner still tells the agent when the
-  daemon predates an edit. Its remedy is **`codemaster daemon restart`** (the management verbs,
-  spec-daemon-cli), NOT a bridge reconnect: a reconnect re-attaches to the SAME stale-code daemon on
-  the same socket. The daemon's own idle-exit also clears stale code over time.
+  daemon predates an edit. Its cheapest remedy is a CLI **one-shot** on current source (§5-L5),
+  which costs no connection its warm state; **`codemaster daemon restart`** (the management verbs,
+  spec-daemon-cli) also works here and is machine-wide. What does NOT work is a bridge reconnect: it
+  re-attaches to the SAME stale-code daemon on the same socket. The daemon's own idle-exit also
+  clears stale code over time.
 
 ## 4. Transport seam
 

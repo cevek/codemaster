@@ -1,7 +1,7 @@
 // Self-staleness banner is ALWAYS-ON on the op/batch path (§3.6 applied to the tool): while the
-// daemon's own source is behind disk, EVERY op/batch text response carries the "daemon restart"
-// marker — not just the first. The earlier one-shot latch warned once then served pre-edit behavior
-// silently (the §3.6 cardinal sin in a multi-edit dogfood session). The oracle drives the REAL MCP
+// daemon's own source is behind disk, EVERY op/batch text response carries the
+// `!! PRE-EDIT codemaster` marker — not just the first. The earlier one-shot latch warned once and
+// then served pre-edit behavior silently (the §3.6 cardinal sin in a multi-edit dogfood session). The oracle drives the REAL MCP
 // response path (serveMcp over an in-memory transport) — `project().op()` bypasses serveMcp (it
 // calls the orchestrator directly), so the banner, which lives in the facade, is only exercised
 // here. Discriminating: on the one-shot code responses #2/#3 carry NO marker (red); always-on → all

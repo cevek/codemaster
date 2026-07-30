@@ -22,7 +22,7 @@ export type ServingMode = 'daemon' | 'in-process';
 
 /** The self-staleness banner (§3.6 applied to the tool itself): codemaster's OWN `src/**` moved
  *  since this process started, so it answers with code older than its checkout. ONE home for the two
- *  AGENT-facing surfaces — `status` (first line) and the MCP op/batch prefix — so they cannot drift.
+ *  AGENT-facing surfaces — `status` (in its header block) and the MCP op/batch prefix — so they cannot drift.
  *  (The `codemaster daemon status` management verb states its own, shorter line: a human typed that
  *  command about the daemon, so the audience and the remedy are right by construction and the
  *  one-shot clause below would be noise there.)
@@ -36,8 +36,8 @@ export type ServingMode = 'daemon' | 'in-process';
  *  3. WHAT the restart actually does HERE — under `daemon` it works and is machine-wide (it discards
  *     every connection's warm LS, including third parties who did not stale anything), under
  *     `in-process` it is a plain NO-OP (there is no daemon to restart; only restarting THIS server
- *     un-stales it, which is the MCP client's action, not the reader's). A remedy that cannot change
- *     the outcome is the defect this banner used to ship, in the most-read place the tool has
+ *     un-stales it, which is the MCP client's action, not the reader's). A lever that cannot change the
+ *     outcome is not a remedy at all, and this is the most-read place the tool has
  *     (`ops/guard/navigate.ts` states the same rule for refusals: name a lever that works HERE). */
 export function sourceStaleBanner(serving: ServingMode): string {
   // The one-shot leads in BOTH variants: it is the remedy the READER can execute in-session, whoever
@@ -153,7 +153,7 @@ function renderHeader(view: StatusView, serving: ServingMode): string[] {
     `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
   // §3.6 applied to the tool itself: if our own source moved since spawn, say so loudly and
-  // first — the agent is otherwise talking to a daemon serving pre-edit behavior.
+  // first — the agent is otherwise reading answers from a server running pre-edit behavior.
   if (view.sourceStale) lines.push(sourceStaleBanner(serving));
   // Warm engines by root (cross-repo §2): a query/batch request may carry `root` to target
   // any of these sibling repos; this is the agent's signal that multi-root is live.
