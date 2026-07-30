@@ -139,7 +139,12 @@ function byPosition(
     const sole = hits[0];
     if (sole === undefined) return { miss: noDeclarationAt(file, line, undefined) };
     if (hits.length > 1) return { miss: lineIsAmbiguous(file, line, hits, name) };
-    return fromCandidates([sole], index.rootTag, () => noDeclarationAt(file, line, undefined), true);
+    return fromCandidates(
+      [sole],
+      index.rootTag,
+      () => noDeclarationAt(file, line, undefined),
+      true,
+    );
   }
   const offset = offsetOfLoc(found.sf, line, col);
   if (offset === undefined) return { miss: `position ${line}:${col} is outside ${file}` };
@@ -201,7 +206,10 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
     // §6 step 1: the handle's OWN file. Same collapse policy as every other addressing — same-scope
     // declarations are the held symbol's own merged set, while two same-named declarations in DIFFERENT
     // scopes are rivals, and rebinding a handle onto one of those would claim a move that never happened.
-    const own = collapseByScope(all.filter((d) => !d.alias), true);
+    const own = collapseByScope(
+      all.filter((d) => !d.alias),
+      true,
+    );
     if (own !== undefined) {
       if ('rivals' in own) {
         return { miss: handleRivals(name, id, own.rivals, index.rootTag, own.cause) };
