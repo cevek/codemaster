@@ -1,4 +1,5 @@
-// The projectVersion-independent cache behind `search_symbol { syntactic: true }` — a single-slot
+// The projectVersion-independent cache behind the no-program syntactic paths (`search_symbol
+// { syntactic: true }`, `symbols_overview`, `source { syntactic: true }`) — a single-slot
 // memo of the parsed §10 source surface, keyed on a repo-state fingerprint the SYNTACTIC path can
 // trust (t-515730 dir.2). It lives at the ts-plugin boundary (created + `clear()`-ed with the
 // plugin, mirroring the `literalCalls`/`functionDeclarations` scan memos §3.1); the engine stays

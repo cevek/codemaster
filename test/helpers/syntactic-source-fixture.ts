@@ -1,0 +1,104 @@
+// Shared fixture + accessors for the two `source { syntactic: true }` differential suites (t-229522):
+// `syntactic-source.test.ts` (the byte-equality / no-warm / batch / render invariants) and
+// `syntactic-source-boundaries.test.ts` (what the path refuses, and why). One fixture, because the two
+// suites must reason about the SAME declarations — a second copy would drift and each suite would then
+// be asserting about a different repo than the other.
+
+import assert from 'node:assert/strict';
+import type { TestProject } from './project.ts';
+import type { JsonValue } from '../../src/core/json.ts';
+
+/** One top-level symbol per addressable kind, plus every shape that must NOT print a body: a named
+ *  import, a DEFAULT import (which reaches the declaration index as a bare identifier rather than any
+ *  import-kind node), a reference, same-named declarations in different scopes, a multi-declarator line,
+ *  and a destructured statement. */
+export const SYNTACTIC_FIXTURE: Record<string, string> = {
+  'tsconfig.json':
+    '{"compilerOptions":{"strict":true,"module":"nodenext","moduleResolution":"nodenext"}}',
+  'src/widget.ts': [
+    'export interface WidgetProps {',
+    '  size: string;',
+    '}',
+    'export function makeWidget(p: WidgetProps) {',
+    '  return { size: p.size };',
+    '}',
+    'export const WidgetLimit = 42;',
+    'export class WidgetBase {',
+    '  ping() { return 1; }',
+    '}',
+  ].join('\n'),
+  'src/app.ts': [
+    'import { makeWidget as build, WidgetLimit } from "./widget.ts";',
+    'import WidgetOwner from "./owner.ts";',
+    'export const useWidget = () => build({ size: String(WidgetLimit) }) && WidgetOwner();',
+  ].join('\n'),
+  'src/owner.ts': 'export default function WidgetOwner() {\n  return true;\n}',
+  'src/rivals.ts': [
+    'export class Alpha {',
+    '  twin() { return 1; }',
+    '}',
+    'export class Beta {',
+    '  twin() { return 2; }',
+    '}',
+    'export const pairA = 1, pairB = 2;',
+    'export const { deA, deB } = { deA: 1, deB: 2 };',
+  ].join('\n'),
+};
+
+export type SourceEntry = {
+  id: string;
+  name: string;
+  kind: string;
+  decl: { file: string; line: number; col: number; text: string };
+  provenance?: string;
+};
+
+export type SourceData = {
+  note?: string;
+  sources?: SourceEntry[];
+  unresolved?: { target: string; reason: string }[];
+};
+
+/** Run `source` on one target, on either path. The call itself must succeed — a per-target miss comes
+ *  back inside `unresolved`, which is what the boundary suite asserts about. */
+export async function sourceOf(
+  p: TestProject,
+  target: Record<string, JsonValue>,
+  syntactic: boolean,
+): Promise<SourceData> {
+  const res = await p.op('source', { ...target, ...(syntactic ? { syntactic: true } : {}) });
+  assert.ok('result' in res, `dispatch for ${JSON.stringify(target)}`);
+  assert.ok(res.result.ok, `source ${JSON.stringify(target)} ok: ${JSON.stringify(res.result)}`);
+  return res.result.data as SourceData;
+}
+
+/** The one entry a single-target call must have produced. */
+export function sole(data: SourceData, label: string): SourceEntry {
+  const entry = data.sources?.[0];
+  assert.ok(
+    entry !== undefined,
+    `${label}: expected a body, got unresolved: ${JSON.stringify(data.unresolved)}`,
+  );
+  return entry;
+}
+
+/** The reason of a single-target MISS — asserted on, so an empty string would silently satisfy a
+ *  `match`; the caller gets a loud failure instead when the call unexpectedly resolved. */
+export function missReason(data: SourceData, label: string): string {
+  const reason = data.unresolved?.[0]?.reason;
+  assert.ok(
+    reason !== undefined && reason.length > 0,
+    `${label}: expected a miss, got sources: ${JSON.stringify(data.sources)}`,
+  );
+  return reason;
+}
+
+/** A 1-based (line, col) of the first occurrence of `needle` in a fixture file — located by SEARCH so an
+ *  edit to the fixture cannot silently retarget an assertion at some other line. */
+export function locate(file: string, needle: string): { line: number; col: number } {
+  const lines = SYNTACTIC_FIXTURE[file]?.split('\n') ?? [];
+  const row = lines.findIndex((l) => l.includes(needle));
+  const col = lines[row]?.indexOf(needle) ?? -1;
+  assert.ok(row >= 0 && col >= 0, `fixture ${file} no longer contains ${needle}`);
+  return { line: row + 1, col: col + 1 };
+}

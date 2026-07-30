@@ -24,6 +24,10 @@ export type SourceEntry = {
   name: string;
   kind: string;
   decl: SourceSpan;
+  /** §3.3 per-site provenance: set only where the body was located by an AST scan rather than the
+   *  checker. Rendered on the header line, so the per-entry channel is visible in text mode too and not
+   *  only in the answer-level note. */
+  provenance?: string;
   rebound?: { from: string; to: string; confidence: string };
   moreDefinitions?: string[];
 };
@@ -60,7 +64,8 @@ export function renderSource(
     // The id already encodes the file (`name@file:line:col`); the decl span's line:col is the
     // DECLARATION START (distinct from the id's name-token col), so keep just `:line:col` and drop
     // the repeated file (§12 density). Leading `:` signals "same file as the id".
-    const header = `${s.id} · ${s.kind} @ :${s.decl.line}:${s.decl.col}`;
+    const provenance = s.provenance === undefined ? '' : ` · ${s.provenance}`;
+    const header = `${s.id} · ${s.kind}${provenance} @ :${s.decl.line}:${s.decl.col}`;
     // Always show the FIRST body (the explore-one-big-thing case must not collapse to a
     // header). After that, render bodies until the budget is spent; then every remaining
     // target collapses to a header line so a big body can't starve which symbols followed.

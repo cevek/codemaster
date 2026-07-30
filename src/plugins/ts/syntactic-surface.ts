@@ -1,7 +1,12 @@
-// The parsed §10 git-source surface shared by the no-program syntactic paths (t-515730): the
-// fuzzy `search_symbol { syntactic: true }` scan AND the `symbols_overview` catalogue. Extracted here so
-// BOTH build the surface through one function (no duplicate parse / cache wiring) and both files stay
+// The parsed §10 git-source surface shared by the no-program syntactic paths: the fuzzy
+// `search_symbol { syntactic: true }` scan (t-515730), the `symbols_overview` catalogue (t-143952) and
+// the `source { syntactic: true }` declaration reader (t-229522). Extracted here so every one of them
+// builds the surface through one function (no duplicate parse / cache wiring) and each file stays
 // under the line cap. NEVER warms the LS / builds a program — the whole point of the syntactic paths.
+//
+// A caller answering about SEVERAL targets must call this ONCE and reuse the returned map (§8: a reader
+// pins the state at request entry). Per-target calls would re-take the repo fingerprint each time and
+// could assemble one answer over two different surface states.
 //
 // The surface is memoized in the caller's `SyntacticCache` keyed on a repo-state fingerprint the
 // syntactic path can trust (syntactic-cache.ts — NOT projectVersion). The hot path is O(changed),

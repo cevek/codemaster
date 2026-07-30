@@ -1,15 +1,16 @@
 // `source { syntactic: true }` — read a declaration's BODY without building a TypeScript program
 // (t-229522). "Print the body of this declaration" is a SYNTACTIC question, and the no-program §10
 // git-source surface that `search_symbol {syntactic:true}` / `symbols_overview` already ride answers
-// it: this path never warms the LS.
+// it: this path never warms the LS. The declaration index and the candidate-collapse policy live in
+// `syntactic-decl-index.ts`; this module owns only the five ADDRESSINGS and what a miss says.
 //
-// WHAT IT BUYS, measured (a 6101-file monorepo, box with RAM to spare). The checker path is not
-// impossible there — a file-pinned `source` costs 839 MB / 4.5 s, a bare-name one 881 MB / 5.8 s, both
-// within the default 4 GB — so this is an order-of-magnitude latency/heap win for a question that needs
-// no checker, NOT a rescue from a refusal. Where it IS the difference between an answer and none: a
-// BATCH. An engine serializes a batch's ops in one heap, so a `source` riding along with a reference
-// fan-out (measured 5.2 GB live / ~30 s) dies as a PASSENGER of its neighbour; a call that builds no
-// program has nothing to lose to it.
+// WHAT IT BUYS, measured on one 6101-file monorepo. The checker path is not impossible there — a
+// `source` costs ~0.9 GB (parse+bind of the primary is 839–881 MB) and a few seconds, within a default
+// 4 GB heap — so this is a large heap+latency saving on a question that needs no checker, NOT a rescue
+// from a refusal. Where it IS the difference between an answer and none: a BATCH. An engine serializes a
+// batch's ops in one heap, and `find_usages` on that repo takes ~5.2 GB live under ANY addressing and
+// dies in the checker phase — so a `source` riding along dies as its PASSENGER, while a call that builds
+// no program has nothing to lose to it.
 //
 // WHAT IT IS NOT — the difference that decides the flag is opt-in, not a default. The default path
 // resolves an address through the checker, which FOLLOWS it: a `file:line:col` on a reference returns
@@ -19,53 +20,46 @@
 // question nobody asked while looking like the answer). It also resolves no module specifier: an
 // address landing on `import { X } from './y'` is reported as an alias site, not printed as X's body.
 //
-// SCOPE (the same honest scope as the sibling syntactic paths, t-515730): every git-tracked source
-// file under the workspace root plus untracked-not-ignored ones — COMPLETE for declarations there and
-// wider than the checker path in one respect (a file no tsconfig includes is scanned here), but a
-// tsconfig `include`/`reference` reaching OUTSIDE the root is not. Every hit carries
-// `provenance:'syntactic'`; the op states the scope on every answer.
+// SCOPE: the shared `SYNTACTIC_SCOPE` (syntactic-scope.ts), which the op states on every answer. Every
+// hit carries `provenance:'syntactic'`.
 //
 // ONE declaration set for all five addressings (`symbolId` / `file+line+col` / `file+line` /
-// `name+file` / `name`): the `getNamedDeclarations` set minus alias re-mentions — exactly the set
-// `search_symbol {syntactic:true}` mints its SymbolIds from, so a handle from that search resolves
-// here by construction. A same-named twin found in >1 file is a pick-list, never a silent pick.
+// `name+file` / `name`): the same `getNamedDeclarations` nodes the syntactic search mints its ids from,
+// with alias re-mentions kept but flagged. So a handle that search minted for a REAL declaration
+// resolves here; one it minted for an ALIAS site comes back as an explicit miss, because there is no
+// body at an import — the chain is honest, not seamless.
 
-import ts from 'typescript';
-import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind, SymbolId } from '../../core/ids.ts';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
 import { isOk } from '../../common/result/narrow.ts';
+import type { Deadline } from '../../common/async/deadline.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import type { SymbolView } from './query-types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
-import { DECL_TEXT_CAP, offsetOfLoc, spanFromRange } from './spans.ts';
-import { deriveRootTag, mintSymbolId, parseTsSymbolId } from './symbol-id.ts';
-import type { SyntacticCache, SyntacticSources } from './syntactic-cache.ts';
-import {
-  INTERNAL_UNAVAILABLE,
-  namedDeclarations,
-  namedDeclarationsAvailable,
-} from './syntactic-internal.ts';
-import { isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
+import { offsetOfLoc } from './spans.ts';
+import { deriveRootTag, parseTsSymbolId } from './symbol-id.ts';
+import type { SyntacticCache } from './syntactic-cache.ts';
+import { INTERNAL_UNAVAILABLE, namedDeclarationsAvailable } from './syntactic-internal.ts';
 import { surfaceSources } from './syntactic-surface.ts';
-
-/** One addressable declaration on the surface, anchored on its name token. */
-type DeclSite = {
-  rel: RepoRelPath;
-  sf: ts.SourceFile;
-  node: ts.Declaration;
-  name: string;
-  /** 0-based start of the name token — the anchor every symbol-addressed read funnels through. */
-  anchor: number;
-  /** An import / re-export re-mention of a name declared elsewhere: it has no body to print. */
-  alias: boolean;
-};
+import {
+  colOf,
+  createDeclIndex,
+  collapseByScope,
+  idOf,
+  lineOf,
+  viewOf,
+  type DeclIndex,
+  type DeclSite,
+} from './syntactic-decl-index.ts';
+import { missingFileReason } from './syntactic-decl-miss.ts';
 
 export type SyntacticDeclHit = {
   view: SymbolView;
-  /** Further declarations of the same name in the SAME file (an overload set / merged declaration),
-   *  as `file:line` — listed, never dropped (§3.4). */
+  /** The symbol's OTHER declarations — same name, same scope, so genuinely one merged symbol (an
+   *  overload set, `interface` + `namespace`) — as `file:line`. A same-named declaration in a DIFFERENT
+   *  scope is never listed here: it is a different symbol, and the address that could not choose between
+   *  them returned a pick-list instead. */
   moreDeclarations?: readonly string[];
   rebind?: HandleRebind;
 };
@@ -75,109 +69,119 @@ export type SyntacticDeclOutcome =
   | { resolved: SyntacticDeclHit }
   | { miss: string; rebind?: HandleRebind };
 
+/** One answer per target, plus the honest flag when the wall-clock budget cut the loop short. */
+export type SyntacticDeclBatch = {
+  outcomes: readonly SyntacticDeclOutcome[];
+  timedOut?: true;
+};
+
 /** How many same-named candidates a pick-list prints before `+N more`. */
 const CANDIDATE_PREVIEW = 8;
 
-/** The declaration body at `target`, read off the no-program surface. `ToolFailure` only for a real
- *  tool failure (git, the @internal helper); an address that resolves to nothing is a `miss`. */
-export function declarationSyntactic(
+/** The declaration bodies at `targets`, read off the no-program surface. The surface is resolved ONCE
+ *  and shared by every target (§8: one answer, one state — per-target resolution could assemble one
+ *  reply over two different surfaces, and would re-take the repo fingerprint per target). `ToolFailure`
+ *  only for a real tool failure (git, the @internal helper); an address that resolves to nothing is a
+ *  per-target `miss`. */
+export function declarationsSyntactic(
   root: string,
-  target: TsTargetInput,
+  targets: readonly TsTargetInput[],
   cache: SyntacticCache,
-): Result<SyntacticDeclOutcome> {
+  deadline?: Deadline,
+): Result<SyntacticDeclBatch> {
   if (!namedDeclarationsAvailable()) return fail(INTERNAL_UNAVAILABLE);
   const sources = surfaceSources(root, cache);
   if (!isOk(sources)) return fail(sources.failure);
-  return ok(resolveOver(sources.data, deriveRootTag(root), target));
+  const index = createDeclIndex(root, sources.data, deriveRootTag(root));
+  const outcomes: SyntacticDeclOutcome[] = [];
+  for (const target of targets) {
+    // §19 loop-boundary poll: each target's bare-name arm walks the whole surface, so the budget is
+    // checked between targets rather than trusted to be small.
+    if (deadline?.expired() === true) return ok({ outcomes, timedOut: true });
+    outcomes.push(resolveOne(root, index, target));
+  }
+  return ok({ outcomes });
 }
 
-function resolveOver(
-  sources: SyntacticSources,
-  rootTag: string,
-  target: TsTargetInput,
-): SyntacticDeclOutcome {
+function resolveOne(root: string, index: DeclIndex, target: TsTargetInput): SyntacticDeclOutcome {
   // Branch order mirrors the checker path's own dispatch (`resolveTarget`), so a call carrying both a
   // handle and a name resolves through the SAME field either way.
-  if (target.symbolId !== undefined) return byHandle(sources, rootTag, target.symbolId);
+  if (target.symbolId !== undefined) return byHandle(root, index, target.symbolId);
   if (target.file !== undefined && target.line !== undefined) {
-    return byPosition(sources, rootTag, target.file, target.line, target.col, target.name);
+    return byPosition(root, index, target.file, target.line, target.col, target.name);
   }
   if (target.file !== undefined && target.name !== undefined) {
-    return byNameInFile(sources, rootTag, target.name, target.file);
+    return byNameInFile(root, index, target.name, target.file);
   }
-  if (target.name !== undefined) return byName(sources, rootTag, target.name);
+  if (target.name !== undefined) return byName(index, target.name);
   return { miss: 'target needs symbolId, name, file+line (col optional), or name+file' };
 }
 
 // ── addressings ───────────────────────────────────────────────────────────────────────────────
 
 function byPosition(
-  sources: SyntacticSources,
-  rootTag: string,
+  root: string,
+  index: DeclIndex,
   file: string,
   line: number,
   col: number | undefined,
   name: string | undefined,
 ): SyntacticDeclOutcome {
-  const sf = sources.get(file as RepoRelPath);
-  if (sf === undefined) return { miss: notOnSurface(file) };
-  const rel = file as RepoRelPath;
-  const all = declsInFile(rel, sf);
-  const onName = name === undefined ? all : all.filter((d) => d.name === name);
+  const found = index.fileOf(file);
+  if (found === undefined) return { miss: missingFileReason(root, file) };
+  const all = index.declsOf(found.rel, found.sf);
   if (col === undefined) {
-    // `file+line` (a grep/editor paste): the declaration(s) whose name token starts on that line.
-    const hits = onName.filter((d) => lineOf(sf, d.anchor) === line);
-    return fromCandidates(hits, rootTag, () => noDeclarationAt(file, line, undefined));
+    // `file+line` (a grep/editor paste): the declarations whose name token starts on that line. `name`,
+    // when given, scopes the line to it — mirroring the checker path's `resolveByLine`.
+    const onName = name === undefined ? all : all.filter((d) => d.name === name);
+    const hits = onName.filter((d) => lineOf(d) === line);
+    const sole = hits[0];
+    if (sole === undefined) return { miss: noDeclarationAt(file, line, undefined) };
+    if (hits.length > 1) return { miss: lineIsAmbiguous(file, line, hits, name) };
+    return fromCandidates([sole], index.rootTag, () => noDeclarationAt(file, line, undefined));
   }
-  const offset = offsetOfLoc(sf, line, col);
+  const offset = offsetOfLoc(found.sf, line, col);
   if (offset === undefined) return { miss: `position ${line}:${col} is outside ${file}` };
-  // Containment, not equality: the checker path accepts a column anywhere inside the name token, and
-  // an address that works there must not fail here for pointing at the token's second character.
-  const hits = onName.filter((d) => offset >= d.anchor && offset < d.anchor + d.name.length);
-  return fromCandidates(hits, rootTag, () => noDeclarationAt(file, line, col));
+  // Containment, not equality: the checker path accepts a column anywhere inside the name token, and an
+  // address that works there must not fail here for pointing at the token's second character. `name` is
+  // NOT applied — a position already identifies one declaration, and the checker path ignores it too, so
+  // filtering here would miss where the sibling mode resolves.
+  const hits = all.filter((d) => offset >= d.anchor && offset < d.nameEnd);
+  return fromCandidates(hits, index.rootTag, () => noDeclarationAt(file, line, col));
 }
 
 function byNameInFile(
-  sources: SyntacticSources,
-  rootTag: string,
+  root: string,
+  index: DeclIndex,
   name: string,
   file: string,
 ): SyntacticDeclOutcome {
-  const sf = sources.get(file as RepoRelPath);
-  if (sf === undefined) return { miss: notOnSurface(file) };
-  const hits = declsInFile(file as RepoRelPath, sf).filter((d) => d.name === name);
-  return fromCandidates(hits, rootTag, () => noSuchNameInFile(name, file));
+  const found = index.fileOf(file);
+  if (found === undefined) return { miss: missingFileReason(root, file) };
+  const hits = index.declsOf(found.rel, found.sf).filter((d) => d.name === name);
+  return fromCandidates(hits, index.rootTag, () => noSuchNameInFile(name, file));
 }
 
-function byName(sources: SyntacticSources, rootTag: string, name: string): SyntacticDeclOutcome {
-  const hits: DeclSite[] = [];
-  for (const [rel, sf] of sources) {
-    for (const d of declsInFile(rel, sf)) if (d.name === name) hits.push(d);
-  }
+function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
+  const hits = index.named(name);
   const real = hits.filter((d) => !d.alias);
   const files = new Set(real.map((d) => d.rel));
   if (files.size > 1) {
-    // The identity question a bare name cannot settle — and the scan is COMPLETE under the root, so
-    // this really is >1 declaration, not a ranking artefact. The list IS the remedy: each candidate
-    // prints as a paste-able SymbolId.
-    const labels = real.map((d) => idOf(d, rootTag));
-    return {
-      miss: `${real.length} declarations named '${name}' in ${files.size} files (${nameWithMore(
-        labels,
-        CANDIDATE_PREVIEW,
-      )}) — pass one of these SymbolIds, or name+file / file:line:col`,
-    };
+    // The identity question a bare name cannot settle — and the scan is COMPLETE under the root, so this
+    // really is >1 declaration, not a ranking artefact. The list IS the remedy: each candidate prints as
+    // a paste-able SymbolId.
+    return { miss: rivalsMessage(name, real, index.rootTag, files.size) };
   }
-  return fromCandidates(hits, rootTag, () => noSuchNameOnSurface(name));
+  return fromCandidates(hits, index.rootTag, () => noSuchNameOnSurface(name));
 }
 
-function byHandle(sources: SyntacticSources, rootTag: string, id: string): SyntacticDeclOutcome {
+function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutcome {
   const decoded = parseTsSymbolId(id);
   if (!decoded.ok) return { miss: decoded.message };
   const { name, rel, line, col, rootTag: tag } = decoded.parsed;
-  // Cross-root guard (§6): a handle minted elsewhere must never name-rebind onto a same-named symbol
-  // in THIS repo — that binds it to a different symbol entirely.
-  if (tag !== undefined && tag !== rootTag) {
+  // Cross-root guard (§6): a handle minted elsewhere must never name-rebind onto a same-named symbol in
+  // THIS repo — that binds it to a different symbol entirely.
+  if (tag !== undefined && tag !== index.rootTag) {
     return {
       miss: `SymbolId '${id}' was minted in a different workspace root — re-search the symbol by name in this root (SymbolIds do not cross roots)`,
       rebind: {
@@ -187,109 +191,98 @@ function byHandle(sources: SyntacticSources, rootTag: string, id: string): Synta
       },
     };
   }
-  const sf = sources.get(rel);
-  if (sf !== undefined) {
-    const all = declsInFile(rel, sf).filter((d) => d.name === name);
-    const offset = offsetOfLoc(sf, line, col);
+  const found = index.fileOf(rel);
+  if (found !== undefined) {
+    const all = index.declsOf(found.rel, found.sf).filter((d) => d.name === name);
+    const offset = offsetOfLoc(found.sf, line, col);
     const atPosition =
-      offset === undefined
-        ? undefined
-        : all.find((d) => offset >= d.anchor && offset < d.anchor + d.name.length);
-    if (atPosition !== undefined) return fromCandidates([atPosition], rootTag, unreachable);
-    // §6 step 1: the handle's OWN file. Several same-named declarations in one file are a MERGED
-    // symbol (an overload set, `interface` + `namespace`) — TS rejects a non-mergeable duplicate — so
-    // the first is that symbol's declaration, not a rival candidate.
-    const moved = all.filter((d) => !d.alias)[0];
-    if (moved !== undefined) return rebound(moved, rootTag, id, 'same file, moved position');
-  }
-  // §6 step 2: workspace-wide, over the whole surface.
-  const elsewhere: DeclSite[] = [];
-  for (const [otherRel, otherSf] of sources) {
-    if (otherRel === rel) continue;
-    for (const d of declsInFile(otherRel, otherSf)) {
-      if (d.name === name && !d.alias) elsewhere.push(d);
+      offset === undefined ? undefined : all.find((d) => offset >= d.anchor && offset < d.nameEnd);
+    if (atPosition !== undefined) {
+      return fromCandidates([atPosition], index.rootTag, () => handleNotOnSurface(name, id));
+    }
+    // §6 step 1: the handle's OWN file. Same collapse policy as every other addressing — same-scope
+    // declarations are the held symbol's own merged set, while two same-named declarations in DIFFERENT
+    // scopes are rivals, and rebinding a handle onto one of those would claim a move that never happened.
+    const own = collapseByScope(all.filter((d) => !d.alias));
+    if (own !== undefined) {
+      if ('rivals' in own) return { miss: handleRivals(name, id, own.rivals, index.rootTag) };
+      return rebound(own, index.rootTag, id, 'same file, moved position');
     }
   }
+  // §6 step 2: workspace-wide, over the whole surface.
+  const elsewhere = index.named(name).filter((d) => !d.alias && d.rel !== rel);
   const files = new Set(elsewhere.map((d) => d.rel));
   if (files.size === 1) {
-    const sole = elsewhere[0];
-    if (sole !== undefined) return rebound(sole, rootTag, id, `moved to ${sole.rel}`);
+    const collapsed = collapseByScope(elsewhere);
+    if (collapsed !== undefined && !('rivals' in collapsed)) {
+      return rebound(collapsed, index.rootTag, id, `moved to ${collapsed.one.rel}`);
+    }
   }
-  if (files.size > 1) {
-    return {
-      miss: `'${name}' (handle ${id}) is no longer at its recorded position, and ${elsewhere.length} declarations of that name exist in ${files.size} other files (${nameWithMore(
-        elsewhere.map((d) => idOf(d, rootTag)),
-        CANDIDATE_PREVIEW,
-      )}) — pick one rather than have the handle rebound to a guess`,
-    };
-  }
-  // NO `{status:'gone'}`: §6 scopes that claim to "absent in this workspace root", and this scan does
-  // not cover a tsconfig include reaching OUTSIDE the root. Asserting removal off a surface that
-  // cannot see there would be exactly the §3.4 lie in its most damaging form (the agent's whole chain
-  // rests on it). Report what we did see, and where the answer still lives.
-  return {
-    miss: `'${name}' (handle ${id}) is not in the scanned git source surface under the workspace root — this is NOT proof it is gone (an outside-root tsconfig include is not scanned here); drop syntactic:true to resolve it through the checker`,
-  };
+  if (elsewhere.length > 0) return { miss: handleRivals(name, id, elsewhere, index.rootTag) };
+  // NO `{status:'gone'}` for a name merely absent from the surface: §6 scopes that claim to "absent in
+  // this workspace root", and this scan does not cover a tsconfig include reaching OUTSIDE the root.
+  // Asserting removal off a surface that cannot see there would be the §3.4 lie in its most damaging
+  // form (the agent's whole chain rests on it). A cross-root handle above is different — §6 sanctions
+  // `gone` there, because the handle itself proves it belongs to another root.
+  return { miss: handleNotOnSurface(name, id) };
 }
 
 // ── shared plumbing ───────────────────────────────────────────────────────────────────────────
 
-/** Every named declaration in one file, anchored on its name token, aliases flagged. One pass per
- *  file; the SourceFile itself is the memoized surface parse, so this is never a re-parse. */
-function declsInFile(rel: RepoRelPath, sf: ts.SourceFile): DeclSite[] {
-  const out: DeclSite[] = [];
-  const seen = new Set<number>(); // one anchor counted once (a name may appear under several nodes)
-  namedDeclarations(sf).forEach((nodes, name) => {
-    for (const node of nodes) {
-      const anchor = nameAnchor(node, sf);
-      if (seen.has(anchor)) continue;
-      seen.add(anchor);
-      out.push({ rel, sf, node, name, anchor, alias: !isRealDeclaration(node) });
-    }
-  });
-  return out.sort((a, b) => a.anchor - b.anchor); // source order → deterministic (cold == warm)
-}
-
-/** Turn candidates at one address into an outcome: prefer a real declaration, list the rest, and
- *  refuse to print an alias site as a body. */
+/** Turn candidates at one address into an outcome: refuse to print an alias site as a body, and apply
+ *  the collapse policy so a pick among rivals is never silent. */
 function fromCandidates(
   hits: readonly DeclSite[],
   rootTag: string,
   onEmpty: () => string,
 ): SyntacticDeclOutcome {
   if (hits.length === 0) return { miss: onEmpty() };
-  const real = hits.filter((d) => !d.alias);
-  const sole = real[0];
-  if (sole === undefined) {
+  const collapsed = collapseByScope(hits.filter((d) => !d.alias));
+  if (collapsed === undefined) {
     // Only alias re-mentions here. This is the routine case for a handle minted by
-    // `search_symbol {syntactic:true}`, which returns import/re-export sites too — so it gets a
-    // pointed remedy rather than a bare "not found". Resolving the module specifier ourselves would
-    // be a second module-resolution oracle, which this path deliberately is not.
+    // `search_symbol {syntactic:true}`, which returns import/re-export sites too — so it gets a pointed
+    // remedy rather than a bare "not found". Resolving the module specifier ourselves would be a second
+    // module-resolution oracle, which this path deliberately is not.
     const at = hits[0];
-    const where = at === undefined ? '' : ` at ${at.rel}:${lineOf(at.sf, at.anchor)}`;
+    const where = at === undefined ? '' : ` at ${at.rel}:${lineOf(at)}`;
     return {
-      miss: `${hits[0]?.name ?? 'this name'}${where} is an import / re-export re-mention, not a declaration — there is no body here. The syntactic path resolves no module specifier (that needs the checker): re-address at the declaration (search_symbol ranks real declarations first), or drop syntactic:true.`,
+      miss: `${at?.name ?? 'this name'}${where} is an import / re-export re-mention, not a declaration — there is no body here. The syntactic path resolves no module specifier (that needs the checker): re-address at the declaration (search_symbol ranks real declarations first), or drop syntactic:true.`,
     };
   }
-  const more = real.slice(1).map((d) => `${d.rel}:${lineOf(d.sf, d.anchor)}`);
+  if ('rivals' in collapsed) {
+    const first = collapsed.rivals[0];
+    return {
+      miss: rivalsMessage(
+        first?.name ?? 'this name',
+        collapsed.rivals,
+        rootTag,
+        new Set(collapsed.rivals.map((d) => d.rel)).size,
+      ),
+    };
+  }
   return {
     resolved: {
-      view: viewOf(sole, rootTag),
-      ...(more.length > 0 ? { moreDeclarations: more } : {}),
+      view: viewOf(collapsed.one, rootTag),
+      ...(collapsed.merged.length > 0
+        ? { moreDeclarations: collapsed.merged.map((d) => `${d.rel}:${lineOf(d)}`) }
+        : {}),
     },
   };
 }
 
 function rebound(
-  site: DeclSite,
+  collapsed: { one: DeclSite; merged: readonly DeclSite[] },
   rootTag: string,
   from: string,
   what: string,
 ): SyntacticDeclOutcome {
-  const view = viewOf(site, rootTag);
+  const view = viewOf(collapsed.one, rootTag);
   return {
     resolved: {
       view,
+      ...(collapsed.merged.length > 0
+        ? { moreDeclarations: collapsed.merged.map((d) => `${d.rel}:${lineOf(d)}`) }
+        : {}),
       rebind: {
         status: 'rebound',
         from: from as SymbolId,
@@ -297,73 +290,48 @@ function rebound(
           id: view.id as SymbolId,
           name: view.name,
           kind: view.kind,
-          loc: { file: site.rel, line: view.span.line, col: view.span.col },
+          loc: { file: collapsed.one.rel, line: view.span.line, col: view.span.col },
         },
         proof: view.span,
         // A name/kind match proves LOCATION, not identity (§6) — never `certain`.
         confidence: 'partial',
-        note: `'${site.name}' (${view.kind}) is now at ${site.rel}:${view.span.line}:${view.span.col} — ${what}; structural continuity not proven`,
+        note: `'${collapsed.one.name}' (${view.kind}) is now at ${collapsed.one.rel}:${view.span.line}:${view.span.col} — ${what}; structural continuity not proven`,
       },
     },
   };
 }
 
-/** The declaration node whose text IS the body to print. We already HAVE the declaration node (it came
- *  from `getNamedDeclarations`), so there is nothing to walk up FOR — except the one case where the
- *  node is narrower than the declaration an agent means: a `const X = …` declarator does not carry its
- *  own `export` keyword or trailing `;`, both of which live on the enclosing `VariableStatement`.
- *
- *  Deliberately NOT `declarationNodeOf` (the position-only walk `find_definition` uses): starting from
- *  an OFFSET it cannot know which declaration the offset belongs to, so for a declaration kind outside
- *  its list — a catch-clause variable, a parameter — it walks past the real declaration and returns the
- *  enclosing function, whose body then gets printed under the inner name. Given the node, that whole
- *  failure mode is unreachable. (The position-only path's own case is filed separately.) */
-function bodyNodeOf(node: ts.Declaration): ts.Node {
-  const list = node.parent;
-  if (ts.isVariableDeclaration(node) && list !== undefined && ts.isVariableDeclarationList(list)) {
-    const stmt = list.parent;
-    // Only a STATEMENT lift: a `for (const x of …)` list's parent is the loop, and printing the loop
-    // as the declaration of `x` is the very substitution this function exists to avoid.
-    if (stmt !== undefined && ts.isVariableStatement(stmt)) return stmt;
-  }
-  return node;
-}
-
-/** The proof-carrying view: the name-token span plus the WHOLE declaration span (the body — the
- *  point of this op), built from the same SourceFile that produced the range. */
-function viewOf(site: DeclSite, rootTag: string): SymbolView {
-  const span = spanFromRange(site.sf, site.rel, site.anchor, site.anchor + site.name.length);
-  const body = bodyNodeOf(site.node);
-  const decl = spanFromRange(
-    site.sf,
-    site.rel,
-    body.getStart(site.sf),
-    body.getEnd(),
-    DECL_TEXT_CAP,
-  );
-  return {
-    id: mintSymbolId(site.name, site.rel, span.line, span.col, rootTag),
-    name: site.name,
-    kind: nodeKindLabel(site.node),
-    span,
-    decl,
-    provenance: 'syntactic',
-  };
-}
-
-function idOf(site: DeclSite, rootTag: string): string {
-  const lc = site.sf.getLineAndCharacterOfPosition(site.anchor);
-  return mintSymbolId(site.name, site.rel, lc.line + 1, lc.character + 1, rootTag);
-}
-
-function lineOf(sf: ts.SourceFile, offset: number): number {
-  return sf.getLineAndCharacterOfPosition(offset).line + 1;
-}
-
 // ── miss messages (each names what this path cannot do, and where the answer is) ───────────────
 
-function notOnSurface(file: string): string {
-  return `${file} is not in the scanned git source surface — the syntactic path scans git-tracked (plus untracked-not-ignored) source under the workspace root, so a gitignored or outside-root file is not there; drop syntactic:true for the type-verified path`;
+/** Same-named declarations in different scopes are different symbols; the list IS the remedy. */
+function rivalsMessage(
+  name: string,
+  rivals: readonly DeclSite[],
+  rootTag: string,
+  fileCount: number,
+): string {
+  const where =
+    fileCount > 1 ? `${fileCount} files` : 'different scopes of one file (a member, or a local)';
+  return `${rivals.length} declarations named '${name}' in ${where} (${nameWithMore(
+    rivals.map((d) => idOf(d, rootTag)),
+    CANDIDATE_PREVIEW,
+  )}) — these are different symbols, so pass one of these SymbolIds, or name+file / file:line:col`;
+}
+
+function handleRivals(
+  name: string,
+  id: string,
+  rivals: readonly DeclSite[],
+  rootTag: string,
+): string {
+  return `'${name}' (handle ${id}) is not at its recorded position, and ${rivals.length} declarations of that name exist in different scopes (${nameWithMore(
+    rivals.map((d) => idOf(d, rootTag)),
+    CANDIDATE_PREVIEW,
+  )}) — pick one rather than have the handle rebound to a guess`;
+}
+
+function handleNotOnSurface(name: string, id: string): string {
+  return `'${name}' (handle ${id}) is not in the scanned git source surface under the workspace root — this is NOT proof it is gone (an outside-root tsconfig include is not scanned here); drop syntactic:true to resolve it through the checker`;
 }
 
 function noDeclarationAt(file: string, line: number, col: number | undefined): string {
@@ -371,15 +339,29 @@ function noDeclarationAt(file: string, line: number, col: number | undefined): s
   return `no declaration is anchored at ${at} — the syntactic path prints the declaration AT an address and cannot follow a reference to its definition (that needs the checker). Pass the declaration's own position, or drop syntactic:true.`;
 }
 
+/** Several declarations anchored on one line — mirroring the checker path's `resolveByLine`, the list is
+ *  the remedy (the agent picks a column out of it), never a silent pick of the first. */
+function lineIsAmbiguous(
+  file: string,
+  line: number,
+  hits: readonly DeclSite[],
+  name: string | undefined,
+): string {
+  const labels = hits.map((d) => `${d.name} at col ${colOf(d)}`);
+  const overflow =
+    hits.length > CANDIDATE_PREVIEW && name === undefined
+      ? ", or add 'name' to filter the line"
+      : '';
+  return `${file}:${line} has ${hits.length} declarations (${nameWithMore(
+    labels,
+    CANDIDATE_PREVIEW,
+  )}) — pass file:line:col to pick one${overflow}`;
+}
+
 function noSuchNameInFile(name: string, file: string): string {
-  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a computed / string-named / destructured binding is declared yet carries no plain identifier for this scan to anchor.`;
+  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a computed or string-literal name (\`[Symbol.iterator]\`, \`'a-b'\`) carries no plain identifier for this scan to anchor.`;
 }
 
 function noSuchNameOnSurface(name: string): string {
   return `no declaration named '${name}' in git-tracked source under the workspace root. An outside-root tsconfig include/reference is not scanned here — drop syntactic:true for those.`;
-}
-
-/** A single already-located candidate can never be empty; the callback exists for the general case. */
-function unreachable(): string {
-  return 'no declaration at the resolved position';
 }

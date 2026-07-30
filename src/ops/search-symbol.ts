@@ -11,7 +11,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
-import { SYNTACTIC_SCOPE } from './syntactic-scope.ts';
+import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
 import { fileModuleHint } from './search-file-hint.ts';
 import { opRefusal } from './guard/refusal.ts';
 import type { ToolFailure } from '../core/result.ts';

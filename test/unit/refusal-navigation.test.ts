@@ -294,9 +294,9 @@ test('the find_usages redirect states what it does NOT give', () => {
   assert.match(first.gives, /NOT the per-site usage set/);
 });
 
-// t-229522 — `source` used to have NO entry, so it fell into the no-substitute arm and offered
-// `symbols_overview` / `search_symbol`: two calls that list NAMES and cannot print a body. An op whose
-// own question has a real cheap answer must not be sent to ops that answer a different one.
+// t-229522 — `source`'s own question has a real cheap answer (the same op, AST-only), so it must not be
+// sent to ops that answer a different one: `symbols_overview` / `search_symbol` list NAMES and cannot
+// print a body, so offering them under a RUN INSTEAD lead would claim an equivalence that does not hold.
 test('source redirects to its own AST-only mode, not to ops that cannot print a body', () => {
   for (const claim of ['this-call', 'any-program-build', 'unproven-program-build'] as const) {
     const { calls, substitute } = cheapCallsFor('source', { targets: [{ name: 'Button' }] }, claim);

@@ -1,6 +1,5 @@
 // t-229522 — the honesty gate for `source { syntactic: true }`: a declaration BODY read off the
-// no-program AST surface must be the SAME BYTES the checker path returns for the same declaration, and
-// where the two paths genuinely differ it must say so instead of substituting something plausible.
+// no-program AST surface must be the SAME BYTES the checker path returns for the same declaration.
 //
 // The oracle is the CHECKER PATH ITSELF (`source` without the flag). That is a real independent oracle,
 // not a circular one: the two share no resolution logic — the default path resolves through the LS
@@ -8,79 +7,29 @@
 // `getNamedDeclarations` over a `ts.createSourceFile` surface with no program at all. A byte-equality
 // between them is therefore a claim about the world, not about one implementation agreeing with itself.
 //
-// Five assertions, each guarding a distinct lie:
+// This half holds the invariants of a SUCCESSFUL answer; what the path REFUSES, and why, is
+// `syntactic-source-boundaries.test.ts`. Both drive the one shared fixture
+// (`test/helpers/syntactic-source-fixture.ts`) so they reason about the same declarations.
+//
 //  1. all FIVE addressings agree with each other AND with the checker path, byte for byte — so an
 //     agent that switches the flag, or re-addresses the same symbol, reads the same declaration;
 //  2. the path builds NO program (the ts plugin stays cold) — the mechanism the whole feature rests on;
-//  3. an ALIAS address (an import/re-export site — exactly what `search_symbol {syntactic:true}` mints
-//     handles for) is an explicit miss, never an `import` line printed as the symbol's body;
-//  4. a REFERENCE position, which the checker path follows into another file, is an explicit miss —
-//     never the enclosing declaration served in its place;
-//  5. the scope/provenance statement is on every answer, in the rendered TEXT as well as the data
+//  3. it answers in a BATCH beside a failing neighbour (the field failure was a `source` killed as a
+//     passenger of a heavy batch neighbour; this is the hermetically testable half of that);
+//  4. the scope/provenance statement is on every answer, in the rendered TEXT as well as the data
 //     (a renderer that prints only the fields it knows drops the honesty channel silently).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { project, assertSpansValid, type TestProject } from '../helpers/project.ts';
+import { project, assertSpansValid } from '../helpers/project.ts';
 import { renderResult } from '../../src/format/render/render-result.ts';
 import type { JsonValue } from '../../src/core/json.ts';
-
-// One top-level symbol per addressable kind, plus the two shapes that must NOT print a body: an
-// aliased re-import of a symbol declared elsewhere, and a reference to it.
-const FILES: Record<string, string> = {
-  'tsconfig.json':
-    '{"compilerOptions":{"strict":true,"module":"nodenext","moduleResolution":"nodenext"}}',
-  'src/widget.ts': [
-    'export interface WidgetProps {',
-    '  size: string;',
-    '}',
-    'export function makeWidget(p: WidgetProps) {',
-    '  return { size: p.size };',
-    '}',
-    'export const WidgetLimit = 42;',
-    'export class WidgetBase {',
-    '  ping() { return 1; }',
-    '}',
-  ].join('\n'),
-  'src/app.ts': [
-    'import { makeWidget as build, WidgetLimit } from "./widget.ts";',
-    'export const useWidget = () => build({ size: String(WidgetLimit) });',
-  ].join('\n'),
-};
-
-type SourceEntry = {
-  id: string;
-  name: string;
-  kind: string;
-  decl: { file: string; line: number; col: number; text: string };
-  provenance?: string;
-};
-type SourceData = {
-  note?: string;
-  sources?: SourceEntry[];
-  unresolved?: { target: string; reason: string }[];
-};
-
-async function sourceOf(
-  p: TestProject,
-  target: Record<string, JsonValue>,
-  syntactic: boolean,
-): Promise<SourceData> {
-  const res = await p.op('source', { ...target, ...(syntactic ? { syntactic: true } : {}) });
-  assert.ok('result' in res, `dispatch for ${JSON.stringify(target)}`);
-  assert.ok(res.result.ok, `source ${JSON.stringify(target)} ok: ${JSON.stringify(res.result)}`);
-  return res.result.data as SourceData;
-}
-
-/** The one entry a single-target call must have produced. */
-function sole(data: SourceData, label: string): SourceEntry {
-  const entry = data.sources?.[0];
-  assert.ok(
-    entry !== undefined,
-    `${label}: expected a body, got unresolved: ${JSON.stringify(data.unresolved)}`,
-  );
-  return entry;
-}
+import {
+  SYNTACTIC_FIXTURE as FILES,
+  sole,
+  sourceOf,
+  type SourceData,
+} from '../helpers/syntactic-source-fixture.ts';
 
 test('syntactic source == checker source, byte for byte, across all five addressings', async () => {
   const p = await project(FILES);
@@ -180,65 +129,6 @@ test('syntactic source answers in a batch beside a FAILING neighbour', async () 
       sole(mine.result.data as SourceData, 'batch').decl.text.includes('makeWidget'),
       'and it answered with the body, not an empty shell',
     );
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('an ALIAS address is an explicit miss, never an import line printed as a body', async () => {
-  const p = await project(FILES);
-  try {
-    // The handle shape the OOM-safe search actually hands out: `search_symbol {syntactic:true}` mints
-    // ids at import/re-export sites too, so this is the routine chained-handle case, not a corner.
-    // `WidgetLimit`, not the renamed `makeWidget as build`: an import specifier is catalogued under its
-    // LOCAL name, so only a plainly-imported symbol has an alias site under its own name.
-    const found = await p.op('search_symbol', {
-      query: 'WidgetLimit',
-      syntactic: true,
-      limit: 20,
-    });
-    assert.ok('result' in found && found.result.ok);
-    const matches = (found.result.data as { matches?: Array<{ id: string; kind: string }> })
-      .matches;
-    const alias = matches?.find((m) => m.kind === 'alias');
-    assert.ok(
-      alias !== undefined,
-      'the search really does mint an alias-site handle (non-vacuous)',
-    );
-
-    const data = await sourceOf(p, { symbolId: alias.id }, true);
-    assert.equal(data.sources?.length ?? 0, 0, 'no body is printed for an alias site');
-    const reason = data.unresolved?.[0]?.reason ?? '';
-    assert.match(reason, /import \/ re-export re-mention/i, 'says WHAT the address holds');
-    assert.match(reason, /no module specifier/i, 'says why it cannot follow it');
-    assert.ok(!reason.includes('import { makeWidget'), 'and never quotes the import as the body');
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('a REFERENCE position the checker path follows is an explicit miss here', async () => {
-  const p = await project(FILES);
-  try {
-    // `build({...})` in app.ts line 2 — a call through an import alias. The oracle: the checker path
-    // FOLLOWS it into widget.ts. Without that arm this test would pass even if the syntactic path
-    // silently printed the enclosing `useWidget`.
-    const col = FILES['src/app.ts']?.split('\n')[1]?.indexOf('build(') ?? -1;
-    assert.ok(col >= 0, 'fixture still contains the aliased call');
-    const at = { file: 'src/app.ts', line: 2, col: col + 1 };
-
-    const followed = sole(await sourceOf(p, at, false), 'checker at a reference');
-    assert.match(
-      followed.decl.file,
-      /widget\.ts$/,
-      'the checker path resolves it to the DECLARATION',
-    );
-
-    const data = await sourceOf(p, at, true);
-    assert.equal(data.sources?.length ?? 0, 0, 'the syntactic path prints nothing there');
-    const reason = data.unresolved?.[0]?.reason ?? '';
-    assert.match(reason, /cannot follow a reference/i, 'states the capability boundary');
-    assert.ok(!reason.includes('useWidget'), 'and never offers the enclosing declaration instead');
   } finally {
     await p.dispose();
   }

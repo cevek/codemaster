@@ -17,7 +17,9 @@
 //     `ts.createSourceFile` and NEVER build a program or warm the LS (ARCHITECTURE.md §5-L2), and no
 //     guard gates them;
 //   * a FILE-PINNED `find_definition` is single-program-exact and never reaches the repo-wide navto
-//     fan (`isFanCapableTarget`), so the fan-out guard does not apply to it.
+//     fan (`isFanCapableTarget`), so the fan-out guard does not apply to it;
+//   * `source {syntactic:true}` reads bodies off that same no-program surface (ARCHITECTURE.md §5-L2),
+//     so it too builds no program — which is what lets it survive an engine death, below.
 // A live run verifies the table; it is not what the table knows.
 //
 // And the honesty that makes it a redirect rather than a substitute (§3.6): several questions have
@@ -53,8 +55,8 @@ function str(bag: Record<string, unknown>, key: string): string | undefined {
   if (typeof v === 'string' && v.length > 0) return v;
   // A list-shaped target (`symbols:[…]`, `targets:[…]`): the first element still names something
   // real, and a redirect about one of them beats a redirect about none. The element may itself be a
-  // target OBJECT (`targets:[{name:'X'}]` — `source`'s canonical shape), so read its `name` too:
-  // reading only bare strings left the subject undefined for the one op whose targets are objects.
+  // target OBJECT (`targets:[{name:'X'}]` — `source`'s canonical shape), so its `name` is read too:
+  // bare strings alone leave the subject undefined for the one op whose targets are objects.
   const head: unknown = Array.isArray(v) ? (v as readonly unknown[])[0] : undefined;
   if (typeof head === 'string' && head.length > 0) return head;
   const nested: unknown =
@@ -246,7 +248,25 @@ function syntacticModeAlternatives(op: string, nav: NavArgs, gives: string): Che
   const exact = callWith(op, bag, { syntactic: true });
   if (exact !== undefined) return [{ call: exact, gives }];
   if (name === undefined) return [];
-  return [{ call: `${op} {name:${j(name)},syntactic:true}`, gives }];
+  // The exact render did not fit, so the fallback carries ONE target. Say how many it drops: a call that
+  // answers about 1 of 20 while its `gives` promises "the same bodies" is a redirect that quietly
+  // under-delivers, which is the §3.4 omission in miniature.
+  const dropped = droppedTargets(bag);
+  return [
+    {
+      call: `${op} {name:${j(name)},syntactic:true}`,
+      gives:
+        dropped > 0
+          ? `${gives} — this call carries the FIRST target only (${dropped} more: re-request them)`
+          : gives,
+    },
+  ];
+}
+
+/** How many targets the one-target fallback leaves behind (0 when the call was single-target anyway). */
+function droppedTargets(bag: Record<string, unknown>): number {
+  const list = bag['targets'];
+  return Array.isArray(list) && list.length > 1 ? list.length - 1 : 0;
 }
 
 /** What `source {syntactic:true}` actually returns — stated as a difference, not as an equivalence:
@@ -265,8 +285,10 @@ const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
   ['find_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
   ['member_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
   ['find_definition', definitionAlternatives],
-  // `source` has a real substitute for its OWN question — the same op, AST-only — so it is never the
-  // no-substitute arm, whose orientation calls (symbols_overview / search_symbol) do not print bodies.
+  // `source` has a real substitute for its OWN question — the same op, AST-only — so while that mode is
+  // still available it must not reach the no-substitute arm, whose orientation calls (symbols_overview /
+  // search_symbol) list names and cannot print a body. Once the cheap mode is what failed, there IS no
+  // substitute left and the arm is the honest answer.
   ['source', (nav: NavArgs) => syntacticModeAlternatives('source', nav, SYNTACTIC_SOURCE_GIVES)],
   // NOT definitionAlternatives: "where is X declared" is not "where does this prop flow" / "where
   // does this type widen", and offering it under a `RUN INSTEAD` lead would claim an equivalence

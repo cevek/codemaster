@@ -77,6 +77,19 @@ export const tsTargetIntake: OpIntake = {
   locationTarget: true,
 };
 
+/** Echo a target back the way the agent addressed it — for the `unresolved` section, where the entry
+ *  must be recognizable as the input that failed. One home for the same reason `targetOf` is: an op with
+ *  two resolution paths must not echo one target two ways depending on which path ran. */
+export function describeTsTarget(t: TargetFields): string {
+  if (t.symbolId !== undefined) return t.symbolId;
+  if (t.file !== undefined && t.line !== undefined) {
+    return t.col === undefined ? `${t.file}:${t.line}` : `${t.file}:${t.line}:${t.col}`;
+  }
+  if (t.name !== undefined) return t.file === undefined ? t.name : `${t.name} in ${t.file}`;
+  if (t.file !== undefined) return t.file;
+  return '<target>';
+}
+
 /** Project the shared target fields off a validated args object into the `TsTargetInput` the
  *  plugin's resolver consumes — the one place the symbol/file/line/col/name mapping lives, so a
  *  symbol-anchored op and the `transaction` step that wraps it never drift (no parallel literal). */

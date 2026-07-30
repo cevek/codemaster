@@ -1,8 +1,10 @@
-// Pure, project-agnostic classifiers over a `getNamedDeclarations` node — shared by the two
-// no-program syntactic paths (t-515730): the fuzzy `search_symbol { syntactic: true }` scan and the
-// `symbols_overview` catalogue. Syntactic only (no checker): they read the AST node, never a type.
-// Kept in one module so the two consumers can never drift on what counts as an import / a real decl /
-// an export (the copy-paste risk the extraction removes).
+// Pure, project-agnostic classifiers over a `getNamedDeclarations` node — shared by the three
+// no-program syntactic paths (t-515730 / t-143952 / t-229522): the fuzzy `search_symbol
+// { syntactic: true }` scan, the `symbols_overview` catalogue, and the `source { syntactic: true }`
+// declaration reader. Syntactic only (no checker): they read the AST node, never a type.
+// Kept in one module so the consumers can never drift on what counts as an import / a real decl /
+// an export (the copy-paste risk the extraction removes) — and because `isRealDeclaration` is
+// load-bearing for more than ranking: it is what stops `source` printing an import line as a body.
 
 import ts from 'typescript';
 
@@ -17,13 +19,22 @@ export function nameAnchor(node: ts.Declaration, sf: ts.SourceFile): number {
 
 /** Real declaration (introduces a symbol) vs an import / re-export re-mention of a name declared
  *  elsewhere. Real decls rank FIRST so a result cap shows definitions, import noise falls into the
- *  truncated tail. */
+ *  truncated tail — and, for `source`, a non-real node has no body to print at all. */
 export function isRealDeclaration(node: ts.Node): boolean {
+  // A bare IDENTIFIER is never a declaration in this set. TS's `computeNamedDeclarations` passes the
+  // declaration NODE for every real declaration; the one place it adds a plain identifier is the
+  // DEFAULT-import binding (`addDeclaration(importClause.name)` — `import X from './y'`). Kind-listing
+  // the import wrappers therefore misses that shape entirely: `X` read as a real declaration, so
+  // `source` printed the import line as X's body and every default-exported symbol read as N
+  // declarations in N importing files. The identifier check is the general form of the same rule, not
+  // a patch for one shape — no real declaration reaches this set as an identifier.
+  if (ts.isIdentifier(node)) return false;
   return !(isImportSite(node) || ts.isExportSpecifier(node) || ts.isNamespaceExport(node));
 }
 
 /** A pure IMPORT re-mention (never an export). `export {X}` / `export * as ns` are export-specifiers,
- *  NOT imports, so they are NOT flagged here. */
+ *  NOT imports, so they are NOT flagged here. The DEFAULT-import binding is a bare identifier rather
+ *  than any of these kinds — `isRealDeclaration` is what excludes it. */
 export function isImportSite(node: ts.Node): boolean {
   return (
     ts.isImportClause(node) ||

@@ -26,7 +26,7 @@ import { overlaySymbolType } from './overlay-type.ts';
 import type { UnresolvedTarget, UsagesView } from './query-types.ts';
 import { searchSymbols, type SearchView } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
-import { declarationSyntactic } from './syntactic-decl.ts';
+import { declarationsSyntactic } from './syntactic-decl.ts';
 import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
@@ -92,6 +92,11 @@ export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
 // spellings drift in both directions: one stamps a name-floor on a handle, the other leaves a
 // floored answer unexplained.
 export { isBareNameTarget } from './disclose-resolution.ts';
+// The scope claim of the no-program surface, re-exported through the PUBLIC surface: it describes what
+// `syntactic-surface.ts` scans, so it belongs beside that function — but the ops that state it to the
+// agent must reach it the same way they reach everything else here (§5-L3), not by importing a plugin
+// internal.
+export { SYNTACTIC_SCOPE } from './syntactic-scope.ts';
 
 export type { ResolvedTarget, TsTargetInput };
 // The host-free pre-warm size estimate + its threshold default, re-exported through the plugin's
@@ -266,7 +271,8 @@ export function createTsPlugin(
 
     // `source {syntactic:true}` (t-229522): same no-program surface, same cache, same no-warm
     // guarantee — a declaration BODY read straight off the AST.
-    sourceSyntactic: (target) => declarationSyntactic(root, target, syntacticCache),
+    sourceSyntactic: (targets, deadline) =>
+      declarationsSyntactic(root, targets, syntacticCache, deadline),
 
     // `symbols_overview` (t-143952): both no-program, host-independent — like the syntactic search they
     // take `root` directly and NEVER call warm() (OOM-safe first-contact). The catalogue reuses the

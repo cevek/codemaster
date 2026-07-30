@@ -1,8 +1,10 @@
 // `source` — the explore-style call: the bodies of N symbols in one round-trip (§3.2).
-// The single biggest field gap ("80% of my Reads were 'show me the body'"). Composes
-// `ts.findDefinition` per target (which carries the full declaration span via §3.1);
-// unresolvable / ambiguous targets come back in an `unresolved` section, never silently
-// dropped. Rendering (budget + elision) lives in format/render/render-source.ts.
+// The single biggest field gap ("80% of my Reads were 'show me the body'"). Two paths:
+// `ts.findDefinition` per target (type-verified, carries the full declaration span via §3.1)
+// and, under `syntactic:true`, `ts.sourceSyntactic` (an AST read with no program built —
+// ops/source-syntactic.ts). Unresolvable / ambiguous targets come back in an `unresolved`
+// section either way, never silently dropped. Rendering (budget + elision) lives in
+// format/render/render-source.ts.
 //
 // Routing: ts-only today. When other plugins grow a `sourceOf()`, dispatch by SymbolId
 // prefix (§6) — do NOT build the generic dispatcher now.
@@ -12,10 +14,10 @@ import type { JsonValue } from '../core/json.ts';
 import type { Result } from '../core/result.ts';
 import { failFromThrown, ok } from '../common/result/construct.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
-import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
+import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
 import { runSourceSyntactic } from './source-syntactic.ts';
-import { tsTargetShape, requireTarget } from './ts-target.ts';
+import { describeTsTarget, tsTargetShape, requireTarget } from './ts-target.ts';
 
 const targetSchema = z.strictObject(tsTargetShape).refine(requireTarget.predicate, {
   message: requireTarget.message,
@@ -33,13 +35,6 @@ const argsSchema = z.strictObject({
    *  resolves no module specifier — both are reported as explicit misses. Default OFF (type-verified). */
   syntactic: z.boolean().optional(),
 });
-
-function describeTarget(t: TsTargetInput): string {
-  if (t.symbolId !== undefined) return t.symbolId;
-  if (t.name !== undefined) return t.name;
-  if (t.file !== undefined) return `${t.file}:${t.line ?? '?'}:${t.col ?? '?'}`;
-  return '<target>';
-}
 
 export const sourceOp = defineOp({
   name: 'source',
@@ -66,7 +61,7 @@ export const sourceOp = defineOp({
     // reach for the cheap mode before the expensive one has failed, and after a fatal the daemon
     // cannot advise post-hoc. What to run when a call actually fails is the REFUSAL's job
     // (ops/guard/navigate.ts), emitted with this call's own args interpolated.
-    'printing a body needs no type-check: `syntactic:true` reads it off the AST — no program build, no LS warm (an order of magnitude less heap/latency on a big repo, and it survives a batch whose other ops are heavy). It is NOT a superset of the default: it prints the declaration AT the address rather than resolving that address to a definition elsewhere, and it does not resolve a module specifier (an address on an `import {X}` line is reported as such, never printed as X); its scope is git-tracked source under the workspace root.',
+    `printing a body needs no type-check: \`syntactic:true\` reads it off the AST — no program build, no LS warm, so it costs a fraction of the heap and latency on a big repo and survives a batch whose other ops are heavy. It is NOT a superset of the default: it prints the declaration AT the address rather than resolving that address to a definition elsewhere, and it does not resolve a module specifier (an address on an \`import {X}\` line is reported as such, never printed as X). Its scope: ${SYNTACTIC_SCOPE}`,
   ],
   async run(ctx, args): Promise<Result<JsonValue>> {
     const ts = ctx.plugins.get<TsPluginApi>('ts');
@@ -76,18 +71,18 @@ export const sourceOp = defineOp({
       // Opt-in AST-only path: no program build, no LS warm. Deliberately NOT an automatic degrade —
       // the two paths resolve an address differently (above), so switching silently would change what
       // the same args MEAN. A failure of the default path is redirected here by navigate.ts.
-      if (args.syntactic === true) return runSourceSyntactic(ts, args.targets);
+      if (args.syntactic === true) return runSourceSyntactic(ts, args.targets, ctx.deadline);
       for (const target of args.targets) {
         const outcome = ts.findDefinition(target);
         if (typeof outcome === 'string') {
-          unresolved.push({ target: describeTarget(target), reason: outcome });
+          unresolved.push({ target: describeTsTarget(target), reason: outcome });
           continue;
         }
         if ('unresolved' in outcome) {
           // §6: a chained handle whose symbol is gone — stated per target (status + reason),
           // never silently dropped or retargeted to a same-named other.
           unresolved.push({
-            target: describeTarget(target),
+            target: describeTsTarget(target),
             reason: outcome.unresolved,
             handle: { status: outcome.rebind.status },
           });
@@ -95,7 +90,7 @@ export const sourceOp = defineOp({
         }
         const view = outcome.views[0];
         if (view === undefined) {
-          unresolved.push({ target: describeTarget(target), reason: 'no definition found' });
+          unresolved.push({ target: describeTsTarget(target), reason: 'no definition found' });
           continue;
         }
         sources.push({

@@ -718,9 +718,10 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   **`source {syntactic:true}` rides the same no-program surface (`sourceSyntactic`, t-229522).** Printing a
   declaration's BODY needs no checker, so the flag reads it straight off that surface — no program build,
   no LS warm. The win is measured, and it is latency/heap plus BATCH survival, not a rescue from a
-  refusal: on a 6101-file monorepo the checker path costs 839 MB / 4.5 s file-pinned and 881 MB / 5.8 s
-  by bare name (both within a default 4 GB heap), while a reference fan-out in the same heap costs 5.2 GB
-  / ~30 s — so a checker `source` sharing a BATCH with such an op dies as its PASSENGER, and a call that
+  refusal: on a 6101-file monorepo a checker `source` costs ~0.9 GB (parse+bind of the primary is
+  839–881 MB) and a few seconds, inside a default 4 GB heap, while `find_usages` on that repo takes
+  ~5.2 GB live under ANY addressing and dies in the checker phase — so a checker `source` sharing a BATCH
+  with such an op dies as its PASSENGER (an engine serializes a batch's ops in one heap), and a call that
   builds no program has nothing to lose to it. **Opt-in, never an automatic degrade**, because the two
   paths do not resolve an address alike: the checker path FOLLOWS an address (a `file:line:col` on a
   reference returns the declaration it refers to, in another file), while this one prints the declaration
@@ -728,15 +729,30 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `search_symbol {syntactic:true}` routinely mints handles for) therefore come back as EXPLICIT misses
   naming the boundary, never as the enclosing declaration or the import line served as a body; this path
   resolves no module specifier (that would be a second module-resolution oracle). All five addressings
-  (`symbolId` / `file+line+col` / `file+line` / `name+file` / `name`) resolve within ONE declaration set
-  — `getNamedDeclarations` minus alias re-mentions, the same set the syntactic search mints ids from —
-  and a same-named twin in >1 file is a pick-list, never a silent pick. The body span is derived from the
-  declaration NODE (the surface hands it over), not from the position-only `declarationNodeOf` walk. §6
-  holds: a moved handle is `rebound` with `confidence:'partial'`, and `gone` is WITHHELD — this surface
-  cannot see an outside-root include, so asserting removal off it would be the §3.4 lie. Scope +
-  provenance are stated on EVERY answer (the shared `SYNTACTIC_SCOPE`, `ops/syntactic-scope.ts`, which
-  the syntactic search composes too), and the scope states the one axis on which this path is WIDER: a
-  file no tsconfig includes is scanned here and is invisible to the checker path. An automatic
+  (`symbolId` / `file+line+col` / `file+line` / `name+file` / `name`) resolve within ONE declaration set —
+  the same `getNamedDeclarations` nodes the syntactic search mints its ids from, alias re-mentions kept but
+  FLAGGED (a DEFAULT-import binding reaches that index as a bare identifier rather than an import-kind
+  node, so the flag is `isRealDeclaration`'s identifier check, not a list of kinds). So a handle that
+  search minted for a real declaration resolves here, while one it minted for an alias site comes back as
+  an explicit miss: the chain is honest, not seamless. Same-named declarations in DIFFERENT SCOPES
+  (`class A {run(){}}` beside `class B {run(){}}`; a `const tmp` in each of two functions) are RIVALS, not
+  a merged symbol — this surface indexes members and locals, so that is routine — and an address that
+  cannot choose between them returns a pick-list; only a SAME-SCOPE set collapses, which is what
+  `moreDefinitions` then means (TS rejects a non-mergeable duplicate within one scope, so same-scope
+  same-name IS one symbol). A `file+line` line holding several declarations is likewise a pick-list, as on
+  the checker path. The body span is derived from the declaration NODE (the surface hands it over), not
+  from the position-only `declarationNodeOf` walk. §6 holds: a moved handle is `rebound` with
+  `confidence:'partial'`, and `gone` is withheld for a name merely absent from the scanned surface — this
+  surface cannot see an outside-root include, so asserting removal off it would be the §3.4 lie (a
+  CROSS-ROOT handle still returns `gone`, which §6 sanctions: the handle proves it belongs to another
+  root). A `file` arg is normalized through the same chokepoint the checker path uses, and a file that is
+  not on the surface is told WHICH cause was established (no such file / a directory / not parsed source /
+  gitignored), never a guessed one. Scope + provenance are stated on EVERY answer (the shared
+  `SYNTACTIC_SCOPE`, `plugins/ts/syntactic-scope.ts` — beside the surface it describes, re-exported through
+  the plugin's public surface for the ops that state it; the syntactic search composes it too), and the
+  scope states the two axes on which this path is WIDER: a file no tsconfig includes is scanned here, and a
+  nested / member / destructured declaration is addressable here while the checker path's name resolution
+  anchors top-level ones only. An automatic
   fallback is not merely undesirable but unreachable at op level — an OOM kills the engine child, so
   `run()` never returns to catch anything; only a PREDICTED size could trigger one, which is the
   pre-warm-guard concern, not this one. `ops/guard/navigate.ts` therefore carries the redirect, and it is
@@ -1233,10 +1249,11 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   **A third escape shape — a MODE switch on the same op.** Where an op has a no-program mode of its own
   (`source {syntactic:true}`, §5-L2 / t-229522), the honest redirect is that same op re-issued with the
   flag and the caller's args verbatim: it answers the question that was actually asked, unlike the
-  orientation calls, which list NAMES and cannot print a body — an op with a real cheap mode must
-  therefore never fall into the no-substitute arm. It survives both engine-death claims because it
-  builds no program, and it is SUPPRESSED when the failing call already carried the flag: there is then
-  no mode left to switch to, and echoing the call back would hand the agent the one that just failed.
+  orientation calls, which list NAMES and cannot print a body — so while the mode is still available, an
+  op that has one must not fall into the no-substitute arm. It survives both engine-death claims because
+  it builds no program, and it is SUPPRESSED when the failing call already carried the flag: there is
+  then no mode left to switch to, echoing the call back would hand the agent the one that just failed,
+  and the no-substitute arm becomes the honest answer.
 - **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
   With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
   `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
