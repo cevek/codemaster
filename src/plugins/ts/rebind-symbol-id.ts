@@ -3,43 +3,21 @@
 // `resolve-target.ts` (line cap): that file dispatches the three addressing forms, this one owns
 // the handle contract (same-position check → same-file re-read → workspace re-location → `gone`).
 
-import { decodeSymbolId } from '../../common/ids/codec.ts';
-import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind, SymbolId } from '../../core/ids.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { offsetOfLoc, spanFromRange } from './spans.ts';
 import { searchSymbols } from './search.ts';
-import { mintSymbolId } from './symbol-id.ts';
+import { mintSymbolId, parseTsSymbolId } from './symbol-id.ts';
 import { topLevelDeclarationsNamed } from './declarations-on-line.ts';
 import { NAME_CANDIDATE_LIMIT, type ResolvedTarget } from './resolve-contract.ts';
 
 /** Resolve a held `ts:` SymbolId to a position (§6). */
 export function resolveSymbolId(h: TsProjectHost, id: string, root: string): ResolvedTarget {
-  const decoded = decodeSymbolId(id);
-  // A real SymbolId's payload always carries the `@file` separator (`plugin:Name@rel:line:col`).
-  // A value with no usable prefix (a bare name) — OR one whose first `:` is incidental and leaves
-  // an `@`-less payload (a `file:line:col` position pasted into the field) — is not a SymbolId at
-  // all. Both are the misplaced-input friction this op hardened against, so point the agent at the
-  // RIGHT field (`name` / `file+line+col`), not at an opaque "not a SymbolId" or a phantom plugin.
-  const looksLikeSymbolId = decoded !== undefined && decoded.payload.includes('@');
-  if (decoded === undefined || (!looksLikeSymbolId && decoded.plugin !== 'ts')) {
-    return {
-      ok: false,
-      message: `'${id}' is not a SymbolId (those look like 'ts:Name@file:line:col') — to search by name pass it under 'name', or to address by position pass file+line+col`,
-    };
-  }
-  if (decoded.plugin !== 'ts') {
-    return {
-      ok: false,
-      message: `SymbolId '${id}' belongs to plugin '${decoded.plugin}', not 'ts' — this op resolves ts symbols`,
-    };
-  }
-  const m = decoded.payload.match(/^(.+)@(.+):(\d+):(\d+)(?:~([0-9a-f]+))?$/);
-  if (m === null) return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-  const [, name, rel, lineStr, colStr, tag] = m;
-  if (name === undefined || rel === undefined) {
-    return { ok: false, message: `malformed ts SymbolId payload: '${id}'` };
-  }
+  // ONE parser for the format (symbol-id.ts, the inverse of `mintSymbolId`) — the syntactic handle
+  // path reads the same one, so the two can never disagree on what a handle is.
+  const decoded = parseTsSymbolId(id);
+  if (!decoded.ok) return { ok: false, message: decoded.message };
+  const { name, rel, line, col, rootTag: tag } = decoded.parsed;
   // Cross-root guard (§6 / spec-stresstest §4b): a SymbolId carries the workspace it was minted in.
   // If it was minted in a DIFFERENT root than the one resolving it (an `amiro` id passed with
   // root:'../cf2'), do NOT name-rebind it onto a same-named symbol in this repo — that binds the
@@ -55,10 +33,8 @@ export function resolveSymbolId(h: TsProjectHost, id: string, root: string): Res
       },
     };
   }
-  const abs = h.absOf(rel as RepoRelPath);
+  const abs = h.absOf(rel);
   const sourceFile = h.sourceFileAcross(abs)?.sf;
-  const line = Number(lineStr);
-  const col = Number(colStr);
 
   if (sourceFile !== undefined) {
     const offset = offsetOfLoc(sourceFile, line, col);
@@ -88,7 +64,7 @@ export function resolveSymbolId(h: TsProjectHost, id: string, root: string): Res
     if (sole !== undefined) {
       const span = spanFromRange(
         sourceFile,
-        rel as RepoRelPath,
+        rel,
         sole.offset,
         sole.offset + name.length,
       );
@@ -100,10 +76,10 @@ export function resolveSymbolId(h: TsProjectHost, id: string, root: string): Res
           status: 'rebound',
           from: id as SymbolId,
           to: {
-            id: mintSymbolId(name, rel as RepoRelPath, span.line, span.col, h.rootTag) as SymbolId,
+            id: mintSymbolId(name, rel, span.line, span.col, h.rootTag) as SymbolId,
             name,
             kind: sole.kind,
-            loc: { file: rel as RepoRelPath, line: span.line, col: span.col },
+            loc: { file: rel, line: span.line, col: span.col },
           },
           proof: span,
           confidence: 'partial',
