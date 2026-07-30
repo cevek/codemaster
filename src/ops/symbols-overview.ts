@@ -18,7 +18,8 @@
 //   facet is OFF by default → the default flat catalogue stays byte-stable.
 //
 // HONESTY: syntactic = NAMES, not a type-verified index — a re-export name may appear; scope is the
-// git source surface UNDER the root (an outside-root include is not covered, t-515730). Every capped
+// source surface UNDER the root — git-listed by default, the bounded walk where git cannot list, with
+// the answer stating which (t-810757); an outside-root include is covered by neither (t-515730). Every capped
 // group carries its `+N more` marker; the summary line states the global totals so even if the format
 // char-cap trims a late group's tail, the agent SEES that not-all-is-shown (§3.4).
 
@@ -280,7 +281,7 @@ export const symbolsOverviewOp = defineOp({
   example: { args: { query: 'Clinic', kind: ['interface', 'type'] } },
   notes: [
     'FLAT bare names (no file:line decoration) so thousands fit — scan the list, pick a name, then run search_symbol / find_definition on it. Deduped + sorted per group.',
-    'SYNTACTIC (no program build, no LS warm): OOM-safe first-contact browse on a huge monorepo — exactly where the name-addressed path can run out of memory. Names only, NOT type-verified: a re-export name may appear; scope is git-tracked source UNDER the root (an outside-root include is not covered).',
+    'SYNTACTIC (no program build, no LS warm): OOM-safe first-contact browse on a huge monorepo — exactly where the name-addressed path can run out of memory. Names only, NOT type-verified: a re-export name may appear; scope is the source surface UNDER the root — git-tracked by default, a bounded filesystem walk where git cannot list the workspace (the answer states which, and how the two differ), an outside-root include covered by neither.',
     'grouped per tsconfig (best-effort: degrades to a single flat `(all)` group on a pathological repo). A file included by several configs lands under ONE primary config (deepest-dir wins) — never double-counted — and the group is flagged `(shared: also in …)`.',
     'FACETS: query (navto fuzzy name filter, before the cap) · kind (a kind or a kind[] — matches ANY) · summary/countsOnly (a kind histogram + per-config totals of the FULL uncapped set) · duplicatesOnly (only cross-file collision names, the `find_usages {name}` ambiguity landmines) · subgroupByKind (partition each config into kind subsections). All OFF by default → the flat catalogue is byte-stable. exportedOnly defaults TRUE; all:true adds locals. Each group caps at `limit` (default 300) with a `+N more` marker.',
   ],

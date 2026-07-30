@@ -76,7 +76,8 @@ export interface TsPluginApi extends Plugin {
   ): SearchView;
   /** `search_symbol { syntactic: true }` — a raw AST scan (no program build; NEVER warms the LS, so
    *  it survives / avoids the multi-program navto OOM on huge monorepos). COMPLETE for declarations
-   *  in the §10 git source surface UNDER the workspace root (≥ navto's recall there), every site
+   *  in the §10 source surface UNDER the workspace root (git-listed, or the walk fallback — see
+   *  `syntacticSurfaceProvenance`; ≥ navto's recall there), every site
    *  `provenance:'syntactic'`, real declarations ranked first, noisier (extra import / re-export
    *  sites) and not byte-identical to the LS. An outside-root tsconfig include/reference is NOT
    *  scanned (use the default for those). Returns a `ToolFailure` on git / @internal-TS unavailability
@@ -96,7 +97,7 @@ export interface TsPluginApi extends Plugin {
     targets: readonly TsTargetInput[],
     deadline?: Deadline,
   ): Result<SyntacticDeclBatch>;
-  /** `symbols_overview` catalogue core (t-143952): every declared NAME per file in the §10 git surface,
+  /** `symbols_overview` catalogue core (t-143952): every declared NAME per file in the §10 source surface,
    *  via the SAME no-program surface parse as the syntactic search — NEVER warms the LS (OOM-safe
    *  first-contact browse). Complete for declarations under the root; a `ToolFailure` on git /
    *  @internal-TS unavailability, never a false empty. */

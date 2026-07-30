@@ -58,7 +58,8 @@ const argsSchema = z.strictObject({
   pathInclude: z.array(z.string()).min(1).optional(),
   /** Opt-in cheap discovery for very large monorepos. `true` switches from the precise LS navto
    *  provider to a raw AST scan (no type-check, no program build → survives/avoids OOM): COMPLETE
-   *  for declarations in git-tracked source UNDER the workspace root (≥ the default's recall there),
+   *  for declarations in the scanned source surface UNDER the workspace root (git-listed by default,
+   *  a bounded filesystem walk where git cannot list — the answer states which; ≥ the default's recall there),
    *  but NOISIER (extra import / re-export sites; real declarations ranked first) and NOT
    *  byte-identical to the LS. A tsconfig include/reference reaching OUTSIDE the root is NOT scanned —
    *  use the default for those. Use it if a default call fails or times out; drop it for the exact
@@ -136,7 +137,7 @@ function syntacticResult(
   const surface = surfaceMode === undefined ? {} : { surface: surfaceMode };
   const baseNote = exportedOnly ? SYNTACTIC_NOTE + EXPORTED_ONLY_CAVEAT : SYNTACTIC_NOTE;
   if (matches.length === 0) {
-    // The syntactic scan covers all git-tracked source UNDER the root, so an empty result is a
+    // The syntactic scan covers the whole source surface UNDER the root, so an empty result is a
     // genuine absence THERE (no undiscovered-program floor) — but an outside-root include is not
     // scanned, so disclose it (positive scope, §3.6). A path filter self-defeat is distinct (§3.4).
     const note =
@@ -180,7 +181,7 @@ export const searchSymbolOp = defineOp({
     // §11: this hint MUST live in the static schema/notes — after an in-process OOM the daemon is
     // DEAD and cannot say "retry with the flag" post-hoc (t-515730). Actionable without the agent
     // knowing the isolation mode.
-    'on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in git-tracked source under the workspace root, but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).',
+    'on very large monorepos the precise (default) search can be memory-heavy; if a call fails or times out, retry with `syntactic:true` — a cheap AST scan (no type-check, no program build): complete for declarations in the scanned source surface under the workspace root (git-listed by default; where git cannot list the workspace it walks the filesystem instead and the answer says so), but noisier (extra import/re-export sites; definitions ranked first), not identical to the LS provider, and it does NOT cover a tsconfig include/reference reaching outside the root (use the default for those).',
     // t-333163 (pruning-aware t-399909): the default path pre-checks the POST-PRUNING PEAK file count
     // (what will actually build — a single pruned primary on a loose-root monorepo, else the summed
     // fan-out) and REFUSES to warm the LS above a configurable threshold (config
@@ -206,7 +207,7 @@ export const searchSymbolOp = defineOp({
         pathInclude: args.pathInclude,
       };
       // Opt-in cheap discovery path (t-515730): a raw AST scan, no program build. Complete for
-      // declarations in git-tracked source UNDER the root (outside-root includes disclosed, not
+      // declarations in the scanned source surface UNDER the root (outside-root includes disclosed, not
       // scanned); the default navto path below is byte-identical at terse/normal (full attaches the
       // opt-in decl preview, below). A git / @internal-TS failure comes back as an honest ToolFailure
       // — passed through, never a false empty (§3.6).

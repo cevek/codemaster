@@ -8,7 +8,8 @@
 // histogram + cross-file collision set, and formats the flat catalogue.
 //
 // HONESTY: syntactic = names only, NOT type-verified — a re-export re-mention name may appear
-// (disclosed by the op). Scope is the git source surface UNDER the root: an outside-root tsconfig
+// (disclosed by the op). Scope is the source surface UNDER the root (git-listed, or the walk fallback —
+// the op states which, t-810757): an outside-root tsconfig
 // include/reference is NOT scanned (t-515730's disclosed limit). Complete for declarations in that
 // surface; noisier than a resolved index. `exportedOnly` reads the AST (no checker) — see
 // syntactic-nodes.ts `isExportedDeclaration`. `query` reuses navto's own matcher, applied to each

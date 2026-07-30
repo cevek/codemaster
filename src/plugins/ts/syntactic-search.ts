@@ -6,14 +6,15 @@
 // navto folds away. "Not identical to the LS" = NOISIER + our own ranking, NEVER "may miss a symbol
 // declared under the root" (guardrail 1).
 //
-// HONEST SCOPE (t-515730 BLOCK 1): the scan surface is the §10 git source surface UNDER the
+// HONEST SCOPE (t-515730 BLOCK 1): the scan surface is the §10 source surface UNDER the
 // workspace root — every git-tracked source file (incl. submodules) plus untracked-not-ignored
 // files. It is COMPLETE for declarations in that surface, but a tsconfig `include`/`reference`
 // reaching OUTSIDE the root (e.g. `../shared`) is NOT scanned (a git listing at the root cannot see
 // above it, and resolving which configs escape the root is program-discovery, out of this path's
 // scope). navto DOES follow such includes — so for an outside-root symbol the default (navto) search
 // is the complete one. The result note + the op schema/notes state this positively ("scanned all
-// git-tracked source under <root>; outside-root include/reference not covered — use the default"),
+// the source surface under <root>; outside-root include/reference not covered — use the default"),
+// and the walk-mode answer additionally names the surface it got (t-810757),
 // never "may have missed" (§3.6 report-capability).
 //
 // HONESTY (mechanics):
