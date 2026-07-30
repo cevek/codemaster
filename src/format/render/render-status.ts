@@ -54,7 +54,7 @@ export function sourceStaleBanner(serving: ServingMode): string {
   const remedy =
     serving === 'daemon'
       ? '. `codemaster daemon restart`+reconnect fixes it; hits every connection.'
-      : "; `daemon restart` won't touch this server — only its own restart will.";
+      : ". `daemon restart` won't touch this server — only its own restart will.";
   return (
     '!! PRE-EDIT codemaster (src/ moved since start): your data is re-read fresh, the ANALYSIS is old. ' +
     "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s" +
