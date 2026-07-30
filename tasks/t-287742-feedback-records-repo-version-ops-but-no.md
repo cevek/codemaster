@@ -3,6 +3,7 @@ id: t-287742
 title: '`feedback` records repo/version/ops but not WHO filed it — a finding cannot be traced back to the session that produced it, so repro requires asking a human to find the transcript'
 status: backlog
 priority: medium
+parent: t-490634
 tags:
   - agent-surface
   - dogfood
