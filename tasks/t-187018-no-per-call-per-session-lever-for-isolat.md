@@ -43,3 +43,16 @@ that the two knobs actually needed have no such escape.
 Any one of these closes it: env overrides mirroring the socket-dir precedent
 (`CODEMASTER_ISOLATION`, `CODEMASTER_MAX_OLD_SPACE_MB`); a per-call flag on the op; or a session-scoped
 setting at the MCP/bridge layer. Env is the cheapest and matches an existing, proven pattern.
+
+
+## What t-811950 already provides for this (do not re-derive it)
+
+The ceiling is resolved by one pure function — `resolveChildHeapMB(config, boxMemBytes)` in
+`src/daemon/heap-ceiling.ts` — which already returns the number AND a closed `CeilingCause`
+(`configured | box | cap | floor`). That cause is already carried and already printed twice: a
+`daemon`-ns trace at fork (§13) and, via `describeCeiling`, inside the OOM failure itself, so a
+per-call lever does not need to invent either the resolution or the reporting. What is missing is
+only the ARGUMENT path: one field on `OrchestratorDeps['spawnProcessHost']`'s args
+(`src/daemon/orchestrator.ts`) plus the `src/daemon/host-build.ts` call site — the config already
+arrives there per spawn. The lever's remaining scope is therefore the per-call/per-session PLUMBING
+and the precedence rule (call > config > box), not the policy.

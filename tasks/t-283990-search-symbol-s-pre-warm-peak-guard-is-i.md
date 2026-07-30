@@ -33,9 +33,12 @@ refused by the same number.
 
 ## Measured context (32 GB box, node v22.21.1, `/Users/cody/Dev/backoffice2`, 6126 git source files)
 
-- `estimateSearchPeak` = `{peakFiles: 6128, pruned: true}` → under 9000, so THIS repo is not refused;
-  the mismatch bites the shape one notch larger (a pruned peak or a `references` fan-out in
-  9000..~18000).
+- `estimateSearchPeak` = `{peakFiles: 6128, pruned: true}` → under 9000, so THIS repo is not refused.
+  **A non-repro here is not absence**: the guard's threshold is repo-size-dependent, so the defect
+  lives one notch larger (a pruned peak, or a `references` fan-out that does not prune, anywhere in
+  9000..~18000 files — backoffice2's own un-pruned Σ is 18374). Reproducing it needs a bigger repo,
+  not a different call; concluding "not reproduced, therefore not real" would be reading the wrong
+  variable.
 - The rate the threshold rests on is right for navto-class work and wrong for checker-backed work:
   parse+bind of the primary program costs ~0.14 MB/file (measured 839–881 MB over 6128 files),
   a checker-backed `find_usages` over the SAME program ~0.85 MB/file (5.17–5.23 GB).

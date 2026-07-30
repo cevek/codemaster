@@ -114,3 +114,30 @@ Unmodified CLI one-shot, no config in the target repo, auto-escalation forking t
 `ps` shows the child is `node --max-old-space-size=8192 … daemon serve-engine`, and all three
 `find_usages` forms ANSWER: 38 s / 32 s / 40 s wall including cold start + fork + child startup
 (inside the 120 s op deadline and the 150 s bridge deadline).
+
+
+## Measured — the fixture shape that hid a dead defence (found in review, worth more than the formula)
+
+The derived ceiling passes through `Math.floor`, and on this repo's own test fixtures that floor was
+never exercised: every fixture was `n * GB`, and `n * 1024³ / 2 / 1024 / 1024 = n * 512` is a whole
+number by construction. Deleting `Math.floor` from the resolver left every assertion green.
+
+It is load-bearing on Linux only. `os.totalmem()` there is `sysinfo.totalram` — physical minus
+kernel-reserved — so it is NOT a multiple of 1 MiB. Measured, a real 16 GB Linux reading:
+
+    16_694_120_448 / 2 / 1048576 = 7960.0546875
+
+and the flag is a `size_t`:
+
+    $ node --max-old-space-size=7960.0546875 -e 0
+    Error: illegal value for flag --max-old-space-size=7960.0546875 of type size_t
+    exit=9
+
+Consequence chain if the floor is ever lost: the forked child exits 9 → the startup handshake fails →
+for an AUTO escalation `host-build.ts` degrades to `in-process` with `escalation-failed`. So every
+Linux user silently loses process isolation and the heavy ops go back to being refused — with nothing
+red anywhere. The regression test therefore pins the REAL reading (`16_694_120_448 → 7960`), not a
+round GB: a `n * GB` fixture cannot distinguish a working floor from a missing one.
+
+The macOS reading is a power-of-two multiple (`hw.memsize`), which is why the whole class is invisible
+on the box this was measured on — and the `ps`-based real-path verification above ran there too.
