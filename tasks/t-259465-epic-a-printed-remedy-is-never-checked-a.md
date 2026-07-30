@@ -75,3 +75,9 @@ sentence it hands over points at a lever that cannot move the outcome.
 Unlike its neighbours it is STATICALLY TESTABLE: every arg / op / flag named in a note or refusal must be
 one the answering op actually consumes, and a remedy must be reachable from the state the call is already
 in. A lint over hint/refusal texts against the ops own arg schemas catches four of the five above.
+
+Executable precedent landed (dogfood-jul): the self-staleness banner track wrote the first working instance of this invariant — EXTRACT the lever out of the rendered text and RUN it as a subprocess, so the oracle is the mechanism (exit code + output) rather than a second copy of the expected wording. It is discriminating (corrupting the script path in the banner reddens it) and it also catches the drift case where a remedy is reworded into something un-runnable.
+
+For the `navigate.ts` redirects the same shape is CHEAPER STILL and needs no subprocess: those name `<op> {args}` calls whose op names and arg keys are already machine-readable via `builtinOps()` plus each op's canonical zod schema, so a lint can validate a redirect statically — every op named must exist, and every arg key must be one that op's schema accepts. That covers four of the five instances catalogued above.
+
+Cautionary half from the same track (filed as its own task): the NEGATIVE arm of such a test is usually vacuous — asserting a remedy string is absent from a surface that has no code path to it is green under every input. Pair any absence assertion with the surface that DOES render the marker.

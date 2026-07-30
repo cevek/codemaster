@@ -2,7 +2,7 @@
 id: t-043728
 title: TsProgram (the cross-program fan-out view) exposes no configPath, so "is this the no-config fallback primary?" is answered by display-label string equality
 status: backlog
-priority: low
+priority: medium
 tags:
   - dogfood
   - multi-program
@@ -45,3 +45,5 @@ would then agree BY CONSTRUCTION rather than via two independent proxies for one
 `NO_CONFIG_LABEL` goes back to being purely a render concern.
 
 Not done in t-162650 because `queryable-program.ts` was held by a concurrent track at the time.
+
+Priority raised medium: the file that blocked the structural fix (`plugins/ts/program/queryable-program.ts`) is now free — the concurrent track that owned it withdrew its own additive change to it, so `configPath` can be added without contention. The label-string proxy is sound TODAY and pinned by a behavioural test, but it is a string-identity stand-in for a structural fact: a rename of the label format survives the test suite and then silently stops excluding the no-config fallback primary, i.e. resumes producing wrong-options TYPE verdicts about member files. That is a never-lie regression with no crash to announce it. `pickTypeAuthority` already takes an `AuthorityProgram` carrying exactly this field, so widening `TsProgram` makes the two agree by construction instead of by two independent proxies for one distinction.
