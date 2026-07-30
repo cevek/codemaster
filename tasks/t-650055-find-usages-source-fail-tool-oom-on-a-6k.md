@@ -2,7 +2,7 @@
 id: t-650055
 title: find_usages / source FAIL tool=oom on a 6k-file monorepo even by exact SymbolId, and the redirect names ops that cannot answer the question
 status: backlog
-priority: high
+priority: medium
 parent: t-338692
 type: bug
 complexity: L
@@ -62,3 +62,23 @@ symbol names per tsconfig — pick one, then search_symbol on it." `symbols_over
 substitute ("NO cheaper in-tool path") but still leads the eye to two calls that do not answer.
 A syntactic `source` path (no program build — the surface already exists for
 `symbols_overview` / `search_symbol {syntactic:true}`) would make that redirect real instead of nominal.
+
+## MEASURED: scoping the fan is NOT the memory remedy on this repo shape
+
+Measured on backoffice2 — the repo this was filed from: a bare name, a file-pin in `packages/common` and a
+file-pin in `apps/emr` all cost 5.17–5.23 GB live heap and 27–31 s, because each answered from ONE
+type-authority program. Discovery pruning already collapses the fan (26 programs constructed, Σ `fileNames`
+18374, `estimateSearchPeak = {peakFiles: 6128, pruned: true}`), so the ~10 checkers never summed. The ~4.3 GB
+delta over parse+bind (839–881 MB) is the checker / findReferences phase of that ONE program.
+
+So "warm the containing program instead of all of them" cannot bring this repo under the 4 GB default, and the
+memory argument above is withdrawn. Demoted high → medium.
+
+What survives and needs restating before anyone works this: a pre-build path/config scope is still the honest
+answer for repos where SEVERAL type-authority programs really are warmed for one question, and it is still the
+inverse of `find_usages.programs` (which only ADDS configs). It is a precision / latency lever with a stated
+floor, not the OOM fix. The claim-vocabulary trap (a program LOADED-but-not-SEARCHED is not the
+config-NOT-LOADED claim) is unchanged and still gates it via t-885983.
+
+Half 2 of this task — the redirect naming non-substitutes — is unaffected by the measurement and is being
+closed by t-229522.

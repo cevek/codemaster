@@ -43,3 +43,33 @@ and no new honesty vocabulary — the syntactic path's disclosure already exists
   so on the envelope — decide at the plan gate, do not ship both).
 - Once it exists, `ops/guard/navigate.ts` gains a real `source` entry, replacing today's
   no-substitute arm.
+
+## MEASURED CORRECTION: the OOM premise does not hold — the value is latency, heap, and batch survival
+
+Measured on backoffice2 (box 32 GB, node v22.21.1, default limit 4144 MB): `source` with a file-pin costs
+839 MB / 4.5 s, and by BARE name with 27 same-named declarations (`AppLayout`) 881 MB / 5.8 s — BOTH pass on
+the default 4 GB heap. The field report's `source` OOM was a BATCH passenger death: all four calls travelled
+in one batch beside three `find_usages`, and the neighbour (≈5.2 GB live heap) burned the process.
+
+So this task does NOT stand on "otherwise unanswerable". What it stands on, in strength order:
+
+1. **Batch survival — the live unusability.** A checker-backed `source` inside a batch with any fan-out op
+   dies with it; a no-program path answers.
+2. **An order of magnitude.** 839 MB / 4.5 s against 5.2 GB / ~30 s for "print this body".
+3. **`navigate.ts` stops naming non-substitutes** — today `source`'s refusal falls to the orientation arm and
+   points at `symbols_overview` / `search_symbol`, neither of which prints a body.
+
+Priority stays high on (1). The scope of the work is unchanged; only the claim it may make is.
+
+### Settled at the plan gate (do not re-litigate)
+
+- **opt-in `syntactic:true`, not an auto-degrade.** `source {file,line,col}` means "resolve this POSITION to its
+  definition" — verified live: a position on the `ok(` CALL returns the body from `common/result/construct.ts`.
+  A syntactic path cannot do that, so defaulting would be a silent capability regression. And an auto-degrade
+  cannot fire on a REAL OOM at all: the child dies, `run()` never returns, there is nothing to catch — that
+  would be a new pre-warm guard on `source`, i.e. guard-coverage work, not this task.
+- **The scope statement rides the data `note` (the channel `search_symbol {syntactic:true}` already uses), not
+  an envelope `Disclosure`.** Per §3.6 a disclosure is born where a target was RANKED and one was picked
+  silently; this resolve does not rank (single declaration, else a pick-list), so attaching one would be false
+  partiality. The note must also say the path is DIFFERENT, not strictly worse: its reach is the git source
+  surface, so a file in no tsconfig is visible to it and invisible to the checker path.
