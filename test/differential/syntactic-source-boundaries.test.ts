@@ -195,7 +195,7 @@ test('a shared enclosing node is not a shared BINDING scope — loop, catch, and
       const isAssignment = name === 'tag' || name === 'mixed';
       const expectedCause = isAssignment
         ? name === 'tag'
-          ? /on different objects/i
+          ? /on 2 distinct objects/i
           : /not a property assignment at all/i
         : /different scopes/i;
       assert.match(reason, expectedCause, `${name}: names the cause that actually fired`);
@@ -231,7 +231,7 @@ test('a stale handle landing among rivals refuses with the SAME description as t
     const stale = await sourceOf(p, { symbolId: 'ts:tag@src/merged.ts:999:1' }, true);
     const byHandle = missReason(stale, 'handle');
 
-    assert.match(byHandle, /on different objects/i, 'the handle path names the cause that fired');
+    assert.match(byHandle, /on 2 distinct objects/i, 'the handle path names the cause that fired');
     assert.ok(
       !/different scopes/i.test(byHandle),
       `an expando pair shares its scope — must not report a boundary: ${byHandle}`,
@@ -261,6 +261,96 @@ test('a stale handle landing among rivals refuses with the SAME description as t
     assert.match(crossReason, /ts:farTwin@src\/cross-b\.ts/, 'lists a candidate in one other file');
     assert.match(crossReason, /ts:farTwin@src\/cross-c\.ts/, 'and the one in the second');
     assert.match(crossReason, /pick the one you mean/i, 'and carries the remedy');
+    // Verbatim agreement for the CROSS-FILE set as well: the same-file check above cannot see a divergence
+    // that only a multi-file description would show (a recomputed file count, say).
+    const crossByName = missReason(await sourceOf(p, { name: 'farTwin' }, true), 'cross byName');
+    const crossShared = crossByName.slice(crossByName.indexOf('declarations named'));
+    assert.ok(
+      crossReason.includes(crossShared),
+      `cross-file descriptions must match verbatim:\n  name:   ${crossByName}\n  handle: ${crossReason}`,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a bare-name pick-list keeps every candidate, at any nesting depth, in any file', async () => {
+  const p = await project(FILES);
+  try {
+    // The top-level preference exists to mirror the checker path's `name+file` contract, which is a
+    // within-ONE-FILE rule. Applied across files it picks a FILE for a caller who pinned none — here, the
+    // top-level `mixedDepth` over the nested one in another file, with the loser never mentioned. The
+    // checker path is the oracle: it refuses.
+    const checker = await sourceOf(p, { name: 'mixedDepth' }, false);
+    assert.equal(checker.sources?.length ?? 0, 0, 'the checker path refuses (non-vacuous oracle)');
+
+    const syn = await sourceOf(p, { name: 'mixedDepth' }, true);
+    assert.equal(syn.sources?.length ?? 0, 0, 'the syntactic path must not silently pick a file');
+    const reason = missReason(syn, 'mixed-depth cross-file');
+    assert.match(reason, /in 2 files/, `states the file split: ${reason}`);
+    assert.match(reason, /depth-top\.ts/, 'lists the top-level candidate');
+    assert.match(reason, /depth-nested\.ts/, 'and the nested one — never dropped');
+
+    // The bare-NAME arm specifically: every other rival arm addresses name+file, which routes through a
+    // different resolver, so without this the bare-name pick-list has no arm of its own.
+    const scoped = await sourceOf(p, { name: 'twin' }, true);
+    assert.equal(scoped.sources?.length ?? 0, 0, 'a bare name over scope rivals refuses too');
+    assert.equal(
+      (missReason(scoped, 'bare-name rivals').match(/ts:twin@/g) ?? []).length,
+      2,
+      'and lists both candidates',
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('the assignment cause states its own counts and its own caveat', async () => {
+  const p = await project(FILES);
+  try {
+    // Each COUNT and each caveat variant asserted, so neither can be replaced by a constant. The lead
+    // must be true of every member: a set containing a plain `const` may not be led by "as property
+    // assignments", which contradicting one clause later does not repair.
+    const pure = missReason(
+      await sourceOf(p, { name: 'tag', file: 'src/merged.ts' }, true),
+      'pure',
+    );
+    assert.match(
+      pure,
+      /2 declarations named 'tag' as property assignments on 2 distinct objects/,
+      pure,
+    );
+    assert.ok(
+      !/not a property assignment at all/.test(pure),
+      `no plain member exists here: ${pure}`,
+    );
+    assert.match(pure, /does not resolve which object each belongs to/, pure);
+
+    const onePlain = missReason(
+      await sourceOf(p, { name: 'onePlain', file: 'src/causes.ts' }, true),
+      'onePlain',
+    );
+    assert.match(
+      onePlain,
+      /on 1 distinct object \(as written\)/,
+      `singular, and counted: ${onePlain}`,
+    );
+    assert.match(onePlain, /at least one not a property assignment at all/, onePlain);
+    assert.ok(
+      !/^.*'onePlain' as property assignments/.test(onePlain),
+      `the lead may not claim all are assignments: ${onePlain}`,
+    );
+    assert.match(onePlain, /nor whether the others are the same symbol/, 'the plain-case caveat');
+
+    // Three members over TWO objects: `objects` counts distinct OBJECTS, never members.
+    const dup = missReason(await sourceOf(p, { name: 'dup', file: 'src/causes.ts' }, true), 'dup');
+    assert.match(dup, /3 declarations named 'dup'/, `member count: ${dup}`);
+    assert.match(dup, /on 2 distinct objects/, `distinct-object count: ${dup}`);
+
+    const tri = missReason(await sourceOf(p, { name: 'tri', file: 'src/causes.ts' }, true), 'tri');
+    assert.match(tri, /3 declarations named 'tri'/, tri);
+    assert.match(tri, /on 2 distinct objects/, tri);
+    assert.match(tri, /at least one not a property assignment at all/, 'both facts, not one');
   } finally {
     await p.dispose();
   }

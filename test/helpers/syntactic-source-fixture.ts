@@ -76,6 +76,27 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
   'src/cross-a.ts': 'export const anchorOnly = 0;',
   'src/cross-b.ts': 'export const farTwin = 1;',
   'src/cross-c.ts': 'export const farTwin = 2;',
+  // Every reachable (objects, plain) combination of the assignment cause, so each COUNT and each caveat
+  // variant is asserted rather than inferred — plus a cross-file pair at DIFFERENT nesting depths, the
+  // shape a within-one-file top-level preference must not silently pick between.
+  'src/causes.ts': [
+    'export function P() { return 1; }',
+    'export function Q() { return 2; }',
+    'P.tri = 1;',
+    'Q.tri = 2;',
+    'export const tri = 3;',
+    'export function U() { return 5; }',
+    'U.onePlain = 1;',
+    'export const onePlain = 9;',
+    'export function S() { return 3; }',
+    'export function T() { return 4; }',
+    'S.dup = 1;',
+    'S.dup = 2;',
+    'T.dup = 3;',
+  ].join('\n'),
+  'src/depth-top.ts': 'export const mixedDepth = 1;',
+  'src/depth-nested.ts':
+    'export function holder() {\n  const mixedDepth = 2;\n  return mixedDepth;\n}',
   'src/rivals.ts': [
     'export class Alpha {',
     '  twin() { return 1; }',

@@ -210,21 +210,16 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
   }
   // §6 step 2: workspace-wide, over the whole surface.
   const elsewhere = index.named(name).filter((d) => !d.alias && d.rel !== rel);
-  const files = new Set(elsewhere.map((d) => d.rel));
-  if (files.size === 1) {
-    const collapsed = collapseByScope(elsewhere);
-    if (collapsed !== undefined && !('rivals' in collapsed)) {
+  // ONE `collapseByScope` decides both arms: a set it does NOT call rivals shares one scope key, hence
+  // one file, so it is the moved symbol; anything else is a pick-list described by the same function the
+  // name path uses. A separate `files.size === 1` gate plus a trailing fallback were two spellings of
+  // that one condition, and the fallback was then unreachable — untestable by construction.
+  const collapsed = collapseByScope(elsewhere);
+  if (collapsed !== undefined) {
+    if (!('rivals' in collapsed)) {
       return rebound(collapsed, index.rootTag, id, `moved to ${collapsed.one.rel}`);
     }
-  }
-  if (elsewhere.length > 0) {
-    // The candidates were gathered by name across the surface, so `collapseByScope` is what knows how
-    // they diverged — asking it keeps this path's description identical to the name path's.
-    const collapsed = collapseByScope(elsewhere);
-    if (collapsed !== undefined && 'rivals' in collapsed) {
-      return { miss: handleRivals(name, id, collapsed.rivals, index.rootTag, collapsed.cause) };
-    }
-    return { miss: handleRivals(name, id, elsewhere, index.rootTag, { kind: 'scope' }) };
+    return { miss: handleRivals(name, id, collapsed.rivals, index.rootTag, collapsed.cause) };
   }
   // NO `{status:'gone'}` for a name merely absent from the surface: §6 scopes that claim to "absent in
   // this workspace root", and this scan does not cover a tsconfig include reaching OUTSIDE the root.
@@ -333,12 +328,16 @@ function describeRivalCause(
   if (cause.kind === 'scope') {
     return { text: 'in different scopes of one file', caveat: MERGE_CAVEAT };
   }
-  const parts = [
-    cause.objects > 1 ? `${cause.objects} on different objects (as written)` : undefined,
-    cause.plain ? 'at least one not a property assignment at all' : undefined,
-  ].filter((x): x is string => x !== undefined);
+  // The LEAD must be true of every member, so `plain` belongs in it: a lead saying "as property
+  // assignments" over a set containing a plain `const` is false, and contradicting it one clause later
+  // does not repair it. `objects` counts DISTINCT objects, never members — three assignments over two
+  // objects is "on 2 distinct objects", and phrasing it as a bare count reads as "2 of them".
+  const objects = `on ${cause.objects} distinct object${cause.objects === 1 ? '' : 's'} (as written)`;
+  const text = cause.plain
+    ? `in one scope of one file — some as property assignments ${objects}, and at least one not a property assignment at all`
+    : `as property assignments ${objects}, in one scope of one file`;
   return {
-    text: `as property assignments in one scope of one file${parts.length > 0 ? ` — ${parts.join(', and ')}` : ''}`,
+    text,
     caveat: cause.plain
       ? 'this path resolves neither which object a property assignment belongs to nor whether the others are the same symbol (that needs the checker)'
       : 'this path does not resolve which object each belongs to (that needs the checker)',

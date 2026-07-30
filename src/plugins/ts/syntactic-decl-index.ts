@@ -236,7 +236,13 @@ export type Collapsed =
  *  unambiguous, and answering it is a capability the checker path lacks); several are rivals. */
 export function collapseByScope(real: readonly DeclSite[]): Collapsed | undefined {
   if (real.length === 0) return undefined;
-  const top = real.filter(isTopLevel);
+  // The top-level preference is a WITHIN-ONE-FILE rule: it mirrors the checker path's `name+file`
+  // contract ("the top-level declaration of this name IN THAT FILE"), and that is the only thing that
+  // licenses ignoring a nested candidate. Applied across files it picks a FILE on the caller's behalf —
+  // silently preferring a top-level declaration in one file over a nested one in another, from a request
+  // that pinned no file at all. So a multi-file set keeps every candidate and lands in the pick-list.
+  const files = new Set(real.map((d) => d.rel));
+  const top = files.size === 1 ? real.filter(isTopLevel) : [];
   const group = top.length > 0 ? top : real;
   const first = group[0];
   if (first === undefined) return undefined;
