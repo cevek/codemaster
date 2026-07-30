@@ -181,24 +181,33 @@ function expandoTarget(node: ts.Node): string | undefined {
   }
 }
 
-/** A stable identity for the region a declaration binds in. A STRING rather than the node, because an
- *  expando needs its assignment target folded in, and because two files' nodes must never compare equal
- *  (a candidate set can span files). `pos`+`kind` is unique within one file's AST. */
-function scopeKeyOf(site: DeclSite): string {
+/** A declaration's binding identity, kept as PARTS rather than one blob so a refusal can say which part
+ *  diverged. `scope` is a string (not the node) because two files' nodes must never compare equal — a
+ *  candidate set can span files — and `pos`+`kind` is unique within one file's AST. */
+type ScopeKey = { readonly scope: string; readonly target?: string };
+
+function scopeKeyOf(site: DeclSite): ScopeKey {
   const scope = scopeNodeOf(site.node);
   const target = expandoTarget(site.node);
-  return `${site.rel}|${scope.pos}|${scope.kind}${target === undefined ? '' : `|on=${target}`}`;
+  return {
+    scope: `${site.rel}|${scope.pos}|${scope.kind}`,
+    ...(target === undefined ? {} : { target }),
+  };
 }
 
 export function isTopLevel(site: DeclSite): boolean {
   return ts.isSourceFile(scopeNodeOf(site.node));
 }
 
-/** What separated a candidate set that did NOT collapse — so the message can name the cause that fired
- *  instead of a plausible one. `'scope'`: the declarations bind in different regions. `'target'`: they are
- *  expando assignments on different objects, which SHARE a region — reporting that as a scope boundary
- *  would be a fabricated cause. */
-export type RivalCause = 'scope' | 'target';
+/** What separated a candidate set that did NOT collapse — so the message can name the cause that FIRED
+ *  instead of a plausible one. Derived from WHICH PART of the scope key diverged, never re-inferred: the
+ *  key has two parts and both can differ, so a two-valued guess mislabels the mixed case.
+ *   - `'scope'` — the declarations bind in different regions;
+ *   - `'expando-target'` — all are property assignments, on different objects, in ONE region;
+ *   - `'expando-vs-plain'` — one is a property assignment and another is not, in one region (a
+ *     `Foo.tag = 1` beside a `const tag`); calling THAT "different objects" names an object the second
+ *     declaration does not have. */
+export type RivalCause = 'scope' | 'expando-target' | 'expando-vs-plain';
 
 /** One symbol (with the rest of its own declarations), or a set of candidates no address picked between.
  *
@@ -222,11 +231,15 @@ export function collapseByScope(real: readonly DeclSite[]): Collapsed | undefine
   const group = top.length > 0 ? top : real;
   const first = group[0];
   if (first === undefined) return undefined;
-  if (new Set(group.map(scopeKeyOf)).size === 1) return { one: first, merged: group.slice(1) };
-  // WHICH half of the key diverged decides what the refusal may claim: identical scope NODES mean the
-  // expando target is what separated them, and calling that a scope boundary would invent a cause.
+  const keys = group.map(scopeKeyOf);
+  const scopes = new Set(keys.map((k) => k.scope));
+  const targets = new Set(keys.map((k) => k.target));
+  if (scopes.size === 1 && targets.size === 1) return { one: first, merged: group.slice(1) };
+  // The cause is READ OFF the diverging part, not guessed from the scope nodes: a set holding one expando
+  // and one plain declaration in the same region diverges on `target` too, and reporting that as
+  // "different objects" names an object the plain declaration does not have (§3.6).
   const cause: RivalCause =
-    new Set(group.map((d) => scopeNodeOf(d.node))).size === 1 ? 'target' : 'scope';
+    scopes.size > 1 ? 'scope' : targets.has(undefined) ? 'expando-vs-plain' : 'expando-target';
   return { rivals: group, cause };
 }
 

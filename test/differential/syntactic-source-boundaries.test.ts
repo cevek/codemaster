@@ -143,10 +143,11 @@ test('same-named declarations in DIFFERENT SCOPES are a pick-list, never a silen
     // The inverse lie, guarded for real: a genuinely MERGED symbol must resolve AND list its other
     // declaration. Without this arm a policy that refused everything would stay green, which is what let
     // the merge branch ship untested in both directions.
-    // `Both` is TOP-LEVEL, so its scope is decided by the first predicate tested — it cannot fail if the
-    // rest of the container list is wrong. `Deep` (inside a `namespace` body) and `pair` (a getter/setter
-    // pair inside a class) are the arms that DO depend on `isModuleBlock` / `isClassLike`, so the merge
-    // branch is exercised for containers other than the SourceFile.
+    // Three merged symbols in three different containers (file / `namespace` body / class body). NOTE what
+    // this can and cannot catch: a merge assertion is MONOTONE in the container list — dropping a container
+    // makes both siblings over-climb TOGETHER, so no merge arm can red for a MISSING container (that is
+    // arm 5's job, and the rivals half of this one). What these do guard is the opposite direction, a
+    // false SPLIT of a genuine merge, in each of the three containers.
     for (const [name, bodyPattern] of [
       ['Both', /interface Both/],
       ['Deep', /interface Deep/],
@@ -176,7 +177,7 @@ test('a shared enclosing node is not a shared BINDING scope — loop, catch, and
     // DIFFERENT objects (`Owner.tag` / `Other.tag` — an expando binds no scope at all, so scope identity
     // alone cannot separate them). Each pair is two symbols; merging them would claim one is "another
     // definition" of the other.
-    for (const name of ['idx', 'err', 'cse', 'tag']) {
+    for (const name of ['idx', 'err', 'cse', 'tag', 'mixed']) {
       const data = await sourceOf(p, { name, file: 'src/merged.ts' }, true);
       assert.equal(data.sources?.length ?? 0, 0, `${name}: must not resolve to one of two symbols`);
       const reason = missReason(data, name);
@@ -189,13 +190,49 @@ test('a shared enclosing node is not a shared BINDING scope — loop, catch, and
       );
       // And it may state only what it OBSERVED: an expando pair shares its scope (the assignment target
       // separated it), so claiming a scope boundary there would be an invented cause.
-      const expectedCause = name === 'tag' ? /different objects/i : /different scopes/i;
+      const expectedCause =
+        name === 'tag'
+          ? /different objects/i
+          : name === 'mixed'
+            ? /one as a property assignment and one not/i
+            : /different scopes/i;
       assert.match(reason, expectedCause, `${name}: names the cause that actually fired`);
       assert.ok(
         !/makes these different symbols/i.test(reason),
         `${name}: must not assert distinctness it cannot prove — got: ${reason}`,
       );
     }
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a stale handle landing among rivals refuses with the SAME description as the name path', async () => {
+  const p = await project(FILES);
+  try {
+    // The handle path used to word its own refusal, so it contradicted the name path about the same two
+    // declarations (an expando pair called a "scope boundary") and dropped the may-be-one-symbol caveat.
+    // Both addressings must now describe one candidate set identically.
+    const byName = missReason(
+      await sourceOf(p, { name: 'tag', file: 'src/merged.ts' }, true),
+      'name',
+    );
+    // A handle whose recorded position no longer holds the name → the workspace-wide rival branch.
+    const stale = await sourceOf(p, { symbolId: 'ts:tag@src/merged.ts:999:1' }, true);
+    const byHandle = missReason(stale, 'handle');
+
+    assert.match(byHandle, /different objects/i, 'the handle path names the cause that fired');
+    assert.ok(
+      !/different scopes/i.test(byHandle),
+      `an expando pair shares its scope — must not report a boundary: ${byHandle}`,
+    );
+    // The shared description, verbatim, so the two can never drift into contradicting each other.
+    const shared = byName.slice(byName.indexOf('declarations named'));
+    assert.ok(
+      byHandle.includes(shared),
+      `handle refusal must carry the name path's description verbatim:\n  name:   ${byName}\n  handle: ${byHandle}`,
+    );
+    assert.match(byHandle, /pick one/i, 'and still tells the agent what to do');
   } finally {
     await p.dispose();
   }

@@ -43,6 +43,11 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
     'Owner.tag = 1;',
     'export function Other() { return 2; }',
     'Other.tag = 2;',
+    // A property assignment beside a PLAIN declaration of the same name, in one scope: the set diverges on
+    // the expando half of the key without both members being expandos, so a two-valued cause mislabels it.
+    'export function Third() { return 3; }',
+    'Third.mixed = 1;',
+    'export const mixed = 9;',
     'export function loops() {',
     '  for (let idx = 0; idx < 2; idx++) { void idx; }',
     '  for (let idx = 5; idx < 9; idx++) { void idx; }',

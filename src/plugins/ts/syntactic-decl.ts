@@ -171,9 +171,13 @@ function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
     // The identity question a bare name cannot settle — and the scan is COMPLETE under the root, so this
     // really is >1 declaration, not a ranking artefact. The list IS the remedy: each candidate prints as
     // a paste-able SymbolId.
-    // Several FILES: the cause is the file split itself, and 'scope' is the neutral spelling for it (the
-    // message keys its wording on `fileCount` first).
-    return { miss: rivalsMessage(name, real, index.rootTag, files.size, 'scope') };
+    // Several FILES. The message keys its wording on `fileCount` first, so the cause is not consulted —
+    // but it is derived rather than asserted, so a reordering there cannot turn a stale literal into a
+    // false claim.
+    const collapsed = collapseByScope(real);
+    const cause: RivalCause =
+      collapsed !== undefined && 'rivals' in collapsed ? collapsed.cause : 'scope';
+    return { miss: rivalsMessage(name, real, index.rootTag, files.size, cause) };
   }
   return fromCandidates(hits, index.rootTag, () => noSuchNameOnSurface(name));
 }
@@ -208,7 +212,9 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
     // scopes are rivals, and rebinding a handle onto one of those would claim a move that never happened.
     const own = collapseByScope(all.filter((d) => !d.alias));
     if (own !== undefined) {
-      if ('rivals' in own) return { miss: handleRivals(name, id, own.rivals, index.rootTag) };
+      if ('rivals' in own) {
+        return { miss: handleRivals(name, id, own.rivals, index.rootTag, own.cause) };
+      }
       return rebound(own, index.rootTag, id, 'same file, moved position');
     }
   }
@@ -221,7 +227,14 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
       return rebound(collapsed, index.rootTag, id, `moved to ${collapsed.one.rel}`);
     }
   }
-  if (elsewhere.length > 0) return { miss: handleRivals(name, id, elsewhere, index.rootTag) };
+  if (elsewhere.length > 0) {
+    // The candidates were gathered by name across the surface, so `collapseByScope` is what knows how
+    // they diverged — asking it keeps this path's description identical to the name path's.
+    const collapsed = collapseByScope(elsewhere);
+    const cause: RivalCause =
+      collapsed !== undefined && 'rivals' in collapsed ? collapsed.cause : 'scope';
+    return { miss: handleRivals(name, id, elsewhere, index.rootTag, cause) };
+  }
   // NO `{status:'gone'}` for a name merely absent from the surface: §6 scopes that claim to "absent in
   // this workspace root", and this scan does not cover a tsconfig include reaching OUTSIDE the root.
   // Asserting removal off a surface that cannot see there would be the §3.4 lie in its most damaging
@@ -327,25 +340,48 @@ function rivalsMessage(
     rivals.map((d) => idOf(d, rootTag)),
     CANDIDATE_PREVIEW,
   );
+  // WHAT was observed, per cause. Only the region-based causes carry the merge caveat: a `namespace` /
+  // `declare global` merge and a function-scoped `var` are ways ONE symbol occupies several regions, and
+  // citing them beside an expando pair would explain the answer with an irrelevance.
   const where =
     fileCount > 1
-      ? `in ${fileCount} files`
-      : cause === 'target'
-        ? 'as property assignments on different objects (as written) in one file'
-        : 'in different scopes of one file';
-  return `${rivals.length} declarations named '${name}' ${where} (${ids}) — this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker), so pick the one you mean: pass one of these SymbolIds, or name+file / file:line:col`;
+      ? { text: `in ${fileCount} files`, mergeable: true }
+      : cause === 'expando-target'
+        ? {
+            text: 'as property assignments on different objects (as written) in one file',
+            mergeable: false,
+          }
+        : cause === 'expando-vs-plain'
+          ? {
+              text: 'one as a property assignment and one not, in one scope of one file',
+              mergeable: false,
+            }
+          : { text: 'in different scopes of one file', mergeable: true };
+  const caveat = where.mergeable
+    ? 'this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker), so pick the one you mean'
+    : 'this path does not resolve which object each belongs to (that needs the checker), so pick the one you mean';
+  return `${rivals.length} declarations named '${name}' ${where.text} (${ids}) — ${caveat}: pass one of these SymbolIds, or name+file / file:line:col`;
 }
 
+/** The same candidate set, reached through a stale handle. It DELEGATES the description to
+ *  `rivalsMessage` rather than wording its own: stating a cause here made the two addressings contradict
+ *  each other about the same two declarations (the handle path called an expando pair a scope boundary),
+ *  and it dropped the caveat that the set may be one symbol. One set, one description. */
 function handleRivals(
   name: string,
   id: string,
   rivals: readonly DeclSite[],
   rootTag: string,
+  cause: RivalCause,
 ): string {
-  return `'${name}' (handle ${id}) is not at its recorded position, and ${rivals.length} declarations of that name exist in different scopes (${nameWithMore(
-    rivals.map((d) => idOf(d, rootTag)),
-    CANDIDATE_PREVIEW,
-  )}) — pick one rather than have the handle rebound to a guess`;
+  const fileCount = new Set(rivals.map((d) => d.rel)).size;
+  return `'${name}' (handle ${id}) is not at its recorded position, and ${rivalsMessage(
+    name,
+    rivals,
+    rootTag,
+    fileCount,
+    cause,
+  )} — pick one rather than have the handle rebound to a guess`;
 }
 
 function handleNotOnSurface(name: string, id: string): string {
