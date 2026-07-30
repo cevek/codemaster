@@ -36,6 +36,7 @@ type Unresolved = { target: string; reason: string };
 /** Shape guard for `source` op data: an object carrying a `sources` array. Distinct from
  *  find_usages multi-target (`targets`) and the sql table (`columns`/`rows`). */
 export function isSourceData(data: JsonValue): data is {
+  surface?: string;
   note?: string;
   sources: SourceEntry[];
   unresolved?: Unresolved[];
@@ -49,10 +50,13 @@ export function isSourceData(data: JsonValue): data is {
 }
 
 export function renderSource(
-  data: { note?: string; sources: SourceEntry[]; unresolved?: Unresolved[] },
+  data: { surface?: string; note?: string; sources: SourceEntry[]; unresolved?: Unresolved[] },
   budget: number = SOURCE_BODY_BUDGET,
 ): string {
   const lines: string[] = [];
+  // Ahead of the note: when the scan's surface was NOT the documented default, that qualifies which
+  // files the bodies below could have come from at all — the widest-scope statement goes first (§12).
+  if (data.surface !== undefined && data.surface !== '') lines.push(data.surface);
   // The note FIRST (verdict-first, §12): it qualifies how every body below was obtained — whether the
   // bytes are type-verified — and the tail is what a char cap trims. A renderer that emits only the
   // fields it knows silently drops an honesty channel the op did populate, which is invisible to a

@@ -37,5 +37,5 @@ export function missingFileReason(root: string, file: string): string {
   if (!isScannedSourcePath(minted.path)) {
     return `${minted.path} exists but is not TypeScript source the scan parses (.ts/.tsx/.mts/.cts, excluding .d.ts) — drop syntactic:true for the type-verified path`;
   }
-  return `${minted.path} exists but is not on the scanned surface — the scan covers git-tracked plus untracked-not-ignored source, so a gitignored file is absent from it; drop syntactic:true for the type-verified path`;
+  return `${minted.path} exists but is not on the scanned surface — the git listing covers tracked plus untracked-not-ignored source, so a gitignored file is absent from it (the non-git walk surface instead drops the name-ignored dirs and files over 1 MB — the answer's surface line states which listing ran); drop syntactic:true for the type-verified path`;
 }

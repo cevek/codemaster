@@ -13,7 +13,7 @@ import { ok, partial } from '../common/result/construct.ts';
 import type { Deadline } from '../common/async/deadline.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
-import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
+import { SYNTACTIC_SCOPE, surfaceModeNote } from '../plugins/ts/plugin.ts';
 import { describeTsTarget } from './ts-target.ts';
 
 /** The scope + provenance statement every syntactic-`source` answer leads with (verdict-first, §12).
@@ -35,6 +35,10 @@ export function runSourceSyntactic(
 ): Result<JsonValue> {
   const res = ts.sourceSyntactic(targets, deadline);
   if (!res.ok) return res;
+  // The surface these bodies were read from (§8: read after the call built it). `undefined` when the
+  // documented default (git) held → byte-identical answer; anything else prints ahead of the note.
+  const surfaceMode = surfaceModeNote(ts.syntacticSurfaceProvenance());
+  const surface = surfaceMode === undefined ? {} : { surface: surfaceMode };
   const sources: JsonValue[] = [];
   const unresolved: JsonValue[] = [];
   res.data.outcomes.forEach((outcome, i) => {
@@ -71,6 +75,7 @@ export function runSourceSyntactic(
     });
   });
   const data = {
+    ...surface,
     note: SYNTACTIC_SOURCE_NOTE,
     sources,
     ...(unresolved.length > 0 ? { unresolved } : {}),

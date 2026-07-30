@@ -13,7 +13,7 @@ import { resolveIsolation } from './escalate.ts';
 import type { IsolationReason } from '../core/isolation.ts';
 import { createInProcessHost } from './in-process-host.ts';
 import type { ProjectHost } from './host.ts';
-import type { OrchestratorDeps } from './orchestrator.ts';
+import type { OrchestratorDeps } from './orchestrator-deps.ts';
 
 /** Default per-op cooperative wall-clock budget (§1 never-hang, config `daemon.opDeadlineSeconds`).
  *  120 s — comfortably above the legitimate 5–60 s answer ceiling (§1), so it fires only on a
@@ -26,6 +26,8 @@ export interface HostBuildArgs {
   root: string;
   config: CodemasterConfig;
   source: string | undefined;
+  /** The §4c refusal for this root, when it has one — see `EngineDeps.workspaceUnsupported`. */
+  workspaceUnsupported?: string;
 }
 
 export type HostBuildResult = { ok: true; host: ProjectHost } | { ok: false; message: string };
@@ -39,7 +41,7 @@ export async function buildWorkspaceHost(
   args: HostBuildArgs,
   evictIfCurrent: (host: ProjectHost | undefined) => void,
 ): Promise<HostBuildResult> {
-  const { repoId, root, config, source } = args;
+  const { repoId, root, config, source, workspaceUnsupported } = args;
   if (config.debug?.namespaces !== undefined && config.debug.namespaces.length > 0) {
     deps.debug.configure(config.debug.namespaces.join(','));
   }
@@ -114,6 +116,7 @@ export async function buildWorkspaceHost(
     repoId,
     root,
     configSource: source,
+    ...(workspaceUnsupported !== undefined ? { workspaceUnsupported } : {}),
     version: deps.version,
     stateDir,
     isolation: 'in-process',

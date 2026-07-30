@@ -67,6 +67,7 @@ export function buildDaemonInfo(
     stateDir: string;
     isolation?: Isolation;
     isolationReason?: IsolationReason;
+    workspaceUnsupported?: string;
   },
   plugins: readonly Plugin[],
   opNames: readonly string[],
@@ -78,6 +79,9 @@ export function buildDaemonInfo(
     stateDir: meta.stateDir,
     plugins: plugins.map((p) => ({ id: p.id, version: p.version })),
     opNames,
+    ...(meta.workspaceUnsupported !== undefined
+      ? { workspaceUnsupported: meta.workspaceUnsupported }
+      : {}),
     // Default in-process: the mode where the guard matters; a forked child passes 'process' explicitly.
     isolation: meta.isolation ?? 'in-process',
     // Omitted when unknown (a direct createEngine / a forked child) — a consumer says "unknown",

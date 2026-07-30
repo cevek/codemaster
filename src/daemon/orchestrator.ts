@@ -6,17 +6,14 @@
 import { existsSync } from 'node:fs';
 import { createSourceStaleTracker, type SourceStaleTracker } from './source-fingerprint.ts';
 import type { RepoId } from '../core/brands.ts';
-import type { Plugin } from '../core/plugin.ts';
 import type { BatchOptions, OpRequest, OpResult } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
-import type { Clock, CancelTimer } from '../common/async/clock.ts';
+import type { CancelTimer } from '../common/async/clock.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
 import { isOk } from '../common/result/narrow.ts';
 import type { SqlBounds } from './sql-batch.ts';
 import { DEFAULT_MAX_RESULT_ROWS, DEFAULT_MAX_TABLE_ROWS } from '../support/sql/runner.ts';
 import { createSqliteRunner } from '../support/sql/better-sqlite3.ts';
-import type { TextScanner } from '../support/text-search/scan.ts';
-import type { GitRunner } from '../support/git/run.ts';
 import {
   crossRootSql,
   groupedDispatch,
@@ -24,71 +21,17 @@ import {
   type RouteOutcome,
   type SpawnHost,
 } from './multi-root.ts';
-import type { DebugSystemHandle } from '../support/debug/system.ts';
-import type { Watcher } from '../support/watch/seam.ts';
 import { canonicalizeRoot } from '../support/fs/canonicalize.ts';
 import { gitRepoRoot } from '../support/git/repo-root.ts';
-import { tsProjectRefusal } from './ts-project-check.ts';
+import { gateWarmSlot, requiresTsProject, tsProjectRefusal } from './ts-project-check.ts';
 import { loadConfig } from '../support/config-load/load.ts';
 import { configChanged, configFingerprint } from '../support/config-load/fingerprint.ts';
-import type { CodemasterConfig } from '../config/config.ts';
 import { buildWorkspaceHost } from './host-build.ts';
 import type { ProjectHost } from './host.ts';
+import type { EngineSlot } from './engine-slot.ts';
+import type { OrchestratorDeps } from './orchestrator-deps.ts';
 import type { StatusView, WorkspaceStatusView } from '../format/render/render-status.ts';
 import type { DaemonInfo, ServingOrchestrator } from './orchestrator-api.ts';
-
-export interface OrchestratorDeps {
-  clock: Clock;
-  debug: DebugSystemHandle;
-  watcher: Watcher;
-  version: string;
-  /** Composition root injects available plugins/ops per workspace. */
-  pluginsFor?: (config: CodemasterConfig, root: string) => readonly Plugin[];
-  opsFor?: (config: CodemasterConfig) => readonly AnyOpDefinition[];
-  /** Where per-repo debug logs live; default `~/.codemaster`. */
-  stateDir?: string;
-  /** Engine-count budget for the in-process governor (LRU-evicted past this). */
-  maxEngines?: number;
-  /** sql-mode row bounds (§2.3/§2.4) — test seam, forwarded to every engine. */
-  sqlBounds?: Partial<SqlBounds>;
-  /** SQL evaluator factory (§4) — test seam, forwarded to every engine. */
-  createSqlRunner?: () => ReturnType<typeof createSqliteRunner>;
-  /** Text-scanner factory (§ text-overlay) — test seam, forwarded to every engine. */
-  createTextScanner?: () => TextScanner;
-  /** Git runner for the freshness path (§3.6) — test seam, forwarded to every engine. */
-  gitRunner?: GitRunner;
-  /** Per-op cooperative wall-clock budget in ms (§1 never-hang) — test seam. When set, OVERRIDES
-   *  the config-derived `daemon.opDeadlineSeconds`, so a timeout test can force the degrade with a
-   *  `0` (immediately-expired) budget without writing a config file. Production leaves it unset and
-   *  the config default (`daemon.opDeadlineSeconds`, 120 s) applies. */
-  opDeadlineMs?: number;
-  /** Codemaster's OWN source fingerprint (self-staleness — §3.6). Recorded at spawn; a later
-   *  difference means the daemon is behind its source. Test seam; default = `src/**` rollup. */
-  sourceFingerprint?: () => string;
-  /** Build a `process`-mode host (§2): fork one engine child per workspace. Injected by the
-   *  composition root (it knows the child bin path); absent in builds without process support, so
-   *  `isolation: 'process'` then fails honestly rather than silently degrading to in-process.
-   *  `onExit` fires when the child dies — the orchestrator evicts the slot so the next request
-   *  respawns. */
-  spawnProcessHost?: (args: {
-    repoId: RepoId;
-    root: string;
-    config: CodemasterConfig;
-    stateDir: string;
-    onExit: () => void;
-  }) => Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }>;
-}
-
-interface EngineSlot {
-  host: ProjectHost;
-  root: string;
-  lastUsedMs: number;
-  idleEvictionMs: number;
-  /** Content fingerprint of the config the engine was spawned from (config-reload). On
-   *  request entry the orchestrator re-fingerprints the on-disk config and evicts on
-   *  drift, so the next request re-spawns with the fresh plugin set / config options. */
-  configFp: string;
-}
 
 /** Default idle TTL (minutes) — shared by per-engine eviction (§9) and the `mcp` server's
  *  process-level idle self-exit (spec-daemon-singleton Stage 1). */
@@ -151,26 +94,40 @@ export class Orchestrator implements ServingOrchestrator {
     if (singleEngineAllOk) {
       const r0 = okRoutes[0];
       if (r0 === undefined) return { ok: true, results: [] };
-      const spawned = await this.getOrSpawn(r0.repoId, r0.root);
+      // §4c gate, per DISPATCH GROUP: this whole batch shares one engine, so it applies unless
+      // EVERY op in it is workspace-independent (t-810757). The op defs come from a config load, so
+      // they are read once for the group, not per request.
+      const requireTsProject = requiresTsProject(reqs, this.opDefs(r0.root));
+      const spawned = await this.getOrSpawn(r0.repoId, r0.root, requireTsProject);
       if (!spawned.ok) return spawned;
       return { ok: true, results: await spawned.slot.host.request(reqs, batch) };
     }
 
     // Cross-root sql joins at the orchestrator (§2); other multi-root batches group by
     // engine and reassemble in original order. Both live in multi-root.ts.
-    const spawn: SpawnHost = (repoId, repoRoot) => this.spawnHost(repoId, repoRoot);
+    const spawn: SpawnHost = (repoId, repoRoot, requireTsProject) =>
+      this.spawnHost(repoId, repoRoot, requireTsProject);
+    // Memoized per root for this call: `opDefs` loads the config, and the grouped dispatch asks once
+    // per REQUEST, so a wide cross-root batch would otherwise re-load one config per member.
+    const defsByRoot = new Map<string, ReturnType<typeof this.opDefs>>();
+    const needsWorkspace = (req: OpRequest, repoRoot: string): boolean => {
+      let defs = defsByRoot.get(repoRoot);
+      if (defs === undefined) defsByRoot.set(repoRoot, (defs = this.opDefs(repoRoot)));
+      return requiresTsProject([req], defs);
+    };
     if (batch?.sql !== undefined) {
       return {
         ok: true,
         results: await crossRootSql(reqs, routes, batch, {
           spawn,
+          needsWorkspace,
           opDefs: (r) => this.opDefs(r),
           bounds: this.resolvedSqlBounds(),
           createRunner: () => (this.deps.createSqlRunner ?? createSqliteRunner)(),
         }),
       };
     }
-    return { ok: true, results: await groupedDispatch(reqs, routes, batch, spawn) };
+    return { ok: true, results: await groupedDispatch(reqs, routes, batch, spawn, needsWorkspace) };
   }
 
   /** Adapt the engine-slot lifecycle to the thin `SpawnHost` the multi-root dispatch
@@ -178,8 +135,9 @@ export class Orchestrator implements ServingOrchestrator {
   private async spawnHost(
     repoId: RepoId,
     root: string,
+    requireTsProject: boolean,
   ): Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }> {
-    const spawned = await this.getOrSpawn(repoId, root);
+    const spawned = await this.getOrSpawn(repoId, root, requireTsProject);
     return spawned.ok ? { ok: true, host: spawned.slot.host } : spawned;
   }
 
@@ -247,9 +205,32 @@ export class Orchestrator implements ServingOrchestrator {
     return { ok: true, repoId: canonRoot as RepoId, root: canonRoot };
   }
 
+  /** Apply the §4c gate to a config-current warm slot (`ts-project-check.ts` owns the decision),
+   *  translating its verdict into the slot lifecycle: reuse, refuse, or evict-and-respawn. */
+  private async reuseSlot(
+    repoId: RepoId,
+    root: string,
+    slot: EngineSlot,
+    requireTsProject: boolean,
+  ): Promise<{ ok: true; slot: EngineSlot } | { ok: false; message: string } | 'respawn'> {
+    const verdict = await gateWarmSlot(root, slot, requireTsProject);
+    if (verdict.action === 'refuse') return { ok: false, message: verdict.message };
+    if (verdict.action === 'respawn') {
+      await this.evict(repoId, 'workspace became a TS project');
+      return 'respawn';
+    }
+    slot.lastUsedMs = this.deps.clock.now();
+    return { ok: true, slot };
+  }
+
   private async getOrSpawn(
     repoId: RepoId,
     root: string,
+    /** Whether this request's ops need an inspectable TS workspace (§4c). `false` only for a group
+     *  of workspace-INDEPENDENT ops (`OpDefinition.workspaceIndependent`) — today `feedback`, which
+     *  must reach the daemon precisely where codemaster cannot work. Defaults to the gated
+     *  behaviour, so a caller that says nothing (status, the sweeper) is unaffected. */
+    requireTsProject = true,
   ): Promise<{ ok: true; slot: EngineSlot } | { ok: false; message: string }> {
     // Pre-flight: an agent may be calling into a removed worktree (§9).
     if (!existsSync(root)) {
@@ -262,31 +243,43 @@ export class Orchestrator implements ServingOrchestrator {
     // (a delete racing the resolve) is inconclusive and never evicts.
     const existing = this.engines.get(repoId);
     if (existing !== undefined && !configChanged(existing.configFp, configFingerprint(root))) {
-      existing.lastUsedMs = this.deps.clock.now();
-      return { ok: true, slot: existing };
-    }
-    if (existing !== undefined) await this.evict(repoId, 'config changed');
+      const reuse = await this.reuseSlot(repoId, root, existing, requireTsProject);
+      if (reuse !== 'respawn') return reuse;
+    } else if (existing !== undefined) await this.evict(repoId, 'config changed');
 
     const loaded = loadConfig(root);
     if (!isOk(loaded)) {
       return { ok: false, message: `config: ${loaded.failure.message}` };
     }
     const { config, source } = loaded.data;
-    // §4c: refuse a non-TS folder before warming (a config opts in explicitly → trust it).
+    // §4c: refuse a non-TS folder before warming (a config opts in explicitly → trust it). Taken on
+    // EVERY spawn, not only a gated one: a workspace-independent op proceeds despite the refusal,
+    // but the engine still carries it (an inbox entry filed from an uninspectable root must say so),
+    // and the slot records it so a later workspace-needing request is still refused.
     const tsRefusal = await tsProjectRefusal(root, source);
-    if (tsRefusal !== undefined) return { ok: false, message: tsRefusal };
-    const built = await buildWorkspaceHost(this.deps, { repoId, root, config, source }, (host) => {
-      // A process child died — drop the slot iff it still holds this exact host, so the next
-      // request respawns instead of reusing a dead engine.
-      const slot = this.engines.get(repoId);
-      if (slot !== undefined && slot.host === host) {
-        this.engines.delete(repoId);
-        this.deps.debug.ns('eviction')('evict', () => ({
-          repo: repoId,
-          reason: 'engine child exited',
-        }));
-      }
-    });
+    if (tsRefusal !== undefined && requireTsProject) return { ok: false, message: tsRefusal };
+    const built = await buildWorkspaceHost(
+      this.deps,
+      {
+        repoId,
+        root,
+        config,
+        source,
+        ...(tsRefusal !== undefined ? { workspaceUnsupported: tsRefusal } : {}),
+      },
+      (host) => {
+        // A process child died — drop the slot iff it still holds this exact host, so the next
+        // request respawns instead of reusing a dead engine.
+        const slot = this.engines.get(repoId);
+        if (slot !== undefined && slot.host === host) {
+          this.engines.delete(repoId);
+          this.deps.debug.ns('eviction')('evict', () => ({
+            repo: repoId,
+            reason: 'engine child exited',
+          }));
+        }
+      },
+    );
     if (!built.ok) return { ok: false, message: built.message };
 
     const slot: EngineSlot = {
@@ -297,6 +290,8 @@ export class Orchestrator implements ServingOrchestrator {
       // The hash of the EXACT bytes loadConfig evaluated — airtight against a config write
       // racing this spawn (a post-load re-read could store newer bytes than the engine ran).
       configFp: loaded.data.fingerprint,
+      configSource: source,
+      tsProject: tsRefusal === undefined ? 'verified' : 'unsupported',
     };
     this.engines.set(repoId, slot);
     this.trace('engine spawned', () => ({ repo: repoId, engines: this.engines.size }));

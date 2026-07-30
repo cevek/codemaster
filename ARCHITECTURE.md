@@ -103,6 +103,19 @@ restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-targ
   `codemaster daemon serve` (split from the management verbs). The
   `--in-process` flag bypasses the socket and serves a local orchestrator directly (debug /
   self-dev), carrying its own idle self-exit.
+- **The TS-project gate, and the one op it does not apply to.** codemaster inspects TS/React repos, so
+  the orchestrator refuses to spawn an engine for a config-less root with no `tsconfig.json` and no
+  tracked `.ts/.tsx` (`daemon/ts-project-check.ts`): warming a Java/Go/empty folder indexes nothing and
+  the silent warm reads as success. A `codemaster.config` is an explicit opt-in and is trusted. The
+  exception is an op that declares `workspaceIndependent` — today `feedback`, whose whole job is to be
+  reachable where codemaster does not work: a repo we refuse otherwise CANNOT REPORT that we refuse it,
+  and the resulting silence in the inbox reads as "no problems there" (§3.4 by omission). So the gate is
+  decided **per dispatch group** — it applies unless EVERY op in the group is workspace-independent,
+  since the group shares one engine — and the refusal is never cached: a slot spawned past the gate
+  records `unsupported` and is re-checked on each workspace-needing request, so a root that gains a
+  tsconfig is answered on the next read rather than held refused until eviction (§3.5). An engine
+  spawned for such a root carries the refusal to its ops (`DaemonInfo.workspaceUnsupported`), so a note
+  filed from an uninspectable repo says so instead of reading like every other report.
 - **Workspace engine** — the whole machine for **one workspace** (a repo, or a monorepo
   root): all registered **plugins** (`ts`, `scss`, `i18n`, `schema`, framework adapters)
   with their internal state, plus the **ops** that compose them. Everything for that
@@ -740,7 +753,7 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   building any program and NEVER warms the LS (the plugin stays cold): it parses the §10 git source
   surface with `ts.createSourceFile` and reads it with the `@internal` `getNamedDeclarations` +
   `createPatternMatcher` (§4 — same parser, capability-guarded). It is COMPLETE for declarations in
-  git-tracked source UNDER the workspace root (≥ navto's recall there) but noisier (extra import /
+  the scanned source surface UNDER the workspace root (≥ navto's recall there) but noisier (extra import /
   re-export sites; real declarations ranked first) and carries `provenance:'syntactic'`. **Honest
   scope (t-515730):** a git listing at the root cannot see a tsconfig `include`/`reference` reaching
   OUTSIDE the root, so such outside-root symbols are not scanned — the op DISCLOSES this positively
@@ -750,7 +763,26 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   per-plugin-instance (`syntactic-cache.ts`) keyed on a repo-state fingerprint the syntactic path can
   trust — NOT `projectVersion` (which won't bump for a re-modified untracked / member-only file the
   §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
-  stat-walk (§1). The syntactic path leaves navto's default output untouched (navto at terse/normal
+  stat-walk (§1).
+  **TWO LISTING MECHANISMS, and every answer states which one it got (t-810757).** git is the DEFAULT
+  and what the static scope prose describes; a workspace git cannot list (no repo, or git unavailable)
+  degrades to the bounded §19 filesystem walk — the same fallback the read-time freshness check and the
+  §10 program file-set already take on a non-git root, so hard-failing here made the OOM-safe browse
+  (the call `ops/guard/navigate.ts` redirects OTHER ops' refusals to) the one thing that could not
+  answer where it was needed most. The two surfaces differ in BOTH directions, and the walk-mode answer
+  names both: WIDER (no `.gitignore` evaluation → build output under a non-standard dir name is
+  catalogued as source) and NARROWER (the walk applies the §10 name-ignore set + the 1 MB file cap,
+  which the git listing deliberately does not — so a real tracked source file under `build/` is on the
+  git surface and MISSING from the walk surface: a §3.4 miss, stated as one). The line is emitted for
+  every state EXCEPT the documented default, so a git workspace's answer is byte-identical and the
+  ABSENCE of the line is itself informative; an origin that could not be established prints its OWN line
+  rather than inheriting the default's silence. A walk that FAILS fails the call (an unlistable root is
+  not an empty repo); a walk that hit a BOUND answers and carries the bound. The mechanism is read back
+  through `ts.syntacticSurfaceProvenance()` — one per-engine slot, and the engine serializes a
+  workspace's requests (§8), so it describes the answer the preceding call produced. In walk mode the
+  key IS the walk (one bounded walk per surface build, the order of work non-git freshness already pays
+  per op), with the §19 racy-clean escalation applied through the same window `compareFingerprints`
+  uses. The syntactic path leaves navto's default output untouched (navto at terse/normal
   stays byte-identical; `verbosity:'full'` adds an opt-in header-only decl preview per match, t-517121).
   **`source {syntactic:true}` rides the same no-program surface (`sourceSyntactic`, t-229522).** Printing a
   declaration's BODY needs no checker, so the flag reads it straight off that surface — no program build,
@@ -1429,7 +1461,9 @@ the outer `.gitignore` can't see across the working-tree boundary); (2) the file
 ignored (a bounded SYNC
 `git ls-files --others --ignored`, memoized once per structural reindex — never the LS hot path,
 §19). Ignore-SEMANTICS, not tracked-only: tracked AND freshly-written untracked-not-ignored source
-are both kept, only ignored files drop; a non-git root degrades to the name set. A file reached only
+are both kept, only ignored files drop; a non-git root degrades to the name set. The no-program
+SYNTACTIC surface degrades the same way — git listing by default, the bounded §19 walk where git cannot
+list, with the answer stating which and how the two differ in both directions (§5-L2). A file reached only
 by an `import` is unaffected either way (TS still resolves an import INTO an excluded path — only
 ROOT-globbed junk nothing imports drops out). The `scss`/`i18n`/`schema` plugins and the non-git
 freshness fallback use ONLY the name-based ignore set — `node_modules`/`dist`/`build`/`.next`,
@@ -1877,7 +1911,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1900,7 +1934,7 @@ codemaster/
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …
-    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, heap-ceiling.ts child heap ceiling §9, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
+    daemon/                  # L4 — orchestrator: front door, routing, lifecycle, governor + host.ts (orchestrator-deps.ts, engine-slot.ts; ts-project-check.ts: the §4c gate + its per-dispatch-group decision and warm-slot re-check; engine-deps.ts; escalate.ts isolation decision §2/§9; in-process-host.ts; process-mode: host-build.ts, process-host.ts, fork-engine.ts, heap-ceiling.ts child heap ceiling §9, child-stderr-relay.ts, engine-child.ts, engine-protocol.ts, process-host-factory.ts, builtin-plugins.ts; daemon-server.ts also carries the daemon's own §13 breadcrumb span)
     mcp/                     # L5 — MCP facade: per-op tools (op-tools.ts) + status + batch; render-response (dense/json helpers) + cap-seam (§12 total-size cap) + call-telemetry.ts / inflight-ops.ts (§13 crash breadcrumbs)
     cli/                     # L5 — the CLI front door: op-command.ts (argv → OpRequest), compose.ts (batch + --sql, the same schema/normalizer/renderer the MCP surface uses), flags.ts, surfaces.ts (the non-op names batch/status, §3.6)
     format/                  # dense formatter, codes, json mode

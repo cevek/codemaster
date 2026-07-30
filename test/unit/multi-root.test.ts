@@ -39,7 +39,9 @@ test('a short engine reply fills its slot with an explicit error, never shifts l
       } as unknown as ProjectHost,
     });
 
-  const results = await groupedDispatch(reqs, routes, undefined, spawn);
+  // Every op here needs a workspace (the §4c gate's default) — this test is about result-slot
+  // alignment, not the gate.
+  const results = await groupedDispatch(reqs, routes, undefined, spawn, () => true);
 
   assert.equal(results.length, reqs.length, 'one slot per request, always');
   assert.deepEqual(results[0], okResult('a1'));

@@ -30,7 +30,7 @@ import { declarationsSyntactic } from './syntactic-decl.ts';
 import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
-import { clearSyntacticCache, createSyntacticCache } from './syntactic-cache.ts';
+import { clearSyntacticCache, createSyntacticCache, surfaceProvenance } from './syntactic-cache.ts';
 import {
   DEFAULT_SEARCH_WARM_MAX_FILES,
   estimateSearchPeak,
@@ -96,7 +96,8 @@ export { isBareNameTarget } from './disclose-resolution.ts';
 // `syntactic-surface.ts` scans, so it belongs beside that function — but the ops that state it to the
 // agent must reach it the same way they reach everything else here (§5-L3), not by importing a plugin
 // internal.
-export { SYNTACTIC_SCOPE } from './syntactic-scope.ts';
+export { SYNTACTIC_SCOPE, surfaceModeNote } from './syntactic-scope.ts';
+export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };
 // The host-free pre-warm size estimate + its threshold default, re-exported through the plugin's
@@ -279,6 +280,7 @@ export function createTsPlugin(
     // memoized parsed surface; membership is a bounded per-call pass (never cached — syntactic-cache
     // cannot see a tsconfig edit).
     listSymbols: (filter) => listCatalogue(root, syntacticCache, filter),
+    syntacticSurfaceProvenance: () => surfaceProvenance(syntacticCache),
     configMembership: () => computeConfigMembership(root),
 
     // 0-match file/module hint (t-517121): host-free git-listing lookup — sees files under

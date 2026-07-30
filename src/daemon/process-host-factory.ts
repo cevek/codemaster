@@ -8,7 +8,7 @@ import { systemClock } from '../common/async/clock.ts';
 import { createProcessHost } from './process-host.ts';
 import { forkEngineChild, type EngineChildHandle, type ForkEngineOpts } from './fork-engine.ts';
 import { boxMemoryBytes, describeCeiling, resolveChildHeapMB } from './heap-ceiling.ts';
-import type { OrchestratorDeps } from './orchestrator.ts';
+import type { OrchestratorDeps } from './orchestrator-deps.ts';
 import type { Debugger } from '../core/debug.ts';
 
 /** Child build+ready handshake bound (§1); LS warm is lazy so this is short. */

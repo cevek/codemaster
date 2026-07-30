@@ -45,11 +45,26 @@ export function runGitSync(
       cwd,
       maxBuffer: MAX_BUFFER_BYTES,
       encoding: 'utf8',
+      // stderr PIPED, never inherited. The default (`inherit`) sprays git's own diagnostics
+      // (`fatal: not a git repository`, once per call) straight onto the parent's stderr —
+      // outside the debug subsystem, which CONTRIBUTING forbids, and pure noise on a
+      // long-lived server's channel. Piping keeps it, and the catch below folds it into the
+      // `ToolFailure` message, so the failure is no less informative than the leak was.
+      stdio: ['ignore', 'pipe', 'pipe'],
       ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
     });
     return ok(stdout);
   } catch (thrown) {
-    const message = thrown instanceof Error ? thrown.message : String(thrown);
-    return fail({ tool: 'git', message: `git ${args.join(' ')}: ${message}` });
+    return fail({ tool: 'git', message: `git ${args.join(' ')}: ${syncFailureDetail(thrown)}` });
   }
+}
+
+/** The message of a failed `execFileSync`, with git's own stderr appended when the piped
+ *  child said something the generic `Command failed: …` line doesn't carry. Without this the
+ *  stdio fix would trade a leak for a less informative failure — a bad exchange (§3.6). */
+function syncFailureDetail(thrown: unknown): string {
+  const base = thrown instanceof Error ? thrown.message : String(thrown);
+  const stderr = thrown instanceof Error ? (thrown as { stderr?: unknown }).stderr : undefined;
+  const text = typeof stderr === 'string' ? stderr.trim() : '';
+  return text.length > 0 && !base.includes(text) ? `${base}: ${text}` : base;
 }

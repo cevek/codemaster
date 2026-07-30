@@ -91,9 +91,9 @@ export function searchSymbolsSyntactic(
     // An empty/degenerate pattern (schema already enforces min length 1) — an honest empty, never a guess.
     return ok(emptyView(filter));
   }
-  const sources = surfaceSources(root, cache);
-  if (!isOk(sources)) return fail(sources.failure);
-  return ok(searchOverSources(sources.data, deriveRootTag(root), matcher, limit, filter));
+  const surface = surfaceSources(root, cache);
+  if (!isOk(surface)) return fail(surface.failure);
+  return ok(searchOverSources(surface.data.sources, deriveRootTag(root), matcher, limit, filter));
 }
 
 function searchOverSources(

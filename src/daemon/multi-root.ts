@@ -19,11 +19,33 @@ import type { Result } from '../core/result.ts';
 export type RouteOk = { ok: true; repoId: RepoId; root: string };
 export type RouteOutcome = RouteOk | { ok: false; message: string };
 
-/** Spawn (or reuse) an engine for a resolved root, returning its host. */
+/** Spawn (or reuse) an engine for a resolved root, returning its host. `requireTsProject` carries
+ *  the §4c gate decision for the GROUP being dispatched (t-810757) — false only when every op in it
+ *  is workspace-independent. */
 export type SpawnHost = (
   repoId: RepoId,
   root: string,
+  requireTsProject: boolean,
 ) => Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }>;
+
+/** Does this request need an inspectable TS workspace? Answered from the op's own declaration in the
+ *  live registry, never from a name list here. */
+export type NeedsWorkspace = (req: OpRequest, root: string) => boolean;
+
+/** A group needs a workspace when ANY of its ops does: the group shares one engine, so the strictest
+ *  member sets the gate — a `feedback` riding along with a `find_usages` must not open the door for
+ *  it. Fails closed on an empty group (which `groupByEngine` never produces). */
+function groupRequiresTsProject(
+  reqs: readonly OpRequest[],
+  idxs: readonly number[],
+  root: string,
+  needsWorkspace: NeedsWorkspace,
+): boolean {
+  return idxs.some((i) => {
+    const req = reqs[i];
+    return req === undefined || needsWorkspace(req, root);
+  });
+}
 
 /** Group request indices by resolved engine, dropping unresolved ones to their error. */
 function groupByEngine(
@@ -54,11 +76,16 @@ export async function groupedDispatch(
   routes: readonly RouteOutcome[],
   batch: BatchOptions | undefined,
   spawn: SpawnHost,
+  needsWorkspace: NeedsWorkspace,
 ): Promise<OpResult[]> {
   const { groups, errors } = groupByEngine(reqs, routes);
   const results: (OpResult | undefined)[] = reqs.map((_, i) => errors.get(i));
   for (const [repoId, g] of groups) {
-    const spawned = await spawn(repoId, g.root);
+    const spawned = await spawn(
+      repoId,
+      g.root,
+      groupRequiresTsProject(reqs, g.idxs, g.root, needsWorkspace),
+    );
     const groupReqs = g.idxs.flatMap((i) => (reqs[i] !== undefined ? [reqs[i] as OpRequest] : []));
     if (!spawned.ok) {
       for (const i of g.idxs) {
@@ -92,6 +119,7 @@ export async function groupedDispatch(
 
 export interface CrossRootSqlDeps {
   spawn: SpawnHost;
+  needsWorkspace: NeedsWorkspace;
   opDefs: (root: string) => Map<string, AnyOpDefinition>;
   bounds: SqlBounds;
   createRunner: () => Result<SqlRunner>;
@@ -124,7 +152,11 @@ export async function crossRootSql(
   let firstRoot: string | undefined;
   for (const [repoId, g] of groups) {
     firstRoot ??= g.root;
-    const spawned = await deps.spawn(repoId, g.root);
+    const spawned = await deps.spawn(
+      repoId,
+      g.root,
+      groupRequiresTsProject(reqs, g.idxs, g.root, deps.needsWorkspace),
+    );
     if (!spawned.ok)
       return [{ name: 'sql', error: { kind: 'unavailable', message: spawned.message } }];
     const groupReqs = g.idxs.flatMap((i) => (reqs[i] !== undefined ? [reqs[i] as OpRequest] : []));

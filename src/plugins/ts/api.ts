@@ -20,6 +20,7 @@ import type { NodeModuleImportSite } from './phantom-imports.ts';
 import type { Result } from '../../core/result.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { CatalogueFilter, FileNames } from './syntactic-catalogue.ts';
+import type { SurfaceProvenance } from './syntactic-cache.ts';
 import type { SyntacticDeclBatch } from './syntactic-decl.ts';
 import type { ConfigMembership } from './program/config-membership.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
@@ -100,6 +101,14 @@ export interface TsPluginApi extends Plugin {
    *  first-contact browse). Complete for declarations under the root; a `ToolFailure` on git /
    *  @internal-TS unavailability, never a false empty. */
   listSymbols(filter: CatalogueFilter): Result<FileNames[]>;
+  /** WHICH mechanism listed the no-program surface the three calls above just answered from — git (the
+   *  default) or the non-git filesystem-walk fallback, with any bound that walk hit (t-810757). Read
+   *  AFTER one of them, so it describes THAT answer's surface; `undefined` when no surface is memoized,
+   *  which an op states as an unestablished origin rather than letting silence read as the default.
+   *  A separate call rather than a field on three return types: the surface is one per-engine slot and
+   *  the engine serializes a workspace's requests (§8), so nothing can rebuild it in between — the same
+   *  shape as `symbols_overview` already reading `configMembership()` after `listSymbols()`. */
+  syntacticSurfaceProvenance(): SurfaceProvenance | undefined;
   /** `symbols_overview` grouping layer (t-143952): file→tsconfig ownership for per-config grouping, host-
    *  free + bounded. Never warms the LS, never throws — an over-bound/failed pass returns `degraded`
    *  and the op falls back to a single flat group. */

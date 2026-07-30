@@ -10,8 +10,10 @@ import type { FileFingerprint } from './fingerprint.ts';
 export type FingerprintComparison = 'same' | 'changed' | 'tie';
 
 /** Conservative default window: 2000 ms covers FAT (2 s), HFS+ (1 s) and network
- *  mounts with second-level mtime resolution. */
-const DEFAULT_MTIME_RESOLUTION_MS = 2000;
+ *  mounts with second-level mtime resolution. Exported so a caller that BUILDS a state key
+ *  rather than comparing two fingerprints (the syntactic surface's walk-mode key) applies the
+ *  SAME racy window — one tie rule, one home, never a second subtly-different copy. */
+export const DEFAULT_MTIME_RESOLUTION_MS = 2000;
 
 export function compareFingerprints(
   recorded: FileFingerprint,

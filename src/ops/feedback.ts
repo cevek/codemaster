@@ -41,12 +41,20 @@ function inboxEntry(args: FeedbackArgs, d: DaemonInfo): string {
       ? ''
       : `\n\`\`\`json example\n${JSON.stringify(args.example, null, 2)}\n\`\`\`\n`;
   const ops = d.opNames.length > 0 ? d.opNames.join(',') : 'none';
+  // A root codemaster refuses to inspect says so ON the entry (t-810757). Without it a wish filed
+  // from a Java/Go repo is indistinguishable from one filed where everything works, and triage reads
+  // the whole unsupported population as if it had no complaints — the silence this channel exists to
+  // break. Its own line, ahead of the body, because it reframes everything below it.
+  const unsupported =
+    d.workspaceUnsupported === undefined
+      ? ''
+      : `UNSUPPORTED WORKSPACE: ${d.workspaceUnsupported}\n`;
   // Leading blank line keeps blocks separated under append-only writes. `ops=` is the
   // catalogue at filing time — a "wish: op X" is triaged against what existed (§2).
   return (
     `\n## [${args.kind}] ${args.title} — ${when}\n\n` +
     `repo=${d.root} · cm=${d.version} · plugins=${plugins}\n` +
-    `ops=${ops}\n\n` +
+    `ops=${ops}\n${unsupported}\n` +
     `${args.detail}\n${example}`
   );
 }
@@ -56,6 +64,11 @@ export const feedbackOp = defineOp({
   summary: 'File a bug / wish / friction note — recorded to the global codemaster inbox',
   mutating: false,
   requires: [],
+  // The channel must reach the daemon from a workspace codemaster cannot inspect — a repo whose
+  // agent has the MOST to report is otherwise the one structurally unable to report it, and the
+  // resulting silence in the inbox reads as "no problems there" (§3.4 by omission). Nothing here
+  // touches the workspace: no plugin, no program, no LS — recording IS the action.
+  workspaceIndependent: true,
   argsSchema,
   argsHint:
     "{ kind: 'bug'|'wish'|'friction', title: string, detail: string, example?: <any json> }",

@@ -7,6 +7,8 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { isOk } from '../common/result/narrow.ts';
 import { gitLsFiles } from '../support/git/ls-files.ts';
+import type { OpRequest } from '../ops/contracts.ts';
+import type { AnyOpDefinition } from '../ops/registry.ts';
 
 /** A root tsconfig (the canonical signal) OR at least one tracked `.ts/.tsx/.mts/.cts` (covers a
  *  monorepo whose configs live per-package). A non-git root can't be cheaply enumerated, so we
@@ -31,4 +33,35 @@ export async function tsProjectRefusal(
 ): Promise<string | undefined> {
   if (configSource !== undefined || (await looksLikeTsProject(root))) return undefined;
   return `no TS project at ${root} — no tsconfig.json and no tracked .ts/.tsx files (codemaster inspects TypeScript/React repos; point at a TS repo root, or add a codemaster.config to opt in)`;
+}
+
+/** Does this set of requests need an inspectable TS workspace (t-810757)? ANY member that does
+ *  decides it: they share one engine, so a `feedback` riding along with a `find_usages` must not open
+ *  the gate for it. The verdict is read from each op's own declaration in the live registry — never a
+ *  name list, which drifts on the first op added and takes its tests with it. An op the map does not
+ *  know (an unknown name, or a config that would not load) counts as needing one: the gate fails
+ *  closed, and the engine's own catalogue refuses the unknown name on its own terms. */
+export function requiresTsProject(
+  reqs: readonly OpRequest[],
+  defs: ReadonlyMap<string, AnyOpDefinition>,
+): boolean {
+  return reqs.some((req) => defs.get(req.name)?.workspaceIndependent !== true);
+}
+
+/** What to do with a config-current WARM slot under the §4c gate. A `verified` slot is trusted
+ *  exactly as before (no per-request git listing, so the hot path is untouched); an `unsupported` one
+ *  — which exists only because a workspace-independent op spawned an engine on a root codemaster
+ *  cannot inspect — is re-checked on every workspace-NEEDING request, so a root that gains a tsconfig
+ *  is answered on the next read rather than held refused until idle eviction (§3.5: the read path is
+ *  the guarantee). A root that has BECOME inspectable is respawned rather than flipped in place: the
+ *  engine baked the refusal at spawn and passes it to ops through `DaemonInfo`, so a slot still
+ *  reporting "unsupported" after we just proved otherwise would be the same staleness inverted. */
+export async function gateWarmSlot(
+  root: string,
+  slot: { tsProject: 'verified' | 'unsupported'; configSource: string | undefined },
+  requireTsProject: boolean,
+): Promise<{ action: 'reuse' } | { action: 'respawn' } | { action: 'refuse'; message: string }> {
+  if (!requireTsProject || slot.tsProject === 'verified') return { action: 'reuse' };
+  const refusal = await tsProjectRefusal(root, slot.configSource);
+  return refusal === undefined ? { action: 'respawn' } : { action: 'refuse', message: refusal };
 }

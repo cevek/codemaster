@@ -31,6 +31,12 @@ export interface DaemonInfo {
   plugins: readonly { id: string; version: string }[];
   /** The op catalogue at filing time — a "wish: op X should exist" is triaged against it. */
   opNames: readonly string[];
+  /** Set when this engine's root FAILED the §4c TS-project check at spawn (t-810757) — an engine
+   *  exists at all only because a workspace-INDEPENDENT op asked for one. Carries the refusal
+   *  verbatim, so a `feedback` note filed from a repo codemaster cannot inspect says so instead of
+   *  reading like every other report; the population whose experience we most need to hear is
+   *  exactly the one whose reports would otherwise be indistinguishable from a working repo's. */
+  workspaceUnsupported?: string;
   /** How the engine is hosted (§2): `in-process` shares the daemon heap (an OOM is uncatchable),
    *  `process` is a killable child. The semantic-fanout guard (t-679091) refuses a heavy LS fan-out
    *  only when `in-process`; process-mode survives via the t-000052 kill/respawn mechanism. */
@@ -142,6 +148,14 @@ export interface OpDefinition<A, D extends JsonValue> {
   /** Plugin ids this op needs. The engine drops the op from the catalogue when one is
    *  missing — an agent never sees an op it cannot call (§11). */
   readonly requires: readonly string[];
+  /** Set by an op whose work does NOT depend on the workspace being an inspectable TS project
+   *  (t-810757). The orchestrator refuses to spawn an engine for a non-TS root (§4c) — the right
+   *  answer for every op that would otherwise index nothing and report the silence as success, and
+   *  the wrong one for `feedback`, whose whole job is to be reachable where codemaster does not
+   *  work. Declared HERE, on the op, so the orchestrator reads capability from the live registry
+   *  instead of carrying a name list that drifts on the first op added. Default (absent) = needs the
+   *  workspace: the gate fails closed. */
+  readonly workspaceIndependent?: boolean;
   readonly argsSchema: z.ZodType<A>;
   /** Compact args rendering for the `status` cheat-sheet, e.g.
    *  `{ symbolId: SymbolId, limit?: number }`. */

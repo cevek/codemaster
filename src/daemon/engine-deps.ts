@@ -19,6 +19,12 @@ export interface EngineDeps {
   /** Canonical workspace root (from `canonicalizeRoot`). */
   root: string;
   configSource: string | undefined;
+  /** The §4c refusal for this root, when it has one (t-810757). An engine carrying it was spawned
+   *  for a workspace-independent op only; it reaches those ops through `ctx.daemon`. In-process by
+   *  construction: the gate never refuses a root carrying a `codemaster.config` (an explicit opt-in),
+   *  and both routes into `process` isolation need one — an explicit `daemon.isolation`, or an
+   *  auto-escalation whose trigger is a TS-file count a non-TS root cannot reach (§9). */
+  workspaceUnsupported?: string;
   /** Codemaster version, surfaced to the `feedback` op's auto-context. */
   version: string;
   /** State base (`~/.codemaster` by default; a temp dir under test) — where the

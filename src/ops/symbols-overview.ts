@@ -27,7 +27,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Truncation } from '../core/result.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import { surfaceModeNote, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { FileNames } from '../plugins/ts/syntactic-catalogue.ts';
 import type { ConfigMembership } from '../plugins/ts/program/config-membership.ts';
 import {
@@ -49,7 +49,7 @@ const COLLISIONS = '(collisions)';
 // → search). The flag-specific caveats below are appended ONLY when their flag is active (§12 — no wall
 // of prose when the flags aren't). Cap markers live per-group (`+N more`) + on the envelope, not here.
 const SYNTACTIC_NOTE =
-  'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: git-tracked source under the workspace root — an outside-root tsconfig include is NOT covered. Pick a name → search_symbol / find_definition.';
+  'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: git-tracked source under the workspace root (the default listing) — an outside-root tsconfig include is NOT covered. Pick a name → search_symbol / find_definition.';
 const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
 const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
 const HISTOGRAM_NOTE =
@@ -318,6 +318,11 @@ export const symbolsOverviewOp = defineOp({
       let note = SYNTACTIC_NOTE + (exportedOnly ? EXPORTED_ONLY_CAVEAT : ALL_NOTE);
       if (wantSummary) note += HISTOGRAM_NOTE;
       if (args.duplicatesOnly === true) note += DUP_NOTE;
+      // The surface that produced THIS catalogue (read after `listSymbols` built it, §8). `undefined`
+      // only when the default git listing held — its terms are already in the note above, so a git
+      // workspace's answer is byte-identical; every other state prints, including one we could not
+      // establish (silence must never stand in for a claim we did not make).
+      const surfaceMode = surfaceModeNote(ts.syntacticSurfaceProvenance());
 
       const histogram = wantSummary ? histogramLine(global) : undefined;
       const byConfig = wantSummary
@@ -345,6 +350,9 @@ export const symbolsOverviewOp = defineOp({
           // The duplicatesOnly config legend (`A=…, B=…`) — BEFORE the catalogue (verdict-first §12) so
           // the char-cap can only trim the collision tail, never the codes the tokens resolve against.
           ...(body.legend !== undefined ? { configs: body.legend } : {}),
+          // Ahead of `note` (verdict-first §12): a scope that is NOT the documented default is the
+          // first thing the catalogue below must be read against, and the char-cap trims the tail.
+          ...(surfaceMode !== undefined ? { surface: surfaceMode } : {}),
           note,
           grouping,
           groups: groups.size,

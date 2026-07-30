@@ -19,6 +19,9 @@ Strategy, oracles, and the invariants that gate CI live in
   and cross-op envelope-disclosure agreement (§16).
 - `unit/` — inline-VFS unit tests (the inner loop: `npm run test:light` = unit + golden).
 - `e2e/` — CLI + MCP end-to-end: daemon/bridge lifecycle, sql-over-ops, the response-size matrix,
+  the workspace shapes a VFS fixture cannot express (`non-git-non-ts-workspace.test.ts` over
+  `helpers/bare-workspace.ts`: real temp dirs with git OPT-IN, since the mechanism under test is what
+  git and the filesystem walk each report about a real directory),
   and the advertised-contract pin (`tools-list-schema.test.ts`: every `tools/list` schema resolves
   its own `$ref`s, `status {op}` returns byte-identical JSON, each advertised one-of branch parses
   under the op's zod gate, and the tool-list stays under its size budget).

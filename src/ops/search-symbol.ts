@@ -11,7 +11,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
-import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
+import { SYNTACTIC_SCOPE, surfaceModeNote } from '../plugins/ts/plugin.ts';
 import { fileModuleHint } from './search-file-hint.ts';
 import { opRefusal } from './guard/refusal.ts';
 import type { ToolFailure } from '../core/result.ts';
@@ -127,8 +127,13 @@ function syntacticResult(
   // Lazy: the file/module hint is computed ONLY on a genuine absence (not the path-filter self-defeat),
   // so the extra git listing is never paid on a hit or a filter miss.
   fileHint: () => string,
+  // The surface THIS answer was scanned from (§8: read after the scan built it). `undefined` when the
+  // documented default (git) held, so a git workspace's answer stays byte-identical; a walk surface —
+  // or an origin never established — prints ahead of the note, which the char-cap trims from the tail.
+  surfaceMode?: string,
 ) {
   const { matches, total, filteredOutByPath } = view;
+  const surface = surfaceMode === undefined ? {} : { surface: surfaceMode };
   const baseNote = exportedOnly ? SYNTACTIC_NOTE + EXPORTED_ONLY_CAVEAT : SYNTACTIC_NOTE;
   if (matches.length === 0) {
     // The syntactic scan covers all git-tracked source UNDER the root, so an empty result is a
@@ -137,11 +142,11 @@ function syntacticResult(
     const note =
       filteredOutByPath !== undefined && filteredOutByPath > 0
         ? `no matches under the path filter — ${filteredOutByPath} symbol(s) matched '${query}' but pathInclude/pathExclude excluded them all — NOT a symbol absence`
-        : `no symbols matching '${query}'${fileHint()} in git-tracked source under the workspace root. ${baseNote}`;
-    return ok({ note, matches: [] });
+        : `no symbols matching '${query}'${fileHint()} in the scanned source surface under the workspace root. ${baseNote}`;
+    return ok({ ...surface, note, matches: [] });
   }
   return ok(
-    { note: baseNote, matches: matches.map((m) => tag('symbol', m)) },
+    { ...surface, note: baseNote, matches: matches.map((m) => tag('symbol', m)) },
     total > matches.length
       ? {
           truncated: {
@@ -212,8 +217,12 @@ export const searchSymbolOp = defineOp({
       if (args.syntactic === true) {
         const res = ts.searchSymbolSyntactic(args.query, limit, filter);
         if (!res.ok) return fail(res.failure);
-        return syntacticResult(res.data, args.query, args.exportedOnly === true, () =>
-          fileModuleHint(args.query, ts.filesNamed(args.query)),
+        return syntacticResult(
+          res.data,
+          args.query,
+          args.exportedOnly === true,
+          () => fileModuleHint(args.query, ts.filesNamed(args.query)),
+          surfaceModeNote(ts.syntacticSurfaceProvenance()),
         );
       }
       // Pre-warm size guard (t-333163, pruning-aware t-399909): BEFORE the navto path warms the LS,

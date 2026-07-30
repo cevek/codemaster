@@ -91,9 +91,9 @@ export function declarationsSyntactic(
   deadline?: Deadline,
 ): Result<SyntacticDeclBatch> {
   if (!namedDeclarationsAvailable()) return fail(INTERNAL_UNAVAILABLE);
-  const sources = surfaceSources(root, cache);
-  if (!isOk(sources)) return fail(sources.failure);
-  const index = createDeclIndex(root, sources.data, deriveRootTag(root));
+  const surface = surfaceSources(root, cache);
+  if (!isOk(surface)) return fail(surface.failure);
+  const index = createDeclIndex(root, surface.data.sources, deriveRootTag(root));
   const outcomes: SyntacticDeclOutcome[] = [];
   for (const target of targets) {
     // §19 loop-boundary poll: each target's bare-name arm walks the whole surface, so the budget is
@@ -404,7 +404,7 @@ function handleRivals(
 }
 
 function handleNotOnSurface(name: string, id: string): string {
-  return `'${name}' (handle ${id}) is not in the scanned git source surface under the workspace root — this is NOT proof it is gone (an outside-root tsconfig include is not scanned here); drop syntactic:true to resolve it through the checker`;
+  return `'${name}' (handle ${id}) is not in the scanned source surface under the workspace root — this is NOT proof it is gone (an outside-root tsconfig include is not scanned here); drop syntactic:true to resolve it through the checker`;
 }
 
 function noDeclarationAt(file: string, line: number, col: number | undefined): string {
@@ -440,5 +440,5 @@ function noSuchNameInFile(name: string, file: string): string {
 }
 
 function noSuchNameOnSurface(name: string): string {
-  return `no declaration named '${name}' in git-tracked source under the workspace root. An outside-root tsconfig include/reference is not scanned here — drop syntactic:true for those.`;
+  return `no declaration named '${name}' in the scanned source surface under the workspace root. An outside-root tsconfig include/reference is not scanned here — drop syntactic:true for those.`;
 }

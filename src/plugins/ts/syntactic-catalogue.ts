@@ -98,10 +98,10 @@ export function listCatalogue(
       });
     }
   }
-  const sources = surfaceSources(root, cache);
-  if (!isOk(sources)) return fail(sources.failure);
+  const surface = surfaceSources(root, cache);
+  if (!isOk(surface)) return fail(surface.failure);
   const out: FileNames[] = [];
-  for (const [rel, sf] of sources.data) {
+  for (const [rel, sf] of surface.data.sources) {
     if (
       !passesPathFilter(rel, { pathInclude: filter.pathInclude, pathExclude: filter.pathExclude })
     )
