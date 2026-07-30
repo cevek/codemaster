@@ -1,7 +1,7 @@
 ---
 id: t-000011
 title: find_unused_exports` false-clean on a broken program (no filter)
-status: backlog
+status: done
 priority: high
 type: bug
 complexity: S

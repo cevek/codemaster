@@ -94,13 +94,16 @@ export function createReactPlugin(): ReactPluginApi {
       // pickComponent) — never a fuzzy name re-search.
       const target: TsTargetInput = { file: span.file, line: span.line, col: span.col };
 
+      // A ts-seam miss is a failed ESTABLISHMENT, stamped with the oracle that fell short so the
+      // op reports it under `ts-ls` rather than blaming the react convention resolve that succeeded.
       const membersOut = ts.firstParamTypeMembers(target);
-      if (typeof membersOut === 'string') return { ok: false, message: membersOut };
-      if (!('view' in membersOut)) return { ok: false, message: membersOut.unresolved };
+      if (typeof membersOut === 'string') return { ok: false, tool: 'ts-ls', message: membersOut };
+      if (!('view' in membersOut))
+        return { ok: false, tool: 'ts-ls', message: membersOut.unresolved };
 
       const jsxOut = ts.jsxCallSites(target);
-      if (typeof jsxOut === 'string') return { ok: false, message: jsxOut };
-      if (!('view' in jsxOut)) return { ok: false, message: jsxOut.unresolved };
+      if (typeof jsxOut === 'string') return { ok: false, tool: 'ts-ls', message: jsxOut };
+      if (!('view' in jsxOut)) return { ok: false, tool: 'ts-ls', message: jsxOut.unresolved };
 
       return {
         ok: true,

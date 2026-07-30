@@ -96,7 +96,7 @@ export const findUnusedPropsOp = defineOp({
     '`prop:` answers about named props only, and OVERRIDES the external narrowing (the caller named it). A `found:0` there is disambiguated into three states, never merged: `inUse` (declared and passed at ≥1 readable site — the answer to "does anything still pass X?"), `notDeclared` (not a member), `undetermined` (absent from a CAPPED member set — cannot claim it is not declared).',
     'passed props are read semantically from each `<C .../>` site via findReferences — an aliased `import { C as D }` … `<D foo/>` is SEEN (grep would miss it), so a prop passed only through an alias is never falsely reported dead.',
     'HONESTY: a prop is reported `certain`-unused only when every reference is a cleanly-readable `<C/>` site. A `{...spread}`, a factory call (`React.createElement(C, props)`), or a value reference (`memo(C)`, `const D = C`) makes the passed set unreadable → EVERY candidate demotes to `partial` (could-not-prove-dead), with the reason in notes. Over-demotion is honest; a false `certain` is not.',
-    'component is resolved by react convention (a PascalCase function returning JSX). 0 matches or an ambiguous name → reported honestly in `note`, never an empty success; pass `file` to disambiguate.',
+    'component is resolved by react convention (a PascalCase function returning JSX). 0 matches, an ambiguous name, or a ts-seam that cannot read the target → an honest FAILURE (`ok:false`) naming the oracle that fell short, NEVER `ok{found:0}`: `found` counts UNUSED props, so a laundered lookup would be indistinguishable from a component that resolved and has none. Pass `file` to disambiguate. A component that DID resolve and has no dead props is the ordinary `ok{found:0}`.',
     'a prop passed at ANY readable site is "used" and not reported — this finds never-passed props, not props passed only sometimes.',
     'usage is discovered across the LOADED programs (primary + sibling tsconfigs, so a `<C/>` in `test/**` counts) — but a component rendered ONLY from an undiscovered nested-package config (neither adjacent to the main tsconfig nor `references`d) is not seen, so a prop passed only there would read `certain`-unused. The same cross-program floor `find_unused_exports` carries; verify before deleting a prop in a multi-package repo.',
   ],
@@ -117,9 +117,14 @@ export const findUnusedPropsOp = defineOp({
         ...(args.includeExternal === true ? { includeExternal: true } : {}),
       });
       if (!result.ok) {
-        // Honest non-result (not found / ambiguous / unresolvable) — never a fabricated success.
-        // `notes` (plural) so it renders through the same table-notes channel as the demote reasons.
-        return ok({ component: args.component, found: 0, notes: [result.message] });
+        // A failed ESTABLISHMENT (not a detected component / ambiguous / a ts-seam miss) is a
+        // FAILURE, not an `ok` shaped like a proven absence (t-585566): on the success path `found`
+        // counts UNUSED props, so `found:0` beside a resolver message made "no such component" and
+        // "this component has no dead props" byte-identical to a json/sql consumer — the note is
+        // prose the `0` never carried. `ok:false` is the machine-readable difference; the resolver's
+        // own message (with its candidate list / `file:` remedy) is preserved verbatim, and the
+        // failing oracle names itself (`react` = convention resolve, `ts-ls` = a ts seam).
+        return fail({ tool: result.tool, message: result.message });
       }
       const view = result.view;
       const capped = view.truncatedMembers;

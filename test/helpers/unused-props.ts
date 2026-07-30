@@ -103,6 +103,41 @@ export function oracle(
   return { declared, passed, unused, external, order };
 }
 
+/** Independent ground truth for "is there anything here to resolve": the FILES in which a cold
+ *  `ts.Program` declares a function/const of this name. Empty = the lookup MUST fail; a length of 2
+ *  = the name is genuinely ambiguous. Deliberately not derived from `oracle()` above, which answers
+ *  about props and reports an absent component the same way it reports a propless one — the very
+ *  conflation the op must not make. */
+export function declarationFiles(root: string, name: string): string[] {
+  const cfgPath = path.join(root, 'tsconfig.json');
+  const raw = ts.parseConfigFileTextToJson(cfgPath, readFileSync(cfgPath, 'utf8'));
+  const parsed = ts.parseJsonConfigFileContent(raw.config as object, ts.sys, root);
+  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const files: string[] = [];
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile || sf.fileName.includes('/node_modules/')) continue;
+    const visit = (n: ts.Node): void => {
+      const hit =
+        (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name) ||
+        (ts.isFunctionDeclaration(n) && n.name?.text === name);
+      if (hit) files.push(sf.fileName);
+      ts.forEachChild(n, visit);
+    };
+    ts.forEachChild(sf, visit);
+  }
+  return files;
+}
+
+/** The failure arm — asserts the op did NOT answer, and hands back the `ToolFailure` so a test can
+ *  pin which oracle fell short and what it said. The mirror of `data()`, so a test states which
+ *  shape it expects and can never read one as the other. */
+export function failure(r: OpResult): { tool: string; message: string } {
+  if ('error' in r) throw new Error(`dispatch error: ${r.error.message}`);
+  assert.equal(r.result.ok, false, 'expected a FAILURE, got an ok result');
+  assert.ok(!r.result.ok);
+  return r.result.failure;
+}
+
 export function data(r: OpResult): Record<string, JsonValue> {
   if ('error' in r) throw new Error(`dispatch error: ${r.error.message}`);
   assert.ok(r.result.ok, 'expected ok result');

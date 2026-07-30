@@ -12,7 +12,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { project, assertSpansValid } from '../helpers/project.ts';
-import { PKG, TSCONFIG, data, oracle, unusedNames } from '../helpers/unused-props.ts';
+import {
+  PKG,
+  TSCONFIG,
+  data,
+  declarationFiles,
+  failure,
+  oracle,
+  unusedNames,
+} from '../helpers/unused-props.ts';
 
 test('aliased <B size/> pass: declared − passed matches cold oracle; certain (grep would miss the alias)', async () => {
   const p = await project({
@@ -129,20 +137,107 @@ test('JSX content <C>body</C> passes the children prop — not a false certain-d
   }
 });
 
-test('honest non-result: unknown component reports found:0 with a note, not an empty success', async () => {
-  const p = await project({
-    'package.json': PKG,
-    'tsconfig.json': TSCONFIG,
-    'src/Button.tsx': 'export const Button = (p: { a: string }) => <button>{p.a}</button>;\n',
-  });
+// t-585566 — a failed component lookup must not be shaped like an established absence. On the
+// SUCCESS path `found` counts UNUSED props, so `ok{found:0}` for a name that never resolved made
+// "no such component" and "this component has no dead props" byte-identical to a `format:'json'` /
+// sql consumer, whose only channel is the number. The discriminator asserted here is `result.ok`,
+// which is machine-readable; the note that used to carry the difference is prose the `0` never had.
+//
+// The oracle is an INDEPENDENT cold `ts.Program` (`declarationFiles`), and it is deliberately NOT
+// the props oracle: that one reports an absent component and a propless one identically — exactly
+// the conflation under test. One fixture, three names, three ground truths: `Nope` is declared
+// NOWHERE (the lookup cannot succeed), `Clean` is declared once with every prop passed (an
+// established zero), `Dup` is declared TWICE (ambiguous — also unresolvable).
+const RESOLVE_FIXTURE = {
+  'package.json': PKG,
+  'tsconfig.json': TSCONFIG,
+  'src/Clean.tsx': 'export const Clean = (p: { a: string }) => <button>{p.a}</button>;\n',
+  'src/App.tsx': 'import { Clean } from \'./Clean\';\nexport const App = () => <Clean a="x"/>;\n',
+  'src/Dup1.tsx': 'export const Dup = (p: { z: string }) => <i>{p.z}</i>;\n',
+  'src/Dup2.tsx': 'export const Dup = (p: { z: string }) => <b>{p.z}</b>;\n',
+};
+
+test('a failed component lookup FAILS — it is not an ok{found:0} (the established zero keeps that shape)', async () => {
+  const p = await project(RESOLVE_FIXTURE);
   try {
-    const r = await p.op('find_unused_props', { component: 'Nope' });
-    const d = data(r);
-    assert.equal(d['found'], 0);
-    assert.ok(
-      (d['notes'] as string[]).some((n) => n.includes('Nope')),
-      'note names the component',
+    // Ground truth first, so the two expectations rest on the repo's construction, not on
+    // codemaster answering about itself.
+    assert.deepEqual(
+      declarationFiles(p.root, 'Nope'),
+      [],
+      'oracle: nothing named Nope is declared',
     );
+    const o = oracle(p.root, 'Clean');
+    assert.deepEqual([...o.declared], ['a'], 'oracle: Clean declares one prop');
+    assert.deepEqual([...o.unused], [], 'oracle: every declared prop is passed — an HONEST zero');
+
+    const miss = await p.op('find_unused_props', { component: 'Nope' });
+    const clean = await p.op('find_unused_props', { component: 'Clean' });
+
+    // The load-bearing assert: the two answers differ in a field a machine reads.
+    assert.ok('result' in miss && 'result' in clean);
+    assert.notEqual(
+      miss.result.ok,
+      clean.result.ok,
+      'a lookup that failed and a component with no dead props must NOT share a shape',
+    );
+
+    const f = failure(miss);
+    assert.equal(f.tool, 'react', 'the react convention resolve is the oracle that fell short');
+    assert.match(f.message, /Nope/, 'the resolver message is preserved verbatim');
+    assert.ok(!('data' in miss.result), 'a failed establishment carries no data to misread');
+
+    // …and the established zero is UNCHANGED — over-correcting this into a failure/partial would be
+    // the same lie inverted (§3.6): the walk finished and really found nothing dead.
+    const d = data(clean);
+    assert.equal(d['found'], 0, 'a resolved component with no dead props still answers found:0');
+    assert.equal(d['declared'], 1);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('an AMBIGUOUS component name fails too — one unresolved target, not a zero over an arbitrary pick', async () => {
+  const p = await project(RESOLVE_FIXTURE);
+  try {
+    assert.equal(declarationFiles(p.root, 'Dup').length, 2, 'oracle: Dup is declared twice');
+    const r = await p.op('find_unused_props', { component: 'Dup' });
+    const f = failure(r);
+    assert.equal(f.tool, 'react');
+    assert.match(f.message, /ambiguous/i);
+    assert.match(f.message, /Dup1\.tsx/, 'the candidate list survives into the failure');
+    assert.match(f.message, /file:/, 'and so does the remedy that resolves it');
+
+    // Disambiguated, the same name answers normally — proof the failure is about the ADDRESSING,
+    // not a blanket refusal of the name.
+    const d = data(await p.op('find_unused_props', { component: 'Dup', file: 'src/Dup1.tsx' }));
+    assert.equal(d['component'], 'Dup');
+    assert.deepEqual([...unusedNames(d)], ['z'], 'z is never passed anywhere');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The contract change reaches the sql/batch surface too, and that is where it does the most good: a
+// producer returning `ok:false` FAILS the SELECT (a join over a missing table would lie), whereas the
+// old empty-table `ok` let a typo'd component slip silently into an anti-join as "nothing found".
+// Pinned here because a shape change in a JOIN producer is a contract change for every consumer.
+test('sql: a typo in `component` fails the SELECT and NAMES the producer — never a silent empty table', async () => {
+  const p = await project(RESOLVE_FIXTURE);
+  try {
+    const results = await p.request(
+      [{ name: 'find_unused_props', args: { component: 'Nope' }, as: 'dead' }],
+      {
+        sql: 'SELECT COUNT(*) AS n FROM dead',
+        return: 'all',
+      },
+    );
+    const sql = results[results.length - 1];
+    assert.ok(sql !== undefined && 'result' in sql && !sql.result.ok, JSON.stringify(results));
+    const msg = sql.result.failure.message;
+    assert.match(msg, /find_unused_props/, 'the failed producer is named, not "a producer"');
+    assert.match(msg, /as dead/, 'by its alias, so a multi-producer join says WHICH');
+    assert.match(msg, /Nope/, 'and carries the underlying cause, no re-run needed');
   } finally {
     await p.dispose();
   }

@@ -85,13 +85,23 @@ export type UnusedPropsOptions = {
   prop?: readonly string[];
 };
 
-export type PickResult = { ok: true; decl: FunctionDecl } | { ok: false; message: string };
+/** Which oracle failed to establish the answer, so the op reports the failure under the tool that
+ *  actually fell short instead of guessing the origin: `react` = this module's own convention
+ *  resolve (not a detected component / ambiguous name), `ts-ls` = a ts seam could not resolve the
+ *  target or read its members/sites. */
+export type UnusedPropsFailureTool = 'react' | 'ts-ls';
 
-/** The plugin method's result — the view, or an honest message (component not found / ambiguous /
- *  a ts-seam miss). Never a fabricated empty success. */
+export type PickResult =
+  | { ok: true; decl: FunctionDecl }
+  | { ok: false; tool: UnusedPropsFailureTool; message: string };
+
+/** The plugin method's result — the view, or a failed ESTABLISHMENT (component not found /
+ *  ambiguous / a ts-seam miss). The failure arm is never an empty view and is never rendered as a
+ *  success by the op: "we could not resolve it" and "it has no unused props" are different facts,
+ *  and an `ok` shaped like a proven absence is the §3.6 lie (t-585566). */
 export type UnusedPropsResult =
   | { ok: true; view: UnusedPropsView }
-  | { ok: false; message: string };
+  | { ok: false; tool: UnusedPropsFailureTool; message: string };
 
 /** Resolve a component by name (react policy: PascalCase + returns-JSX), optionally scoped to a
  *  file. Honest on 0 (not a detected component) and >1 (ambiguous — lists the files). */
@@ -110,6 +120,7 @@ export function pickComponent(
   if (matches.length === 0) {
     return {
       ok: false,
+      tool: 'react',
       message: `no detected React component named '${name}'${
         file !== undefined ? ` in ${file}` : ''
       } — unused_props applies to a PascalCase function that returns JSX`,
@@ -119,12 +130,14 @@ export function pickComponent(
     const where = matches.map((d) => `${d.span.file}:${d.span.line}`).join(', ');
     return {
       ok: false,
+      tool: 'react',
       message: `'${name}' is ambiguous (${matches.length} components: ${where}) — pass file: to disambiguate`,
     };
   }
   // matches.length === 1, guarded above.
   const decl = matches[0];
-  if (decl === undefined) return { ok: false, message: `no component named '${name}'` };
+  if (decl === undefined)
+    return { ok: false, tool: 'react', message: `no component named '${name}'` };
   return { ok: true, decl };
 }
 

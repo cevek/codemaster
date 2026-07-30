@@ -52,6 +52,11 @@ export type UnusedExportsView = {
   undiscoveredPrograms?: string[];
   /** Present when the candidate cap was hit: `examined` of `candidates` total. */
   truncated?: { examined: number; candidates: number };
+  /** Set when the LS produced NO Program at all: nothing was parsed, nothing was walked, and the
+   *  empty `unused` list establishes nothing. The op turns it into a `ToolFailure{tool:'ts-ls'}` —
+   *  never an `ok` shaped like a clean scan (t-000011), which is what a bare `unused:[] scanned 0`
+   *  read as. Mutually exclusive with every counter below (they are all 0 here). */
+  programUnavailable?: true;
   /** Set when the wall-clock budget (§1 never-hang) ran out mid-scan: the loop stopped after
    *  `scannedExports` of the candidate set, so `unused` is a PARTIAL answer (an unexamined export
    *  might be dead). The op returns it as a `ToolFailure{tool:'timeout', partial}`, never as a
@@ -94,7 +99,16 @@ export function findUnusedExports(
 ): UnusedExportsView {
   const program = host.service.getProgram();
   if (program === undefined) {
-    return { unused: [], scannedExports: 0, scannedFiles: 0, computedDynamicImport: false };
+    // The LS fell over — no Program, so no file was parsed and no export was classified. Flagged
+    // rather than returned as a zero-count view: the caller must be able to tell "the scan found
+    // nothing dead" from "there was no scan" (§3.6), and the op raises this into a `ToolFailure`.
+    return {
+      unused: [],
+      scannedExports: 0,
+      scannedFiles: 0,
+      computedDynamicImport: false,
+      programUnavailable: true,
+    };
   }
   const checker = program.getTypeChecker();
   // Usage discovery spans ALL the repo's loaded programs (spec Task G): an export used only from a

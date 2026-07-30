@@ -29,6 +29,13 @@ import { lowerBoundNote } from './lower-bound-note.ts';
 
 const MAX_NAMED = 3;
 
+/** The marker an op prints when its walk opened NOTHING — the one wording for "an empty SCAN is not
+ *  an empty RESULT", shared with the ops outside this module that reach the same state by their own
+ *  route (`find_unused_exports`, whose walk is primary-program-only and so carries no `ScanCoverage`).
+ *  A phrase copied per call site is a phrase that drifts on the first edit, and the two readings must
+ *  never diverge: an agent that learns this marker in one answer must recognise it in the next. */
+export const NOT_A_VERDICT_MARKER = '!! NOT A VERDICT';
+
 /** The three states a scan's emptiness can be in. Only `complete` licenses a semantic verdict
  *  ("no literal is assignable to T"); `nothing-walked` licenses NO claim about T whatsoever.
  *
@@ -220,7 +227,7 @@ export function scanEmptinessNote(
   if (siteCount > 0) return undefined;
   switch (scanCompleteness(coverage, undiscovered)) {
     case 'nothing-walked':
-      return `!! NOT A VERDICT — 0 file(s) were walked, so no ${subject.candidate} was checked and nothing about ${subject.subject} was established: this is an EMPTY SCAN, not an empty RESULT. ${emptyScanRemedy(coverage)}`;
+      return `${NOT_A_VERDICT_MARKER} — 0 file(s) were walked, so no ${subject.candidate} was checked and nothing about ${subject.subject} was established: this is an EMPTY SCAN, not an empty RESULT. ${emptyScanRemedy(coverage)}`;
     case 'incomplete':
       return `no ${subject.noun} among the ${coverage.examined} ${subject.candidate}(s) checked in the ${coverage.walkedFiles} file(s) walked — the scan is INCOMPLETE (see the floor note(s) below), so this is NOT proof ${subject.negation}.`;
     case 'complete':

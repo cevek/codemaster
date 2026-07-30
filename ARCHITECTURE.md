@@ -628,7 +628,13 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `find_definition` report a set-level `complete:false` + the **named** config + a `!!` LOWER-BOUND
   note (a count-only consumer sees the incompleteness without parsing prose) — never a silent
   false-`certain`-dead / a confident-`0` over a possibly-incomplete search, nor a confident single
-  definition when a same-named symbol may live unindexed (§3.4/§3.6). (`find_definition`'s floor fires
+  definition when a same-named symbol may live unindexed (§3.4/§3.6). **An EMPTY WALK is not an empty
+  result** (§3.4): `find_unused_exports` refuses the verdict whenever it walked 0 files — a scope filter
+  that matched nothing, or a program covering no source file — leading with the shared
+  `!! NOT A VERDICT` marker (`ops/scan-coverage.ts`, one wording for every op that reaches that state)
+  under ONE key whose text names the cause's own lever, since no glob can be widened into a program that
+  covers nothing; and when the LS produced no Program AT ALL it FAILS (`ToolFailure{ts-ls}`) rather than
+  reporting the clean repo a bare `unused (0) scanned 0` read as. (`find_definition`'s floor fires
   ONLY on a name-WITHOUT-a-file-pin: a `symbolId`/position/`name`+`file` target is an EXACT resolution
   where a cross-program twin is irrelevant, so it stays byte-identical — a floor there would dress a
   complete answer as partial.) **File-driven nearest-config discovery (read path).** Beyond
@@ -821,7 +827,12 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `JSX-usage → passed props` (via the ts `jsxCallSites` seam), diffed with the §3 honesty
   demotion (a `{...spread}` / a factory or value reference like `memo(C)` / a capped site set
   makes the passed set unreadable → every verdict demotes to `partial`, never a false
-  `certain`-dead). The "first param = props" and "what is a component" policies live here; both
+  `certain`-dead). A FAILED resolution is not demoted but RETURNED as a failure: an unknown /
+  ambiguous component name, or a ts seam that cannot read the target, answers `ok:false` stamped with
+  the oracle that fell short (`react` = the convention resolve, `ts-ls` = a seam) — never `ok{found:0}`,
+  which on the success path means "resolved, and no prop is dead" and so made the two byte-identical to
+  a `json`/`sql` consumer (§3.6). A component that DID resolve with no dead props keeps that shape.
+  The "first param = props" and "what is a component" policies live here; both
   seams are framework-neutral on the `ts` plugin. `jsxCallSites` is a generic SYNTACTIC JSX scan
   (the `functionDeclarations` / `callArgShapes` precedent — JSX is a TS-language construct, not
   react policy); `firstParamTypeMembers` is a generic first-parameter TYPE-member read off the live
@@ -1847,7 +1858,7 @@ codemaster/
                              # + navigate.ts (the shared "what answers this here" redirect table — also rendered by
                              #   search_symbol's pre-warm guard and daemon/process-host's oom/timeout path)
       lower-bound-note.ts    # the shared undiscovered-program floor prose (find_usages / importers_of)
-      scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2)
+      scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2) + the `!! NOT A VERDICT` empty-walk marker every op reaching that state prints (find_unused_exports too)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts  discrimination-sites.ts
       search-symbol.ts  source.ts  source-syntactic.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts

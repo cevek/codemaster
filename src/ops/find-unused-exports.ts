@@ -16,11 +16,20 @@ import type { TsPluginApi, UnusedExportView } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { programsArgShape, applyProgramsLever } from './programs-lever.ts';
+import { NOT_A_VERDICT_MARKER } from './scan-coverage.ts';
 
-/** Shown (as the first data field + an sql note) when a pathInclude/pathExclude matched no
- *  files: the scan examined nothing, so `unused (0)` is NOT proof that no exports are dead. */
-const FILTER_NO_FILES_WARNING =
-  'pathInclude/pathExclude matched 0 files — nothing was examined; this is NOT proof that no exports are dead. Check your path(s)/glob(s) against actual file paths.';
+/** The empty-WALK marker (§3.4), shown as the first data field + an sql note whenever the scan
+ *  opened no file at all: `unused (0)` is then "nothing was examined", not "no export is dead".
+ *
+ *  ONE key for both causes, because they are mutually exclusive by construction and a consumer that
+ *  had to probe two keys to learn whether a verdict exists is the defect this closes. The CAUSE — and
+ *  with it the one lever that can change the outcome (§3.6) — lives in the text: a scope filter that
+ *  matched nothing is fixed by fixing the globs; a program covering no source file cannot be widened
+ *  by any glob, so naming `pathInclude` there would be an inert lever. */
+const notAVerdictWarning = (filterSet: boolean): string =>
+  filterSet
+    ? `${NOT_A_VERDICT_MARKER} — pathInclude/pathExclude matched 0 files — nothing was examined; this is NOT proof that no exports are dead. Check your path(s)/glob(s) against actual file paths.`
+    : `${NOT_A_VERDICT_MARKER} — the program covers 0 source files, so no export was examined and nothing about dead exports was established: this is an EMPTY SCAN, not an empty RESULT. No scope filter was set, so widening one cannot help — check that the project's tsconfig \`include\`/\`files\` actually covers its sources (a target under another package? pass \`root:\`).`;
 
 const findUnusedExportsTable: TableSpec<JsonValue> = {
   columns: [
@@ -65,10 +74,10 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
         `examined ${t.examined} of ${t.candidates} candidate exports (cap hit) — narrow with pathInclude to cover the rest.`,
       );
     }
-    // The vacuous-filter warning (§3.4/§3.6) is an honesty channel, so it must reach the
+    // The empty-walk warning (§3.4/§3.6) is an honesty channel, so it must reach the
     // sql/table render too — sourced from the same data field the dense render shows, never
     // a re-derived string.
-    const warn = (data as { filterMatchedNoFiles?: string }).filterMatchedNoFiles;
+    const warn = (data as { notAVerdict?: string }).notAVerdict;
     if (warn !== undefined) out.push(warn);
     // The `programs:` lever's disclosure (§3.6) — forwarded from the same data field the text render
     // shows, so sql/table consumers see the floored/not-found configs too, never a re-derived string.
@@ -102,6 +111,7 @@ export const findUnusedExportsOp = defineOp({
     'an export used only WITHIN its own module (never imported) is NOT reported — it has a usage; this finds dead exports, not redundant `export` keywords.',
     'usage is observed across ALL loaded programs (see concepts: cross-program-read) — an export used only from a `test/**` file is SEEN as used (not falsely reported); a genuinely-dead export reads `certain` again.',
     'honest floor for the UNDISCOVERED case: a nested-package tsconfig that is neither adjacent to the main config nor `references`d is NOT loaded as a program, so an export used only from it cannot be proven dead. When any such config exists, every otherwise-`certain` claim is demoted to `partial` and the config is NAMED in the result note — never a silent false-`certain`-dead.',
+    'an EMPTY WALK is not an empty result: when 0 files were scanned (a scope filter that matched nothing, or a program covering no source file) the answer leads with `notAVerdict` and `unused (0)` proves nothing — and when the LS produced no Program at all the op FAILS (`ok:false`) instead of reporting a clean repo.',
     'bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.',
   ],
   table: findUnusedExportsTable,
@@ -137,18 +147,28 @@ export const findUnusedExportsOp = defineOp({
               hint: 'narrow with pathInclude / pathExclude, or raise limit, to examine the rest',
             }
           : undefined;
-      // False-clean guard (§3.4/§3.6): a pathInclude/pathExclude that matched ZERO files scanned
-      // NOTHING, so `unused (0)` is "nothing examined", not "no dead exports". Surfaced as the
-      // FIRST data field (verdict-first §12) so it renders loud and on top — an agent must never
-      // read a vacuous scan as clean. Gated on a filter being set AND scannedFiles===0:
-      // scannedExports===0 alone is legitimate (real files in scope that export nothing), so it
-      // would false-warn; scannedFiles===0 uniquely means the glob/path matched no file. An
-      // honest whole-repo zero (no filter set) is never flagged.
+      // The LS produced no Program (t-000011): nothing was parsed, so the empty list establishes
+      // nothing. A failed scan is a FAILURE, never an `ok` shaped like a clean repo — the honest
+      // "couldn't" the agent can fall back from (§3.6).
+      if (view.programUnavailable === true) {
+        return fail({
+          tool: 'ts-ls',
+          message:
+            'the TypeScript Language Service produced no Program for this workspace — no file was parsed and no export was examined, so nothing about dead exports could be established. Check the project tsconfig loads (`status`), then retry.',
+        });
+      }
+      // False-clean guard (§3.4/§3.6): a scan that walked ZERO files examined NOTHING, so
+      // `unused (0)` is "nothing examined", not "no dead exports". Surfaced as the FIRST data field
+      // (verdict-first §12) so it renders loud and on top — an agent must never read a vacuous scan
+      // as clean. Gated on scannedFiles===0 REGARDLESS of a filter: a filter is only ONE way to
+      // empty the walk (a degenerate `include`, a program covering no source, is another and was the
+      // false-clean this gate missed). `scannedExports===0` is deliberately NOT the trigger — real
+      // files in scope that export nothing are a finished walk, and flagging them would dress a
+      // complete answer as partial, the same lie inverted.
       const filterSet = args.pathInclude !== undefined || args.pathExclude !== undefined;
-      const filterMatchedNoFiles =
-        filterSet && view.scannedFiles === 0 ? FILTER_NO_FILES_WARNING : undefined;
+      const notAVerdict = view.scannedFiles === 0 ? notAVerdictWarning(filterSet) : undefined;
       const data = {
-        ...(filterMatchedNoFiles !== undefined ? { filterMatchedNoFiles } : {}),
+        ...(notAVerdict !== undefined ? { notAVerdict } : {}),
         // `programs:` verdict-first (§12): what the lever loaded / left floored / couldn't find,
         // ahead of the bulk `unused` list.
         ...lever.fields,
