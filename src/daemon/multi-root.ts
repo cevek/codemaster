@@ -28,23 +28,18 @@ export type SpawnHost = (
   requireTsProject: boolean,
 ) => Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }>;
 
-/** Does this request need an inspectable TS workspace? Answered from the op's own declaration in the
- *  live registry, never from a name list here. */
-export type NeedsWorkspace = (req: OpRequest, root: string) => boolean;
+/** Does this GROUP of requests need an inspectable TS workspace? Answered from each op's own
+ *  declaration in the live registry (`ts-project-check.ts` `requiresTsProject`), never from a name
+ *  list here. Group-shaped rather than per-request on purpose: the group shares one engine, so the
+ *  decision is a property of the group, and asking per request duplicated the ANY-of fold — once
+ *  here and once on the single-root fast path — for one decision. */
+export type NeedsWorkspace = (reqs: readonly OpRequest[], root: string) => boolean;
 
-/** A group needs a workspace when ANY of its ops does: the group shares one engine, so the strictest
- *  member sets the gate — a `feedback` riding along with a `find_usages` must not open the door for
- *  it. Fails closed on an empty group (which `groupByEngine` never produces). */
-function groupRequiresTsProject(
-  reqs: readonly OpRequest[],
-  idxs: readonly number[],
-  root: string,
-  needsWorkspace: NeedsWorkspace,
-): boolean {
-  return idxs.some((i) => {
-    const req = reqs[i];
-    return req === undefined || needsWorkspace(req, root);
-  });
+/** The group's requests, in index order. A slot whose request is missing (never produced by
+ *  `groupByEngine`) is dropped rather than skipped silently: `requestsOf` is the ONLY place that
+ *  reads the index back, so the gate below sees exactly what will be dispatched. */
+function requestsOf(reqs: readonly OpRequest[], idxs: readonly number[]): readonly OpRequest[] {
+  return idxs.flatMap((i) => (reqs[i] !== undefined ? [reqs[i] as OpRequest] : []));
 }
 
 /** Group request indices by resolved engine, dropping unresolved ones to their error. */
@@ -81,11 +76,7 @@ export async function groupedDispatch(
   const { groups, errors } = groupByEngine(reqs, routes);
   const results: (OpResult | undefined)[] = reqs.map((_, i) => errors.get(i));
   for (const [repoId, g] of groups) {
-    const spawned = await spawn(
-      repoId,
-      g.root,
-      groupRequiresTsProject(reqs, g.idxs, g.root, needsWorkspace),
-    );
+    const spawned = await spawn(repoId, g.root, needsWorkspace(requestsOf(reqs, g.idxs), g.root));
     const groupReqs = g.idxs.flatMap((i) => (reqs[i] !== undefined ? [reqs[i] as OpRequest] : []));
     if (!spawned.ok) {
       for (const i of g.idxs) {
@@ -155,7 +146,7 @@ export async function crossRootSql(
     const spawned = await deps.spawn(
       repoId,
       g.root,
-      groupRequiresTsProject(reqs, g.idxs, g.root, deps.needsWorkspace),
+      deps.needsWorkspace(requestsOf(reqs, g.idxs), g.root),
     );
     if (!spawned.ok)
       return [{ name: 'sql', error: { kind: 'unavailable', message: spawned.message } }];

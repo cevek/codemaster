@@ -16,7 +16,7 @@ import { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
 import { createScssPlugin } from '../../src/plugins/scss/plugin.ts';
 import { builtinOps } from '../../src/ops/builtins.ts';
-import type { OpRequest, OpResult } from '../../src/ops/contracts.ts';
+import type { BatchOptions, OpRequest, OpResult } from '../../src/ops/contracts.ts';
 import { manualClock } from './project.ts';
 
 export interface BareWorkspaceSpec {
@@ -29,7 +29,11 @@ export interface BareWorkspaces {
   root(name: string): string;
   /** Where the `feedback` inbox lands — asserted against, so it must not be the user's real one. */
   stateDir: string;
-  request(name: string, reqs: readonly OpRequest[]): Promise<readonly OpResult[]>;
+  request(
+    name: string,
+    reqs: readonly OpRequest[],
+    batch?: BatchOptions,
+  ): Promise<readonly OpResult[]>;
   write(name: string, rel: string, content: string): void;
   dispose(): Promise<void>;
 }
@@ -92,11 +96,11 @@ export async function bareWorkspaces(
       mkdirSync(path.dirname(abs), { recursive: true });
       writeFileSync(abs, content);
     },
-    async request(name, reqs) {
+    async request(name, reqs, batch) {
       const root = rootOf(name);
       // Explicit `root` — routing a non-git cwd would fall through to `canonicalizeRoot(cwd)`
       // anyway, but pinning it keeps the test about the surface, not about route resolution.
-      const outcome = await orchestrator.request(root, root, reqs);
+      const outcome = await orchestrator.request(root, root, reqs, batch);
       if (!outcome.ok) {
         // The §4c gate refuses at DISPATCH, before any per-request result exists — surface it as one
         // error result per request so a caller asserts on the refusal instead of on a thrown harness.

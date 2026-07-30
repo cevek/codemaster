@@ -7,7 +7,7 @@
 // declared under the root" (guardrail 1).
 //
 // HONEST SCOPE (t-515730 BLOCK 1): the scan surface is the §10 source surface UNDER the
-// workspace root — every git-tracked source file (incl. submodules) plus untracked-not-ignored
+// workspace root — by default every git-tracked source file (incl. submodules) plus untracked-not-ignored
 // files. It is COMPLETE for declarations in that surface, but a tsconfig `include`/`reference`
 // reaching OUTSIDE the root (e.g. `../shared`) is NOT scanned (a git listing at the root cannot see
 // above it, and resolving which configs escape the root is program-discovery, out of this path's
@@ -87,13 +87,20 @@ export function searchSymbolsSyntactic(
         'the bundled TypeScript lacks the @internal getNamedDeclarations/createPatternMatcher — the syntactic scan is unavailable; use the default (navto) search',
     });
   }
-  const matcher = createPatternMatcher(query);
-  if (matcher === undefined) {
-    // An empty/degenerate pattern (schema already enforces min length 1) — an honest empty, never a guess.
-    return ok(emptyView(filter));
-  }
+  // The surface is resolved BEFORE the matcher check, so every `ok` this function returns is backed
+  // by a surface built in THIS call. The op reads the provenance back separately
+  // (`syntacticSurfaceProvenance`) to state which listing produced the answer; an `ok` that skipped
+  // the surface would let that read describe a PREVIOUS call's scan — or, on a cold plugin, print
+  // "origin not established" for an answer that is perfectly well-founded. Cost is nil in practice:
+  // the skipped branch is unreachable through the op's schema (`query` is `min(1)`, and only an
+  // empty/degenerate pattern is rejected here), and where it is reached the scan is honest work.
   const surface = surfaceSources(root, cache);
   if (!isOk(surface)) return fail(surface.failure);
+  const matcher = createPatternMatcher(query);
+  if (matcher === undefined) {
+    // A degenerate pattern — an honest empty over a real surface, never a guess.
+    return ok(emptyView(filter));
+  }
   return ok(searchOverSources(surface.data.sources, deriveRootTag(root), matcher, limit, filter));
 }
 

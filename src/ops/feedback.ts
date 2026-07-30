@@ -66,8 +66,10 @@ export const feedbackOp = defineOp({
   requires: [],
   // The channel must reach the daemon from a workspace codemaster cannot inspect — a repo whose
   // agent has the MOST to report is otherwise the one structurally unable to report it, and the
-  // resulting silence in the inbox reads as "no problems there" (§3.4 by omission). Nothing here
-  // touches the workspace: no plugin, no program, no LS — recording IS the action.
+  // resulting silence in the inbox reads as "no problems there" (§3.4 by omission). The OP itself
+  // touches no plugin, no program and no LS — recording IS the action — but reaching it past the gate
+  // still spawns a full engine for that root today (watcher + an LRU slot that can evict a warm
+  // workspace), which is a cost this flag does not avoid; a no-engine path is t-012432.
   workspaceIndependent: true,
   argsSchema,
   argsHint:

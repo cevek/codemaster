@@ -11,11 +11,16 @@
 // files (untracked-not-ignored, .mts/.cts, member-only) — outside any program — so a projectVersion
 // key would serve a stale parse = a silent miss (§3.4/§3.5). So we key on our own fingerprint.
 //
-// HOT PATH is O(changed+untracked), NEVER O(surface) — no per-query stat-walk of the whole tree
-// (that is the ls-host per-call tree-scan hang-class §1). The key = HEAD ⊕ the porcelain string ⊕
-// an mtimeNs+size tie-break taken ONLY over the porcelain dirty+untracked set (bounded, exactly the
-// §19 "re-stat the dirty set" rule). The tie-break is what catches an untracked-file MODIFY whose
-// porcelain line is unchanged. A full re-list + re-parse happens ONLY on a key change (drift).
+// GIT-MODE HOT PATH is O(changed+untracked), with no per-query stat-walk of the whole tree (that is
+// the ls-host per-call tree-scan hang-class §1). The key = HEAD ⊕ the porcelain string ⊕ an
+// mtimeNs+size tie-break taken ONLY over the porcelain dirty+untracked set (bounded, exactly the §19
+// "re-stat the dirty set" rule). The tie-break is what catches an untracked-file MODIFY whose
+// porcelain line is unchanged.
+//
+// WALK MODE (no git to ask) has no cheap fingerprint available: the walk IS the state, so a bounded
+// tree walk runs per call — deadline-capped like the freshness walk it mirrors, and keyed on its own
+// BOUND as well as its files, so a scan that missed a subtree can never be cached as a complete one.
+// In either mode a full re-list + re-parse happens ONLY on a key change (drift).
 
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
@@ -30,6 +35,9 @@ import { walkFiles, type WalkRunner } from '../../support/fs/walk.ts';
 import { runGitSync } from '../../support/git/run.ts';
 
 const GIT_TIMEOUT_MS = 15_000;
+/** Wall-clock budget for one surface walk — the value `daemon/freshness.ts` uses for the same walk on
+ *  the same trees, so the two non-git paths degrade at the same point rather than at two. */
+const WALK_DEADLINE_MS = 5000;
 const NUL = String.fromCharCode(0);
 
 const SOURCE_EXT = /\.(?:ts|tsx|mts|cts)$/;
@@ -122,11 +130,13 @@ export interface SurfaceKey {
  *
  *  A git failure is NOT a dead end: a non-git workspace (or a repo git cannot read) degrades to the
  *  same bounded filesystem walk `daemon/freshness.ts` already falls back to (§3.5/§19) — the §10
- *  program file-set degrades to the name-ignore set on a non-git root too, so hard-failing here was
- *  the outlier, not the rule. The mode rides on the result; it is never silently absorbed.
- *  Walk mode costs one bounded walk per surface build (the walk IS the state, so there is nothing
- *  cheaper to key on) — the same order of work non-git freshness already pays per op, and bounded the
- *  same three ways: no symlink is followed, depth and entry count are capped. */
+ *  program file-set degrades to the name-ignore set on a non-git root too, so hard-failing here would
+ *  be the outlier, not the rule. The mode rides on the result; it is never silently absorbed.
+ *  Walk mode costs one bounded walk per CALL — the walk IS the state, so the key cannot be taken
+ *  without it, and the expensive half (re-listing + re-parsing) still fires only on drift. Non-git
+ *  freshness runs its own walk per op and coalesces it behind a short TTL, which this one does not;
+ *  sharing a single walk is t-950675. Bounded four ways: no symlink is followed, depth and entry
+ *  count are capped, and a wall-clock deadline stops it. */
 export function computeSurfaceKey(root: string, seams?: SurfaceSeams): Result<SurfaceKey> {
   const head = runGitSync(root, ['rev-parse', 'HEAD'], { timeoutMs: GIT_TIMEOUT_MS });
   // A pre-first-commit repo has no HEAD; that is not a failure — fold an empty marker and rely on
@@ -168,25 +178,30 @@ export function computeSurfaceKey(root: string, seams?: SurfaceSeams): Result<Su
  *  same-size edit keeps it), so its content is hashed instead. Bounded by the recently-touched set,
  *  the walk-mode analogue of git mode hashing exactly the porcelain-dirty paths.
  *
- *  A walk that FAILS outright fails the call — an unreadable root is not an empty repo (§3.6). A walk
- *  that hit a BOUND still answers, carrying the bound as prose the answer must state. */
+ *  A walk that reaches NO source file while reporting a bound FAILS the call; one that reached some
+ *  answers and carries its bound. The test is the SOURCE FILES produced, not the shape of the
+ *  envelope: `walkFiles` degrades an unreadable root to `partial([], …)` rather than a bare failure,
+ *  so a data-presence check passes it through and an unlistable root would answer `names: 0` — a
+ *  proven-looking absence built on a directory nobody could read (§3.4). A CLEAN walk finding no
+ *  source is a different fact and stays an honest empty. */
 function walkSurfaceKey(
   root: string,
   gitUnavailable: string,
   seams: SurfaceSeams | undefined,
 ): Result<SurfaceKey> {
   const walk = seams?.walk ?? walkFiles;
-  const walked = walk(root);
-  if (walked.data === undefined) {
-    return fail({
-      tool: 'fs',
-      message: `cannot list ${root}: git is unavailable (${gitUnavailable}) and the filesystem walk failed: ${walked.ok ? 'no data' : walked.failure.message}`,
-    });
-  }
-  const nowMs = (seams?.now ?? Date.now)();
+  const now = seams?.now ?? Date.now;
+  // The same wall-clock bound `daemon/freshness.ts` gives its own non-git walk (§19). This walk is
+  // SYNCHRONOUS, so the op's cooperative `Deadline` cannot cut it and, in-process, it blocks the loop
+  // for every workspace — the depth/entry caps bound it in the abstract, but a slow or network mount
+  // reaches them in minutes. An overrun degrades through `incomplete`, which is keyed below, so a
+  // timed-out scan can never be cached as a complete one.
+  const walked = walk(root, { now, deadlineMs: now() + WALK_DEADLINE_MS });
+  const incomplete = walked.ok ? undefined : walked.failure.message;
+  const nowMs = now();
   const files: string[] = [];
   let rollup = '';
-  for (const f of walked.data) {
+  for (const f of walked.data ?? []) {
     if (!isScannedSourcePath(f.path)) continue;
     files.push(f.path);
     const racy = nowMs - f.mtimeMs < DEFAULT_MTIME_RESOLUTION_MS;
@@ -195,13 +210,26 @@ function walkSurfaceKey(
       rollup += h.ok ? `${f.path}:${h.hash}\n` : `${f.path}:${h.message}\n`;
     } else rollup += `${f.path}:${f.size}:${f.mtimeMs}\n`;
   }
+  if (incomplete !== undefined && files.length === 0) {
+    return fail({
+      tool: 'fs',
+      message: `cannot list ${root}: git is unavailable (${gitUnavailable}) and the filesystem walk reached no source file: ${incomplete}`,
+    });
+  }
   return ok({
-    key: fnv1a64Hex(`<walk>\n${rollup}`),
+    // The BOUND is keyed, not merely carried. `walkFiles` skips a symlink (or a too-deep dir) WITHOUT
+    // emitting an entry, so a symlinked source subtree appearing beside the tree leaves the file
+    // rollup byte-identical while flipping `incomplete` — key hit, cached surface, and the answer
+    // states the full scope for a scan that missed a subtree. The inverse is the same lie inverted:
+    // remove the symlink and a cached bound would keep claiming an incompleteness that no longer
+    // exists. Neither is rescued by freshness, which skips symlinks too, so there is no drift to
+    // notice. `gitUnavailable` rides along for the same reason — the answer states it.
+    key: fnv1a64Hex(`<walk>\n${gitUnavailable}\n${incomplete ?? ''}\n${rollup}`),
     origin: 'walk',
     walked: {
       files,
       gitUnavailable,
-      ...(walked.ok ? {} : { incomplete: walked.failure.message }),
+      ...(incomplete !== undefined ? { incomplete } : {}),
     },
   });
 }

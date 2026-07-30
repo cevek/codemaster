@@ -1,5 +1,5 @@
 // `symbols_overview` catalogue engine (t-143952 / t-960572) — the OOM-safe core: enumerate every declared
-// NAME in the §10 git-source surface WITHOUT building a program or warming the LS (the whole point — a
+// NAME in the §10 source surface WITHOUT building a program or warming the LS (the whole point — a
 // first-contact browse on a huge monorepo is exactly where the name-addressed navto path OOMs,
 // t-167395). Rides the SAME no-program surface parse + `getNamedDeclarations` as the fuzzy syntactic
 // search (t-515730), and shares its `createPatternMatcher` (syntactic-matcher.ts) for the `query`

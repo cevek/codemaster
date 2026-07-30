@@ -43,6 +43,15 @@ const searchSymbolTable: TableSpec<JsonValue> = {
       'certain',
     ]);
   },
+  // sql-mode drops producer `data` — only rows, these notes, and the envelope's own honesty channels
+  // cross into the join (`daemon/sql-batch.ts`). So the surface statement, which lives in `data` for
+  // the text path, has to be re-offered HERE or a `syntactic:true` join over a non-git workspace
+  // returns rows scanned from the walk surface while claiming nothing about it — the pre-fix silence,
+  // on the very claim this channel exists to carry (§3.4).
+  notes(data) {
+    const surface = (data as { surface?: string }).surface;
+    return surface === undefined ? [] : [surface];
+  },
 };
 
 const argsSchema = z.strictObject({

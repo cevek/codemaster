@@ -96,7 +96,7 @@ export { isBareNameTarget } from './disclose-resolution.ts';
 // `syntactic-surface.ts` scans, so it belongs beside that function — but the ops that state it to the
 // agent must reach it the same way they reach everything else here (§5-L3), not by importing a plugin
 // internal.
-export { SYNTACTIC_SCOPE, surfaceModeNote } from './syntactic-scope.ts';
+export { SURFACE_SCOPE_CLAUSE, SYNTACTIC_SCOPE, surfaceModeNote } from './syntactic-scope.ts';
 export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };

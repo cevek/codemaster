@@ -112,7 +112,11 @@ test('note gates flag-specific caveats: histogram only under summary, dup-def on
     assert.doesNotMatch(plain, /duplicatesOnly:/, 'default note carries NO duplicatesOnly caveat');
     // Every always-on honesty signal is still present in the terse default note.
     assert.match(plain, /not type-verified/, 'syntactic-not-verified signal kept');
-    assert.match(plain, /outside-root tsconfig include is NOT covered/, 'outside-root scope kept');
+    assert.match(
+      plain,
+      /outside-root tsconfig include is covered by neither/,
+      'outside-root scope kept — neither listing reaches above the root',
+    );
     assert.match(plain, /search_symbol \/ find_definition/, 'pick→search steer kept');
 
     const summary = String((await list(p, { summary: true, limit: 1000 })).note);

@@ -1,6 +1,6 @@
 // `source { syntactic: true }` — read a declaration's BODY without building a TypeScript program
 // (t-229522). "Print the body of this declaration" is a SYNTACTIC question, and the no-program §10
-// git-source surface that `search_symbol {syntactic:true}` / `symbols_overview` already ride answers
+// source surface that `search_symbol {syntactic:true}` / `symbols_overview` already ride answers
 // it: this path never warms the LS. The declaration index and the candidate-collapse policy live in
 // `syntactic-decl-index.ts`; this module owns only the five ADDRESSINGS and what a miss says.
 //

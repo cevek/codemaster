@@ -95,10 +95,13 @@ export class Orchestrator implements ServingOrchestrator {
       const r0 = okRoutes[0];
       if (r0 === undefined) return { ok: true, results: [] };
       // §4c gate, per DISPATCH GROUP: this whole batch shares one engine, so it applies unless
-      // EVERY op in it is workspace-independent (t-810757). The op defs come from a config load, so
-      // they are read once for the group, not per request.
-      const requireTsProject = requiresTsProject(reqs, this.opDefs(r0.root));
-      const spawned = await this.getOrSpawn(r0.repoId, r0.root, requireTsProject);
+      // EVERY op in it is workspace-independent (t-810757). Passed LAZILY: the answer costs a config
+      // load, and the overwhelmingly common case — a warm slot already `verified` — never consults
+      // it. Paying it per request on the hot path would tax exactly the repos whose verdict cannot
+      // change (a config IS the explicit opt-in, so they are never refused).
+      const spawned = await this.getOrSpawn(r0.repoId, r0.root, () =>
+        requiresTsProject(reqs, this.opDefs(r0.root)),
+      );
       if (!spawned.ok) return spawned;
       return { ok: true, results: await spawned.slot.host.request(reqs, batch) };
     }
@@ -107,14 +110,8 @@ export class Orchestrator implements ServingOrchestrator {
     // engine and reassemble in original order. Both live in multi-root.ts.
     const spawn: SpawnHost = (repoId, repoRoot, requireTsProject) =>
       this.spawnHost(repoId, repoRoot, requireTsProject);
-    // Memoized per root for this call: `opDefs` loads the config, and the grouped dispatch asks once
-    // per REQUEST, so a wide cross-root batch would otherwise re-load one config per member.
-    const defsByRoot = new Map<string, ReturnType<typeof this.opDefs>>();
-    const needsWorkspace = (req: OpRequest, repoRoot: string): boolean => {
-      let defs = defsByRoot.get(repoRoot);
-      if (defs === undefined) defsByRoot.set(repoRoot, (defs = this.opDefs(repoRoot)));
-      return requiresTsProject([req], defs);
-    };
+    const needsWorkspace = (groupReqs: readonly OpRequest[], repoRoot: string): boolean =>
+      requiresTsProject(groupReqs, this.opDefs(repoRoot));
     if (batch?.sql !== undefined) {
       return {
         ok: true,
@@ -137,7 +134,8 @@ export class Orchestrator implements ServingOrchestrator {
     root: string,
     requireTsProject: boolean,
   ): Promise<{ ok: true; host: ProjectHost } | { ok: false; message: string }> {
-    const spawned = await this.getOrSpawn(repoId, root, requireTsProject);
+    // The grouped dispatch already computed its group's verdict, so this arrives decided.
+    const spawned = await this.getOrSpawn(repoId, root, () => requireTsProject);
     return spawned.ok ? { ok: true, host: spawned.slot.host } : spawned;
   }
 
@@ -211,9 +209,11 @@ export class Orchestrator implements ServingOrchestrator {
     repoId: RepoId,
     root: string,
     slot: EngineSlot,
-    requireTsProject: boolean,
+    requireTsProject: () => boolean,
   ): Promise<{ ok: true; slot: EngineSlot } | { ok: false; message: string } | 'respawn'> {
-    const verdict = await gateWarmSlot(root, slot, requireTsProject);
+    // The thunk is consulted ONLY for a slot the gate could still refuse — a `verified` one is
+    // reused without paying for the answer.
+    const verdict = await gateWarmSlot(root, slot, () => requireTsProject());
     if (verdict.action === 'refuse') return { ok: false, message: verdict.message };
     if (verdict.action === 'respawn') {
       await this.evict(repoId, 'workspace became a TS project');
@@ -226,11 +226,12 @@ export class Orchestrator implements ServingOrchestrator {
   private async getOrSpawn(
     repoId: RepoId,
     root: string,
-    /** Whether this request's ops need an inspectable TS workspace (§4c). `false` only for a group
+    /** Whether this request's ops need an inspectable TS workspace (§4c) — a THUNK, because the
+     *  answer costs a config load and a warm `verified` slot never needs it. `false` only for a group
      *  of workspace-INDEPENDENT ops (`OpDefinition.workspaceIndependent`) — today `feedback`, which
      *  must reach the daemon precisely where codemaster cannot work. Defaults to the gated
      *  behaviour, so a caller that says nothing (status, the sweeper) is unaffected. */
-    requireTsProject = true,
+    requireTsProject: () => boolean = () => true,
   ): Promise<{ ok: true; slot: EngineSlot } | { ok: false; message: string }> {
     // Pre-flight: an agent may be calling into a removed worktree (§9).
     if (!existsSync(root)) {
@@ -257,7 +258,7 @@ export class Orchestrator implements ServingOrchestrator {
     // but the engine still carries it (an inbox entry filed from an uninspectable root must say so),
     // and the slot records it so a later workspace-needing request is still refused.
     const tsRefusal = await tsProjectRefusal(root, source);
-    if (tsRefusal !== undefined && requireTsProject) return { ok: false, message: tsRefusal };
+    if (tsRefusal !== undefined && requireTsProject()) return { ok: false, message: tsRefusal };
     const built = await buildWorkspaceHost(
       this.deps,
       {

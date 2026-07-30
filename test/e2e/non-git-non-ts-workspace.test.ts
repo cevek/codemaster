@@ -1,7 +1,7 @@
 // t-810757: the two ops whose job is to work where the normal path does not — `symbols_overview`
 // (the OOM-safe first-contact browse other ops' refusals redirect to) and `feedback` (the channel
 // for "this tool does not work here") — must answer in a workspace that is not git, not TS, or
-// neither. Both previously failed through the normal path's own precondition.
+// neither. Each would otherwise fail through the normal path's own precondition.
 //
 // ORACLE = the workspaces themselves, on disk: what a directory declares, and what git can and
 // cannot say about it. Never another codemaster answer. Three shapes, each asserted for what the op
@@ -80,6 +80,15 @@ test('A (non-git + TS): symbols_overview catalogues the real declarations and st
       'the NARROWER axis (the §3.4 miss) is stated, not smoothed away',
     );
     assert.doesNotMatch(data.surface, GIT_CLAIM);
+    // …and neither may the note BESIDE it. An answer that asserts a git scan and prints its own
+    // correction two lines down leaves the reader to pick which half to believe; the assertion is
+    // the lie, the correction does not cancel it.
+    assert.doesNotMatch(data.note, GIT_CLAIM);
+    assert.doesNotMatch(
+      data.note,
+      /Scope: git-tracked source/,
+      'the note may name git as the DEFAULT listing, never as the one that ran here',
+    );
   } finally {
     await w.dispose();
   }
@@ -113,6 +122,29 @@ test('A: the other two no-program paths answer too, and say which surface they r
   }
 });
 
+test('A: the surface statement survives sql mode, where producer `data` does not', async () => {
+  const w = await workspaces();
+  try {
+    // A sql join drops producer `data` — only rows, the table's own `notes`, and the envelope's
+    // honesty channels cross into it. So the surface statement, which lives in `data` for the text
+    // path, has to be re-offered by the table or a `syntactic:true` join over a non-git workspace
+    // returns rows scanned from the walk while claiming nothing about it: the pre-fix silence, on
+    // the one claim this channel exists to carry.
+    const results = await w.request(
+      'nogit',
+      [{ name: 'search_symbol', args: { query: 'alphaWidget', syntactic: true }, as: 't' }],
+      { sql: 'SELECT name, file FROM t' },
+    );
+    const sql = results[results.length - 1];
+    assert.ok(sql !== undefined && 'result' in sql && sql.result.ok, JSON.stringify(sql));
+    const payload = JSON.stringify(sql.result.data);
+    assert.match(payload, /alphaWidget/, 'the join really produced the row');
+    assert.match(payload, new RegExp(WALK_MARK), 'and states the surface those rows came from');
+  } finally {
+    await w.dispose();
+  }
+});
+
 test('control (git + TS): the answer carries no surface line and keeps the git scope claim', async () => {
   const w = await workspaces();
   try {
@@ -125,7 +157,10 @@ test('control (git + TS): the answer carries no surface line and keeps the git s
       undefined,
       'the documented default holds → no per-response mode line (no token tax, no output drift)',
     );
-    assert.match(data.note, /git-tracked source under the workspace root/);
+    // The note names the DEFAULT listing in both modes — that is what makes the absent surface line
+    // informative rather than an unspoken assumption. What distinguishes the modes is the line, not
+    // a different scope sentence, so this pins the default's presence, not a git-only assertion.
+    assert.match(data.note, /git-listed by default/);
   } finally {
     await w.dispose();
   }
@@ -280,7 +315,7 @@ test('B: a root that BECOMES a TS project is answered on the next read, not held
 test('C (neither git nor TS): both ops answer', async () => {
   const w = await workspaces();
   try {
-    // No `.git` at all — the precondition that used to sink the surface.
+    // No `.git` at all — the precondition the surface must not depend on.
     assert.equal(existsSync(path.join(w.root('neither'), '.git')), false);
 
     const overview = okData<{ names: number; surface?: string }>(

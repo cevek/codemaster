@@ -159,7 +159,7 @@ test('the scope/provenance statement survives into the RENDERED text, not just t
       );
       assert.match(
         text,
-        /OUTSIDE the root/i,
+        /outside-root include\/reference/i,
         `${verbosity}: the rendered text states the scope gap`,
       );
       assert.ok(text.includes('makeWidget'), `${verbosity}: and still shows the body`);

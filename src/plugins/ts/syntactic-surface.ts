@@ -12,8 +12,8 @@
 // tracked ∪ untracked-not-ignored listing, `.gitignore`-exact because git itself evaluates the rules. A
 // workspace git cannot list (no repo at all, or git unavailable) degrades to the bounded filesystem walk
 // (§19) — the same fallback `daemon/freshness.ts` and the §10 program file-set already take on a non-git
-// root. Hard-failing here made the OOM-safe browse — the very call other ops' refusals redirect to — the
-// one thing that could not answer where it was needed most. The two surfaces differ in BOTH directions,
+// root. Hard-failing here would make the OOM-safe browse — the very call other ops' refusals redirect
+// to — the one thing unable to answer where it is needed most. The two surfaces differ in BOTH directions,
 // and the difference is named rather than smoothed into "roughly the same":
 //   • WIDER   — no `.gitignore` evaluation, so build output under a non-standard directory name is
 //               catalogued as project source.
@@ -24,9 +24,9 @@
 //
 // The surface is memoized in the caller's `SyntacticCache` keyed on a repo-state fingerprint the
 // syntactic path can trust (syntactic-cache.ts — NOT projectVersion). In git mode the hot path is
-// O(changed), never a per-query whole-surface stat-walk (§1); in walk mode the key IS the walk, so each
-// build costs one bounded walk — the same order of work non-git freshness already pays per op — and the
-// expensive half (re-list + re-parse) still fires only on drift.
+// O(changed) with no per-query whole-surface stat-walk (§1); in walk mode the key IS the walk, so one
+// bounded walk runs per CALL (the key cannot be taken without it) while the expensive half — re-listing
+// and re-parsing — still fires only on drift.
 
 import ts from 'typescript';
 import path from 'node:path';

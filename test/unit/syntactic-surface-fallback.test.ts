@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { fail, ok, partial } from '../../src/common/result/construct.ts';
+import { ok, partial } from '../../src/common/result/construct.ts';
 import type { WalkedFile } from '../../src/support/fs/walk.ts';
 import { createSyntacticCache, surfaceProvenance } from '../../src/plugins/ts/syntactic-cache.ts';
 import { surfaceSources } from '../../src/plugins/ts/syntactic-surface.ts';
@@ -34,19 +34,22 @@ function walked(): WalkedFile[] {
   return [{ path: 'src/a.ts' as RepoRelPath, size: 21, mtimeMs: 1_000 }];
 }
 
-test('a walk that FAILS fails the surface — never an empty catalogue that reads as an empty repo', () => {
+test('a walk that reaches NO source fails the surface — never an empty catalogue reading as an empty repo', () => {
   const root = bareDir();
   try {
+    // The shape `walkFiles` ACTUALLY produces for an unreadable root: `partial([], …)`, not a bare
+    // failure (`support/fs/walk.ts` degrades rather than sinking). A data-presence check passes this
+    // straight through, so the arm has to use the real shape or it tests a branch nothing reaches.
     const res = surfaceSources(root, createSyntacticCache(), {
-      walk: () => fail({ tool: 'fs', message: 'EACCES: permission denied' }),
+      walk: () =>
+        partial([] as WalkedFile[], {
+          tool: 'fs',
+          message: "walk incomplete: unreadable: .: EACCES: permission denied, scandir '/x'",
+        }),
     });
     assert.equal(res.ok, false, 'an unlistable root is a failure, not an absence');
     assert.equal('data' in res && res.data !== undefined, false, 'no data may accompany it');
-    assert.match(
-      res.ok ? '' : res.failure.message,
-      /EACCES: permission denied/,
-      'the cause survives',
-    );
+    assert.match(res.ok ? '' : res.failure.message, /EACCES: permission denied/, 'cause survives');
     assert.match(
       res.ok ? '' : res.failure.message,
       /git is unavailable/,
@@ -57,11 +60,28 @@ test('a walk that FAILS fails the surface — never an empty catalogue that read
   }
 });
 
+test('a CLEAN walk finding no source is an honest empty, not a failure', () => {
+  const root = bareDir();
+  const cache = createSyntacticCache();
+  try {
+    // The discriminating pair to the arm above: nothing was unreadable, the tree simply holds no TS.
+    // Failing here would refuse a question we did answer — the same lie inverted.
+    const res = surfaceSources(root, cache, { walk: () => ok([] as WalkedFile[]) });
+    assert.equal(res.ok, true, 'a readable tree with no source is an answer');
+    assert.equal(res.ok && res.data.sources.size, 0);
+    assert.equal(surfaceProvenance(cache)?.incomplete, undefined, 'nothing was cut');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a BOUNDED walk answers, and the answer carries the bound', () => {
   const root = bareDir();
   const cache = createSyntacticCache();
   try {
     const res = surfaceSources(root, cache, {
+      // Files WERE reached — so this is a real answer that carries its bound, distinct from the
+      // reached-nothing arm above, which fails.
       walk: () =>
         partial(walked(), {
           tool: 'fs',
@@ -109,4 +129,42 @@ test('an unestablished origin prints its own line — silence never stands in fo
   // …while the established default is the ONE state that prints nothing (its terms are in the
   // static scope prose, so a line there would be a standing token tax restating the norm).
   assert.equal(surfaceModeNote({ origin: 'git' }), undefined);
+});
+
+test('a BOUND that flips invalidates the cache — in both directions', () => {
+  const root = bareDir();
+  const cache = createSyntacticCache();
+  try {
+    // `walkFiles` skips a symlink (or a too-deep dir) WITHOUT emitting an entry, so a symlinked
+    // source subtree appearing beside the tree leaves the FILE set byte-identical and changes only
+    // the bound. If the key is built from files alone, the second call hits the cache and states the
+    // full scope for a scan that missed a subtree — and freshness cannot rescue it, since that walk
+    // skips symlinks too. The same file set on both calls is the whole point of the arm.
+    const clean = surfaceSources(root, cache, { walk: () => ok(walked()) });
+    assert.equal(clean.ok, true);
+    assert.equal(surfaceProvenance(cache)?.incomplete, undefined);
+
+    const bounded = surfaceSources(root, cache, {
+      walk: () =>
+        partial(walked(), { tool: 'fs', message: 'walk incomplete: 1 symlink(s) not followed' }),
+    });
+    assert.equal(bounded.ok, true);
+    assert.equal(
+      surfaceProvenance(cache)?.incomplete,
+      'walk incomplete: 1 symlink(s) not followed',
+      'the newly-hit bound must reach the answer, not be masked by the cached clean scan',
+    );
+
+    // Inverse: the symlink goes away. A cached bound that keeps being claimed is the same lie
+    // inverted — a complete answer dressed as partial.
+    const cleanAgain = surfaceSources(root, cache, { walk: () => ok(walked()) });
+    assert.equal(cleanAgain.ok, true);
+    assert.equal(
+      surfaceProvenance(cache)?.incomplete,
+      undefined,
+      'a bound that no longer holds must stop being claimed',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

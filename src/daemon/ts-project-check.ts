@@ -9,6 +9,7 @@ import { isOk } from '../common/result/narrow.ts';
 import { gitLsFiles } from '../support/git/ls-files.ts';
 import type { OpRequest } from '../ops/contracts.ts';
 import type { AnyOpDefinition } from '../ops/registry.ts';
+import type { EngineSlot } from './engine-slot.ts';
 
 /** A root tsconfig (the canonical signal) OR at least one tracked `.ts/.tsx/.mts/.cts` (covers a
  *  monorepo whose configs live per-package). A non-git root can't be cheaply enumerated, so we
@@ -45,6 +46,11 @@ export function requiresTsProject(
   reqs: readonly OpRequest[],
   defs: ReadonlyMap<string, AnyOpDefinition>,
 ): boolean {
+  // An EMPTY set requires one. `.some` alone answers `false` there — the gate would open for a group
+  // with nothing in it, which is the opposite of the fail-closed rule stated above. No caller
+  // produces an empty group today; a comment that contradicts its own code is what survives the
+  // refactor that makes one.
+  if (reqs.length === 0) return true;
   return reqs.some((req) => defs.get(req.name)?.workspaceIndependent !== true);
 }
 
@@ -58,10 +64,11 @@ export function requiresTsProject(
  *  reporting "unsupported" after we just proved otherwise would be the same staleness inverted. */
 export async function gateWarmSlot(
   root: string,
-  slot: { tsProject: 'verified' | 'unsupported'; configSource: string | undefined },
-  requireTsProject: boolean,
+  slot: Pick<EngineSlot, 'tsProject' | 'configSource'>,
+  /** A THUNK: answering costs a config load, and the `verified` short-circuit below never needs it. */
+  requireTsProject: () => boolean,
 ): Promise<{ action: 'reuse' } | { action: 'respawn' } | { action: 'refuse'; message: string }> {
-  if (!requireTsProject || slot.tsProject === 'verified') return { action: 'reuse' };
+  if (slot.tsProject === 'verified' || !requireTsProject()) return { action: 'reuse' };
   const refusal = await tsProjectRefusal(root, slot.configSource);
   return refusal === undefined ? { action: 'respawn' } : { action: 'refuse', message: refusal };
 }

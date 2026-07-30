@@ -82,7 +82,7 @@ export function createDeclIndex(
       // Normalize through the SAME chokepoint the checker path's `absOf` uses (realpath + case-fold +
       // symlink policy), so `./src/x.ts`, an absolute path straight out of a Read, and a
       // differently-cased spelling on a case-insensitive volume all reach the one repo-relative key
-      // the git listing branded. A raw `sources.get(file)` made the two modes disagree on one address.
+      // the surface listing branded. A raw `sources.get(file)` made the two modes disagree on one address.
       const minted = mintRepoRelPath(root, file);
       const rel = (minted.ok ? minted.path : file) as RepoRelPath;
       const sf = sources.get(rel);

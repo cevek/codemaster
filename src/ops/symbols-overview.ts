@@ -28,7 +28,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { Truncation } from '../core/result.ts';
 import { fail, failFromThrown, ok } from '../common/result/construct.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import { surfaceModeNote, type TsPluginApi } from '../plugins/ts/plugin.ts';
+import { SURFACE_SCOPE_CLAUSE, surfaceModeNote, type TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { FileNames } from '../plugins/ts/syntactic-catalogue.ts';
 import type { ConfigMembership } from '../plugins/ts/program/config-membership.ts';
 import {
@@ -46,11 +46,11 @@ const FLAT_GROUP = '(all)';
 const COLLISIONS = '(collisions)';
 
 // Terse note: the always-on line carries ONLY the ever-relevant honesty signals (syntactic = NAMES not
-// type-verified, a re-export may appear; scope = git source under root, outside-root not covered; pick
+// type-verified, a re-export may appear; scope = the source surface under root, outside-root covered by
+// neither listing; pick
 // → search). The flag-specific caveats below are appended ONLY when their flag is active (§12 — no wall
 // of prose when the flags aren't). Cap markers live per-group (`+N more`) + on the envelope, not here.
-const SYNTACTIC_NOTE =
-  'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: git-tracked source under the workspace root (the default listing) — an outside-root tsconfig include is NOT covered. Pick a name → search_symbol / find_definition.';
+const SYNTACTIC_NOTE = `syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: ${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
 const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
 const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
 const HISTOGRAM_NOTE =

@@ -105,7 +105,9 @@ restart` — it never auto-kills (deferred t-783490). The pidfile is a kill-targ
   self-dev), carrying its own idle self-exit.
 - **The TS-project gate, and the one op it does not apply to.** codemaster inspects TS/React repos, so
   the orchestrator refuses to spawn an engine for a config-less root with no `tsconfig.json` and no
-  tracked `.ts/.tsx` (`daemon/ts-project-check.ts`): warming a Java/Go/empty folder indexes nothing and
+  tracked `.ts/.tsx` (`daemon/ts-project-check.ts`). A root git cannot ENUMERATE is never
+  false-rejected — the listing is the evidence, so without it there is no refusal to make and the
+  empty index speaks for itself: warming a Java/Go/empty folder indexes nothing and
   the silent warm reads as success. A `codemaster.config` is an explicit opt-in and is trusted. The
   exception is an op that declares `workspaceIndependent` — today `feedback`, whose whole job is to be
   reachable where codemaster does not work: a repo we refuse otherwise CANNOT REPORT that we refuse it,
@@ -178,8 +180,9 @@ This is the section that the rest of the design serves.
    is a second sanctioned cache with a DIFFERENT invalidation authority: it deliberately does NOT ride
    `projectVersion` — that stamp bumps only on a host reindex, which never fires for a re-modified
    untracked / member-only file the §10 scan surface includes — so it keys on a per-read repo-state
-   fingerprint (HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set), invalidated
-   against current disk on every read. A future opt-in plugin-internal _semantic_ memo with sound
+   fingerprint — in a git repo HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set;
+   on a root git cannot list, a `path:size:mtime` rollup of the bounded §19 walk with the same
+   racy-window content hash — invalidated against current disk on every read either way. A future opt-in plugin-internal _semantic_ memo with sound
    invalidation is a deferred wishlist item; not Phase 0.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
@@ -750,26 +753,28 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   **OOM-survival syntactic search (`searchSymbolSyntactic`, t-515730).** First-contact `search_symbol`
   (fuzzy) fans navto across ALL programs → can OOM a huge monorepo, and in `in-process` mode an OOM is
   uncatchable → kills the shared daemon. So `{syntactic:true}` is an opt-in path that answers WITHOUT
-  building any program and NEVER warms the LS (the plugin stays cold): it parses the §10 git source
+  building any program and NEVER warms the LS (the plugin stays cold): it parses the §10 source
   surface with `ts.createSourceFile` and reads it with the `@internal` `getNamedDeclarations` +
   `createPatternMatcher` (§4 — same parser, capability-guarded). It is COMPLETE for declarations in
   the scanned source surface UNDER the workspace root (≥ navto's recall there) but noisier (extra import /
   re-export sites; real declarations ranked first) and carries `provenance:'syntactic'`. **Honest
   scope (t-515730):** a git listing at the root cannot see a tsconfig `include`/`reference` reaching
   OUTSIDE the root, so such outside-root symbols are not scanned — the op DISCLOSES this positively
-  ("scanned all git-tracked source under <root>; outside-root not covered — use the default"), never
+  (the shared `SYNTACTIC_SCOPE`, which names the git listing as the DEFAULT and states that an answer
+  scanned by anything else says so), never
   a false "never misses" (§3.6). A pre-emptive hint lives in the STATIC schema/notes (§11), since
   after an in-process OOM the daemon is dead and can't advise post-hoc. The parsed surface is memoized
   per-plugin-instance (`syntactic-cache.ts`) keyed on a repo-state fingerprint the syntactic path can
   trust — NOT `projectVersion` (which won't bump for a re-modified untracked / member-only file the
-  §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
-  stat-walk (§1).
+  §10 surface includes), so in GIT mode the hot path is O(changed+untracked) with no per-query
+  whole-surface stat-walk (§1); the walk mode below has no cheap fingerprint to key on and pays a
+  bounded tree walk per call, which is why that fallback is bounded rather than merely cached.
   **TWO LISTING MECHANISMS, and every answer states which one it got (t-810757).** git is the DEFAULT
   and what the static scope prose describes; a workspace git cannot list (no repo, or git unavailable)
   degrades to the bounded §19 filesystem walk — the same fallback the read-time freshness check and the
-  §10 program file-set already take on a non-git root, so hard-failing here made the OOM-safe browse
-  (the call `ops/guard/navigate.ts` redirects OTHER ops' refusals to) the one thing that could not
-  answer where it was needed most. The two surfaces differ in BOTH directions, and the walk-mode answer
+  §10 program file-set already take on a non-git root, hard-failing here would make the OOM-safe browse
+  (the call `ops/guard/navigate.ts` redirects OTHER ops' refusals to) the one thing unable to answer
+  where it is needed most. The two surfaces differ in BOTH directions, and the walk-mode answer
   names both: WIDER (no `.gitignore` evaluation → build output under a non-standard dir name is
   catalogued as source) and NARROWER (the walk applies the §10 name-ignore set + the 1 MB file cap,
   which the git listing deliberately does not — so a real tracked source file under `build/` is on the

@@ -23,9 +23,22 @@
 import { elideString } from '../../common/truncate/elide-string.ts';
 import type { SurfaceProvenance } from './syntactic-cache.ts';
 
-/** What the scan covered, what it did not, and the axes on which it beats the checker path. */
-export const SYNTACTIC_SCOPE =
-  'scanned all git-tracked (plus untracked-not-ignored) source under the workspace root — complete there for declarations carrying a plain-identifier name, and WIDER than the type-verified path on two axes: a file no tsconfig includes is scanned, and a nested/member/destructured declaration is addressable. Not type-verified. A tsconfig include/reference reaching OUTSIDE the root is not covered — use the default path for those. That git listing is the DEFAULT; where git cannot list the workspace, the answer states the filesystem-walk surface it used instead.';
+/** The SHORT scope clause, for a note too dense to carry `SYNTACTIC_SCOPE` whole (the
+ *  `symbols_overview` one-liner). Same claim, same home — a second hand-written wording in an op is
+ *  how three copies went stale before.
+ *
+ *  It names the LISTING as the default rather than asserting it: the note is emitted on every
+ *  answer, including the ones the walk produced, where "scanned git-tracked source" would be flatly
+ *  false — and a sentence that asserts a mechanism and then hedges it in the same breath leaves the
+ *  reader to pick which half to believe, beside a `surface` field that already says which. Assert
+ *  only what holds in every mode; let the mode line carry the specifics (§3.6). */
+export const SURFACE_SCOPE_CLAUSE =
+  'the source surface under the workspace root — git-listed by default (tracked plus untracked-not-ignored), a bounded filesystem walk where git cannot list the workspace; an answer scanned by anything but the default says so on its `surface` line. An outside-root tsconfig include is covered by neither';
+
+/** What the scan covered, what it did not, and the axes on which it beats the checker path. Written
+ *  to hold in EVERY mode (see `SURFACE_SCOPE_CLAUSE`): it ships in static op notes / arg schemas,
+ *  where no provenance exists to qualify it. */
+export const SYNTACTIC_SCOPE = `scans ${SURFACE_SCOPE_CLAUSE} — complete there for declarations carrying a plain-identifier name, and WIDER than the type-verified path on two axes: a file no tsconfig includes is scanned, and a nested/member/destructured declaration is addressable. Not type-verified. Use the default path for an outside-root include/reference.`;
 
 /** git's refusal as ONE bounded line: the raw failure is the wrapped command echo plus git's own
  *  stderr on its own line, and this note rides every answer from a non-git workspace. Newlines are
