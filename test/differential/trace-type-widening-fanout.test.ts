@@ -148,6 +148,39 @@ test('a source type never leaks across programs: the sibling sink is judged with
   }
 });
 
+/** More forward references to one value than the per-step budget (`REF_SCAN_CAP` = 50) — 60 plain
+ *  reads, none of them a sink, so the ONLY thing that can produce a floor here is the cap. */
+const OVER_CAP = {
+  'tsconfig.json': `{"compilerOptions":${STRICT},"include":["src"]}`,
+  'src/v.ts': "export const many = 'red';\n",
+  'src/uses.ts':
+    "import { many } from './v';\n" +
+    'export function sink(x: string): void {\n  void x;\n}\n' +
+    Array.from({ length: 60 }, (_, i) => `export const r${i} = many;`).join('\n') +
+    '\n',
+};
+
+test('a spent per-step budget is its OWN floor, with its own lever — never the missing-config wording', async () => {
+  const p = await project(OVER_CAP);
+  try {
+    const d = data(await p.op('trace_type_widening', { name: 'many', file: 'src/v.ts' }));
+    const note = (d.notes ?? []).join('\n');
+    // The budget note names the shortfall in ITS unit and says the programs ARE loaded — the whole
+    // point of keeping it apart from the undiscovered-config note, whose remedy ("index the config")
+    // is inert here and would send the agent after a config that does not exist (t-259465).
+    assert.match(note, /per-step budget: \d+ of \d+ forward reference\(s\) checked/, note);
+    assert.match(note, /the shortfall is the budget, NOT a missing config/);
+    assert.doesNotMatch(note, /NOT loaded as programs/, 'the config floor must not fire on a cap');
+    assert.equal(d.complete, false, 'a capped step is not a complete trace');
+    assert.equal(d.undiscoveredPrograms, undefined, 'no config is missing in this fixture');
+    // The denominator is EXACT here (every program in the fan was consulted), so it must NOT be
+    // rendered as a floor — dressing a known total as `≥` is the same lie inverted.
+    assert.doesNotMatch(note, /of ≥\d+ forward reference/);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('emptiness carries HOW it was established: a complete fan states the verdict, an incomplete one refuses it', async () => {
   const complete = await project({
     'tsconfig.json': `{"compilerOptions":${STRICT},"include":["src"]}`,
