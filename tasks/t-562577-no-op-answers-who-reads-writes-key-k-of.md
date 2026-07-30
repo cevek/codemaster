@@ -52,3 +52,37 @@ silence and matches the honesty contract better than a hit list that looks compl
 
 Adjacent, same root cause: `visibleWhen: {key: ChartGateKey, value: string}` gates are data too, so "which
 fields are gated on `origin`" is likewise unanswerable.
+
+## Second instance, from codemaster's OWN source — the key reached through an inline `as` cast
+
+The first instance was a string-keyed draft in an app repo (`ChartDraft = Record<string,string>`, read via
+`draft[field.key]`). This one is structurally different and lands in this repo, which makes it systemic
+rather than incidental.
+
+Renaming an op's result-data field (`find_unused_exports`' `filterMatchedNoFiles` → `notAVerdict`): the field
+is not a member of ANY named type. It exists only as an inline structural cast at each reader —
+`(data as { filterMatchedNoFiles?: string }).filterMatchedNoFiles` in the op's own `table.notes(data)`, plus
+test files casting the same payload to a locally-declared view type. **Producer and consumers are joined by
+the STRING KEY, not by a shared type.**
+
+What the catalogue does with that question:
+
+- `member_usages {name:'notAVerdict'}` → `bad_args`: it needs a TYPE target plus a member, and there is no
+  type to address (an anonymous cast literal has no name and no declaration to pass). An honest refusal — the
+  gap is that the question has no reachable FORM.
+- `find_usages {name:'filterMatchedNoFiles'}` does not apply: the key is a property in an object literal / a
+  type-literal member, not a referenced symbol binding.
+
+So a rename spanning op → table projection → tests fell back to grep. Here it happened to be safe (2 src + 1
+test file) — but nothing in the answer SAID it was complete, and a fourth reader spelling
+`data['filterMatchedNoFiles']` would have read identically to a miss.
+
+**Why this makes the class systemic in this repo:** a `TableSpec.rows/notes(data)` reads its op's payload
+through an inline cast BY CONSTRUCTION — the seam is `JsonValue`. So every op-result field in codemaster is
+renamed under exactly this blind spot.
+
+The shape that would reach it: address a member by NAME alone when no named type declares it — "this string
+key, as a property, wherever a structural type declares it or an object literal supplies it" — stamped
+honestly as `confidence: partial` / `provenance: syntactic`, since such a set is name-based and cannot prove
+identity across unrelated types. Still strictly better than grep: it excludes the same string in comments and
+string literals, and it states its own scope.
