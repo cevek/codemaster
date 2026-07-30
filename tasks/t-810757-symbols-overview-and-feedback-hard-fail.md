@@ -117,3 +117,19 @@ anywhere.
 The scope statement must change WITH the mechanism, in both directions — including the under-inclusion nobody
 would guess: the git listing deliberately does NOT filter by name, while `walkFiles` does, so a real source
 file under `build/` is visible in a git repo and invisible in the fallback.
+
+## Мутационная проверка поймала дыру в самой мутационной проверке
+
+Восемь мутаций против новых армов; семь упали сразу. Восьмая — `some` → `every` в
+`groupRequiresTsProject` (`daemon/multi-root.ts`, решение гейта по группе диспатча) — **НЕ упала**:
+все запросы в тестах шли одним корнем, то есть fast-path'ом `Orchestrator.request`, и ветка
+`groupedDispatch` не исполнялась ни разу. Арм на смешанный батч существовал и проходил, но проверял
+только fast-path — то есть по multi-root-ветке был декоративным.
+
+Починка: добавлен арм с ДВУМЯ корнями в одном батче (группа неподдерживаемого корня —
+workspace-независимая, группа поддерживаемого — обычная), после чего мутация падает. Обе ветки
+решения гейта мутированы отдельно и обе дискриминируют.
+
+Факт записан здесь, а не только в отчёте: «мутация не упала» — это не результат «мутация
+безопасна», а сигнал, что арм не достаёт до кода. Разница между этими двумя прочтениями и есть цена
+проверки.

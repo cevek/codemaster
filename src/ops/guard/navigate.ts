@@ -13,9 +13,12 @@
 //
 // Where the knowledge comes from: STRUCTURE, not measurement. Every call named below is safe by
 // construction, not by having been observed to work once —
-//   * `symbols_overview` / `search_symbol {syntactic:true}` parse the git source surface with
+//   * `symbols_overview` / `search_symbol {syntactic:true}` parse the §10 source surface with
 //     `ts.createSourceFile` and NEVER build a program or warm the LS (ARCHITECTURE.md §5-L2), and no
-//     guard gates them;
+//     guard gates them. That surface is git-listed by default and falls back to the bounded
+//     filesystem walk where git cannot list the workspace (t-810757), so the redirect holds on a
+//     non-git root too — which matters here, since this table is the only thing an agent gets when
+//     the heavy path refuses;
 //   * a FILE-PINNED `find_definition` is single-program-exact and never reaches the repo-wide navto
 //     fan (`isFanCapableTarget`), so the fan-out guard does not apply to it;
 //   * `source {syntactic:true}` reads bodies off that same no-program surface (ARCHITECTURE.md §5-L2),
