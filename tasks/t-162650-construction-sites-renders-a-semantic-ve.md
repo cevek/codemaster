@@ -1,12 +1,13 @@
 ---
 id: t-162650
 title: '`construction_sites` renders a SEMANTIC verdict over a program it never scanned: `files=0` proves the sibling program was skipped, yet the answer reads "no literal is assignable" and the remedy blames the caller''s scoping — while `find_usages` fans and discloses on the same question'
-status: backlog
+status: done
 priority: urgent
 parent: t-647309
 tags:
   - agent-surface
   - dogfood
+  - multi-program
 type: bug
 complexity: M
 area: multi-program
@@ -17,7 +18,9 @@ relates:
   - t-155425
   - t-228385
   - t-248218
+  - t-259465
   - t-288409
+  - t-820448
   - t-826059
 surface:
   - ops
@@ -106,3 +109,83 @@ is currently not evidence of anything, and nothing in the output says so.
 Note the overlap with t-228385 (no query for "which call sites pass `{…}` to a factory") — that task asks
 for a capability, this one shows the op that already claims that capability failing on exactly the shape.
 Whoever picks either should read both.
+
+
+## Resolution (measured, t-162650 — both instances were ONE mechanism)
+
+**Instance 2 is NOT a second mechanism.** Both reports are the single-program scan. The reporter's
+"`literals=7 files=4` ⇒ it DID scan and found nothing" reading is wrong: `files=4` is exactly
+`packages/agent-core/src/` (4 files — `frames.ts`, `index.ts`, `messages.ts`, `mock-adapter.gate.ts`),
+i.e. the target's OWN package program, not the repo. Proof that the program — not the literal's shape
+— is the variable:
+
+```
+--root claude-ui              construction_sites {name:'CreateQueryOptions'} → 0   literals=7   files=4
+--root claude-ui/apps/server  construction_sites {name:'CreateQueryOptions'} → 1   literals=248 files=11
+    apps/server/src/session.ts:958:36 · in ts:q  ← the same literal, found
+```
+
+Both triggers the reporter named are DISPROVEN by a hermetic 5-shape fixture (plain call-arg through
+an interface method · conditional spread `...(cond ? {model} : {})` in call-arg position · conditional
+spread in an initializer · direct call-arg · plain initializer): all 5 are found, `sites=5 literals=9
+files=1`. Neither `...(cond ? {} : {})` nor call-argument-through-an-interface-method affects recall.
+
+**The output itself caused the mis-diagnosis.** `scanned: literals=7 files=4` names no program, so a
+4-file package scan is indistinguishable from a repo scan — and an external agent built a false theory
+about spread syntax on top of it. That is the argument for stating scope POSITIVELY: it is not output
+polish, it is what stops a reader constructing a wrong mechanism.
+
+## What the fix does
+
+`plugins/ts/program/scan-fanout.ts` — one cross-program scan driver shared by `construction_sites`
+AND `discrimination_sites` (the same bug lived at `discrimination-sites.ts:95`):
+
+- fans over every program CONTAINING the target declaration, **re-resolving T in each** (assignability
+  and union type-IDENTITY are invalid across checkers), files claimed first-program-wins so the
+  compute surface is the UNION not the sum;
+- the no-config FALLBACK primary is excluded as a scan authority when a real-config program contains
+  the declaration (t-593802 — its whole-repo DEFAULT-options glob resolves no `paths` and absorbs
+  augmentation strays); files it alone covers are reported unscanned, never judged;
+- ONE `examined` budget across the whole fan, spent ROUND-ROBIN so a large primary cannot starve a
+  sibling to zero, plus a `Deadline` poll at the file boundary → a disclosed `partial` (§19);
+- `ops/scan-coverage.ts` — the shared five-cause vocabulary. `programsScanned` states the scope per
+  program; emptiness is THREE-state (`!! NOT A VERDICT` for a scan that examined nothing · an explicit
+  shortfall for an incomplete scan · the assignability verdict ONLY for a complete union scan); and the
+  five shortfall causes carry five separate remedies, each a lever that can change the outcome.
+  A spent BUDGET explicitly says "these programs ARE loaded; the shortfall is the budget, NOT a missing
+  config" — it deliberately does not ride `lowerBoundNote`'s "index the config", which is inert when the
+  program is loaded. A COMPLETE scan names no glob at all (the old note's `widen pathInclude` accusation
+  was the t-259465 defect).
+- both ops now call `semanticFanoutRefusal` UNCONDITIONALLY (the fan follows the DECLARATION, so a
+  `name+file` target fans exactly as a bare name does — a `fanCapable` carve-out would under-guard).
+  The guard fires only `in-process`; under `process` isolation it is a no-op by design, so the
+  protection is partial, not total.
+- `DEFAULT_SCAN_CAP` 1000 → 10000 for `construction_sites`: with the fan the candidate pool doubled,
+  and a budget that always truncates makes the answer a permanent lower bound — honest but useless for
+  the blast-radius question. The wall-clock guarantee moved to the `Deadline` + the §9 guard.
+
+## Measured cost of the fan (the number requested instead of intuition)
+
+Cold `ts.createProgram` back-to-back on this repo: `tsconfig.json` 432 files / 811 sourceFiles /
+620 ms / 336 MB → `tsconfig.test.json` 711 / 1222 / 654 ms / 421 MB. **A second program = +654 ms,
++85 MB RSS** (an upper bound: codemaster's stock-TS programs share one `DocumentRegistry`, so the 432
+shared files are not re-parsed). End to end, `construction_sites {name:'OpContext'}`: BEFORE
+2.79 s / 696 MB for a TRUNCATED 1-site answer (1000 of 2962); AFTER **3.63 s / 798 MB for a COMPLETE
+7010-literal / 713-file scan across both programs**. The fan is not the expensive part.
+
+## Oracle
+
+`{name:'OpContext'}` now returns all 3 `tsc` ground-truth sites — `test/unit/list-dispatch.test.ts:65`,
+`test/unit/sql-batch.test.ts:46`, `:69` (the task body's `test/e2e/` paths are stale; the file:line
+match) — confirmed by `impact_type_error {edit:{replace:…+probeRequired}}`, whose `introduced (3)` is
+exactly that set. It reports 8 sites total, a documented SUPERSET: the op answers assignability, not
+flow, so `{...ctxOf(reg), tableRowBound: 10}` at `list-dispatch.test.ts:270/282/295` is a real
+`OpContext`-assignable literal that `tsc` does not flag (the spread already carries the new field).
+
+`test/differential/scan-fanout-honesty.test.ts` — 6 tests. The load-bearing one is NEGATIVE, per the
+brief: two sibling programs whose compilerOptions DISAGREE (`strict` primary vs a `strict:false`
+sibling), where `{ id: null }` is assignable to `{ id: string }` only under the lax options. The
+strict-primary-owned file must NOT be reported and the lax-owned one must be — so a fan that reused one
+target type across every program's files, or let the lax sibling claim a src file, goes red. Both cold
+oracles (`coldAssignableLiterals` per config) assert the two configs genuinely disagree, so the fixture
+can discriminate at all.

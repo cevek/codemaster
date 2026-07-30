@@ -640,6 +640,32 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is a
   `task-manager` backlog residual). A loaded config is subtracted from the undiscovered set (no
   over-demotion). (Precise per-export discovery is the remaining `task-manager` backlog residual.)
+  **The type-anchored SCANS fan too, per-program-typed** (`construction_sites` /
+  `discrimination_sites`, [`plugins/ts/program/scan-fanout.ts`](src/plugins/ts/program/scan-fanout.ts)).
+  Both answer a blast-radius question by walking files and running one expensive checker call per
+  candidate; over ONE program a site in a sibling read as a confident `0` from exactly the ops whose
+  purpose IS the blast radius. Their verdicts (assignability, union type-IDENTITY) are invalid ACROSS
+  programs, so the fan never shares one target type: T is **re-resolved in each program** and that
+  program's own files are judged against its own T — a file is CLAIMED by the first program in fan
+  order that owns it (type-authority first), so the expensive check runs once per file and the compute
+  surface is the UNION, not the sum. A program where T reads VACUOUS / non-union under ITS options is
+  SKIPPED, never allowed to flood every literal in as a `certain` build. The no-config FALLBACK
+  primary is excluded as a scan authority whenever a real-config program contains the declaration
+  (t-593802: its whole-repo DEFAULT-options glob absorbs augmentation strays and resolves no `paths`,
+  so its verdict is one the project never yields) — the files it ALONE covers are then honestly
+  reported as unscanned. ONE `examined` budget spans the whole fan, spent ROUND-ROBIN over the
+  programs' files so a large primary cannot starve a sibling to zero, and the walk polls the op's
+  `Deadline` at the file boundary → a disclosed `partial` (§19), never a spin. The scope is stated
+  POSITIVELY (`programsScanned`, per program: files + `examined/candidates`), because a bare `files=4`
+  is read as "scanned the repo" and invites a false theory about the mechanism. Emptiness is
+  three-state, not two ([`ops/scan-coverage.ts`](src/ops/scan-coverage.ts)): a scan that examined
+  NOTHING says `!! NOT A VERDICT` (an empty SCAN and an empty RESULT are different facts), an
+  INCOMPLETE scan states the shortfall, and only a COMPLETE union scan may assert "none is
+  assignable". Its five shortfall causes carry five SEPARATE notes, each naming a lever that can
+  actually change the outcome (§3.6 / t-259465) — a spent budget says `limit`/`pathInclude` and
+  explicitly NOT "index the config" (the undiscovered-config remedy is inert when the program is
+  loaded), an unloaded config rides the shared `lowerBoundNote`, fallback-only files ask for a
+  tsconfig, and a complete scan names no glob at all.
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling) — but a rename
   whose TARGET DECLARATION is itself outside the primary is REFUSED with an actionable `root:<pkg>`
@@ -1113,6 +1139,9 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   that warm the type-checker and fan references/imports across EVERY loaded program (`find_usages` /
   `importers_of` / `member_usages` / `impact` / `impact_type_error` / `affected` /
   `find_unused_exports` / `find_unused_props` / `find_unused_scss_classes` / the `trace_*` family;
+  `construction_sites` / `discrimination_sites` UNCONDITIONALLY — their §5-L2 scan fan follows the
+  target's DECLARATION, so a `name+file` / position target fans exactly as a bare name does and a
+  fan-capability carve-out would under-guard them;
   `find_definition` and the conditionally-fanning traces only for a **fan-capable** target — a bare
   `name`, or a `symbolId` whose §6 rebind may fan (a `name+file` / `file+line[:col]` target is
   single-program-exact, so guarding it would be a false refusal); `list` for a registry owned by `ts`
@@ -1696,7 +1725,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1710,7 +1739,9 @@ codemaster/
       guard/                 # semantic-fanout-guard.ts + fan-capable.ts (the in-process OOM refusal, §9)
                              # + navigate.ts (the shared "what answers this here" redirect table — also rendered by
                              #   search_symbol's pre-warm guard and daemon/process-host's oom/timeout path)
-      find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts
+      lower-bound-note.ts    # the shared undiscovered-program floor prose (find_usages / importers_of)
+      scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2)
+      find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts  discrimination-sites.ts
       search-symbol.ts  source.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts

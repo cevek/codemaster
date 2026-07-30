@@ -293,8 +293,9 @@ export function coldAssignableLiterals(
   root: string,
   typeFileRel: string,
   typeName: string,
+  configRel = 'tsconfig.json',
 ): { file: string; line: number }[] {
-  const { program, checker } = coldProgram(root);
+  const { program, checker } = coldProgram(root, configRel);
   const typeFile = program.getSourceFile(path.join(root, typeFileRel));
   assert.ok(typeFile !== undefined, `oracle could not load ${typeFileRel}`);
   let nameNode: ts.Identifier | undefined;

@@ -125,12 +125,19 @@ test('a truncated 0-match scan does NOT assert non-existence (completeness hones
     const view = r.result.data as CView;
     assert.ok(view.truncated !== undefined, 'cap was hit');
     const notes = view.notes ?? [];
-    assert.ok(
-      notes.some((n) => /unscanned|MORE candidates/.test(n)),
-      'a truncated empty scan flags unscanned candidates',
+    // The machine-readable half: a truncated scan is not complete, so a count-only consumer sees
+    // the incompleteness without parsing prose (t-162650).
+    assert.equal(
+      (view as { complete?: false }).complete,
+      false,
+      'a truncated scan is marked incomplete',
     );
     assert.ok(
-      !notes.some((n) => /no object literal is assignable to interface User in scope/.test(n)),
+      notes.some((n) => /the shortfall is the budget/.test(n)),
+      'a truncated empty scan names the spent budget as the cause',
+    );
+    assert.ok(
+      !notes.some((n) => /scan was COMPLETE/.test(n)),
       'must NOT assert non-existence while candidates remain unscanned',
     );
   } finally {
@@ -192,7 +199,12 @@ test('a no-match target yields a 0 answer with an honest note (not silent)', asy
     assert.ok('result' in r && r.result.ok, JSON.stringify(r));
     const view = r.result.data as CView;
     assert.equal(view.sites.length, 0);
-    assert.ok((view.notes ?? []).some((n) => /no object literal is assignable/.test(n)));
+    assert.ok(
+      (view.notes ?? []).some((n) =>
+        /no object literal in the scanned programs is assignable/.test(n),
+      ),
+      'a COMPLETE scan states the assignability verdict plainly',
+    );
   } finally {
     await p.dispose();
   }

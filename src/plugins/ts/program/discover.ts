@@ -184,9 +184,16 @@ export function relLabel(root: string, abs: string): string {
   return rel.startsWith('..') || path.isAbsolute(rel) ? toPosix(abs) : toPosix(rel);
 }
 
+/** The label of the no-config FALLBACK primary — the whole-repo glob under DEFAULT options. The
+ *  only program whose label is not a path, so label equality identifies it without widening the
+ *  `TsProgram` fan-out view: `relLabel` always yields a repo-relative or absolute PATH, and a
+ *  sibling/package program always has a `configPath`. Read by the type-anchored scan fan-out
+ *  (`scan-fanout.ts`), which must not treat it as a type authority (t-593802). */
+export const NO_CONFIG_LABEL = '(no tsconfig)';
+
 /** The primary program's provenance label — `relLabel` plus the no-tsconfig fallback. */
 export function primaryLabel(root: string, configPath: string | undefined): string {
-  return configPath === undefined ? '(no tsconfig)' : relLabel(root, configPath);
+  return configPath === undefined ? NO_CONFIG_LABEL : relLabel(root, configPath);
 }
 
 /** Resolve the tsconfig that drives the primary program: an explicit override (repo-relative), else

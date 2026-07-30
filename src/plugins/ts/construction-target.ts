@@ -92,19 +92,14 @@ export function isGenericTarget(targetType: ts.Type, symbol: ts.Symbol | undefin
   return false;
 }
 
-/** A 0-site answer must not read as "none exist" (§3.4). When the cap was hit, MORE candidates
- *  were left unscanned — say so, never assert non-existence (a completeness lie an agent could act
- *  on by deleting the field/type). Only a complete (untruncated) scan may state "none in scope". */
-export function emptyNote(
-  siteCount: number,
-  target: ConstructionTarget,
-  truncated: boolean,
-): string | undefined {
-  if (siteCount > 0) return undefined;
-  if (truncated) {
-    return `no assignable literal among the examined candidates — but the cap was hit and MORE candidates are unscanned; raise limit or narrow pathInclude before concluding nothing builds ${target.kind} ${target.name}`;
-  }
-  return `no object literal is assignable to ${target.kind} ${target.name} in scope — a literal missing a required field (or with an excess one) is correctly excluded; verify the target is a TYPE and widen pathInclude if you scoped it`;
+/** The ONLY emptiness wording a COMPLETE scan licenses (§3.4): every candidate in every fanned
+ *  program was checked, so "none is assignable" is a real verdict about T. The incomplete and
+ *  never-scanned states are NOT this op's to phrase — they are coverage facts with their own
+ *  remedies, assembled once for every scanning op in `ops/scan-coverage.ts`. Naming `pathInclude`
+ *  here would be the t-259465 defect (a lever that cannot change the outcome): a complete scan is
+ *  complete whatever the glob was. */
+export function completeEmptyVerdict(target: ConstructionTarget): string {
+  return `no object literal in the scanned programs is assignable to ${target.kind} ${target.name} — the scan was COMPLETE, so this is a verdict: a literal missing a required field (or carrying an excess one) is correctly excluded, and a literal that loses freshness through an intermediate binding is the op's stated recall boundary.`;
 }
 
 /** A target the agent named resolved to a VALUE, not a type — stated plainly (§3.6). */

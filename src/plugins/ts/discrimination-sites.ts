@@ -11,16 +11,26 @@
 //
 // Bounded by DESIGN (§19): the walk is O(nodes) AST; the per-statement type work (identity + covers)
 // is capped by the NUMBER of switch/if-heads examined — past the cap they are still COUNTED so the
-// truncation is honest, never a silent undercount (§3.4). Primary program only (matches
-// construction_sites — no cross-program fan-out); that limit is disclosed in the op's static note.
+// truncation is honest, never a silent undercount (§3.4).
+//
+// CROSS-PROGRAM (t-162650, shared with construction_sites via `program/scan-fanout.ts`): a switch
+// living in a sibling program (a `test/**` file, a package that imports T) is a real site, so a
+// single-program scan would answer `0` about a question whose answer exists. The identity gate is a
+// TYPE-identity compare, which is invalid across programs, so the fan re-resolves T in each program
+// and judges that program's own files against that program's own T.
 
-import * as path from 'node:path';
 import ts from 'typescript';
 import type { Confidence, Span } from '../../core/span.ts';
+import type { Deadline } from '../../common/async/deadline.ts';
 import { nodeAt } from './ast-node.ts';
 import { typeAtNode } from './type-at-node.ts';
 import { describeTarget } from './construction-target.ts';
-import { pathScopePredicate } from './path-scope.ts';
+import {
+  runFanoutScan,
+  selectScanFanout,
+  type ScanCoverage,
+  type ScanFanout,
+} from './program/scan-fanout.ts';
 import type { EncloserView } from './encloser-view.ts';
 import {
   discriminantsOf,
@@ -68,6 +78,10 @@ export type DiscriminationSitesView = {
   sites: DiscriminationSite[];
   scannedStatements: number;
   scannedFiles: number;
+  /** The positive per-program scope + every reason the scan may fall short (§3.4). ABSENT when a
+   *  target guard fired (T is not a union / has no discriminant) — no scan was attempted, so there
+   *  is no scope to report and no emptiness to explain. */
+  coverage?: ScanCoverage;
   truncated?: { examined: number; candidates: number };
   notes?: string[];
 };
@@ -77,9 +91,13 @@ export interface DiscriminationSitesOptions {
   pathExclude?: readonly string[] | undefined;
   /** Hard cap on switch/if-head statements examined (the compute bound, §1/§19). */
   limit?: number | undefined;
+  /** The op's cooperative wall-clock budget — polled at the file boundary (§19). */
+  deadline?: Deadline | undefined;
 }
 
-const DEFAULT_SCAN_CAP = 2000;
+/** Default cap on switch/if-heads examined — ONE budget for the whole cross-program fan, so N
+ *  programs never multiply it. Exported so the op's floor note names the budget the scan spent. */
+export const DEFAULT_SCAN_CAP = 2000;
 
 export function findDiscriminationSites(
   host: TsProjectHost,
@@ -87,12 +105,12 @@ export function findDiscriminationSites(
   offset: number,
   options: DiscriminationSitesOptions,
 ): DiscriminationSitesView | string {
-  // Target union-type resolution + the discriminating-scrutinee scan run in ONE program routed to
-  // the type-authority for `abs` (t-593802): in a no-root repo `host.service` is the fallback primary
-  // whose whole-repo glob pollutes the union type with augmentation strays. typeAuthorityFor returns
-  // the target's own-options program — the union type is honest and the (single-program, per this op's
-  // disclosed contract) scan stays sound.
-  const program = host.typeAuthorityFor(abs).getProgram();
+  // The type authority answers the TARGET-level questions (T's span, its discriminants, whether it
+  // can host the query at all) because a target guard must not depend on which sibling happened to
+  // load — in a no-root repo the fallback primary's whole-repo glob would pollute the union type it
+  // reports (t-593802). The SCAN then fans (`scan-fanout.ts`), re-resolving T per program.
+  const fanout = selectScanFanout(host, abs);
+  const program = fanout.fan[0]?.getProgram();
   if (program === undefined) return 'the TS program is unavailable';
   const checker = program.getTypeChecker();
   const targetFile = program.getSourceFile(abs);
@@ -120,7 +138,7 @@ export function findDiscriminationSites(
     return { target: targetView, sites: [], scannedStatements: 0, scannedFiles: 0, notes: [guard] };
   }
 
-  return scan(host, program, checker, targetType, targetView, {
+  return scan(host, abs, offset, fanout, targetView, {
     discriminants,
     bareDomain,
     options,
@@ -152,71 +170,69 @@ type ScanCtx = {
 
 function scan(
   host: TsProjectHost,
-  program: ts.Program,
-  checker: ts.TypeChecker,
-  targetType: ts.Type,
+  abs: string,
+  offset: number,
+  fanout: ScanFanout,
   targetView: DiscriminationTargetView,
   ctx: ScanCtx,
-): DiscriminationSitesView {
+): DiscriminationSitesView | string {
   const discByName = new Map(ctx.discriminants.map((d) => [d.name, d.domain]));
-  const inScope = pathScopePredicate(ctx.options.pathInclude, ctx.options.pathExclude);
-  const cap = ctx.options.limit ?? DEFAULT_SCAN_CAP;
-  const sites: DiscriminationSite[] = [];
-  let examined = 0;
-  let candidates = 0;
-  let scannedFiles = 0;
+  const scanned = runFanoutScan(
+    host,
+    fanout,
+    { ...ctx.options, limit: ctx.options.limit ?? DEFAULT_SCAN_CAP },
+    {
+      // Per-program target resolve: the gate is a TYPE-IDENTITY compare, and a type identity belongs
+      // to ONE checker — so T is re-resolved here and each program's sites are judged against its
+      // own T. A program where T is no longer a discriminable union under ITS options is skipped
+      // rather than judged against a type it does not have.
+      resolve: (program, programChecker) => {
+        const sf = program.getSourceFile(abs);
+        if (sf === undefined) return undefined;
+        const at = nodeAt(sf, offset);
+        if (at === undefined) return undefined;
+        const type = typeAtNode(programChecker, at);
+        if (type === undefined || !type.isUnion()) return undefined;
+        return { checker: programChecker, type };
+      },
+      prepare: (n, sourceFile) => rawSiteOf(sourceFile, n),
+      evaluate: (raw, resolved, sourceFile, rel) =>
+        gate(
+          host,
+          resolved.checker,
+          sourceFile,
+          rel,
+          resolved.type,
+          raw,
+          discByName,
+          ctx.bareDomain,
+        ),
+    },
+  );
+  // No fanned program resolves T to a union — a "couldn't", not an `ok` shaped like 0 sites (§3.6).
+  if (scanned === undefined) return 'the target is not a union type in any program containing it';
 
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.fileName.includes('/node_modules/') || sourceFile.isDeclarationFile) continue;
-    const rel = host.relOf(sourceFile.fileName);
-    if (path.isAbsolute(String(rel))) continue; // path-mapped spillover — not ours to scan
-    if (!inScope(rel)) continue;
-    scannedFiles++;
-
-    const visit = (n: ts.Node): void => {
-      const raw = rawSiteOf(sourceFile, n);
-      if (raw !== undefined) {
-        candidates++;
-        if (examined < cap) {
-          examined++;
-          const site = gate(
-            host,
-            checker,
-            sourceFile,
-            rel,
-            targetType,
-            raw,
-            discByName,
-            ctx.bareDomain,
-          );
-          if (site !== undefined) sites.push(site);
-        }
-      }
-      ts.forEachChild(n, visit);
-    };
-    visit(sourceFile);
-  }
-
-  const truncated = candidates > examined;
-  const empty = emptyNote(sites.length, targetView.name, truncated);
+  const { coverage } = scanned;
   return {
     target: targetView,
-    sites,
-    scannedStatements: examined,
-    scannedFiles,
-    ...(truncated ? { truncated: { examined, candidates } } : {}),
-    ...(empty !== undefined ? { notes: [empty] } : {}),
+    sites: scanned.sites,
+    scannedStatements: coverage.examined,
+    scannedFiles: coverage.files,
+    coverage,
+    ...(coverage.candidates > coverage.examined
+      ? { truncated: { examined: coverage.examined, candidates: coverage.candidates } }
+      : {}),
   };
 }
 
-/** A 0-site answer must not read as "none exist" (§3.4). When the cap was hit, MORE statements were
- *  left unscanned — say so, never assert non-existence. Only a complete scan may state "none in scope". */
-function emptyNote(siteCount: number, name: string, truncated: boolean): string | undefined {
-  if (siteCount > 0) return undefined;
-  if (truncated) {
-    return `no discriminating switch/if-chain among the examined statements — but the cap was hit and MORE are unscanned; raise limit or narrow pathInclude before concluding nothing switches on ${name}`;
-  }
-  return `no switch/if-chain in scope discriminates on a scrutinee whose type is EXACTLY ${name} (identity-gated) — a switch on an unrelated union, a structural supertype (\`{ kind: string }\`), or a non-discriminant property is correctly excluded, BUT a scrutinee typed as an INTERSECTION (\`${name} & X\`, incl. the distributed form an \`in\`-narrowing yields) or a mapped-type wrapper (\`Readonly<${name}>\`) is honest UNDER-COVERAGE — the identity gate deliberately cannot recover ${name} from those (structural matching there would flood every kind-union), so such a site is MISSED, not proven absent; widen pathInclude if you scoped it`;
+/** The ONLY emptiness wording a COMPLETE scan licenses (§3.4). The incomplete and never-scanned
+ *  states are coverage facts with their own remedies, assembled for every scanning op in
+ *  `ops/scan-coverage.ts` — and `pathInclude` is deliberately not named here, because a complete
+ *  scan is complete whatever the glob was (naming an inert lever is the t-259465 defect). What this
+ *  verdict DOES still owe is the identity gate's own under-coverage, which no coverage counter can
+ *  express: it is a property of the gate, not of the file set. */
+export function completeEmptyVerdict(name: string): string {
+  return `no switch/if-chain in the scanned programs discriminates on a scrutinee whose type is EXACTLY ${name} (identity-gated) — the scan was COMPLETE. A switch on an unrelated union, a structural supertype (\`{ kind: string }\`), or a non-discriminant property is correctly excluded; BUT a scrutinee typed as an INTERSECTION (\`${name} & X\`, incl. the distributed form an \`in\`-narrowing yields) or a mapped-type wrapper (\`Readonly<${name}>\`) is honest UNDER-COVERAGE the gate cannot recover (structural matching there would flood every kind-union) — such a site is MISSED, not proven absent.`;
 }
 
 /** A `switch` statement or an `if`-chain HEAD → its RawSite; `undefined` for any other node. */
