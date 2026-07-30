@@ -73,3 +73,33 @@ Priority stays high on (1). The scope of the work is unchanged; only the claim i
   silently; this resolve does not rank (single declaration, else a pick-list), so attaching one would be false
   partiality. The note must also say the path is DIFFERENT, not strictly worse: its reach is the git source
   surface, so a file in no tsconfig is visible to it and invisible to the checker path.
+
+## Live measurement on the 6.1k-file monorepo (done post-merge — unreachable from the track's worktree)
+
+Real binary, CLI one-shot, `/usr/bin/time -l`, same target (`useUpsertFormV2`), `/Users/cody/Dev/backoffice2`:
+
+| addressing | path | wall | max RSS |
+|---|---|---|---|
+| `name` + `file` | **syntactic** | 7.78 s | 497 MB |
+| `name` + `file` | checker | 11.61 s | 1103 MB |
+| bare `name` | **syntactic** | 7.87 s | 506 MB |
+| bare `name` | checker | 23.06 s | 1416 MB |
+
+So the gain holds on BOTH addressings — 1.5×/2.2× file-pinned, 2.9×/2.8× on a bare name — and the shape is
+the interesting part: **the syntactic path is flat across addressing** (7.78 vs 7.87 s — it parses the surface
+either way), while the checker path doubles in wall and grows ~30% in RSS when the name is unpinned, because
+it resolves through navto across programs first.
+
+Two corrections to earlier numbers in this task, recorded so nobody re-derives them:
+
+1. The "839 MB / 4.5 s" figure quoted from the neighbouring measurement is an IN-ENGINE heap reading (engine
+   built directly, no CLI cold start); the table above is whole-process max RSS through the real binary. They
+   measure different things and must not be compared line to line.
+2. An intermediate run compared `peak memory footprint` (187 MB syntactic vs 189 MB checker) and read as
+   parity. That counter is not max RSS — the same pair measured as RSS is 497 vs 1103 MB. A near-parity
+   reading from the wrong counter almost went into this body as "the win is bare-name only".
+
+Also confirmed live: the scope note states the path as DIFFERENT rather than merely cheaper — it names the two
+axes on which it is WIDER than the type-verified path (a file no tsconfig includes is scanned; a nested /
+member / destructured declaration is addressable) alongside what it does not do (does not follow a reference to
+its definition, resolves no module specifier, prints an overload implementation without the signature list).
