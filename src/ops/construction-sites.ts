@@ -12,7 +12,6 @@ import { failFromThrown, fail, ok, partial } from '../common/result/construct.ts
 import { tag } from '../common/shape-tag/tag.ts';
 import type { TsPluginApi, ConstructionSite, ConstructionTarget } from '../plugins/ts/plugin.ts';
 import { completeEmptyVerdict } from '../plugins/ts/construction-target.ts';
-import { DEFAULT_SCAN_CAP } from '../plugins/ts/construction-sites.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
@@ -22,6 +21,7 @@ import {
   scanEmptinessNote,
   scanFloorNotes,
   scanScopeFields,
+  scanTableNotes,
   type ScanSubject,
 } from './scan-coverage.ts';
 
@@ -49,6 +49,7 @@ type ConstructionData = {
   /** `complete:false` + the per-program scope lead the object (verdict-first, §12). */
   complete?: false;
   programsScanned?: JsonValue;
+  programsSkipped?: JsonValue;
   undiscoveredPrograms?: JsonValue;
   target: ConstructionTarget;
   sites: ConstructionSite[];
@@ -90,12 +91,12 @@ const constructionSitesTable: TableSpec<JsonValue> = {
     const target = (data as { target?: ConstructionTarget }).target;
     if (target !== undefined)
       out.push(`target: ${target.kind} ${target.name} @ ${target.span.file}:${target.span.line}`);
-    const t = (data as { truncated?: { examined: number; candidates: number } }).truncated;
-    if (t !== undefined) {
-      out.push(
-        `examined ${t.examined} of ${t.candidates} object literals (cap hit) — narrow with pathInclude or raise limit to scan the rest.`,
-      );
-    }
+    // The sql/table surface forwards `scanScopeFields` + `data.notes` and states NOTHING of its own
+    // about the scan: a second cap sentence here would give a sql consumer the budget fact twice in
+    // two wordings — two authorities on one question, which is what the closed §3.4 vocabulary
+    // exists to prevent. The scope must ride along too, or a table consumer reads bare counters with
+    // no denominator (the exact defect t-162650 closed on the text surface).
+    out.push(...scanTableNotes(data));
     for (const n of (data as { notes?: string[] }).notes ?? []) out.push(n);
     return out;
   },
@@ -117,7 +118,7 @@ export const constructionSitesOp = defineOp({
     "assignability is the live checker's, over each literal's FRESH type — so it is excess-property-checked exactly as `const _: T = <literal>` would be: a literal missing a required field, OR carrying an excess one, is correctly NOT reported (high precision, no structural-superset flood).",
     "confidence: certain = a concrete fully-typed literal proven assignable · partial = assignable but the target is generic OR a field of T is satisfied by an `any`-value · dynamic = the literal's own type is `any` (assignable vacuously). A partial/dynamic site is honest uncertainty, never asserted certain.",
     'recall boundary (v1, object literals + initializers): a literal that loses freshness through an intermediate binding before flowing to T (`const base = {…,extra}; useUser(base)`) is NOT reported — its initializer is fresh and excess-fails. Stated, never silently missed.',
-    'cross-program: the scan fans over EVERY loaded program containing T\'s declaration (a `test/**` sibling, a monorepo package that imports T), re-resolving T per program because assignability is invalid across checkers. `programsScanned` states the scope POSITIVELY, per program — so a small `files=N` can never be mistaken for "scanned the repo". A repo tsconfig codemaster never loaded, a spent budget, and files under no tsconfig are three DISTINCT floors, each named with the lever that can actually change it.',
+    "cross-program: the scan fans over EVERY loaded program containing T's declaration (a `test/**` sibling, a monorepo package that imports T), re-resolving T per program because assignability is invalid across checkers. `programsScanned` states the scope POSITIVELY, per program — so a small `files=N` can never be mistaken for \"scanned the repo\". A file contained by SEVERAL fanned programs is judged ONCE, by the target's type authority (first-program-wins) — so where two configs genuinely disagree about it (a divergent `strict`/`exactOptionalPropertyTypes`/`paths`), the reported verdict is the authority's and the other program's is not represented. A repo tsconfig codemaster never loaded, a spent budget, files under no tsconfig, and a fanned program whose own options make T uncheckable are four DISTINCT floors, each named with the lever that can actually change it.",
     '`sites: 0` is a VERDICT only when the scan was complete: an empty SCAN and an empty RESULT are different facts, so a 0 over a scan that examined nothing reads `!! NOT A VERDICT`, and a 0 over an incomplete scan states the shortfall instead of asserting that nothing builds T.',
     'bounded: the assignability checks are hard-capped (default 10000 across the whole fan, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).',
   ],
@@ -152,7 +153,6 @@ export const constructionSitesOp = defineOp({
       const undiscovered = coverage !== undefined ? ts.undiscoveredProgramLabels() : [];
       const notes = [...(view.notes ?? [])];
       if (coverage !== undefined) {
-        const limit = args.limit ?? DEFAULT_SCAN_CAP;
         // Verdict-first (§12): the floor notes precede the target-level caveats, and the emptiness
         // line — which says whether `sites: 0` is a verdict at all — leads them.
         const empty = scanEmptinessNote(
@@ -162,7 +162,7 @@ export const constructionSitesOp = defineOp({
           SUBJECT,
           completeEmptyVerdict(view.target),
         );
-        notes.unshift(...scanFloorNotes(coverage, undiscovered, SUBJECT, limit));
+        notes.unshift(...scanFloorNotes(coverage, undiscovered, SUBJECT));
         if (empty !== undefined) notes.unshift(empty);
       }
       const data: ConstructionData = {
@@ -175,11 +175,18 @@ export const constructionSitesOp = defineOp({
         ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
         ...(notes.length > 0 ? { notes } : {}),
       };
+      // §12: `candidates` is counted only INSIDE files the walk opened, so when the walk was cut
+      // short (deadline) or the fan narrowed itself, the total is a FLOOR the producer could not
+      // finish — rendered `≥N`, never as an exact count.
+      const totalIsFloor =
+        coverage !== undefined &&
+        (coverage.walkedFiles < coverage.files || coverage.skipped !== undefined);
       const truncated: Truncation | undefined =
         view.truncated !== undefined
           ? {
               shown: view.truncated.examined,
               total: view.truncated.candidates,
+              ...(totalIsFloor ? { totalIsLowerBound: true as const } : {}),
               hint: 'narrow with pathInclude / pathExclude, or raise limit, to scan the rest',
             }
           : undefined;
@@ -194,7 +201,7 @@ export const constructionSitesOp = defineOp({
           data as JsonValue,
           {
             tool: 'timeout',
-            message: `the scan's wall-clock budget expired after ${coverage.examined} of ${coverage.candidates} object literals — the sites listed are real, the scan is unfinished`,
+            message: `the scan's wall-clock budget expired after walking ${coverage.walkedFiles} of ${coverage.files} in-scope file(s) — the sites listed are real, the remaining files were never opened`,
           },
           extras,
         );

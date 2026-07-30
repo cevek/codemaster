@@ -35,7 +35,8 @@ import {
   valueTargetNote,
   vacuousNote,
 } from './construction-target.ts';
-import { runFanoutScan, selectScanFanout, type ScanCoverage } from './program/scan-fanout.ts';
+import { runFanoutScan, selectScanFanout } from './program/scan-fanout.ts';
+import type { ScanCoverage } from './program/scan-coverage-view.ts';
 import type { TsProjectHost } from './ls-host.ts';
 
 export type ConstructionSite = {

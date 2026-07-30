@@ -188,7 +188,12 @@ export function relLabel(root: string, abs: string): string {
  *  only program whose label is not a path, so label equality identifies it without widening the
  *  `TsProgram` fan-out view: `relLabel` always yields a repo-relative or absolute PATH, and a
  *  sibling/package program always has a `configPath`. Read by the type-anchored scan fan-out
- *  (`scan-fanout.ts`), which must not treat it as a type authority (t-593802). */
+ *  (`scan-fanout.ts`), which must not treat it as a type authority (t-593802).
+ *
+ *  NOT the same fact as the identically-spelled sentinel in `symbols-overview` / `config-membership`:
+ *  that one means "this FILE is under no tsconfig", a property of a file, while this is the identity of
+ *  a PROGRAM. They coincide in spelling only — do not unify them, and do not assume renaming this one
+ *  renames those. */
 export const NO_CONFIG_LABEL = '(no tsconfig)';
 
 /** The primary program's provenance label — `relLabel` plus the no-tsconfig fallback. */

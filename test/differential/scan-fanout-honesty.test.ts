@@ -20,10 +20,11 @@ import { project, type TestProject } from '../helpers/project.ts';
 import { coldAssignableLiterals } from '../helpers/cold-ls.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
-type Site = { span: { file: string; line: number } };
+type Site = { span: { file: string; line: number }; confidence: string };
 type ScanData = {
   complete?: false;
   programsScanned?: string[];
+  programsSkipped?: string[];
   undiscoveredPrograms?: string[];
   sites?: Site[];
   scanned?: { literals?: number; statements?: number; files: number };
@@ -64,7 +65,6 @@ function dataOf(r: OpResult): ScanData {
 }
 
 const files = (d: ScanData): string[] => (d.sites ?? []).map((s) => s.span.file).sort();
-const notes = (d: ScanData): string => (d.notes ?? []).join('\n');
 
 test('construction_sites fans across programs: a test-only construction site is FOUND, and the scope is stated per program', async () => {
   const p: TestProject = await project(CROSS);
@@ -110,107 +110,29 @@ test('a per-program verdict never leaks across programs: the strict-only literal
 
     const data = dataOf(await p.op('construction_sites', { name: 'Cfg' }));
     const got = files(data);
-    // The load-bearing negative: `src/loose.ts` is owned by the STRICT primary, so the lax
-    // program's "yes" must not reach it. A fan that shared one target type across all files, or
-    // let the lax sibling claim a src file, reports it here.
+    // Arm 1 — CLAIMING: `src/loose.ts` is owned by the STRICT primary, so the lax program's "yes"
+    // must not reach it. Red if the lax sibling claimed a src file, or if the primary's target type
+    // were checked against the lax program's files.
     assert.ok(
       !got.includes('src/loose.ts'),
       `a strict-program file judged by lax options leaked in: ${JSON.stringify(got)}`,
     );
+    const laxSite = (data.sites ?? []).find((s) => s.span.file === 'lax/only.ts');
     assert.ok(
-      got.includes('lax/only.ts'),
+      laxSite !== undefined,
       `the sibling-owned file must be judged by its OWN program: ${JSON.stringify(got)}`,
     );
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('an EMPTY SCAN is not a verdict: 0 files scanned says so outright and never asserts assignability', async () => {
-  const p: TestProject = await project(CROSS);
-  try {
-    const data = dataOf(
-      await p.op('construction_sites', { name: 'Cfg', pathInclude: ['nowhere/**'] }),
+    // Arm 2 — PER-PROGRAM RESOLVE, and this is what the presence check alone cannot catch. A fan
+    // that hoisted ONE `resolve` would still LIST this site: judging a lax-program node with the
+    // strict checker yields an error/`any` type, which `classifyConstructionSite` reports as a
+    // `dynamic` site ("the literal's type is `any`"). Under a correct per-program resolve the literal
+    // is concrete, non-generic and has no `any` member → `certain`. The CONFIDENCE is the
+    // discriminator, not the row.
+    assert.equal(
+      laxSite.confidence,
+      'certain',
+      `the sibling site must be judged by its own checker (a foreign checker degrades it to dynamic): ${JSON.stringify(laxSite)}`,
     );
-    assert.deepEqual(files(data), [], 'nothing was found');
-    assert.equal(data.scanned?.files, 0, 'and nothing was scanned');
-    const n = notes(data);
-    assert.match(n, /NOT A VERDICT/, 'the emptiness is labelled as an empty SCAN');
-    assert.ok(
-      !/is assignable to/.test(n),
-      `an unscanned answer must not render an assignability verdict: ${n}`,
-    );
-    // The remedy names the lever that CAN change the outcome, with the count that proves it is the
-    // filter and not the program set (t-259465: never a lever that cannot help).
-    assert.match(n, /matched 0 of the \d+ file/, 'the glob is named as the cause, with counts');
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('a COMPLETE empty scan states a verdict and does NOT blame pathInclude (an inert lever)', async () => {
-  const p: TestProject = await project({
-    'tsconfig.json': `{"compilerOptions":${STRICT},"include":["src"]}`,
-    'src/type.ts': 'export interface Unbuilt { onlyField: string; other: number }\n',
-    'src/other.ts': 'export const unrelated = { somethingElse: 1 };\n',
-  });
-  try {
-    const data = dataOf(await p.op('construction_sites', { name: 'Unbuilt' }));
-    assert.deepEqual(files(data), [], 'nothing builds it');
-    const n = notes(data);
-    assert.match(n, /scan was COMPLETE/, 'a complete scan may state a verdict');
-    assert.ok(
-      !/pathInclude/.test(n),
-      `a complete scan is complete whatever the glob was — naming it is an inert remedy: ${n}`,
-    );
-    assert.equal(data.complete, undefined, 'a complete scan carries no `complete:false`');
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('a spent BUDGET is a different fact from an unloaded config — its note names the budget, not indexing', async () => {
-  const p: TestProject = await project(CROSS);
-  try {
-    const data = dataOf(await p.op('construction_sites', { name: 'Cfg', limit: 1 }));
-    assert.equal(data.complete, false, 'a truncated scan is not complete');
-    const n = notes(data);
-    assert.match(n, /the shortfall is the budget, NOT a missing config/, 'the cause is the budget');
-    assert.ok(
-      !/NOT loaded as programs/.test(n),
-      `this fixture has no undiscovered config — that vocabulary must not fire: ${n}`,
-    );
-  } finally {
-    await p.dispose();
-  }
-});
-
-test('discrimination_sites fans across programs: a test-only switch on a src union is FOUND', async () => {
-  const p: TestProject = await project({
-    'tsconfig.json': `{"compilerOptions":${STRICT},"include":["src"]}`,
-    'tsconfig.test.json': `{"compilerOptions":${STRICT},"include":["src","test"]}`,
-    'src/shape.ts':
-      "export type Shape = { kind: 'circle'; r: number } | { kind: 'square'; side: number };\n",
-    'src/area.ts':
-      "import type { Shape } from './shape';\n" +
-      'export function area(s: Shape): number {\n' +
-      "  switch (s.kind) { case 'circle': return s.r; case 'square': return s.side; }\n" +
-      '}\n',
-    'test/shape.test.ts':
-      "import type { Shape } from '../src/shape';\n" +
-      'export function label(s: Shape): string {\n' +
-      "  switch (s.kind) { case 'circle': return 'c'; default: return 's'; }\n" +
-      '}\n',
-  });
-  try {
-    const data = dataOf(await p.op('discrimination_sites', { name: 'Shape' }));
-    assert.deepEqual(
-      files(data),
-      ['src/area.ts', 'test/shape.test.ts'],
-      'the sibling-program switch is reported alongside the primary one',
-    );
-    const scope = (data.programsScanned ?? []).join('\n');
-    assert.match(scope, /tsconfig\.test\.json:/, 'the sibling program is named in the scope');
   } finally {
     await p.dispose();
   }

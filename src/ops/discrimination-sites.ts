@@ -14,7 +14,7 @@ import type {
   DiscriminationSite,
   DiscriminationTargetView,
 } from '../plugins/ts/plugin.ts';
-import { completeEmptyVerdict, DEFAULT_SCAN_CAP } from '../plugins/ts/discrimination-sites.ts';
+import { completeEmptyVerdict } from '../plugins/ts/discrimination-sites.ts';
 import { defineOp } from './registry.ts';
 import type { Cell, TableSpec } from './registry.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
@@ -24,6 +24,7 @@ import {
   scanEmptinessNote,
   scanFloorNotes,
   scanScopeFields,
+  scanTableNotes,
   type ScanSubject,
 } from './scan-coverage.ts';
 
@@ -51,6 +52,7 @@ type DiscriminationData = {
   /** `complete:false` + the per-program scope lead the object (verdict-first, §12). */
   complete?: false;
   programsScanned?: JsonValue;
+  programsSkipped?: JsonValue;
   undiscoveredPrograms?: JsonValue;
   target: DiscriminationTargetView;
   sites: DiscriminationSite[];
@@ -104,12 +106,11 @@ const discriminationSitesTable: TableSpec<JsonValue> = {
         `target: ${target.kind} ${target.name} @ ${target.span.file}:${target.span.line}${domains !== '' ? ` — discriminants ${domains}` : ''}`,
       );
     }
-    const t = (data as { truncated?: { examined: number; candidates: number } }).truncated;
-    if (t !== undefined) {
-      out.push(
-        `examined ${t.examined} of ${t.candidates} switch/if statements (cap hit) — narrow with pathInclude or raise limit to scan the rest.`,
-      );
-    }
+    // The scan's own facts ride `scanScopeFields` + `data.notes`; this surface states none of its
+    // own. A second cap sentence would give a sql consumer the budget fact twice in two wordings
+    // (§3.4 one authority), and omitting the scope would leave it reading bare counters with no
+    // denominator — the exact defect t-162650 closed on the text surface.
+    out.push(...scanTableNotes(data));
     for (const n of (data as { notes?: string[] }).notes ?? []) out.push(n);
     return out;
   },
@@ -133,8 +134,8 @@ export const discriminationSitesOp = defineOp({
     'confidence: certain = a `switch` with an identity-T scrutinee and all cases read as literals · partial = an if/else-if chain (=== heuristic), an element-access `obj["k"]` scrutinee, or a case/branch value that could not be read as a literal. A partial site is honest uncertainty.',
     'v1 scope (honest under-coverage, stated): if-chains match only `X.disc === literal` branches chained via `else if` — a `!==`/`in`-narrowing/type-guard/negated-early-return/compound `&&` branch is not counted; a computed `obj[expr]` scrutinee is not read. The identity gate drops any scrutinee whose type is not EXACTLY T: a structural supertype/subtype, an INTERSECTION `T & X` (incl. the distributed union an `in`-narrowing yields), and a mapped-type wrapper `Readonly<T>` are all MISSED — recovering them needs structural matching, which would flood every kind-union, so it is intentionally not done.',
     "cross-program: the scan fans over EVERY loaded program containing T's declaration (a `test/**` sibling, a package that imports T), re-resolving T per program because a type identity belongs to one checker. `programsScanned` states the scope POSITIVELY, per program; a repo tsconfig codemaster never loaded, a spent budget, and files under no tsconfig are three DISTINCT floors, each named with the lever that can actually change it.",
-    'bounded: the switch/if statements examined are hard-capped (default 2000 across the whole fan, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).',
     '`sites: 0` is a VERDICT only when the scan was complete: an empty scan and an empty result are different facts, so a 0 over a scan that examined nothing says `!! NOT A VERDICT` and a 0 over an incomplete scan says so instead of asserting absence.',
+    'bounded: the switch/if statements examined are hard-capped (default 2000 across the whole fan, raise with limit) and the cap is reported as truncation; scope with pathInclude/pathExclude. Each enclosing declaration is a chainable SymbolId (→ find_usages / source / rename_symbol).',
   ],
   table: discriminationSitesTable,
   async run(ctx, args): Promise<Result<JsonValue>> {
@@ -162,7 +163,6 @@ export const discriminationSitesOp = defineOp({
       const undiscovered = coverage !== undefined ? ts.undiscoveredProgramLabels() : [];
       const notes = [...(view.notes ?? [])];
       if (coverage !== undefined) {
-        const limit = args.limit ?? DEFAULT_SCAN_CAP;
         const empty = scanEmptinessNote(
           coverage,
           undiscovered,
@@ -170,7 +170,7 @@ export const discriminationSitesOp = defineOp({
           SUBJECT,
           completeEmptyVerdict(view.target.name),
         );
-        notes.unshift(...scanFloorNotes(coverage, undiscovered, SUBJECT, limit));
+        notes.unshift(...scanFloorNotes(coverage, undiscovered, SUBJECT));
         if (empty !== undefined) notes.unshift(empty);
       }
       const data: DiscriminationData = {
@@ -183,11 +183,18 @@ export const discriminationSitesOp = defineOp({
         ...(view.truncated !== undefined ? { truncated: view.truncated } : {}),
         ...(notes.length > 0 ? { notes } : {}),
       };
+      // §12: `candidates` is counted only INSIDE files the walk opened, so when the walk was cut
+      // short (deadline) or the fan narrowed itself, the total is a FLOOR the producer could not
+      // finish — rendered `≥N`, never as an exact count.
+      const totalIsFloor =
+        coverage !== undefined &&
+        (coverage.walkedFiles < coverage.files || coverage.skipped !== undefined);
       const truncated: Truncation | undefined =
         view.truncated !== undefined
           ? {
               shown: view.truncated.examined,
               total: view.truncated.candidates,
+              ...(totalIsFloor ? { totalIsLowerBound: true as const } : {}),
               hint: 'narrow with pathInclude / pathExclude, or raise limit, to scan the rest',
             }
           : undefined;
@@ -202,7 +209,7 @@ export const discriminationSitesOp = defineOp({
           data as JsonValue,
           {
             tool: 'timeout',
-            message: `the scan's wall-clock budget expired after ${coverage.examined} of ${coverage.candidates} switch/if-heads — the sites listed are real, the scan is unfinished`,
+            message: `the scan's wall-clock budget expired after walking ${coverage.walkedFiles} of ${coverage.files} in-scope file(s) — the sites listed are real, the remaining files were never opened`,
           },
           extras,
         );

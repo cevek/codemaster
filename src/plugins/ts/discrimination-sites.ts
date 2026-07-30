@@ -25,12 +25,8 @@ import type { Deadline } from '../../common/async/deadline.ts';
 import { nodeAt } from './ast-node.ts';
 import { typeAtNode } from './type-at-node.ts';
 import { describeTarget } from './construction-target.ts';
-import {
-  runFanoutScan,
-  selectScanFanout,
-  type ScanCoverage,
-  type ScanFanout,
-} from './program/scan-fanout.ts';
+import { runFanoutScan, selectScanFanout, type ScanFanout } from './program/scan-fanout.ts';
+import type { ScanCoverage } from './program/scan-coverage-view.ts';
 import type { EncloserView } from './encloser-view.ts';
 import {
   discriminantsOf,

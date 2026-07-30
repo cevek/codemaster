@@ -11,6 +11,13 @@
 // program in fan order that owns it (dedup by `RepoRelPath`), so the expensive check runs once per
 // file and the compute surface is the UNION of the programs' file sets, not their sum.
 //
+// DELIBERATELY NOT the same fan policy as `../cross-program.ts` (`findReferencesAcross`), which runs
+// the same three steps — `ensureProgramFor` → `programsContaining` → fall back to the primary — but
+// KEEPS the no-config fallback. The divergence is principled, not an oversight: a REFERENCE set is
+// barely `compilerOptions`-sensitive, so the fallback is a usable reference oracle, while a TYPE
+// verdict under its DEFAULT options is a verdict the project never yields. Do not harmonise these two
+// functions in either direction without settling that question first.
+//
 // The no-config FALLBACK primary is excluded as a scan authority whenever a real-config program
 // contains the target declaration (t-593802): its whole-repo glob under DEFAULT options absorbs
 // `declare global`/`declare module` strays and resolves no `paths`, so a verdict it produces about
@@ -29,41 +36,7 @@ import { pathScopePredicate } from '../path-scope.ts';
 import type { TsProjectHost } from '../ls-host.ts';
 import type { TsProgram } from './queryable-program.ts';
 import { NO_CONFIG_LABEL } from './discover.ts';
-
-/** What one fanned program contributed. `examined < candidates` means its own candidates were left
- *  unchecked because the shared budget ran out — a LOADED program we did not finish, which is a
- *  different fact (and a different remedy) from a config never loaded at all. */
-export interface ScanProgramCoverage {
-  label: string;
-  files: number;
-  examined: number;
-  candidates: number;
-}
-
-/** The positive scope of a fanned scan — WHAT was walked, per program, plus every reason the walk
- *  may be short of the question. Machine-readable so the op renders a verdict instead of prose
- *  (§3.4): `sites: 0` is only an assignability/identity verdict when this says the scan was
- *  complete. */
-export interface ScanCoverage {
-  /** Per-program, in fan order (the target's type authority first). */
-  programs: ScanProgramCoverage[];
-  /** Union totals over the claimed file set. */
-  files: number;
-  /** Union of files the fan COULD have walked, before `pathInclude`/`pathExclude`. `files === 0`
-   *  with `eligibleFiles > 0` proves the path filter — not the program set — emptied the scan, which
-   *  is the difference between a remedy that works and one that cannot (§3.6). */
-  eligibleFiles: number;
-  examined: number;
-  candidates: number;
-  /** Files covered ONLY by the excluded no-config fallback primary — unscanned by design. */
-  fallbackOnlyFiles?: number;
-  /** No real-config program contains the target: the scan ran on the no-config fallback, whose
-   *  DEFAULT options resolve no `paths` and absorb whole-repo strays. */
-  fallbackOnly?: true;
-  /** The cooperative deadline expired mid-scan (§19) — the sites found are real, the scan is not
-   *  finished. */
-  deadlineHit?: true;
-}
+import type { ScanCoverage, ScanProgramCoverage, SkippedProgram } from './scan-coverage-view.ts';
 
 /** The scan contract each op supplies. `C` is the op's per-program resolved target (its type plus
  *  whatever it precomputes from it), `P` a prepared candidate, `S` one emitted site.
@@ -102,7 +75,15 @@ export interface ScanFanout {
  *  the no-config fallback primary demoted out of the set unless nothing else contains the target.
  *  `ensureProgramFor` first — read-path parity with `findReferencesAcross(loadNearest:true)`, so a
  *  decl whose nearest enclosing tsconfig is a nested config is scanned under the config that
- *  actually resolves its aliases. */
+ *  actually resolves its aliases.
+ *
+ *  SESSION ORDER (§16 cold==warm, and why it holds): `programsContaining` is `built()` first, then any
+ *  file-driven / `programs:`-lever programs this session happened to load — so a warm session's fan can
+ *  be a SUPERSET of a cold one's. That is honest in both directions rather than a drift, because the
+ *  extra programs come from configs that were in `undiscoveredProgramLabels()` before they loaded and
+ *  are subtracted from it after: the cold run reports `complete:false` naming exactly those configs,
+ *  the warm run scans them and reports the larger set. Additive only — `built()` leads, so a later
+ *  program can never steal a file claim and never re-attribute a verdict. */
 export function selectScanFanout(host: TsProjectHost, declAbs: string): ScanFanout {
   host.ensureProgramFor(declAbs);
   const authority = host.typeAuthorityFor(declAbs);
@@ -141,15 +122,34 @@ export function runFanoutScan<C, P, S>(
   const inScope = pathScopePredicate(options.pathInclude, options.pathExclude);
   const resolved: C[] = [];
   const per: ScanProgramCoverage[] = [];
+  const skipped: SkippedProgram[] = [];
   const claimed = new Set<string>();
   const eligible = new Set<string>();
   const queues: ClaimedFile[][] = [];
 
   for (const program of fanout.fan) {
+    // §19 loop boundary #1 — the PROGRAM loop. `getProgram()` warms a checker, so on an N-program
+    // monorepo the fan can outlive the whole budget in warms alone; without this poll the first
+    // deadline check would come after every program was built. A fan cut short is a DIFFERENT fact
+    // from a walk cut short (the programs were never consulted at all), so it is recorded as such.
+    if (options.deadline?.expired() === true) {
+      skipped.push({ label: program.label, reason: 'deadline' });
+      continue;
+    }
     const tsProgram = program.getProgram();
-    if (tsProgram === undefined) continue;
+    if (tsProgram === undefined) {
+      skipped.push({ label: program.label, reason: 'program-unavailable' });
+      continue;
+    }
     const ctx = spec.resolve(tsProgram, tsProgram.getTypeChecker());
-    if (ctx === undefined) continue;
+    if (ctx === undefined) {
+      // The target does not resolve to a CHECKABLE type under this program's own options (vacuous /
+      // non-union there). Skipping is right — judging its files against a type it does not have would
+      // flood or lie. Claiming completeness afterwards would not: this is the t-162650 shape coming
+      // back through another door, so the skip is disclosed and demotes the answer.
+      skipped.push({ label: program.label, reason: 'no-checkable-type' });
+      continue;
+    }
     const slot = resolved.length;
     resolved.push(ctx);
     const files: ClaimedFile[] = [];
@@ -166,14 +166,27 @@ export function runFanoutScan<C, P, S>(
       claimed.add(String(rel));
       files.push({ sourceFile, rel, slot });
     }
-    per.push({ label: program.label, files: files.length, examined: 0, candidates: 0 });
+    per.push({
+      label: program.label,
+      files: files.length,
+      walked: 0,
+      examined: 0,
+      candidates: 0,
+    });
     queues.push(files);
   }
-  if (resolved.length === 0) return undefined;
+  // `undefined` means "no program could resolve T" — a claim about the TARGET. When the deadline is
+  // what emptied the fan, that claim is unsupported: nothing was consulted, so nothing is known about
+  // T. Fall through instead and let the op answer `partial{timeout}` over an empty coverage. Reporting
+  // "T resolves to no checkable type anywhere" because we ran out of time is the §3.6 lie of
+  // converting a "couldn't" into a finding.
+  const deadlineEmptiedFan = skipped.some((entry) => entry.reason === 'deadline');
+  if (resolved.length === 0 && !deadlineEmptiedFan) return undefined;
 
   const sites: S[] = [];
   let examined = 0;
-  let deadlineHit = false;
+  let walkedFiles = 0;
+  let deadlineHit = deadlineEmptiedFan;
   for (const file of roundRobin(queues)) {
     // §19 loop boundary: the accumulated sites are REAL data, so an overrun degrades to a partial
     // scan (disclosed), never a spin and never a `timeout` that throws the found sites away.
@@ -184,6 +197,8 @@ export function runFanoutScan<C, P, S>(
     const tally = per[file.slot];
     const ctx = resolved[file.slot];
     if (tally === undefined || ctx === undefined) continue;
+    tally.walked++;
+    walkedFiles++;
     const visit = (node: ts.Node): void => {
       const prepared = spec.prepare(node, file.sourceFile);
       if (prepared !== undefined) {
@@ -201,18 +216,25 @@ export function runFanoutScan<C, P, S>(
     visit(file.sourceFile);
   }
 
+  // BLOCK: the dedup set here is `eligible` (PRE path-filter), never `claimed`. A fallback file is
+  // fallback-only iff no RESOLVED fan program CONTAINS it — a file a real program covers but the
+  // caller's own glob excluded is not "covered by no tsconfig", and saying so would blame a missing
+  // config for the caller's scope and offer "add a tsconfig" as an inert remedy (t-259465).
   const fallbackOnlyFiles =
     fanout.excludedFallback !== undefined
-      ? countUnclaimed(host, fanout.excludedFallback, claimed)
+      ? countUnclaimed(host, fanout.excludedFallback, eligible)
       : 0;
   return {
     sites,
     coverage: {
       programs: per,
       files: claimed.size,
+      walkedFiles,
       eligibleFiles: eligible.size,
       examined,
+      limit: options.limit,
       candidates: per.reduce((n, p) => n + p.candidates, 0),
+      ...(skipped.length > 0 ? { skipped } : {}),
       ...(fallbackOnlyFiles > 0 ? { fallbackOnlyFiles } : {}),
       ...(fanout.fallbackOnly ? { fallbackOnly: true as const } : {}),
       ...(deadlineHit ? { deadlineHit: true as const } : {}),

@@ -656,12 +656,18 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   reported as unscanned. ONE `examined` budget spans the whole fan, spent ROUND-ROBIN over the
   programs' files so a large primary cannot starve a sibling to zero, and the walk polls the op's
   `Deadline` at the file boundary → a disclosed `partial` (§19), never a spin. The scope is stated
-  POSITIVELY (`programsScanned`, per program: files + `examined/candidates`), because a bare `files=4`
-  is read as "scanned the repo" and invites a false theory about the mechanism. Emptiness is
-  three-state, not two ([`ops/scan-coverage.ts`](src/ops/scan-coverage.ts)): a scan that examined
-  NOTHING says `!! NOT A VERDICT` (an empty SCAN and an empty RESULT are different facts), an
-  INCOMPLETE scan states the shortfall, and only a COMPLETE union scan may assert "none is
-  assignable". Its five shortfall causes carry five SEPARATE notes, each naming a lever that can
+  POSITIVELY (`programsScanned`, per program: files WALKED of files CLAIMED + `examined/candidates`),
+  because a bare `files=4` is read as "scanned the repo" and invites a false theory about the
+  mechanism. Every counter is a matched PAIR for that reason, and the pairing is load-bearing under a
+  deadline cut: `candidates` is counted only inside files already walked, so `examined of candidates`
+  can read `0 of 0` — an exhausted sweep — while whole files went unopened. So a shortfall is
+  denominated in FILES, the one unit that can express what was never reached. Emptiness is three-state,
+  not two ([`ops/scan-coverage.ts`](src/ops/scan-coverage.ts)): a walk that opened NO file says
+  `!! NOT A VERDICT` (an empty SCAN and an empty RESULT are different facts), an INCOMPLETE scan states
+  the shortfall, and only a COMPLETE union scan may assert "none is assignable" — which it does even at
+  ZERO candidates, because a finished walk over a repo holding none of them HAS established absence
+  (gating that on `examined === 0` would dress a complete answer as partial, the same lie inverted).
+  Its five shortfall causes carry five SEPARATE notes, each naming a lever that can
   actually change the outcome (§3.6 / t-259465) — a spent budget says `limit`/`pathInclude` and
   explicitly NOT "index the config" (the undiscovered-config remedy is inert when the program is
   loaded), an unloaded config rides the shared `lowerBoundNote`, fallback-only files ask for a
@@ -1177,8 +1183,15 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   no guard gates them; a file-pinned call is single-program-exact and never reaches the repo-wide
   fan.
   **Two triggers, two escape sets — the distinction that makes the table honest.** Under `guard` an
-  op DECLINED before doing any work, and it declined over ADDRESSING, so re-pinning the same op with
-  a `file` provably escapes it (that re-pin still builds a program — it is exact, not free). Under
+  op DECLINED before doing any work, and for the ADDRESSING-sensitive ops it declined over addressing,
+  so re-pinning the same op with a `file` provably escapes it (that re-pin still builds a program — it
+  is exact, not free). That escape is NOT universal, and the table must not offer it where it does not
+  hold: an op whose fan follows the target's DECLARATION rather than the query position
+  (`construction_sites` / `discrimination_sites`, guarded unconditionally above) fans identically under
+  a `file` pin, so no `repin` alternative is registered for it and the refusal falls through to the
+  honest no-substitute arm — the orientation calls that build no program, plus a plain statement that
+  no cheaper in-tool path to this question exists. Offering a re-pin that cannot escape would be the
+  §3.6 inert-lever defect inside the very module built to prevent it. Under
   `died` the engine actually ran out of memory or was killed running this op, and addressing changes
   nothing: a file-pinned trace OOMs exactly as the bare-name one does, so every call that would
   build a program is dropped and only the no-program calls survive. Where nothing survives, the
@@ -1725,7 +1738,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
