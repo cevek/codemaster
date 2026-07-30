@@ -185,7 +185,15 @@ test('banner stays within its per-response budget (it prefixes EVERY stale answe
   // headroom here). A fact added later must displace prose, not widen the channel.
   for (const serving of ['daemon', 'in-process'] as const) {
     const len = sourceStaleBanner(serving).length;
-    assert.ok(len <= 250, `${serving}: banner is ${len} chars (budget 250)`);
+    // The message carries the REMEDY, because the headroom is a few characters and the cheapest way
+    // to make this pass is the one that destroys it: a guard that gets raised on contact stops
+    // guarding. Displace prose instead — the ceiling is the point, not an obstacle to it.
+    assert.ok(
+      len <= 250,
+      `${serving}: banner is ${len} chars, over the 250 budget. DISPLACE PROSE, do NOT raise this ceiling: ` +
+        'the banner prefixes EVERY response for as long as the source is behind, so its size is a ' +
+        'tax on the whole session, not on one message — a clause worth adding is worth cutting one for.',
+    );
   }
 });
 
