@@ -291,6 +291,25 @@ test('a bare-name pick-list keeps every candidate, at any nesting depth, in any 
     assert.match(reason, /depth-top\.ts/, 'lists the top-level candidate');
     assert.match(reason, /depth-nested\.ts/, 'and the nested one — never dropped');
 
+    // The SINGLE-FILE analogue, which is where the preference survives: what licenses ignoring a nested
+    // candidate is the CALLER pinning a file, not the candidate set happening to sit in one. A bare name
+    // pinned nothing, so picking the top-level here would choose a SCOPE for the caller and drop the other
+    // candidate from every field — no `moreDefinitions`, no disclosure — while the op's note advertises
+    // nested declarations as addressable.
+    const oneFileChecker = await sourceOf(p, { name: 'soloDepth' }, false);
+    assert.equal(oneFileChecker.sources?.length ?? 0, 0, 'the checker refuses (non-vacuous oracle)');
+    const oneFile = await sourceOf(p, { name: 'soloDepth' }, true);
+    assert.equal(oneFile.sources?.length ?? 0, 0, 'a bare name must not pick a scope for the caller');
+    assert.equal(
+      (missReason(oneFile, 'single-file mixed depth').match(/ts:soloDepth@/g) ?? []).length,
+      2,
+      'and both candidates are listed',
+    );
+    // …and the pin still licenses it: `name+file` resolves the top-level, as the checker path does. This
+    // is the half that must NOT change, or the repair would have been a blanket deletion.
+    const pinned = sole(await sourceOf(p, { name: 'soloDepth', file: 'src/depth-one.ts' }, true), 'pin');
+    assert.match(pinned.decl.text, /export const soloDepth = 1;/, 'a pinned file still prefers top-level');
+
     // The bare-NAME arm specifically: every other rival arm addresses name+file, which routes through a
     // different resolver, so without this the bare-name pick-list has no arm of its own.
     const scoped = await sourceOf(p, { name: 'twin' }, true);

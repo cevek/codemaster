@@ -94,6 +94,16 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
     'S.dup = 2;',
     'T.dup = 3;',
   ].join('\n'),
+  // The SINGLE-FILE analogue of the mixed-depth shape: a top-level declaration and a nested one of the
+  // same name in ONE file. A bare name pins nothing, so it must not pick between them; `name+file` pins
+  // the file and may prefer the top-level, exactly as the checker path does.
+  'src/depth-one.ts': [
+    'export const soloDepth = 1;',
+    'export function soloHolder(): number {',
+    '  const soloDepth = 2;',
+    '  return soloDepth;',
+    '}',
+  ].join('\n'),
   'src/depth-top.ts': 'export const mixedDepth = 1;',
   'src/depth-nested.ts':
     'export function holder() {\n  const mixedDepth = 2;\n  return mixedDepth;\n}',

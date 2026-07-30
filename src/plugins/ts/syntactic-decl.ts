@@ -139,7 +139,7 @@ function byPosition(
     const sole = hits[0];
     if (sole === undefined) return { miss: noDeclarationAt(file, line, undefined) };
     if (hits.length > 1) return { miss: lineIsAmbiguous(file, line, hits, name) };
-    return fromCandidates([sole], index.rootTag, () => noDeclarationAt(file, line, undefined));
+    return fromCandidates([sole], index.rootTag, () => noDeclarationAt(file, line, undefined), true);
   }
   const offset = offsetOfLoc(found.sf, line, col);
   if (offset === undefined) return { miss: `position ${line}:${col} is outside ${file}` };
@@ -148,7 +148,7 @@ function byPosition(
   // NOT applied — a position already identifies one declaration, and the checker path ignores it too, so
   // filtering here would miss where the sibling mode resolves.
   const hits = all.filter((d) => offset >= d.anchor && offset < d.nameEnd);
-  return fromCandidates(hits, index.rootTag, () => noDeclarationAt(file, line, col));
+  return fromCandidates(hits, index.rootTag, () => noDeclarationAt(file, line, col), true);
 }
 
 function byNameInFile(
@@ -160,7 +160,7 @@ function byNameInFile(
   const found = index.fileOf(file);
   if (found === undefined) return { miss: missingFileReason(root, file) };
   const hits = index.declsOf(found.rel, found.sf).filter((d) => d.name === name);
-  return fromCandidates(hits, index.rootTag, () => noSuchNameInFile(name, file));
+  return fromCandidates(hits, index.rootTag, () => noSuchNameInFile(name, file), true);
 }
 
 function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
@@ -169,7 +169,8 @@ function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
   // here derived its cause from one set and printed another, which is how a description comes to name a
   // subset of the candidates it lists. The scan is COMPLETE under the root, so a pick-list here really is
   // >1 declaration, never a ranking artefact.
-  return fromCandidates(index.named(name), index.rootTag, () => noSuchNameOnSurface(name));
+  // `false`: a bare name pinned nothing, so a nested candidate is a rival, not a runner-up.
+  return fromCandidates(index.named(name), index.rootTag, () => noSuchNameOnSurface(name), false);
 }
 
 function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutcome {
@@ -195,12 +196,12 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
     const atPosition =
       offset === undefined ? undefined : all.find((d) => offset >= d.anchor && offset < d.nameEnd);
     if (atPosition !== undefined) {
-      return fromCandidates([atPosition], index.rootTag, () => handleNotOnSurface(name, id));
+      return fromCandidates([atPosition], index.rootTag, () => handleNotOnSurface(name, id), true);
     }
     // §6 step 1: the handle's OWN file. Same collapse policy as every other addressing — same-scope
     // declarations are the held symbol's own merged set, while two same-named declarations in DIFFERENT
     // scopes are rivals, and rebinding a handle onto one of those would claim a move that never happened.
-    const own = collapseByScope(all.filter((d) => !d.alias));
+    const own = collapseByScope(all.filter((d) => !d.alias), true);
     if (own !== undefined) {
       if ('rivals' in own) {
         return { miss: handleRivals(name, id, own.rivals, index.rootTag, own.cause) };
@@ -214,7 +215,9 @@ function byHandle(root: string, index: DeclIndex, id: string): SyntacticDeclOutc
   // one file, so it is the moved symbol; anything else is a pick-list described by the same function the
   // name path uses. A separate `files.size === 1` gate plus a trailing fallback were two spellings of
   // that one condition, and the fallback was then unreachable — untestable by construction.
-  const collapsed = collapseByScope(elsewhere);
+  // The handle named a file, and this arm is about the symbol having MOVED out of it — so the pin still
+  // holds for the file it landed in.
+  const collapsed = collapseByScope(elsewhere, true);
   if (collapsed !== undefined) {
     if (!('rivals' in collapsed)) {
       return rebound(collapsed, index.rootTag, id, `moved to ${collapsed.one.rel}`);
@@ -237,9 +240,14 @@ function fromCandidates(
   hits: readonly DeclSite[],
   rootTag: string,
   onEmpty: () => string,
+  /** Did the caller pin a file? Only then may a top-level candidate outrank a nested one. */
+  filePinned: boolean,
 ): SyntacticDeclOutcome {
   if (hits.length === 0) return { miss: onEmpty() };
-  const collapsed = collapseByScope(hits.filter((d) => !d.alias));
+  const collapsed = collapseByScope(
+    hits.filter((d) => !d.alias),
+    filePinned,
+  );
   if (collapsed === undefined) {
     // Only alias re-mentions here. This is the routine case for a handle minted by
     // `search_symbol {syntactic:true}`, which returns import/re-export sites too — so it gets a pointed
