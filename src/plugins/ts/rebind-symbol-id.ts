@@ -62,12 +62,7 @@ export function resolveSymbolId(h: TsProjectHost, id: string, root: string): Res
     const own = topLevelDeclarationsNamed(sourceFile, name);
     const sole = own[0];
     if (sole !== undefined) {
-      const span = spanFromRange(
-        sourceFile,
-        rel,
-        sole.offset,
-        sole.offset + name.length,
-      );
+      const span = spanFromRange(sourceFile, rel, sole.offset, sole.offset + name.length);
       return {
         ok: true,
         abs,

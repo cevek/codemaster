@@ -32,6 +32,7 @@ type Unresolved = { target: string; reason: string };
 /** Shape guard for `source` op data: an object carrying a `sources` array. Distinct from
  *  find_usages multi-target (`targets`) and the sql table (`columns`/`rows`). */
 export function isSourceData(data: JsonValue): data is {
+  note?: string;
   sources: SourceEntry[];
   unresolved?: Unresolved[];
 } {
@@ -44,10 +45,15 @@ export function isSourceData(data: JsonValue): data is {
 }
 
 export function renderSource(
-  data: { sources: SourceEntry[]; unresolved?: Unresolved[] },
+  data: { note?: string; sources: SourceEntry[]; unresolved?: Unresolved[] },
   budget: number = SOURCE_BODY_BUDGET,
 ): string {
   const lines: string[] = [];
+  // The note FIRST (verdict-first, §12): it qualifies how every body below was obtained — whether the
+  // bytes are type-verified — and the tail is what a char cap trims. A renderer that emits only the
+  // fields it knows silently drops an honesty channel the op did populate, which is invisible to a
+  // human reading the code and fatal to an agent reading the bytes.
+  if (data.note !== undefined && data.note !== '') lines.push(data.note);
   let used = 0;
   let elided = 0;
   data.sources.forEach((s, i) => {

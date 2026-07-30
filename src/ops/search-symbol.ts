@@ -11,6 +11,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { SymbolView } from '../plugins/ts/query-types.ts';
 import { defineOp } from './registry.ts';
 import { undiscoveredHint } from './no-symbol-hint.ts';
+import { SYNTACTIC_SCOPE } from './syntactic-scope.ts';
 import { fileModuleHint } from './search-file-hint.ts';
 import { opRefusal } from './guard/refusal.ts';
 import type { ToolFailure } from '../core/result.ts';
@@ -105,11 +106,10 @@ function sizeGuardRefusal(
 }
 
 /** Guardrail 4 (t-515730): every syntactic-path answer states its provenance and does NOT claim to
- *  match the LS provider. Positive scope (§3.6 report-capability), never "may have missed": states
- *  exactly what WAS scanned (all git-tracked source under the root) and the one thing that was not
- *  (an outside-root include/reference). Leads the result (verdict-first, §12). */
-const SYNTACTIC_NOTE =
-  'syntactic scan (NOT the LS navto provider): scanned all git-tracked source under the workspace root — complete for declarations there, plus extra import/re-export sites (real declarations ranked first); not byte-identical to the LS. A tsconfig include/reference reaching OUTSIDE the root is not covered — use the default (navto) search for those.';
+ *  match the LS provider. The SCOPE half is shared (`syntactic-scope.ts`) — it describes the surface,
+ *  which every syntactic path shares; only what is specific to THIS path (navto's dedup, our ranking)
+ *  is spelled here. Leads the result (verdict-first, §12). */
+const SYNTACTIC_NOTE = `syntactic scan (NOT the LS navto provider): ${SYNTACTIC_SCOPE} Extra import/re-export sites appear too (real declarations ranked first), so it is not byte-identical to the LS — the default (navto) search is the exact one.`;
 
 /** `exportedOnly` on the syntactic path is a SYNTACTIC approximation (no checker): it drops import
  *  re-mentions and keeps export-specifiers + real declarations, but cannot tell a non-exported local

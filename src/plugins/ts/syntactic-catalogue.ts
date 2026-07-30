@@ -24,6 +24,11 @@ import type { SyntacticCache } from './syntactic-cache.ts';
 import { surfaceSources } from './syntactic-surface.ts';
 import { createPatternMatcher, type PatternMatcher } from './syntactic-matcher.ts';
 import {
+  INTERNAL_UNAVAILABLE,
+  namedDeclarations,
+  namedDeclarationsAvailable,
+} from './syntactic-internal.ts';
+import {
   isExportedDeclaration,
   isImportSite,
   isMemberDeclaration,
@@ -76,6 +81,10 @@ export function listCatalogue(
   cache: SyntacticCache,
   filter: CatalogueFilter,
 ): Result<FileNames[]> {
+  // §4: the @internal declaration reader is capability-guarded — a TS bump that drops it must yield an
+  // honest ToolFailure, not a TypeError thrown mid-scan (which an op-level catch would report as an
+  // opaque internal error) and not a guessed empty catalogue (a §3.4 lie).
+  if (!namedDeclarationsAvailable()) return fail(INTERNAL_UNAVAILABLE);
   // Build the fuzzy matcher ONCE (never per file). A `query` set but the @internal matcher missing (a
   // TS bump) is an honest failure, never a silently-unfiltered dump.
   let matcher: PatternMatcher | undefined;
@@ -111,9 +120,7 @@ function namesOf(
   filter: CatalogueFilter,
   matcher: PatternMatcher | undefined,
 ): NamedEntry[] {
-  const decls = (
-    sf as unknown as { getNamedDeclarations(): Map<string, readonly ts.Declaration[]> }
-  ).getNamedDeclarations();
+  const decls = namedDeclarations(sf);
   const kept: NamedEntry[] = [];
   decls.forEach((nodes, name) => {
     // navto fuzzy filter first (cheap reject) — reuses the search path's matcher for identical recall.

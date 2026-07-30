@@ -20,6 +20,7 @@ import type { NodeModuleImportSite } from './phantom-imports.ts';
 import type { Result } from '../../core/result.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { CatalogueFilter, FileNames } from './syntactic-catalogue.ts';
+import type { SyntacticDeclOutcome } from './syntactic-decl.ts';
 import type { ConfigMembership } from './program/config-membership.ts';
 import type { ConstructionSitesOptions, ConstructionSitesView } from './construction-sites.ts';
 import type {
@@ -80,6 +81,13 @@ export interface TsPluginApi extends Plugin {
    *  scanned (use the default for those). Returns a `ToolFailure` on git / @internal-TS unavailability
    *  — never a false empty. Default `searchSymbol` is unchanged (t-515730). */
   searchSymbolSyntactic(query: string, limit: number, filter?: SearchFilter): Result<SearchView>;
+  /** `source { syntactic: true }` — the declaration BODY at a target, read off the SAME no-program §10
+   *  surface (t-229522): NEVER warms the LS, so it costs no program build and cannot be killed by a
+   *  heavy neighbour sharing a batch's heap. It prints the declaration ANCHORED at the address and
+   *  cannot follow a reference to its definition, nor resolve a module specifier — both are reported as
+   *  honest misses, never substituted with the enclosing declaration. Every hit carries
+   *  `provenance:'syntactic'`. A git / @internal-TS failure is a `ToolFailure`, never a false miss. */
+  sourceSyntactic(target: TsTargetInput): Result<SyntacticDeclOutcome>;
   /** `symbols_overview` catalogue core (t-143952): every declared NAME per file in the §10 git surface,
    *  via the SAME no-program surface parse as the syntactic search — NEVER warms the LS (OOM-safe
    *  first-contact browse). Complete for declarations under the root; a `ToolFailure` on git /

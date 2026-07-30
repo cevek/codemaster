@@ -300,18 +300,23 @@ _after_ into the dest. These stay within "reshape the LS's edit text" — no new
 typecheck + capture gate is still the backstop — so a co-move now completes in any step order without a
 leaf-first reorder. The rescue fork still serves the residual overlap shapes these don't pre-empt.
 
-**Not an exception — `@internal`-helper reuse on the same parser.** `search_symbol { syntactic: true }`
-and `symbols_overview` (the OOM-survival discovery paths, §5-L2 / t-515730 / t-143952) parse files with the
+**Not an exception — `@internal`-helper reuse on the same parser.** The no-program paths —
+`search_symbol { syntactic: true }`, `symbols_overview`, `source { syntactic: true }` (§5-L2 / t-515730 /
+t-143952 / t-229522) — parse files with the
 **same** `ts.createSourceFile` (a shared surface build) and read them with the TS `@internal`
-`getNamedDeclarations` helper (the declaration set) — both share the `createPatternMatcher` wrapper
-(navto's own name matcher, project-agnostic — `syntactic-matcher.ts`) for their fuzzy match:
+`getNamedDeclarations` helper (the declaration set); the two that match names fuzzily share the
+`createPatternMatcher` wrapper (navto's own name matcher, project-agnostic — `syntactic-matcher.ts`):
 `search_symbol` for its query, `symbols_overview` for its optional `query` name filter (t-960572);
-`symbols_overview` otherwise enumerates the whole surface. This is **not** a second parser
+`symbols_overview` otherwise enumerates the whole surface, and `source` addresses one declaration
+exactly (no matcher). This is **not** a second parser
 or a second oracle: there is one AST, produced by the one TS parser; the helpers only read it. It is
 purely a note about **`@internal`-API stability** — the helpers are absent from the public
-`typescript.d.ts`, so they are behind a single typed `as unknown as` boundary block (never `any`) and
-**capability-guarded**: a TS bump that drops either makes the path return an honest `ToolFailure`
-(never a crash or a guessed empty), and a shape drift is caught by the syntactic-⊇-navto oracle test.
+`typescript.d.ts`, so the `getNamedDeclarations` cast lives in exactly ONE typed `as unknown as` boundary
+block (never `any`, `syntactic-internal.ts`) that all three read through — three copies would be three
+places a TS bump has to be noticed — and each is **capability-guarded** per path (a path needing only
+declarations is not refused because the matcher went missing): a TS bump that drops either makes the path
+return an honest `ToolFailure` (never a crash or a guessed empty), and a shape drift is caught by the
+syntactic-⊇-navto oracle test.
 
 Tree-sitter returns only if we ever must index a language the TS parser can't read.
 
@@ -710,6 +715,32 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   §10 surface includes), so the hot path is O(changed+untracked), never a per-query whole-surface
   stat-walk (§1). The syntactic path leaves navto's default output untouched (navto at terse/normal
   stays byte-identical; `verbosity:'full'` adds an opt-in header-only decl preview per match, t-517121).
+  **`source {syntactic:true}` rides the same no-program surface (`sourceSyntactic`, t-229522).** Printing a
+  declaration's BODY needs no checker, so the flag reads it straight off that surface — no program build,
+  no LS warm. The win is measured, and it is latency/heap plus BATCH survival, not a rescue from a
+  refusal: on a 6101-file monorepo the checker path costs 839 MB / 4.5 s file-pinned and 881 MB / 5.8 s
+  by bare name (both within a default 4 GB heap), while a reference fan-out in the same heap costs 5.2 GB
+  / ~30 s — so a checker `source` sharing a BATCH with such an op dies as its PASSENGER, and a call that
+  builds no program has nothing to lose to it. **Opt-in, never an automatic degrade**, because the two
+  paths do not resolve an address alike: the checker path FOLLOWS an address (a `file:line:col` on a
+  reference returns the declaration it refers to, in another file), while this one prints the declaration
+  ANCHORED there. A non-declaration position and an alias site (`import {X} from './y'` — the shape
+  `search_symbol {syntactic:true}` routinely mints handles for) therefore come back as EXPLICIT misses
+  naming the boundary, never as the enclosing declaration or the import line served as a body; this path
+  resolves no module specifier (that would be a second module-resolution oracle). All five addressings
+  (`symbolId` / `file+line+col` / `file+line` / `name+file` / `name`) resolve within ONE declaration set
+  — `getNamedDeclarations` minus alias re-mentions, the same set the syntactic search mints ids from —
+  and a same-named twin in >1 file is a pick-list, never a silent pick. The body span is derived from the
+  declaration NODE (the surface hands it over), not from the position-only `declarationNodeOf` walk. §6
+  holds: a moved handle is `rebound` with `confidence:'partial'`, and `gone` is WITHHELD — this surface
+  cannot see an outside-root include, so asserting removal off it would be the §3.4 lie. Scope +
+  provenance are stated on EVERY answer (the shared `SYNTACTIC_SCOPE`, `ops/syntactic-scope.ts`, which
+  the syntactic search composes too), and the scope states the one axis on which this path is WIDER: a
+  file no tsconfig includes is scanned here and is invisible to the checker path. An automatic
+  fallback is not merely undesirable but unreachable at op level — an OOM kills the engine child, so
+  `run()` never returns to catch anything; only a PREDICTED size could trigger one, which is the
+  pre-warm-guard concern, not this one. `ops/guard/navigate.ts` therefore carries the redirect, and it is
+  suppressed when the failing call already carried the flag.
   **`symbols_overview` rides the same no-program surface (t-143952).** A first-contact ORIENTATION browse:
   a flat, comma-separated catalogue of the repo's TOP-LEVEL declared symbol NAMES (bare — no
   `file:line` decoration, so thousands fit), grouped per tsconfig. It reuses the SAME `surfaceSources`
@@ -835,6 +866,7 @@ A small number of ops ship by default:
 | `find_definition`          | `ts.findDefinition` (or other plugin for non-TS handle)                                                                                                           |
 | `find_usages`              | `ts.findUsages` (+ `support/text-search` for `text:true`)                                                                                                         |
 | `search_symbol`            | `ts.searchSymbol` (LS navto); `{syntactic:true}` → `ts.searchSymbolSyntactic` (no-program AST scan, OOM-survival)                                                 |
+| `source`                   | `ts.findDefinition` per target; `{syntactic:true}` → `ts.sourceSyntactic` (no-program AST body read)                                                              |
 | `expand_type`              | `ts.expandType`                                                                                                                                                   |
 | `construction_sites`       | `ts` (type-aware "what object literals build type T")                                                                                                             |
 | `list`                     | dispatches to the plugin owning the requested registry                                                                                                            |
@@ -1198,6 +1230,13 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   refusal says so — "no cheaper in-tool path to this question" plus the orientation calls that still
   work — rather than presenting an invented near-equivalent as the answer (§3.6). The point the
   agent must come away with is that the REPO is not dead, only one op is.
+  **A third escape shape — a MODE switch on the same op.** Where an op has a no-program mode of its own
+  (`source {syntactic:true}`, §5-L2 / t-229522), the honest redirect is that same op re-issued with the
+  flag and the caller's args verbatim: it answers the question that was actually asked, unlike the
+  orientation calls, which list NAMES and cannot print a body — an op with a real cheap mode must
+  therefore never fall into the no-substitute arm. It survives both engine-death claims because it
+  builds no program, and it is SUPPRESSED when the failing call already carried the flag: there is then
+  no mode left to switch to, and echoing the call back would hand the agent the one that just failed.
 - **Auto-escalation — an oversized repo is hosted in a killable child** ([`daemon/escalate.ts`](src/daemon/escalate.ts), §2).
   With no explicit `daemon.isolation`, a workspace whose in-root source count exceeds
   `ts.searchWarmMaxFiles` is spawned under `process` isolation. The estimate is host-free (one
@@ -1765,7 +1804,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1782,7 +1821,7 @@ codemaster/
       lower-bound-note.ts    # the shared undiscovered-program floor prose (find_usages / importers_of)
       scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts  discrimination-sites.ts
-      search-symbol.ts  source.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      search-symbol.ts  source.ts  source-syntactic.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …

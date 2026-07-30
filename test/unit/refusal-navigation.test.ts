@@ -294,6 +294,41 @@ test('the find_usages redirect states what it does NOT give', () => {
   assert.match(first.gives, /NOT the per-site usage set/);
 });
 
+// t-229522 — `source` used to have NO entry, so it fell into the no-substitute arm and offered
+// `symbols_overview` / `search_symbol`: two calls that list NAMES and cannot print a body. An op whose
+// own question has a real cheap answer must not be sent to ops that answer a different one.
+test('source redirects to its own AST-only mode, not to ops that cannot print a body', () => {
+  for (const claim of ['this-call', 'any-program-build', 'unproven-program-build'] as const) {
+    const { calls, substitute } = cheapCallsFor('source', { targets: [{ name: 'Button' }] }, claim);
+    assert.equal(substitute, true, `${claim}: source HAS a substitute for its own question`);
+    assert.deepEqual(
+      calls.map((c) => c.call),
+      ['source {targets:[{"name":"Button"}],syntactic:true}'],
+      `${claim}: the same call in the AST-only mode, args carried verbatim`,
+    );
+    // It survives the died-engine filter only because it builds no program — assert that claim is
+    // actually made, or the filter would be passing it through for the wrong reason.
+    assert.notEqual(calls[0]?.buildsProgram, true, `${claim}: must not be marked program-building`);
+    assert.match(calls[0]?.gives ?? '', /not type-verified/, `${claim}: states what it gives up`);
+  }
+});
+
+// The self-referential redirect the module's own header forbids: the flag is already set, so there is
+// no mode left to switch to and echoing the call back would hand the agent the one that just failed.
+test('source does NOT redirect to syntactic:true when the failed call already carried it', () => {
+  const { calls, substitute } = cheapCallsFor(
+    'source',
+    { targets: [{ name: 'Button' }], syntactic: true },
+    'this-call',
+  );
+  assert.equal(substitute, false, 'no substitute remains once the cheap mode itself failed');
+  for (const c of calls) {
+    assert.ok(!c.call.startsWith('source '), `echoed the failed call back: ${c.call}`);
+  }
+  // And it still names what does work — the refusal must not be a dead end.
+  assert.ok(calls.length > 0, 'still offers the orientation calls');
+});
+
 // A subject-less call (module-addressed, or a bare symbolId whose payload is plugin-private and must
 // not be parsed here) still has to hand back something runnable, not a placeholder-only string.
 test('a subject-less refusal still yields a runnable call', () => {

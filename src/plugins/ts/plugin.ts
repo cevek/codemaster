@@ -26,6 +26,7 @@ import { overlaySymbolType } from './overlay-type.ts';
 import type { UnresolvedTarget, UsagesView } from './query-types.ts';
 import { searchSymbols, type SearchView } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
+import { declarationSyntactic } from './syntactic-decl.ts';
 import { listCatalogue } from './syntactic-catalogue.ts';
 import { filesNamedLike } from './files-named.ts';
 import { computeConfigMembership } from './program/config-membership.ts';
@@ -262,6 +263,10 @@ export function createTsPlugin(
     // parsed surface is memoized in `syntacticCache` (host-independent, cleared on dispose).
     searchSymbolSyntactic: (query, limit, filter) =>
       searchSymbolsSyntactic(root, query, limit, filter, syntacticCache),
+
+    // `source {syntactic:true}` (t-229522): same no-program surface, same cache, same no-warm
+    // guarantee — a declaration BODY read straight off the AST.
+    sourceSyntactic: (target) => declarationSyntactic(root, target, syntacticCache),
 
     // `symbols_overview` (t-143952): both no-program, host-independent — like the syntactic search they
     // take `root` directly and NEVER call warm() (OOM-safe first-contact). The catalogue reuses the

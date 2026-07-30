@@ -29,7 +29,7 @@
 //    declarations first so the result cap shows definitions and import noise falls into the
 //    honest `… N more` tail (guardrail 5).
 
-import ts from 'typescript';
+import type ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
@@ -40,46 +40,30 @@ import { deriveRootTag, mintSymbolId } from './symbol-id.ts';
 import type { SyntacticCache, SyntacticSources } from './syntactic-cache.ts';
 import { surfaceSources } from './syntactic-surface.ts';
 import { createPatternMatcher, type PatternMatcher } from './syntactic-matcher.ts';
+import {
+  namedDeclarations,
+  namedDeclarationsAvailable,
+  patternMatcherAvailable,
+} from './syntactic-internal.ts';
 import { isImportSite, isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
 import type { SearchFilter, SearchView } from './search.ts';
 import type { SymbolView } from './query-types.ts';
 
-// ── @internal TS surface (the ONE documented boundary) ───────────────────────────────────────
-// `getNamedDeclarations` (below) and `createPatternMatcher` (syntactic-matcher.ts — shared with the
-// `symbols_overview` catalogue filter) are TS `@internal` (absent from the public typescript.d.ts) but
-// are pure, project-agnostic functions navto itself is built on — reusing them is what guarantees
-// identical recall (proven: 0 misses vs navto under-root over 25 queries × 2 repos). This is NOT a
-// second parser or a standalone structural index ahead of the LS (the §4a concern): both helpers run
-// on the SAME `ts.createSourceFile` AST, syntactic-only, and this path is an opt-in fallback populated
-// only on `syntactic:true` — so it is only a note about @internal-API stability (distinct from the
-// §4/§14 TS-fork edit-producer exception). Typed via a single boundary block of `as unknown as` casts
-// (never `any`); their presence is capability-checked once so a TS bump that drops them fails
-// honestly, and a shape drift is caught by the oracle test.
-interface SourceFileNamedDecls {
-  getNamedDeclarations(): Map<string, readonly ts.Declaration[]>;
-}
-function namedDeclarations(sf: ts.SourceFile): Map<string, readonly ts.Declaration[]> {
-  return (sf as unknown as SourceFileNamedDecls).getNamedDeclarations();
-}
+// ── @internal TS surface ──────────────────────────────────────────────────────────────────────
+// `getNamedDeclarations` (via syntactic-internal.ts — the ONE cast, shared with the catalogue and the
+// declaration reader) and `createPatternMatcher` (syntactic-matcher.ts) are TS `@internal` (absent from
+// the public typescript.d.ts) but are pure, project-agnostic functions navto itself is built on —
+// reusing them is what guarantees identical recall (proven: 0 misses vs navto under-root over 25
+// queries × 2 repos). This is NOT a second parser or a standalone structural index ahead of the LS (the
+// §4a concern): both helpers run on the SAME `ts.createSourceFile` AST, syntactic-only, and this path is
+// an opt-in fallback populated only on `syntactic:true` — so it is only a note about @internal-API
+// stability (distinct from the §4/§14 TS-fork edit-producer exception). Their presence is
+// capability-checked so a TS bump that drops them fails honestly, and a shape drift is caught by the
+// oracle test.
 
-/** One-shot capability probe (memoized): both @internal helpers must exist on the bundled TS, or the
- *  syntactic path is unavailable and fails honestly rather than crashing (§3.6 / never-crash). */
-let capability: boolean | undefined;
+/** This path needs BOTH helpers — the declaration set and the fuzzy matcher. */
 function capabilityAvailable(): boolean {
-  if (capability !== undefined) return capability;
-  try {
-    const hasMatcher =
-      typeof (ts as unknown as { createPatternMatcher?: unknown }).createPatternMatcher ===
-      'function';
-    const probe = ts.createSourceFile('__probe.ts', 'export const x = 1;', ts.ScriptTarget.Latest);
-    const hasDecls =
-      typeof (probe as unknown as { getNamedDeclarations?: unknown }).getNamedDeclarations ===
-      'function';
-    capability = hasMatcher && hasDecls;
-  } catch {
-    capability = false;
-  }
-  return capability;
+  return namedDeclarationsAvailable() && patternMatcherAvailable();
 }
 
 interface Match {

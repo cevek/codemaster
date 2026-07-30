@@ -52,15 +52,31 @@ function str(bag: Record<string, unknown>, key: string): string | undefined {
   const v = bag[key];
   if (typeof v === 'string' && v.length > 0) return v;
   // A list-shaped target (`symbols:[…]`, `targets:[…]`): the first element still names something
-  // real, and a redirect about one of them beats a redirect about none.
+  // real, and a redirect about one of them beats a redirect about none. The element may itself be a
+  // target OBJECT (`targets:[{name:'X'}]` — `source`'s canonical shape), so read its `name` too:
+  // reading only bare strings left the subject undefined for the one op whose targets are objects.
   const head: unknown = Array.isArray(v) ? (v as readonly unknown[])[0] : undefined;
-  return typeof head === 'string' && head.length > 0 ? head : undefined;
+  if (typeof head === 'string' && head.length > 0) return head;
+  const nested: unknown =
+    typeof head === 'object' && head !== null
+      ? (head as Record<string, unknown>)['name']
+      : undefined;
+  return typeof nested === 'string' && nested.length > 0 ? nested : undefined;
 }
 
 /** Where each op keeps the SYMBOL it was asked about. Not every op calls it `name`: a trace is
  *  addressed by `mutation` / `field`, unused-props by `component`. Reading only `name`/`query`
  *  silently dropped a subject that was sitting right there in the args. */
-const SUBJECT_KEYS = ['name', 'query', 'symbol', 'mutation', 'field', 'component', 'symbols'];
+const SUBJECT_KEYS = [
+  'name',
+  'query',
+  'symbol',
+  'mutation',
+  'field',
+  'component',
+  'symbols',
+  'targets',
+];
 
 /** The SYMBOL the refused call was about. `module` is deliberately NOT read: it is a path, and
  *  pasting a path into a name-matching `query` would produce a call that silently finds nothing —
@@ -170,12 +186,20 @@ function definitionAlternatives(nav: NavArgs): CheapCall[] {
  *  answers a different question. The re-pinned call carries the caller's OWN remaining args verbatim
  *  (a trace's `prop` / `field` must survive, or the "paste this" promise is false); `symbolId` is
  *  dropped because a handle plus a file pin is a contradictory target. */
-function repinnedCall(op: string, bag: Record<string, unknown>, file: string): string | undefined {
-  const parts = Object.entries({ ...bag, symbolId: undefined, file })
+function callWith(
+  op: string,
+  bag: Record<string, unknown>,
+  extra: Record<string, unknown>,
+): string | undefined {
+  const parts = Object.entries({ ...bag, ...extra })
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `${k}:${JSON.stringify(v)}`);
   const call = `${op} {${parts.join(',')}}`;
   return call.length <= MAX_CALL ? call : undefined;
+}
+
+function repinnedCall(op: string, bag: Record<string, unknown>, file: string): string | undefined {
+  return callWith(op, bag, { symbolId: undefined, file });
 }
 
 /** A re-pin is only offered when it can be rendered EXACTLY; an over-long arg bag degrades to the
@@ -208,6 +232,29 @@ function repinAlternatives(op: string, nav: NavArgs): CheapCall[] {
   ];
 }
 
+/** A MODE switch on the same op: the identical question, answered by a path that builds no program
+ *  (`source {syntactic:true}` — ARCHITECTURE §5-L2). Unlike a re-pin, this is not about addressing, so
+ *  the caller's own args ride along untouched.
+ *
+ *  Two refusals to emit. If the failing call ALREADY carried the flag, there is no mode left to switch
+ *  to and printing it back would hand the agent the very call that just failed — the dead end this
+ *  module exists to prevent. And if the arg bag cannot be rendered exactly (an over-long target list),
+ *  the mode switch degrades to a subject-only call rather than a truncated one that cannot be run. */
+function syntacticModeAlternatives(op: string, nav: NavArgs, gives: string): CheapCall[] {
+  const { bag, name } = nav;
+  if (bag === undefined || bag['syntactic'] === true) return [];
+  const exact = callWith(op, bag, { syntactic: true });
+  if (exact !== undefined) return [{ call: exact, gives }];
+  if (name === undefined) return [];
+  return [{ call: `${op} {name:${j(name)},syntactic:true}`, gives }];
+}
+
+/** What `source {syntactic:true}` actually returns — stated as a difference, not as an equivalence:
+ *  it prints the declaration AT the address, so a caller who addressed a REFERENCE gets an explicit
+ *  miss there rather than a body. Naming that up front is what keeps this a redirect and not a claim. */
+const SYNTACTIC_SOURCE_GIVES =
+  'the same bodies read off the AST — no program build, no LS warm; it prints the declaration AT the address (it does not follow a reference to its definition) and is not type-verified';
+
 /** Per-op cheap paths. An op absent from this map, or one whose entry yields nothing for the args
  *  at hand, falls through to the honest no-substitute arm — never a fabricated near-equivalent.
  *  A `Map`, not an object literal: this is looked up with an op name straight off the wire
@@ -218,6 +265,9 @@ const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
   ['find_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
   ['member_usages', (nav: NavArgs) => usageAlternatives(nav.name)],
   ['find_definition', definitionAlternatives],
+  // `source` has a real substitute for its OWN question — the same op, AST-only — so it is never the
+  // no-substitute arm, whose orientation calls (symbols_overview / search_symbol) do not print bodies.
+  ['source', (nav: NavArgs) => syntacticModeAlternatives('source', nav, SYNTACTIC_SOURCE_GIVES)],
   // NOT definitionAlternatives: "where is X declared" is not "where does this prop flow" / "where
   // does this type widen", and offering it under a `RUN INSTEAD` lead would claim an equivalence
   // that does not hold (§3.6). These are addressing refusals — re-pin the same op.

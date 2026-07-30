@@ -118,6 +118,39 @@ test('SWEEP: every op × every mode stays under the harness ceiling', async () =
   }
 });
 
+// An op FLAG that switches output mode is a new output mode, and the sweep above only drives each op's
+// advertised example — which carries no flags. `source {syntactic:true}` prepends an always-on scope
+// note to a body-bearing payload, so it is exactly the shape that could push a response over.
+test('SWEEP: source {syntactic:true} × every mode stays under the harness ceiling', async () => {
+  const p = await project(BIG_SYMBOLS);
+  try {
+    const client = await wire(p);
+    // 20 targets (the op's own max) off the 400-symbol fixture — the largest payload this mode can
+    // produce in one call.
+    const targets = Array.from({ length: 20 }, (_, i) => ({ name: `fn${i}`, file: 'src/big.ts' }));
+    for (const mode of [
+      { verbosity: 'terse' },
+      { verbosity: 'normal' },
+      { verbosity: 'full' },
+      { format: 'json' },
+    ]) {
+      const r = (await client.callTool({
+        name: 'source',
+        arguments: { targets, syntactic: true, ...mode, root: p.root },
+      })) as CallToolResult;
+      assert.ok(
+        frameBytes(r) < HARNESS_CEILING_BYTES,
+        `source syntactic ${JSON.stringify(mode)} = ${frameBytes(r)}B exceeds the ceiling`,
+      );
+      // Non-vacuous: the call really produced the syntactic answer, not a validation error that would
+      // trivially fit under any ceiling.
+      assert.match(textOf(r), /no type-check|output_capped/, 'the syntactic answer was produced');
+    }
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('DISCRIMINATING text path: status {full:true} on a 36-op repo is capped in place', async () => {
   const p = await project(RICH_FILES);
   try {
