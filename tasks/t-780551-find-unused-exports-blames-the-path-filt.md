@@ -54,3 +54,10 @@ Fix: carry `projectFiles.length` (the in-scope file set before `inScope(rel)` is
 Pre-existing in direction (the previous `filterSet &&` gate blamed the filter identically); what changed
 is that the no-filter cause now has a correct message beside it, which makes the mis-attributed one the
 only remaining wrong lever here.
+
+**Method note — a mutation that does not apply must FAIL, not pass.** Verifying this fix means
+reverting the discriminator and watching the new assertions go red. A patch that silently misses its
+target (a mismatched escape in the search string) leaves the code intact, so the suite is green for the
+ordinary reason and the run reads as "the assertion holds" — mutation testing deceiving itself, and the
+whole matrix becomes green ticks of unknown provenance. Every mutation edit asserts its own search
+string matched (`assert old in s`) before writing.

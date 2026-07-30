@@ -53,17 +53,49 @@ test('find_unused_exports: the scope line carries both denominators and NAMES wh
     const line = scanned.scope[0] ?? '';
     assert.match(
       line,
-      /1 of 3 in-scope source file\(s\) walked/,
+      /walked 1 of the 3 source file\(s\) it holds/,
       'the file pair, denominator included',
     );
     assert.match(
       line,
-      new RegExp(`${scanned.exports} of ${scanned.candidateExports} export\\(s\\) examined`),
+      new RegExp(`examined ${scanned.exports} of ${scanned.candidateExports} export\\(s\\)`),
       'the export pair, denominator included',
     );
     // And it must name the program those counts are OVER — without it, "of 3" is still a count over
     // an unnamed scope, and the repo/program confusion survives the denominator.
     assert.match(line, /^tsconfig\.json: /, 'the walked program is named, first');
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The export pair needs a case where its two numbers DIFFER. On a fixture where every candidate is
+// examined, `examined X of Y` reads the same whichever number is which, so a swapped numerator and
+// denominator would survive — the pair would be decoration, not a claim. `limit` forces the split,
+// and the same call pins the scope line against the `truncated` field beside it: two renderings of
+// one shortfall that must never disagree.
+test('find_unused_exports: a capped walk states examined BELOW enumerated, and agrees with `truncated`', async () => {
+  const p = await project(FIXTURE);
+  try {
+    const r = await p.op('find_unused_exports', { limit: 1 });
+    assert.ok('result' in r && r.result.ok, 'op succeeds');
+    const data = r.result.data as ScopeView & {
+      truncated?: { examined: number; candidates: number };
+    };
+    assert.equal(data.scanned.exports, 1, 'the cap stopped after one reference search');
+    assert.equal(data.scanned.candidateExports, 3, 'out of the three exports the repo declares');
+    // The literal, with the two numbers distinct — a swap of numerator and denominator is red here.
+    assert.match(
+      data.scanned.scope[0] ?? '',
+      /examined 1 of 3 export\(s\)/,
+      'the scope line states the examined count BELOW the enumerated one',
+    );
+    // And the shortfall's other rendering must say the same thing, or one of the two is lying.
+    assert.deepEqual(
+      { examined: data.truncated?.examined, candidates: data.truncated?.candidates },
+      { examined: data.scanned.exports, candidates: data.scanned.candidateExports },
+      '`truncated` and the scope line report one shortfall, not two',
+    );
   } finally {
     await p.dispose();
   }
@@ -84,7 +116,7 @@ test('find_unused_exports: the scope states enumeration as a fact and usage as a
     );
     assert.match(
       rule,
-      /not(?: ever)? .*candidate|never a candidate/,
+      /never a candidate/,
       'an export declared only in another program is named as a non-candidate — the limit of this walk',
     );
     // The usage fan is PER-CANDIDATE (the primary, then only for a candidate dead there, the programs

@@ -52,13 +52,13 @@ test('find_unused_exports: a pathInclude matching 0 files warns (NOT a false cle
       typeof data.notAVerdict === 'string' && data.notAVerdict.length > 0,
       'a vacuous filter raises the loud warning',
     );
-    // The denominator is part of the claim, not decoration: "matched 0 of the 2 file(s) the program
+    // The denominator is part of the claim, not decoration: "left 0 of the 2 file(s) the program
     // holds" is what proves the filter — and not the program set — emptied the walk. A looser
     // `/0/` would pass over a message that named no denominator at all.
     assert.match(
       data.notAVerdict ?? '',
-      /0 of the \d+ source file/i,
-      'the warning states the filter matched 0 of the files the program actually holds',
+      /left 0 of the \d+ source file/i,
+      'the warning states what the filter LEFT, out of the files the program actually holds',
     );
     assert.match(
       data.notAVerdict ?? '',
@@ -80,6 +80,19 @@ test('find_unused_exports: a pathExclude alone that excludes everything also war
     assert.ok(
       typeof data.notAVerdict === 'string' && data.notAVerdict.length > 0,
       'a pathExclude that zeroes the scope warns too',
+    );
+    // An EXCLUDE that empties the walk matched EVERY file — saying "your glob matched 0" would send
+    // its author to widen the exclude, the one edit that keeps the walk empty forever. The message
+    // has to be about what the filter LEFT, which is true of both filter kinds.
+    assert.match(
+      data.notAVerdict ?? '',
+      /left 0 of the 2 source file/i,
+      'it states what the filter left in scope, out of what the program holds',
+    );
+    assert.doesNotMatch(
+      data.notAVerdict ?? '',
+      /matched 0/i,
+      'and never claims the glob matched nothing — `src/**` matched all of them',
     );
   } finally {
     await p.dispose();
@@ -142,7 +155,7 @@ test('find_unused_exports: a program covering 0 source files is NOT a verdict (n
     );
     assert.doesNotMatch(
       data.notAVerdict ?? '',
-      /pathInclude\/pathExclude matched/i,
+      /the path filter .* left 0 of/i,
       'and NOT the filter remedy, which no glob value could satisfy here',
     );
   } finally {
@@ -174,7 +187,7 @@ test('find_unused_exports: a degenerate program WITH a pathInclude still blames 
     // cannot help. Reverting the branch to `filterSet` prints exactly that.
     assert.doesNotMatch(
       data.notAVerdict ?? '',
-      /pathInclude\/pathExclude matched/i,
+      /the path filter .* left 0 of/i,
       'it must NOT blame the filter — no glob could have matched a program with no files',
     );
   } finally {
@@ -202,7 +215,7 @@ test('find_unused_exports: an empty pathInclude array is not a filter — it is 
     );
     assert.doesNotMatch(
       withArg.notAVerdict ?? '',
-      /pathInclude\/pathExclude matched/i,
+      /the path filter .* left 0 of/i,
       'and it is never named as the cause',
     );
   } finally {
@@ -241,6 +254,44 @@ test('find_unused_exports: the two empty-walk causes differ MACHINE-readably, no
   } finally {
     await degenerate.dispose();
     await populated.dispose();
+  }
+});
+
+// A repo with NO tsconfig at all falls back to the whole-repo no-config program (§10). Its label IS
+// "(no tsconfig)", so the generic wording named that program in one clause and prescribed an
+// `include`/`files` edit in the next — a remedy for a file that does not exist, self-contradicting
+// inside one sentence. The cause is the same (no source walked); the LEVER is not.
+test('find_unused_exports: a repo with no tsconfig is not told to fix its tsconfig', async () => {
+  const p = await project({
+    // Declaration files are excluded from the candidate walk, so the fallback program globs the repo
+    // and holds no walkable source — the empty walk, reached with no config to blame.
+    'src/types.d.ts': 'export declare const shape: number;\n',
+  });
+  try {
+    const r = await p.op('find_unused_exports', {});
+    assert.ok('result' in r && r.result.ok, 'op succeeds');
+    const data = r.result.data as WarnView;
+    assert.equal(data.scanned.eligibleFiles, 0, 'the fallback program holds no walkable source');
+    assert.match(data.notAVerdict ?? '', /NOT A VERDICT/, 'the verdict is refused');
+    assert.match(
+      data.notAVerdict ?? '',
+      /no tsconfig/i,
+      'the message says the repo has none, rather than naming one that does not exist',
+    );
+    // The load-bearing negative: an `include`/`files` edit is impossible here, so prescribing it is
+    // an inert lever — and it reads as one the moment the same sentence says there is no tsconfig.
+    assert.doesNotMatch(
+      data.notAVerdict ?? '',
+      /`include`\/`files`/,
+      'and never prescribes editing an include of a config that does not exist',
+    );
+    assert.match(
+      data.notAVerdict ?? '',
+      /add a tsconfig|point `root:`/i,
+      'it names a lever that can actually change the outcome',
+    );
+  } finally {
+    await p.dispose();
   }
 });
 

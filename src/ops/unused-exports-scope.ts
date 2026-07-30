@@ -19,6 +19,7 @@
 // DISCRIMINATOR: a filter that emptied a populated program and a program that holds no source are two
 // causes with two different levers, and telling them apart must not require reading prose (§3.4/§3.6).
 
+import { NO_CONFIG_LABEL } from '../plugins/ts/program/discover.ts';
 import { EMPTY_SCAN_DOCTRINE, NOT_A_VERDICT_MARKER } from './scan-coverage.ts';
 
 /** The walk's shape — the fields of the ts plugin's view this module reads, and only those. */
@@ -47,14 +48,24 @@ export interface UnusedExportsWalk {
  *  is wrong in both directions — a `pathInclude: []` is a filter that is never applied (the scope
  *  predicate ignores an empty list), so it too must not be blamed. */
 export function notAVerdictWarning(walk: UnusedExportsWalk): string {
+  const head = `${NOT_A_VERDICT_MARKER} —`;
+  const doctrine = `so no export was examined: ${EMPTY_SCAN_DOCTRINE} — NOT proof that no exports are dead.`;
   if (walk.eligibleFiles > 0) {
-    // The program HOLDS source; the filter rejected all of it. The globs are the working lever, and
-    // the denominator states what dropping them would buy.
-    return `${NOT_A_VERDICT_MARKER} — pathInclude/pathExclude matched 0 of the ${walk.eligibleFiles} source file(s) \`${walk.walkedProgram}\` holds, so no export was examined: ${EMPTY_SCAN_DOCTRINE} — NOT proof that no exports are dead. Globs are REPO-relative and are matched against the DECLARATION file's path; drop the filter to scan all ${walk.eligibleFiles}.`;
+    // The program HOLDS source; the filter rejected all of it. Stated as what the filter LEFT, never
+    // as what it MATCHED: a `pathExclude` that empties the walk matched EVERY file, and telling its
+    // author "your glob matched nothing" steers them to widen the exclude — the one edit that keeps
+    // the walk empty forever. "Left 0 in scope" is true of both filters.
+    return `${head} the path filter (pathInclude/pathExclude) left 0 of the ${walk.eligibleFiles} source file(s) \`${walk.walkedProgram}\` holds in scope, ${doctrine} Globs are REPO-relative and are matched against the DECLARATION file's path; drop the filter to scan all ${walk.eligibleFiles}.`;
   }
   // The program itself covers no source file. No glob can be widened into files that are not there,
-  // so the filter is not named at all — whether or not one was passed.
-  return `${NOT_A_VERDICT_MARKER} — the program \`${walk.walkedProgram}\` covers 0 source files, so no export was examined: ${EMPTY_SCAN_DOCTRINE} — NOT proof that no exports are dead. No path filter could have matched here, so setting or widening one cannot help — check that the project's tsconfig \`include\`/\`files\` actually covers its sources (a target under another package? pass \`root:\`).`;
+  // so the filter is not named at all — whether or not one was passed. WHICH program it is decides the
+  // remedy: a repo with no tsconfig cannot be told to fix its `include`, and naming the fallback
+  // program in one clause while prescribing a config edit in the next is that inert lever, self-
+  // contradicting inside one sentence.
+  if (walk.walkedProgram === NO_CONFIG_LABEL) {
+    return `${head} this repo has no tsconfig, so the walk ran on the whole-repo fallback program — and it globbed no non-declaration source file at all, ${doctrine} There is no \`include\` to widen and no filter that could have matched: add a tsconfig covering the sources, or point \`root:\` at the package that has one.`;
+  }
+  return `${head} the program \`${walk.walkedProgram}\` covers 0 source files, ${doctrine} No path filter could have matched here, so setting or widening one cannot help — check that the project's tsconfig \`include\`/\`files\` actually covers its sources (a target under another package? pass \`root:\`).`;
 }
 
 /** The positive scope of the walk, stated in the line itself (§3.4): both counter pairs with their
@@ -69,7 +80,10 @@ export function notAVerdictWarning(walk: UnusedExportsWalk): string {
  *  single-program: an export declared only in another program is not a candidate at all. */
 export function unusedExportsScope(walk: UnusedExportsWalk): string[] {
   return [
-    `${walk.walkedProgram}: ${walk.scannedFiles} of ${walk.eligibleFiles} in-scope source file(s) walked, ${walk.scannedExports} of ${walk.candidateExports} export(s) examined`,
+    // NOT "in-scope": `eligibleFiles` is the set BEFORE the path filter, while "in scope" names the
+    // post-filter set everywhere else in this op (the `inScope` predicate, `scannedFiles`' own doc).
+    // Calling the denominator in-scope would ask the reader why files that ARE in scope went unwalked.
+    `${walk.walkedProgram}: walked ${walk.scannedFiles} of the ${walk.eligibleFiles} source file(s) it holds; examined ${walk.scannedExports} of ${walk.candidateExports} export(s)`,
     'enumeration is single-program — an export declared only in ANOTHER program is never a candidate here; usage for each candidate dead here is re-searched in every loaded program containing its declaration file (a `test/**`-only use IS seen).',
   ];
 }

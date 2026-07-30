@@ -44,10 +44,15 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
   },
   notes(data) {
     const out: string[] = [];
-    // The scope + its denominators reach the sql/table surface too — that surface renders no `scanned`
-    // block, so without this it would see a bare row set with nothing saying what was walked, which is
-    // the exact defect on the other surface (§3.4). Sourced from the same data field the dense render
+    // Verdict-first (§12), on this surface too: the empty-walk marker says the answer is not a verdict
+    // AT ALL, so it leads — a reader who stops after one note must stop on that one. It is an honesty
+    // channel, so it reaches the sql/table render sourced from the same data field the dense render
     // shows, never a re-derived string.
+    const warn = (data as { notAVerdict?: string }).notAVerdict;
+    if (warn !== undefined) out.push(warn);
+    // Then the scope + its denominators — that surface renders no `scanned` block, so without this it
+    // would see a bare row set with nothing saying what was walked, which is the exact defect on the
+    // other surface (§3.4). Same field, same rule.
     const scope = (data as { scanned?: { scope?: string[] } }).scanned?.scope;
     if (scope !== undefined && scope.length > 0) out.push(`scanned — ${scope.join(' · ')}`);
     if ((data as { computedDynamicImport?: boolean }).computedDynamicImport === true) {
@@ -67,11 +72,6 @@ const findUnusedExportsTable: TableSpec<JsonValue> = {
         `examined ${t.examined} of ${t.candidates} candidate exports (cap hit) — narrow with pathInclude to cover the rest.`,
       );
     }
-    // The empty-walk warning (§3.4/§3.6) is an honesty channel, so it must reach the
-    // sql/table render too — sourced from the same data field the dense render shows, never
-    // a re-derived string.
-    const warn = (data as { notAVerdict?: string }).notAVerdict;
-    if (warn !== undefined) out.push(warn);
     // The `programs:` lever's disclosure (§3.6) — forwarded from the same data field the text render
     // shows, so sql/table consumers see the floored/not-found configs too, never a re-derived string.
     out.push(...((data as { notes?: string[] }).notes ?? []));
@@ -103,6 +103,7 @@ export const findUnusedExportsOp = defineOp({
     'an entry-point or public-API export (an `index.ts`/`bin.ts` with no in-repo importer) legitimately has no usage and WILL appear here — verify before deleting. There is no entry-point config yet.',
     'an export used only WITHIN its own module (never imported) is NOT reported — it has a usage; this finds dead exports, not redundant `export` keywords.',
     'usage is observed across ALL loaded programs (see concepts: cross-program-read) — an export used only from a `test/**` file is SEEN as used (not falsely reported); a genuinely-dead export reads `certain` again.',
+    "that cross-program fan is the USAGE check only: candidates are ENUMERATED from the primary program alone, so an export declared only in a sibling/package program is not examined at all and can never be reported here (t-585610). Every answer states the walked program and its file/export denominators in `scanned.scope` — `unused (0)` is a claim about THAT program's file set, not the repo's. Query the owning package with `root:` to cover it.",
     'honest floor for the UNDISCOVERED case: a nested-package tsconfig that is neither adjacent to the main config nor `references`d is NOT loaded as a program, so an export used only from it cannot be proven dead. When any such config exists, every otherwise-`certain` claim is demoted to `partial` and the config is NAMED in the result note — never a silent false-`certain`-dead.',
     'an EMPTY WALK is not an empty result: when 0 files were scanned (a scope filter that matched nothing, or a program covering no source file) the answer leads with `notAVerdict` and `unused (0)` proves nothing — and when the LS produced no Program at all the op FAILS (`ok:false`) instead of reporting a clean repo.',
     'bounded: scoped by pathInclude/pathExclude (globs over the declaration file) and hard-capped at the NUMBER of reference searches (default 200, override with limit) — the cap is reported as truncation. Each examined export costs one LS reference search (O(import-graph)), so on a very large repo scope with pathInclude. Usage discovery still scans the whole program, so scoping never invents a false dead.',
@@ -154,8 +155,8 @@ export const findUnusedExportsOp = defineOp({
       // `unused (0)` is "nothing examined", not "no dead exports". Surfaced as the FIRST data field
       // (verdict-first §12) so it renders loud and on top — an agent must never read a vacuous scan
       // as clean. Gated on scannedFiles===0 REGARDLESS of a filter: a filter is only ONE way to
-      // empty the walk (a degenerate `include`, a program covering no source, is another and was the
-      // false-clean this gate missed). `scannedExports===0` is deliberately NOT the trigger — real
+      // empty the walk (a degenerate `include`, a program covering no source, is another way into it).
+      // `scannedExports===0` is deliberately NOT the trigger — real
       // files in scope that export nothing are a finished walk, and flagging them would dress a
       // complete answer as partial, the same lie inverted. WHICH cause is read off the file set
       // (`eligibleFiles`), never off whether a filter arg was passed — see `unused-exports-scope`.

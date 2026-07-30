@@ -133,9 +133,12 @@ export function findUnusedExports(
   const checker = program.getTypeChecker();
   // Usage discovery spans ALL the repo's loaded programs (spec Task G): an export used only from a
   // SIBLING program (a `test/**` file under `tsconfig.test.json`, Vite's app/node split, a build
-  // script) is now SEEN as used via the cross-program fan-out in `classifyExport`, so it is never
-  // falsely reported. This replaces the old blanket sibling-tsconfig demotion (every `certain`→
-  // `partial` whenever any sibling existed) — a genuinely-dead export reads `certain` again.
+  // script) is SEEN as used via the cross-program fan-out in `classifyExport`, so it is never falsely
+  // reported, and a genuinely-dead export still reads `certain` — no blanket sibling demotion.
+  //
+  // ENUMERATION, below, is the other half and does NOT fan: candidates come from this one program's
+  // files, so an export declared only in a sibling is never examined at all (t-585610). `eligibleFiles`
+  // is that set's size, so the answer states which program its verdict is about.
   const projectFiles = program
     .getSourceFiles()
     .filter((sf) => !sf.fileName.includes('/node_modules/') && !sf.isDeclarationFile);

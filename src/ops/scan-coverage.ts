@@ -5,10 +5,10 @@
 // exactly the §3.4 shape that made a `0` unreadable: an agent cannot act on "widen pathInclude" when
 // the real cause is a program that was never scanned.
 //
-// Everything below the marker is `ScanCoverage`-shaped and so is those two ops' alone. The one
-// exception is `NOT_A_VERDICT_MARKER`, which is shared with any op reaching an empty walk by its own
-// route (`find_unused_exports`, whose walk is primary-program-only): the WORDING is common because a
-// reader must recognise it across answers; the STRUCTURE is not, because a synthesized one-program
+// Everything `ScanCoverage`-shaped below is those two ops' alone. The exceptions are
+// `NOT_A_VERDICT_MARKER` and `EMPTY_SCAN_DOCTRINE`, shared with any op reaching an empty walk by its
+// own route (`find_unused_exports`, whose walk is primary-program-only): the WORDING is common because
+// a reader must recognise it across answers; the STRUCTURE is not, because a synthesized one-program
 // coverage would make `scanScopeFields` print `programsScanned` — a claim about a fan that never ran.
 //
 // One fact per note, each naming a lever that CAN change the outcome (§3.6 / t-259465):

@@ -636,7 +636,7 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   `!! NOT A VERDICT` marker + `EMPTY_SCAN_DOCTRINE` (`ops/scan-coverage.ts`, one wording for every op
   that reaches that state) under ONE key whose text names the cause's own lever, since no glob can be
   widened into a program that covers nothing; and when the LS produced no Program AT ALL it FAILS
-  (`ToolFailure{ts-ls}`) rather than reporting the clean repo a bare `unused (0) scanned 0` read as.
+  (`ToolFailure{ts-ls}`) rather than reporting the clean repo an empty `unused` list with all-zero counters read as.
   **WHICH cause it was is read off the FILE SET, never off whether a filter arg was passed**
   ([`ops/unused-exports-scope.ts`](src/ops/unused-exports-scope.ts)): the walk carries `eligibleFiles`
   — the program's source files BEFORE `pathInclude`/`pathExclude` — so `0` proves the program itself
@@ -645,7 +645,7 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   degenerate `include`, and a `pathInclude: []` is an arg the scope predicate never applies. The
   discriminator is a COUNTER, not the prose, so two empty walks with two different remedies are
   distinguishable without regexing a message. The same pair denominates the answer's positive scope:
-  `scanned.scope` states `<program>: N of M in-scope source file(s) walked, X of Y export(s) examined`
+  `scanned.scope` states `<program>: walked N of the M source file(s) it holds; examined X of Y export(s)`
   — a bare `files=4` is read as "scanned the repo" — plus the walk's own limit as a RULE with no
   invented count, since candidate enumeration is single-program while usage for each candidate dead
   there is re-searched per-candidate across the programs containing its declaration file (an export
@@ -1391,7 +1391,9 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   the host loads the repo's tsconfigs (root + sibling `tsconfig.*.json` + `references` +
   every `package.json`-anchored package — a workspaces-glob member OR an isolated nested package,
   t-865312) as
-  **independent** programs, and usages / dead-code fan out across them. **Roadmap:** wiring
+  **independent** programs, and usages / dead-code fan out across them — dead-code by its per-candidate
+  USAGE check; its candidate ENUMERATION is primary-only (§5-L2), so "no dead exports" is a claim about
+  the primary's file set, not the repo's (t-585610). **Roadmap:** wiring
   them with **project-reference redirects** (what `tsserver` does) so cross-package
   references resolve in-memory as one graph — not yet built; the independent-programs step is
   what the usage/dead-code honesty needs. Its heap is inherently large — tamed by a
@@ -2125,7 +2127,8 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   (root + sibling `tsconfig.*.json` + `references` + every `package.json`-anchored package —
   workspaces-glob member or isolated nested package, t-865312) load as **independent** programs that
   usages / dead-code **and the mutating ops** (rename / change_signature / move / extract +
-  the §2.8 typecheck gate) fan out across (§5-L2 / Task G). Roadmap: wiring them with
+  the §2.8 typecheck gate) fan out across (§5-L2 / Task G) — for dead-code that fan is the
+  per-candidate usage check; enumeration stays primary-only (t-585610). Roadmap: wiring them with
   project-reference redirects (what `tsserver` does) so cross-package references resolve
   in-memory as one graph. (§9)
 - **Watcher is best-effort and must degrade, not crash.** chokidar 4 uses per-directory
