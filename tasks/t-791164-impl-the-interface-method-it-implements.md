@@ -62,3 +62,10 @@ Asks, in order:
 Economics the reporter states plainly, and it is why this matters beyond one call: **grep costs one call,
 the tool costs a decision plus often two calls.** Closing (1) removes the second call for the most common
 shape in this codebase.
+
+## Measured rate (dogfood-jul): 2 of 15 blind first calls
+
+One 15-request `batch` of `find_definition {name}` on codemasters own repo: 2 failed on exactly this
+impl↔interface-method ambiguity — one of them `undiscoveredProgramLabels` (`ls-host.ts:159` + `api.ts:407`).
+On a repo that declares every plugin method twice (the seam + its implementor), the shape this task calls
+near-universal is measured at ~13% of blind name-addressed first calls.

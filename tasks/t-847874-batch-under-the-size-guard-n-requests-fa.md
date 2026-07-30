@@ -40,3 +40,11 @@ Point 3 overlaps t-959904 (refusals should name the working path) and is largely
 (auto-escalation) — but 1 and 2 are independent ergonomics of the batch surface itself.
 
 **Related:** point 3 is t-245013's defect on the guard surface — the message names what is missing (a config file) without the means to act (what a minimal one contains, where it goes). The refusal TEXT home is t-633403; the subject-loss on the same path is t-702879.
+
+## Field observation (dogfood-jul, /Users/cody/Dev/backoffice2, 6101 src files)
+
+Same-session measurement adds a discriminating detail to the batch half: `search_symbol` **worked standalone
+and failed inside a batch** on the same repo, in the same session. `symbols_overview`, `source`, `status` and
+`feedback` also worked standalone, while `find_usages` / `find_definition` were refused. So the guards blast
+radius inside a batch is wider than the set of requests that individually risk the warm — worth pinning
+which of the two (per-request evaluation vs the batch envelope) actually decides.

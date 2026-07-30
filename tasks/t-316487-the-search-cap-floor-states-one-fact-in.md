@@ -3,6 +3,7 @@ id: t-316487
 title: "The search-cap floor states one fact in two prose channels: searchCapFloor's LOWER BOUND note now duplicates the envelope disclosure on every find_usages / find_definition answer"
 status: backlog
 priority: medium
+parent: t-786727
 tags:
   - agent-surface
   - dogfood

@@ -2,7 +2,7 @@
 id: t-000524
 title: An import specifier whose module spec doesn't resolve reports ITSELF as its definition, so same-symbol aliases never collapse (loose-root monorepo)
 status: backlog
-priority: medium
+priority: high
 tags:
   - agent-surface
   - dogfood
@@ -56,3 +56,43 @@ leaves the primary only when the primary is a no-config FALLBACK — backoffice2
 returns the primary and the same unresolved answer. The attempt was reverted rather than left in as a
 plausible-looking no-op. The fix has to be a resolution query answered by the file's NEAREST-config program,
 which is not an existing seam.
+
+## Field measurement: this is what makes a barrel-heavy monorepo unusable (dogfood-jul, /Users/cody/Dev/backoffice2)
+
+`services/api` re-exports ~18 submodules and every consumer does `import { useX } from "services/api"`, so the
+ambiguity gate counts each import binding as a declaration site. Verbatim:
+
+    find_usages {name:"useUpsertFormV2", groupBy:"enclosing"}
+    → FAIL tool=ts-ls — "useUpsertFormV2" is ambiguous — shown 3 of 3 distinct declaration sites
+        ts:useUpsertFormV2@apps/emr/src/services/api/forms/emr.ts:135:14 (const)
+        ts:useUpsertFormV2@apps/emr/src/containers/FormController/hooks.ts:8:5 (alias)
+        ts:useUpsertFormV2@apps/emr/src/forms/MultimediaFormV2/hooks.ts:20:5 (alias)
+
+Worst case measured:
+
+    source {targets:[{name:"useMedicalEntriesV2"}]}
+    → ambiguous — shown 8 of 19 distinct declaration sites !! 11 more not shown
+       (1 const in services/api/medicalEntries/medicalEntries.ts; the other 18 all (alias))
+
+So 19 "declaration sites" for ONE declaration, the candidate page TRUNCATES, and the answer then carries the
+`!! CANNOT CLAIM` floor — over what is not an ambiguity at all. ARCHITECTURE §5-L2 states the collapse
+already happens ("a barrel chain is one symbol seen N times; within one definition a real declaration
+displaces the alias pointing at it"), so either this resolution path is the unresolvable-spec case this task
+names, or collapse-by-definition is comparing identities minted by different programs. DISCRIMINATE FIRST
+(a fixture barrel whose spec resolves vs one whose spec does not) — if both fail to collapse, the cause is
+cross-program definition identity and this task is inside the multi-program blast radius, not beside it.
+
+Note the answer already knows which is which: it prints `(const)` vs `(alias)` and sorts real declarations
+first.
+
+### Asks from the field, in cost order
+- when the exact-name matches resolve to exactly ONE non-alias declaration, RESOLVE to it instead of failing
+  (`preferDeclarations`, or make it the default);
+- do not let alias entries consume the candidate-page budget — that is what pushed `useMedicalEntriesV2`
+  into truncation and produced a floor-only answer;
+- if aliases must stay visible, report them as `aliases: N` on the envelope rather than as candidates to
+  disambiguate between.
+
+### Cost
+Two extra round-trips per symbol on EVERY lookup in a barrel-based repo. In the measured session the
+re-addressed calls then OOMed, so this friction consumed the budget the real query needed.

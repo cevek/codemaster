@@ -64,3 +64,15 @@ which guards are ARMED for this workspace right now — isolation mode, and whet
 currently exceeded. Cheap: the numbers are computed at spawn and the thresholds are constants.
 
 Its own summary: that one line would have turned the track on the FIRST call instead of the fifth.
+
+## Why a read-only availability surface has an external consumer (dogfood-jul)
+
+On /Users/cody/Dev/backoffice2 a PostToolUse hook appended "codemaster resolves this semantically — op:
+find_usages / search_symbol / find_unused_scss_classes" to nearly every grep, ~8 times in one session, while
+every one of those ops was refused on that repo before doing any work. The hook and the guard contradict each
+other, and each nudge invites a call that will fail — which trains the reader to ignore the nudge.
+
+The hook is not codemasters code, but it has no way to ask: there is no cheap, read-only "which ops can
+actually answer on THIS repo, and why not the others" surface — `status` costs an engine spawn and reports the
+isolation MODE without the evidence. Any orchestration layer (hook, wrapper, another agent) needs the same
+answer, so this is the consumer that makes this task externally visible rather than a convenience.

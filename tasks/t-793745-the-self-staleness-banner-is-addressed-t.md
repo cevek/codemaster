@@ -55,3 +55,13 @@ fresh engine) so restarting is not a shared action.
 
 Found while building the CLI composition surface (t-631032), where the same signal is correctly
 absent: a one-shot process is fresh by construction and prints no banner.
+
+## External read of the banner (dogfood-jul, /Users/cody/Dev/amiro)
+
+Reported verbatim by an agent in ANOTHER repo: `status` opened with "!! daemon code behind source — run
+`codemaster daemon restart` to pick up edits (running pre-edit behavior)", and — "as a consumer I cannot tell
+whether that degrades the answers I am about to get, or is purely a developer-of-codemaster notice. One clause
+saying which would settle it."
+
+So beyond being addressed to the wrong audience, the banner does not state its own CONSEQUENCE for the answer
+in hand. Both halves are one wording fix: who it is for, and whether the data is affected.

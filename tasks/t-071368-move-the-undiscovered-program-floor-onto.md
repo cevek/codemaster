@@ -3,6 +3,7 @@ id: t-071368
 title: 'Move the undiscovered-program floor onto the envelope disclosure: an unindexed nested tsconfig is the SECOND cause of the same unsafe claim, still hand-plumbed per op'
 status: backlog
 priority: medium
+parent: t-786727
 tags:
   - agent-surface
   - dogfood

@@ -52,3 +52,27 @@ an unresolved type, or a union with any non-literal member → keep the global d
 is cheap; over-narrowing is catastrophic. The oracle must carry both arms, the negative one first.
 
 Related: t-949045 (scoped verdict + blocker attribution — the presentation half, done).
+
+## Field measurement (dogfood-jul, /Users/cody/Dev/amiro) + a cheaper first step
+
+    find_unused_i18n_keys {prefix: "patient.record.prescriptions"}
+    → degraded=true globalDemote=true · unused (0) · scanned 31 keys / 2110 usages · blocking 79
+      hint: "narrowing does not lift this demote: no key anywhere is provable"
+
+The three named blockers are dynamic `t()` calls in navigation/activity code (`AppSidebar.tsx:52:66`,
+`MobileNav.tsx:27:59`, `ActivitySection.tsx:189:36`) — none of which can reach
+`patient.record.prescriptions.*`. A repo this size always has a handful of dynamic calls somewhere, so the op
+effectively answers "cannot prove anything" for EVERY prefix, forever. The caller fell back to reading the
+locale JSON and grepping — exactly what the op exists to replace.
+
+### The cheaper mechanism, short of checker literal-union narrowing
+
+A dynamic key almost always has a STATIC PREFIX (`t(`nav.${item.key}`)`, `t(`activity.${kind}`)`), and that
+prefix is recoverable from the template literals HEAD — it bounds the blast radius syntactically, with no
+checker. Then a query whose prefix is DISJOINT from every dynamic head answers at full confidence, and only
+overlapping queries demote. Only a fully headless `t(key)` deserves todays global demote.
+
+### Minimum viable, independent of both
+
+Report WHICH blockers have a static head and what it is ("3 blockers, 1 of them unbounded"), so the caller
+judges overlap instead of being told outright that narrowing is pointless.

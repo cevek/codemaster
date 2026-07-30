@@ -76,3 +76,28 @@ Concrete recipe, so the next wave does not re-derive it:
 After t-128204 it also marks the answer `complete:false` whenever the candidate set was capped. So a
 recipe built on `mergeDeclarations` carries a permanent LOWER BOUND — one more reason to make
 filter-narrowing work properly rather than routing around it.
+
+## Field instance: a duplicate-by-design sub-package (dogfood-jul, /Users/cody/Dev/task-manager)
+
+An isolated web SPA sub-package (`web/`, own tsconfig/package.json) deliberately re-declares the servers wire
+types so the browser never imports core. So `CommitReport` exists twice BY DESIGN — `src/model/commit.ts:21`
+and `web/src/api/types.ts:164` — and every bare-name symbol op hard-fails:
+
+    expand_type {name:"CommitReport"} → FAIL … ambiguous — shown 2 of 2 distinct declaration sites
+    find_usages {name:"CommitReport"} → same
+
+The caller always wanted the `src/` one (the `web/` twin is a mirror they are not editing) and spent a failed
+call per symbol to learn the SymbolId. The disambiguating fact was available up front and expressible —
+`find_usages` already takes `filter.pathInclude` — it just applies to RESULTS, after resolution, so it cannot
+pre-empt the ambiguity.
+
+### Two requirements this instance adds
+
+1. Zero survivors must NOT read as "not found": say the filter excluded all N candidates. The two are very
+   different and an agent must not read one as the other.
+2. Todays placement makes an easy mistake silent-ish: `find_usages {name, filter:{pathInclude:["src/**"]}}`
+   on an UNAMBIGUOUS name filters result rows, which reads as if it scoped the target. Making the same key do
+   target-scoping when it can, and SAYING which it did on the envelope, removes that too.
+
+`mergeDeclarations:true` already covers the union case; this is the missing opposite — pick ONE without a
+round-trip.

@@ -71,3 +71,14 @@ Whatever threshold is chosen, the band it cannot separate — repos above it who
 - Process-mode message says what is true there: the child is killable, this op fans across every program, a repo this size exhausts the child heap (~30 s to fail), the cheap alternatives, and that `force:true` really retries.
 - Oracle-backed behavioural test, not a constant check: the `test/e2e/auto-escalate.test.ts` harness (real git repo over threshold, live Orchestrator, real fork) with the discriminating pair — default → `size-guard` refusal with the ts plugin still COLD; `force:true` → a real answer. Note that the existing kill-on-deadline test in that file drives `find_usages` through the child and will need `force:true` to keep reaching the deadline path.
 - `test/unit/semantic-fanout-guard.test.ts` currently pins the opposite ("process-mode NEVER refuses") — rewrite with the rationale.
+
+## The measurement that changes this tasks framing (dogfood-jul, /Users/cody/Dev/backoffice2)
+
+On a 6101-file repo the auto-escalation puts the engine in `process` mode, so this guard deliberately does
+not fire — and the child then dies at Nodes DEFAULT ~4144 MB heap ceiling after 25–31 s inside the program
+build (relayed fatal dump, three pids). So the choice today is between a fast honest refusal (this task) and
+a slow honest refusal (the OOM). Neither answers the question.
+
+That makes the ORDER matter: raising the escalated childs ceiling and adding a scoped/degraded answer path
+come first, and this guard is the backstop for what remains genuinely too big — not the outcome we are aiming
+for. Landing it alone would make the unanswerability instant instead of eventual.

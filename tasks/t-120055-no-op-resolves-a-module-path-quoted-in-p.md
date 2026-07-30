@@ -45,3 +45,10 @@ This is that check, exposed as a question rather than a side effect.
 
 Cheap and high leverage for the class of work this session keeps producing: every doc track ends in a
 sweep of quoted paths that currently has no verifier.
+
+## Same-repo instance (dogfood-jul)
+
+t-662704 cites `plugins/ts/resolve-target.ts` for `NAME_CANDIDATE_LIMIT` + `distinctDeclarations`; they live
+in `resolve-contract.ts:12` and `ambiguity.ts:42`. Prose citing a module path that nothing repoints — inside
+the document agents plan from. A batch of `find_definition` over the ~40 backlog bodies that carry a
+`fix-locus:` would re-grade several stale entries in one call.

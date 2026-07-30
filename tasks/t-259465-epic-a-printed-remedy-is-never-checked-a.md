@@ -58,3 +58,20 @@ cannot diverge). Same idea applied to prose.
 
 Related but distinct: t-959904 (a refusal must name a call that works HERE) is the positive half — that
 one is about naming a good next step; this one is about not naming an impossible one.
+
+## Field measurement (dogfood-jul): four of five instances are catchable by ONE static lint
+
+Reading 126 defect bodies of the impact-usages/ts-core/multi-program slice back to back, five bodies
+describe this class and none names it: t-162650 ("widen pathInclude" cannot add a program), t-340801 ask 3
+("no symbol named X" reads as a typo diagnosis when the name resolves in node_modules), t-158131 (the
+demoted-namespace list names no route to the uncapped set), t-000108 ("fan-out is OFF" names a switch that
+does not exist — move_symbol is primary-only by construction), t-155425 ("primary program only" is wrong in
+a no-root repo).
+
+It sits beside two neighbours already tracked — t-826059 ("the tool is not reached for") and t-647309
+("emptiness does not say how it was established") — and is the THIRD: the tool DOES reach the agent, and the
+sentence it hands over points at a lever that cannot move the outcome.
+
+Unlike its neighbours it is STATICALLY TESTABLE: every arg / op / flag named in a note or refusal must be
+one the answering op actually consumes, and a remedy must be reachable from the state the call is already
+in. A lint over hint/refusal texts against the ops own arg schemas catches four of the five above.
