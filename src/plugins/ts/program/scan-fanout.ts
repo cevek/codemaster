@@ -32,6 +32,7 @@ import ts from 'typescript';
 import * as path from 'node:path';
 import type { RepoRelPath } from '../../../core/brands.ts';
 import type { Deadline } from '../../../common/async/deadline.ts';
+import { roundRobin } from '../../../common/iter/round-robin.ts';
 import { pathScopePredicate } from '../path-scope.ts';
 import type { TsProjectHost } from '../ls-host.ts';
 import type { TsProgram } from './queryable-program.ts';
@@ -187,6 +188,10 @@ export function runFanoutScan<C, P, S>(
   let examined = 0;
   let walkedFiles = 0;
   let deadlineHit = deadlineEmptiedFan;
+  // Round-robin, not concatenation: program order still decides WITHIN a round (the type authority
+  // leads), but a 3000-candidate primary must not spend the whole budget before a sibling's first
+  // file is reached — a starved-to-zero sibling is the shape that made the single-program `0` look
+  // like a verdict.
   for (const file of roundRobin(queues)) {
     // §19 loop boundary: the accumulated sites are REAL data, so an overrun degrades to a partial
     // scan (disclosed), never a spin and never a `timeout` that throws the found sites away.
@@ -240,20 +245,6 @@ export function runFanoutScan<C, P, S>(
       ...(deadlineHit ? { deadlineHit: true as const } : {}),
     },
   };
-}
-
-/** Interleave the per-program file queues so ONE shared budget is spread across the fan. Program
- *  order still decides within a round (the type authority leads), but a 3000-candidate primary can
- *  no longer spend the whole budget before a sibling's first file is reached — a starved-to-zero
- *  sibling is the shape that made the single-program `0` look like a verdict. */
-function* roundRobin<T>(queues: readonly (readonly T[])[]): Generator<T> {
-  const longest = queues.reduce((n, q) => Math.max(n, q.length), 0);
-  for (let i = 0; i < longest; i++) {
-    for (const queue of queues) {
-      const item = queue[i];
-      if (item !== undefined) yield item;
-    }
-  }
 }
 
 /** A file this scan may walk, as a repo-relative path — `undefined` for anything it must skip:

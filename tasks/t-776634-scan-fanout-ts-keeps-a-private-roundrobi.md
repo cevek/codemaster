@@ -1,7 +1,7 @@
 ---
 id: t-776634
 title: scan-fanout.ts keeps a private roundRobin generator identical to common/iter/round-robin.ts — two copies of the one-budget-across-a-fan primitive
-status: backlog
+status: done
 priority: low
 type: imp
 complexity: S
