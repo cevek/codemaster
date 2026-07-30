@@ -49,3 +49,9 @@ Where a § asserts a universal over ops, derive it or check it:
 
 A red test on drift, not a careful reviewer. Start with the smallest version that pays: an agreement test
 over the numbers and the op-set universals a § already names — the two shapes that drifted three times here.
+
+SECOND HOME of the same drift, and a worse one: per-answer scope claims in OP NOTES, not just doc sections. Working the non-git surface fallback, three of five copies of one scope statement went stale silently — the standing note of one op, the `syntactic` argument description of another (which ships in the tool-list EVERY session), and its retry hint. All three still asserted a git-only surface after the mechanism gained a second listing mode.
+
+Why this is worse than a stale ARCHITECTURE line: these strings are read by the agent BEFORE it chooses a call, so a stale one mis-steers the very decision it exists to inform, and it is re-emitted per session rather than read once. And they are found only by grepping the PHRASE — the operation this tool teaches agents not to trust.
+
+Half of it is now structural (the answer carries its origin from the mechanism that produced it), but the STATIC half still rests on someone remembering. Whatever binding this task lands must cover op notes and arg descriptions, not only `.md` sections.

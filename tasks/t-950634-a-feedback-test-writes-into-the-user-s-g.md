@@ -41,3 +41,5 @@ Give it the same treatment as the usage logger: an env override for the inbox di
 whose test default is in-memory), so verifying the channel does not require polluting it. Then a test can
 assert the record was written — which is the only real assertion for this op — without a human paying for it
 afterwards.
+
+SECOND OCCURRENCE, same session: two more probes (`probe-nots-after`, `probe-unsupported`) reached the real inbox while a track verified the op across workspace shapes. Four artefacts from two tracks in one day — so this is the normal cost of testing the op, not an isolated slip, and it will recur on every future change to the same surface.

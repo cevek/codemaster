@@ -73,3 +73,7 @@ output):
   (`scanned.modules/classes`), **`css_cascade`** (`scanned: {sheets}`) — same bare shape, UNVERIFIED
   (not reproduced hermetically here; each has its own partial-disclosure machinery — css_cascade
   names its failed sheets and caps confidence — so the residual may be smaller or absent).
+
+MECHANISM, from the op that was fixed second: a bare counter is a SYMPTOM of a view that exposes only POST-filter numbers. When the view hands the op nothing but a post-filter count, the op has no discriminator left and must guess the cause from its own ARGS — and args describe the REQUEST, not the mechanism, which is exactly how `find_unused_exports` came to blame a glob for a program that held no files at all (t-780551). So the fix for a bare counter is not a rendering change: it is a PRE-filter counter on the view (`eligibleFiles`), after which both the denominator and the cause fall out for free.
+
+`scan-coverage-view.ts` already learned this; the lesson did not travel to views of a different shape. Unverified sweep candidates named by that track, in this order: `find_unused_i18n_keys`, `find_unused_scss_classes`, `css_cascade`.
