@@ -32,6 +32,7 @@ import {
 } from './program/discover.ts';
 import { computeCoverage, type Coverage } from './program/coverage.ts';
 import { findSourceFileAcross, pickTypeAuthority } from './program/type-authority.ts';
+import { resolutionPrograms } from './program/resolution-programs.ts';
 import {
   createExplicitPrograms,
   type ExplicitPrograms,
@@ -131,6 +132,13 @@ export interface TsProjectHost {
    *  pre-file-driven behavior; rename / change_signature use it, so file-driven programs can never
    *  introduce an un-gated, read-history-dependent edit. */
   builtContaining(absPosix: string): readonly TsProgram[];
+  /** RESOLUTION-context set: the built programs whose config glob TRACKS `absPosix`, and only when
+   *  the file's own nearest enclosing tsconfig is one of them — else EMPTY. Deliberately NOT
+   *  `builtContaining`: that one answers containment by BUILDING every program (`containsFile` forces
+   *  `getProgram()`), which on a loose-root monorepo materializes the whole fan-out and re-opens the
+   *  t-167395 OOM; this selects from the globbed file lists and builds only the owners. The policy
+   *  and its two honesty constraints live in `program/resolution-programs.ts`. */
+  resolutionPrograms(absPosix: string): readonly TsProgram[];
   /** The first program (primary preferred) whose built program contains `absPosix`, with its
    *  source file — the cross-program resolution lookup (a test-declared symbol resolves too). */
   sourceFileAcross(absPosix: string): { sf: ts.SourceFile; program: TsProgram } | undefined;
@@ -514,6 +522,8 @@ export function createTsProjectHost(
     builtContaining(absPosix) {
       return built().filter((p) => p.containsFile(absPosix));
     },
+    resolutionPrograms: (absPosix) =>
+      resolutionPrograms(toPosix(absPosix), { built, nearestConfig }),
     sourceFileAcross: sourceFileAcrossLocal,
     typeAuthorityFor: (absPosix) =>
       pickTypeAuthority(toPosix(absPosix), {

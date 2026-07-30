@@ -505,7 +505,30 @@ probing.
   reads it, the disclosure qualifies the TARGET every op answered about. The
   ambiguity list a multi-declaration name returns (`plugins/ts/ambiguity.ts`) collapses candidates by
   resolved DEFINITION (a barrel chain is one symbol seen N times; within one definition a real
-  declaration displaces the alias pointing at it), ranks declaration-first, prints each candidate as
+  declaration displaces the alias pointing at it) — including the alias the ANSWERING program cannot
+  resolve: a loose-root primary globs a member's files WITHOUT the member's `paths`, so TS reports
+  such an import specifier as its OWN definition and every consumer's binding would key as another
+  "distinct declaration", failing a barrel-heavy name as N-way ambiguous while it names ONE symbol.
+  So a self-resolving ALIAS is re-asked across the programs `resolutionPrograms`
+  ([`plugins/ts/program/resolution-programs.ts`](src/plugins/ts/program/resolution-programs.ts))
+  admits, and the definition is taken only when those that resolved it AGREE — unanimity, not a first
+  hit, because two configs can map one spec to different files and picking whichever was asked first
+  would make the answer an artifact of iteration order. On disagreement, or where NO admitted program
+  resolves the spec, the candidate stays distinct: two aliases we cannot resolve cannot be PROVEN to
+  name one symbol (§3). **Admission is itself two honesty rules.** (1) Selecting a program must not
+  BUILD one: `builtContaining` answers containment with `containsFile`, which forces `getProgram()`,
+  so filtering with it materializes the whole fan-out — on the loose-root repo this path exists for,
+  that is the ~25-program heap the discovery prune (t-167395) avoids, and an in-process OOM kills the
+  daemon (§1). Membership is therefore read from the file lists globbed at construction, and only the
+  programs that own the file are ever built. (2) A config that merely GLOBS the file is not an
+  authority on what its imports mean — it may carry its own `paths` and resolve the same specifier
+  elsewhere — so the file's own nearest enclosing tsconfig must be among the admitted programs; absent
+  it, the answer is "cannot say", never a foreign config's guess. The set is the BUILT one (never a
+  file-driven `ensureProgramFor` load), so the collapse never rests on evidence a mutation cannot see
+  and the verdict does not depend on query history (§16 cold == warm). A position resolved by one
+  program is only comparable in another while both hold the same identifier there — a planning
+  overlay lives on the primary alone — so the retry re-reads the name at that offset before trusting
+  the answer. The list further ranks declaration-first, prints each candidate as
   a copy-pasteable `SymbolId` with an alias disclosing the declaration it resolves to, and carries
   `{shown, total}` with the display cap (`N more not shown`) and the search-budget truncation
   (a `≥` on the count) as SEPARATE markers — different causes, different remedies, so collapsing
@@ -1623,7 +1646,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition + declaration-first; disclose-resolution.ts: the resolve-time §3.4 envelope disclosure)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,matcher,cache}.ts: the no-program OOM-survival search_symbol + symbols_overview scans, matcher = the shared navto createPatternMatcher; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
