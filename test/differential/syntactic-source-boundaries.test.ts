@@ -136,17 +136,34 @@ test('same-named declarations in DIFFERENT SCOPES are a pick-list, never a silen
     assert.match(reason, /ts:twin@src\/rivals\.ts:2:/, 'lists the first candidate');
     assert.match(reason, /ts:twin@src\/rivals\.ts:5:/, 'lists the second candidate');
 
-    // The inverse lie, guarded: a genuinely merged symbol must still resolve rather than read as rivals.
-    // `WidgetProps` + a same-scope `namespace WidgetProps` would be the ideal case; the simpler proof is
-    // that every unique top-level symbol above still resolves — asserted by the byte-equality test.
-    const still = sole(
-      await sourceOf(p, { name: 'makeWidget', file: 'src/widget.ts' }, true),
-      'merge',
+    // The inverse lie, guarded for real: a genuinely MERGED symbol must resolve AND list its other
+    // declaration. Without this arm a policy that refused everything would stay green, which is what let
+    // the merge branch ship untested in both directions.
+    const merged = sole(await sourceOf(p, { name: 'Both', file: 'src/merged.ts' }, true), 'merge');
+    assert.match(merged.decl.text, /interface Both/, 'the merged symbol resolves');
+    assert.deepEqual(
+      merged.moreDefinitions,
+      ['src/merged.ts:2'],
+      'and its OTHER declaration is listed — the merge arm really merges',
     );
-    assert.ok(
-      still.decl.text.includes('makeWidget'),
-      'an unambiguous name is not dressed as a rival',
-    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a shared enclosing node is not a shared BINDING scope — loop, catch, and expando rivals', async () => {
+  const p = await project(FILES);
+  try {
+    // Three shapes whose declarations share the node that ENCLOSES them while binding in separate
+    // regions: two `for (let idx…)` headers, two `catch (err)` clauses, and two expando assignments on
+    // DIFFERENT objects (`Owner.tag` / `Other.tag` — an expando binds no scope at all, so scope identity
+    // alone cannot separate them). Each pair is two symbols; merging them would claim one is "another
+    // definition" of the other.
+    for (const name of ['idx', 'err', 'tag']) {
+      const data = await sourceOf(p, { name, file: 'src/merged.ts' }, true);
+      assert.equal(data.sources?.length ?? 0, 0, `${name}: must not resolve to one of two symbols`);
+      assert.match(missReason(data, name), /different symbols/i, `${name}: says they are distinct`);
+    }
   } finally {
     await p.dispose();
   }

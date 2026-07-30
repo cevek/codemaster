@@ -33,6 +33,23 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
     'export const useWidget = () => build({ size: String(WidgetLimit) }) && WidgetOwner();',
   ].join('\n'),
   'src/owner.ts': 'export default function WidgetOwner() {\n  return true;\n}',
+  // The MERGE arm — declarations that really ARE one symbol, so a policy that refused everything would
+  // be caught too, plus the three shapes that share a scope-enclosing node without sharing a binding
+  // scope (two loop headers, two catch clauses, two expandos on different objects).
+  'src/merged.ts': [
+    'export interface Both { a: string }',
+    'export namespace Both { export const k = 1; }',
+    'export function Owner() { return 1; }',
+    'Owner.tag = 1;',
+    'export function Other() { return 2; }',
+    'Other.tag = 2;',
+    'export function loops() {',
+    '  for (let idx = 0; idx < 2; idx++) { void idx; }',
+    '  for (let idx = 5; idx < 9; idx++) { void idx; }',
+    '  try { void 0; } catch (err) { void err; }',
+    '  try { void 1; } catch (err) { void err; }',
+    '}',
+  ].join('\n'),
   'src/rivals.ts': [
     'export class Alpha {',
     '  twin() { return 1; }',
@@ -51,6 +68,8 @@ export type SourceEntry = {
   kind: string;
   decl: { file: string; line: number; col: number; text: string };
   provenance?: string;
+  /** Other declarations OF THIS SYMBOL (a merged interface+namespace, an overload set) as `file:line`. */
+  moreDefinitions?: string[];
 };
 
 export type SourceData = {

@@ -4,13 +4,20 @@
 // are ONE symbol and which are rivals" — the question whose wrong answer is a silent pick.
 //
 // THE POLICY, and why scope is the discriminator. TypeScript rejects a non-mergeable duplicate WITHIN
-// one scope, so several same-named declarations in the SAME scope are one symbol seen several times (an
-// overload set, `interface` + `namespace`). Two DIFFERENT scopes are two symbols that merely share a
-// name — `class A { run(){} }` and `class B { run(){} }`, or a `const tmp` in each of two functions —
-// and this surface is full of them, because it indexes nested and member declarations too, not just the
-// top-level ones the checker path's name resolution anchors. Picking one of those and calling the other
-// "another definition of it" asserts a merge relationship the set cannot support (§3.4/§6): so rivals
-// come back as a pick-list, and only a same-scope set collapses.
+// one binding scope, so several same-named declarations in the SAME scope are one symbol seen several
+// times (an overload set, `interface` + `namespace`). Two DIFFERENT scopes are two symbols that merely
+// share a name — `class A { run(){} }` and `class B { run(){} }`, a `const tmp` in each of two functions,
+// two `for (let i…)` headers in one body — and this surface is full of them, because it indexes nested,
+// member and loop declarations too, not just the top-level ones the checker path's name resolution
+// anchors. Picking one of those and calling the other "another definition of it" asserts a merge
+// relationship the set cannot support (§3.4/§6): so rivals come back as a pick-list, and only a
+// same-scope set collapses.
+//
+// The premise holds for SCOPE BINDINGS, which is why `isScopeContainer` must list every construct that
+// binds (a loop header and a catch clause bind their own variable; a function binds its parameters) —
+// each omission merges two sibling regions into one symbol. And it does NOT hold for an EXPANDO property
+// assignment (`Foo.bar = …`), which binds nothing: two of those share whatever scope encloses them, so
+// the assignment TARGET joins the scope key instead.
 
 import ts from 'typescript';
 import type { RepoRelPath } from '../../core/brands.ts';
@@ -110,30 +117,70 @@ function indexFile(rel: RepoRelPath, sf: ts.SourceFile): readonly DeclSite[] {
   return out.sort((a, b) => a.anchor - b.anchor); // source order → deterministic (cold == warm)
 }
 
-/** The scope a declaration lives in — the node whose body/statement list holds it. Identity of this
- *  node is the merge test: same scope ⇒ one symbol, different scopes ⇒ rivals. */
-function scopeOf(node: ts.Node): ts.Node {
+/** Does this node introduce a BINDING SCOPE — a region within which one name means one thing?
+ *
+ *  Every construct that binds names must be here, or `scopeOf` climbs past it and two declarations in
+ *  two sibling regions read as one symbol. The non-obvious members are the ones that cost a defect: a
+ *  `for`/`for-of`/`for-in` header and a `catch` clause each bind their own variable (two `for (let i…)`
+ *  in one body are two symbols), and a FUNCTION binds its parameters (two functions' `p` parameters are
+ *  not one symbol just because both functions sit in one block).
+ *
+ *  A variable-declaration list and its statement are deliberately absent: they sit BETWEEN a `const X`
+ *  declarator and the region that really contains it. */
+function isScopeContainer(node: ts.Node): boolean {
+  return (
+    ts.isSourceFile(node) ||
+    ts.isModuleBlock(node) ||
+    ts.isBlock(node) ||
+    ts.isClassLike(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isTypeLiteralNode(node) ||
+    ts.isObjectLiteralExpression(node) ||
+    ts.isForStatement(node) ||
+    ts.isForOfStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isCatchClause(node) ||
+    ts.isFunctionLike(node)
+  );
+}
+
+function scopeNodeOf(node: ts.Node): ts.Node {
   for (let up: ts.Node | undefined = node.parent; up !== undefined; up = up.parent) {
-    // A variable-declaration list and its statement are not scopes — they sit between a `const X`
-    // declarator and the scope that really contains it.
-    if (
-      ts.isSourceFile(up) ||
-      ts.isModuleBlock(up) ||
-      ts.isBlock(up) ||
-      ts.isClassLike(up) ||
-      ts.isInterfaceDeclaration(up) ||
-      ts.isEnumDeclaration(up) ||
-      ts.isTypeLiteralNode(up) ||
-      ts.isObjectLiteralExpression(up)
-    ) {
-      return up;
-    }
+    if (isScopeContainer(up)) return up;
   }
   return node;
 }
 
+/** The object an expando assignment (`Foo.bar = …`) hangs off, as source text.
+ *
+ *  An expando is NOT a scope binding, so scope identity cannot separate two of them: `Foo.bar` and
+ *  `Baz.bar` at top level share the SourceFile and would read as one merged symbol. What separates them
+ *  is the assignment TARGET, so it joins the scope key. Text, not a resolved symbol — resolving one
+ *  would need the checker this path does without; two spellings of one object therefore read as two
+ *  scopes, which errs toward a pick-list (an honest "you choose") rather than a false merge. */
+function expandoTarget(node: ts.Node): string | undefined {
+  if (!ts.isBinaryExpression(node)) return undefined;
+  const lhs = node.left;
+  if (!ts.isPropertyAccessExpression(lhs) && !ts.isElementAccessExpression(lhs)) return undefined;
+  try {
+    return lhs.expression.getText(node.getSourceFile());
+  } catch {
+    return undefined; // a synthetic node with no text — no key contribution, never a throw
+  }
+}
+
+/** A stable identity for the region a declaration binds in. A STRING rather than the node, because an
+ *  expando needs its assignment target folded in, and because two files' nodes must never compare equal
+ *  (a candidate set can span files). `pos`+`kind` is unique within one file's AST. */
+function scopeKeyOf(site: DeclSite): string {
+  const scope = scopeNodeOf(site.node);
+  const target = expandoTarget(site.node);
+  return `${site.rel}|${scope.pos}|${scope.kind}${target === undefined ? '' : `|on=${target}`}`;
+}
+
 export function isTopLevel(site: DeclSite): boolean {
-  return ts.isSourceFile(scopeOf(site.node));
+  return ts.isSourceFile(scopeNodeOf(site.node));
 }
 
 /** One symbol (with the rest of its own declarations), or a set of rivals no address has picked between.
@@ -152,7 +199,7 @@ export function collapseByScope(real: readonly DeclSite[]): Collapsed | undefine
   if (real.length === 0) return undefined;
   const top = real.filter(isTopLevel);
   const group = top.length > 0 ? top : real;
-  const scopes = new Set(group.map((d) => scopeOf(d.node)));
+  const scopes = new Set(group.map(scopeKeyOf));
   const first = group[0];
   if (first === undefined) return undefined;
   if (scopes.size > 1) return { rivals: group };

@@ -83,7 +83,9 @@ export const tsTargetIntake: OpIntake = {
 export function describeTsTarget(t: TargetFields): string {
   if (t.symbolId !== undefined) return t.symbolId;
   if (t.file !== undefined && t.line !== undefined) {
-    return t.col === undefined ? `${t.file}:${t.line}` : `${t.file}:${t.line}:${t.col}`;
+    const at = t.col === undefined ? `${t.file}:${t.line}` : `${t.file}:${t.line}:${t.col}`;
+    // `name` narrows a col-less line, so dropping it would echo a target the caller never sent.
+    return t.name === undefined ? at : `${t.name} at ${at}`;
   }
   if (t.name !== undefined) return t.file === undefined ? t.name : `${t.name} in ${t.file}`;
   if (t.file !== undefined) return t.file;

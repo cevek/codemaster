@@ -313,6 +313,22 @@ test('source redirects to its own AST-only mode, not to ops that cannot print a 
   }
 });
 
+// A 20-target call cannot be rendered inside MAX_CALL, so the mode switch degrades to a one-target call.
+// It must SAY so: a call answering about 1 of 20 while its `gives` promises "the same bodies" is the
+// §3.4 omission in miniature — runnable, and quietly under-delivering.
+test('the source mode switch admits how many targets its fallback drops', () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ name: `symbolWithAQuiteLongName${i}` }));
+  const [only] = cheapCallsFor('source', { targets: many }, 'this-call').calls;
+  assert.ok(only !== undefined, 'a fallback call is still offered');
+  assert.ok(only.call.length <= 300, 'and it is renderable, not a truncated blob');
+  assert.match(only.gives, /FIRST target only \(19 more/, `must state the drop: ${only.gives}`);
+
+  // The exact render fits for a small call, and then nothing is dropped and nothing is claimed to be.
+  const [exact] = cheapCallsFor('source', { targets: [{ name: 'Button' }] }, 'this-call').calls;
+  assert.equal(exact?.call, 'source {targets:[{"name":"Button"}],syntactic:true}');
+  assert.ok(!/FIRST target only/.test(exact?.gives ?? ''), 'no drop claimed when none happened');
+});
+
 // The self-referential redirect the module's own header forbids: the flag is already set, so there is
 // no mode left to switch to and echoing the call back would hand the agent the one that just failed.
 test('source does NOT redirect to syntactic:true when the failed call already carried it', () => {

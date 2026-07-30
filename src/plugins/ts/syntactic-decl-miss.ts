@@ -9,13 +9,9 @@
 import { existsSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { mintRepoRelPath } from '../../support/fs/canonicalize.ts';
-
-/** `.ts/.tsx/.mts/.cts` minus `.d.ts` — the set the surface parses (syntactic-cache.ts owns the
- *  authoritative predicate; this only explains a miss, so a near copy here would be a second authority).
- *  Phrased as a QUESTION about the path, not as a claim about the surface. */
-function looksLikeScannedSource(rel: string): boolean {
-  return /\.(?:ts|tsx|mts|cts)$/.test(rel) && !/\.d\.(?:ts|mts|cts)$/.test(rel);
-}
+// The AUTHORITATIVE predicate for what the surface parses — imported, never re-spelled: a near copy here
+// would drift from the real one and the miss message would then explain the wrong thing.
+import { isScannedSourcePath } from './syntactic-cache.ts';
 
 /** State what is true of `file`, probing before attributing a cause. */
 export function missingFileReason(root: string, file: string): string {
@@ -38,7 +34,7 @@ export function missingFileReason(root: string, file: string): string {
   if (!exists) {
     return `no such file under the workspace root: ${minted.path} — check the path spelling`;
   }
-  if (!looksLikeScannedSource(minted.path)) {
+  if (!isScannedSourcePath(minted.path)) {
     return `${minted.path} exists but is not TypeScript source the scan parses (.ts/.tsx/.mts/.cts, excluding .d.ts) — drop syntactic:true for the type-verified path`;
   }
   return `${minted.path} exists but is not on the scanned surface — the scan covers git-tracked plus untracked-not-ignored source, so a gitignored file is absent from it; drop syntactic:true for the type-verified path`;

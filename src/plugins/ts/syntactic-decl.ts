@@ -303,19 +303,25 @@ function rebound(
 
 // ── miss messages (each names what this path cannot do, and where the answer is) ───────────────
 
-/** Same-named declarations in different scopes are different symbols; the list IS the remedy. */
+/** Candidates no address has chosen between; the list IS the remedy. What the message may ASSERT differs
+ *  by cause: different scopes in one file PROVE two different symbols, while several files do not — a
+ *  `declare module` augmentation is one merged symbol declared twice, and telling them apart needs the
+ *  checker this path does without. So the cross-file wording states the ambiguity, not a verdict. */
 function rivalsMessage(
   name: string,
   rivals: readonly DeclSite[],
   rootTag: string,
   fileCount: number,
 ): string {
-  const where =
-    fileCount > 1 ? `${fileCount} files` : 'different scopes of one file (a member, or a local)';
-  return `${rivals.length} declarations named '${name}' in ${where} (${nameWithMore(
+  const ids = nameWithMore(
     rivals.map((d) => idOf(d, rootTag)),
     CANDIDATE_PREVIEW,
-  )}) — these are different symbols, so pass one of these SymbolIds, or name+file / file:line:col`;
+  );
+  const verdict =
+    fileCount > 1
+      ? `in ${fileCount} files (${ids}) — this path cannot tell two same-named symbols from one symbol augmented across files (that needs the checker), so pick the one you mean`
+      : `in different scopes of one file (${ids}) — a scope boundary makes these different symbols, so pick the one you mean`;
+  return `${rivals.length} declarations named '${name}' ${verdict}: pass one of these SymbolIds, or name+file / file:line:col`;
 }
 
 function handleRivals(
@@ -359,7 +365,11 @@ function lineIsAmbiguous(
 }
 
 function noSuchNameInFile(name: string, file: string): string {
-  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a computed or string-literal name (\`[Symbol.iterator]\`, \`'a-b'\`) carries no plain identifier for this scan to anchor.`;
+  // The limit stated here is the one that HOLDS: the index keys a declaration by the name TS can read off
+  // it statically. A string-literal or `[Symbol.x]` name IS readable and does anchor — naming those as
+  // blind spots steered an agent off a call that works, the same wrong-cause defect as a guessed file
+  // reason (§3.6). What genuinely has no key is a name only computable at runtime.
+  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a declaration whose name is computed at runtime (\`[key]\`, \`[\${expr}]\`) is indexed under no name at all, so no name can reach it; address it by position.`;
 }
 
 function noSuchNameOnSurface(name: string): string {

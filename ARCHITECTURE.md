@@ -738,8 +738,11 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   (`class A {run(){}}` beside `class B {run(){}}`; a `const tmp` in each of two functions) are RIVALS, not
   a merged symbol — this surface indexes members and locals, so that is routine — and an address that
   cannot choose between them returns a pick-list; only a SAME-SCOPE set collapses, which is what
-  `moreDefinitions` then means (TS rejects a non-mergeable duplicate within one scope, so same-scope
-  same-name IS one symbol). A `file+line` line holding several declarations is likewise a pick-list, as on
+  `moreDefinitions` then means (TS rejects a non-mergeable duplicate within one BINDING scope, so
+  same-scope same-name IS one symbol). The scope test therefore has to name every construct that BINDS —
+  a loop header and a `catch` clause bind their own variable, a function binds its parameters — since each
+  omission merges two sibling regions into one symbol; and an EXPANDO assignment (`Foo.bar = …`) binds
+  nothing at all, so the assignment TARGET joins the scope key rather than the enclosing region. A `file+line` line holding several declarations is likewise a pick-list, as on
   the checker path. The body span is derived from the declaration NODE (the surface hands it over), not
   from the position-only `declarationNodeOf` walk. §6 holds: a moved handle is `rebound` with
   `confidence:'partial'`, and `gone` is withheld for a name merely absent from the scanned surface — this
@@ -747,7 +750,11 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   CROSS-ROOT handle still returns `gone`, which §6 sanctions: the handle proves it belongs to another
   root). A `file` arg is normalized through the same chokepoint the checker path uses, and a file that is
   not on the surface is told WHICH cause was established (no such file / a directory / not parsed source /
-  gitignored), never a guessed one. Scope + provenance are stated on EVERY answer (the shared
+  gitignored), never a guessed one — as is a name that anchors nowhere, whose only real blind spot is a
+  runtime-computed name (a string-literal or `[Symbol.x]` name IS indexed, so naming it as a gap would
+  steer an agent off a working call). A same-named set spanning several FILES states the ambiguity rather
+  than a verdict: a `declare module` augmentation is one merged symbol declared twice, and telling that
+  from two symbols needs the checker. Scope + provenance are stated on EVERY answer (the shared
   `SYNTACTIC_SCOPE`, `plugins/ts/syntactic-scope.ts` — beside the surface it describes, re-exported through
   the plugin's public surface for the ops that state it; the syntactic search composes it too), and the
   scope states the two axes on which this path is WIDER: a file no tsconfig includes is scanned here, and a
