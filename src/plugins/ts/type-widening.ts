@@ -4,6 +4,25 @@
 // AST + checker live HERE (the op never touches the LS — §5-L3); the op-level walk drives the
 // recursion (depth / visited / node-cap) over the `next` positions this returns.
 //
+// CROSS-PROGRAM (t-467009). The step fans across EVERY loaded program containing the value's file
+// (`selectScanFanout` — the same program selection, authority-first with the no-config fallback
+// demoted, that the type-anchored scans use), because a sink living only in a SIBLING program
+// (a `test/**` file under `tsconfig.test.json`, another package's app program) is invisible to one
+// program's `getReferencesAtPosition` — and the trace then reads as "the type never widens" where
+// the truth is "we looked in one program" (§3.6). Three invariants make the fan sound:
+//   · the value's type is RE-RESOLVED in each program and each program's references are judged by
+//     its OWN checker — a widening verdict is invalid across checkers;
+//   · a reference two programs both surface is CLAIMED by the first in fan order, so the checked
+//     surface is the UNION, not the sum;
+//   · the endpoint (`view.node` and its `typeText`) comes from the AUTHORITY alone. Not cosmetic:
+//     the op's walk keys its `visited` set off that label, so two programs printing one value's type
+//     differently would expand it twice and double-count `widenings`. A sink judged by a non-
+//     authority program carries that program's label instead.
+// Bounded (§1/§19): ONE `REF_SCAN_CAP` budget across the whole fan, spent ROUND-ROBIN so a large
+// primary cannot starve a sibling to zero, plus a `Deadline` poll at the program and reference
+// boundary. The scope is reported POSITIVELY, per program (`coverage`) — a bare `examined:` count
+// with no denominator is what let a one-package scan read as a repo scan (t-919920).
+//
 // THE CONTEXTUAL-TYPING TRAP (a silent-zero-hops bug avoided BY DESIGN, not exercised by a test):
 // the source type is read at the value's OWN declaration (`getTypeOfSymbolAtLocation(symbol, decl)`),
 // NEVER at a use site — at a call-arg slot `getTypeAtLocation` returns the CONTEXTUAL (already-widened)
@@ -13,266 +32,186 @@
 // this trap. The sink type is the sink declaration's own type; the comparison is src-at-its-decl vs
 // sink-at-its-decl.
 
-import ts from 'typescript';
-import type { RepoRelPath } from '../../core/brands.ts';
-import type { Confidence, Span } from '../../core/span.ts';
-import { elideType } from '../../common/truncate/elide-type.ts';
-import { spanFromRange } from './spans.ts';
+import type ts from 'typescript';
+import type { Deadline } from '../../common/async/deadline.ts';
+import { roundRobin } from '../../common/iter/round-robin.ts';
 import { nodeAt } from './ast-node.ts';
-import { classifyWidening, type WideningKind } from './type-widening-verdict.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import { selectScanFanout } from './program/scan-fanout.ts';
+import { resolveSink, spanOf, typeStr } from './type-widening-sink.ts';
+import type {
+  SkippedWideningProgram,
+  WideningEndpoint,
+  WideningProgramCoverage,
+  WideningSink,
+  WideningSinksView,
+} from './type-widening-view.ts';
 
-const REF_SCAN_CAP = 50; // forward references examined per node (never-hang §1; cap reported honestly)
+const REF_SCAN_CAP = 50; // forward references examined per step across the WHOLE fan (§1)
 
-export type WideningRelation = 'assigned-to' | 'passed-to' | 'returned-as' | 'reassigned-to';
+/** One program that resolved the value — its checker, its own source type, its label. */
+interface ResolvedProgram {
+  program: ts.Program;
+  checker: ts.TypeChecker;
+  srcType: ts.Type;
+  /** How this program types the value — compared against the authority's to disclose a divergence. */
+  srcText: string;
+  label: string;
+}
 
-export type WideningEndpoint = { span: Span; label: string; typeText: string };
-
-export type WideningSink = {
-  relation: WideningRelation;
-  to: WideningEndpoint;
-  widened: boolean;
-  kind?: WideningKind;
-  confidence: Confidence;
-  note?: string;
-  /** Where the forward walk continues (the param/variable the value rebinds to); absent at a leaf
-   *  (`returned-as` / `reassigned-to`) or a precision-erasing boundary (`any`/`unknown` — STOP). */
-  next?: { file: RepoRelPath; line: number; col: number };
-};
-
-export type WideningSinksView = {
-  node: WideningEndpoint;
-  sinks: WideningSink[];
-  truncated?: { shown: number; total: number };
-};
+/** One forward reference, bound to the program that surfaced it (and will judge it). */
+interface RefCandidate {
+  fileName: string;
+  start: number;
+  slot: number;
+}
 
 /** One forward step from the value at `{abs, offset}`: its own type, and every immediate flow-sink
- *  with a widening verdict. A `string` when the position is not a value with a symbol. */
+ *  with a widening verdict, fanned across the programs containing `abs`. A `string` when no program
+ *  in the fan resolves a value there (an honest "couldn't", never an empty answer shaped like a
+ *  proven absence — §3.6). */
 export function collectWideningSinks(
   host: TsProjectHost,
   abs: string,
   offset: number,
+  deadline?: Deadline,
 ): WideningSinksView | string {
-  // One authority program for the checker, the node, AND the references — routed to the type-authority
-  // for `abs` so a no-root repo reads the value's type from the member's own-options program, not the
-  // fallback primary whose whole-repo glob pollutes it (t-593802). The node MUST come from this same
-  // program's source file (a node typed by a different program is unsound — cross-version checker).
-  const authority = host.typeAuthorityFor(abs);
-  const program = authority.getProgram();
-  if (program === undefined) return 'no TS program for this position';
-  const sf = program.getSourceFile(abs);
-  if (sf === undefined) return 'position is not in any loaded TS program';
-  const checker = program.getTypeChecker();
-  const node = nodeAt(sf, offset);
-  if (node === undefined) return 'no node at the resolved position';
-  const symbol = checker.getSymbolAtLocation(node);
-  if (symbol === undefined) {
-    return 'no symbol at the resolved position — point at a value (variable / parameter)';
-  }
-  const decl = symbol.valueDeclaration ?? node;
-  const srcType = checker.getTypeOfSymbolAtLocation(symbol, decl);
-  const nodeEndpoint: WideningEndpoint = {
-    span: spanOf(host, node),
-    label: symbol.getName(),
-    typeText: typeStr(checker, srcType),
-  };
+  const fanout = selectScanFanout(host, abs);
+  const resolved: ResolvedProgram[] = [];
+  const per: WideningProgramCoverage[] = [];
+  const skipped: SkippedWideningProgram[] = [];
+  const queues: RefCandidate[][] = [];
+  const claimed = new Set<string>();
+  let endpoint: WideningEndpoint | undefined;
 
-  const refs = authority.service.getReferencesAtPosition(abs, offset) ?? [];
+  for (const entry of fanout.fan) {
+    // §19 loop boundary #1 — the PROGRAM loop: `getProgram()` warms a checker, so without this poll
+    // the first deadline check would come only after every program in the fan was built. A fan cut
+    // short is a DIFFERENT fact from a reference set cut short, so it is recorded as its own reason.
+    if (deadline?.expired() === true) {
+      skipped.push({ label: entry.label, reason: 'deadline' });
+      continue;
+    }
+    const program = entry.getProgram();
+    const sf = program?.getSourceFile(abs);
+    if (program === undefined || sf === undefined) {
+      skipped.push({ label: entry.label, reason: 'program-unavailable' });
+      continue;
+    }
+    const checker = program.getTypeChecker();
+    const node = nodeAt(sf, offset);
+    const symbol = node === undefined ? undefined : checker.getSymbolAtLocation(node);
+    if (node === undefined || symbol === undefined) {
+      // No value at this position under THAT program's own options. Skipping is right — judging its
+      // references against a type the value does not have there would lie; claiming completeness
+      // afterwards would too, so the skip is disclosed and demotes the answer.
+      skipped.push({ label: entry.label, reason: 'no-value-here' });
+      continue;
+    }
+    const srcType = checker.getTypeOfSymbolAtLocation(symbol, symbol.valueDeclaration ?? node);
+    const srcText = typeStr(checker, srcType);
+    endpoint ??= { span: spanOf(host, node), label: symbol.getName(), typeText: srcText };
+    const slot = resolved.length;
+    resolved.push({ program, checker, srcType, srcText, label: entry.label });
+    const queue = claimRefs(entry.service, abs, offset, slot, claimed);
+    per.push({ label: entry.label, refs: queue.length, examined: 0 });
+    queues.push(queue);
+  }
+
+  if (endpoint === undefined || resolved.length === 0) {
+    // A deadline-emptied fan establishes NOTHING about the value — reporting "no value here" would
+    // convert a "couldn't" into a finding (§3.6), so the two misses carry different messages and
+    // both are failures, never an `ok` shaped like a proven absence.
+    return skipped.some((s) => s.reason === 'deadline')
+      ? 'the wall-clock budget expired before any program in the fan could be consulted — nothing about this value was established'
+      : 'no symbol at the resolved position — point at a value (variable / parameter)';
+  }
+
   const sinks: WideningSink[] = [];
+  const authorityLabel = resolved[0]?.label;
   let examined = 0;
   let capped = false;
-  for (const ref of refs) {
-    // Skip the value's own declaration site (a reference, not a forward use).
-    if (ref.fileName === abs && ref.textSpan.start === offset) continue;
+  let deadlineHit = false;
+  for (const candidate of roundRobin(queues)) {
+    // §19 loop boundary #2: the sinks found ARE real data, so an overrun degrades to a disclosed
+    // partial step, never a spin and never a failure that throws them away.
+    if (deadline?.expired() === true) {
+      deadlineHit = true;
+      break;
+    }
     if (examined >= REF_SCAN_CAP) {
       capped = true;
       break;
     }
+    const owner = resolved[candidate.slot];
+    const tally = per[candidate.slot];
+    if (owner === undefined || tally === undefined) continue;
     examined++;
-    const refSf = program.getSourceFile(ref.fileName);
-    if (refSf === undefined) continue;
-    const refNode = nodeAt(refSf, ref.textSpan.start);
+    tally.examined++;
+    const refSf = owner.program.getSourceFile(candidate.fileName);
+    const refNode = refSf === undefined ? undefined : nodeAt(refSf, candidate.start);
     if (refNode === undefined) continue;
-    const sink = resolveSink(host, checker, refNode, srcType);
-    if (sink !== undefined) sinks.push(sink);
+    const sink = resolveSink(host, owner.checker, refNode, owner.srcType);
+    if (sink === undefined) continue;
+    sinks.push(
+      owner.label === authorityLabel
+        ? sink
+        : {
+            ...sink,
+            program: owner.label,
+            // Disclosed only on a real divergence: this program's own view of the SOURCE type is
+            // what the verdict compared, so where two configs type one value differently the hop
+            // must not print the authority's label as though it were the compared type.
+            ...(owner.srcText === endpoint.typeText ? {} : { srcTypeText: owner.srcText }),
+          },
+    );
   }
-  const view: WideningSinksView = { node: nodeEndpoint, sinks };
-  if (capped) view.truncated = { shown: examined, total: refs.length };
-  return view;
-}
 
-/** Classify a single reference's syntactic context into a flow-sink, or `undefined` when the
- *  reference is a plain read (not a place the value is rebound). */
-function resolveSink(
-  host: TsProjectHost,
-  checker: ts.TypeChecker,
-  refNode: ts.Node,
-  srcType: ts.Type,
-): WideningSink | undefined {
-  const parent = refNode.parent;
-  // arg → param: cross into the callee via the resolved signature.
-  if (
-    (ts.isCallExpression(parent) || ts.isNewExpression(parent)) &&
-    parent.arguments !== undefined
-  ) {
-    const idx = parent.arguments.indexOf(refNode as ts.Expression);
-    if (idx < 0) return undefined;
-    const sig = checker.getResolvedSignature(parent);
-    const param =
-      sig !== undefined && idx < sig.parameters.length ? sig.parameters[idx] : undefined;
-    const paramDecl = param?.valueDeclaration;
-    if (param === undefined || paramDecl === undefined || !ts.isParameter(paramDecl)) {
-      // Unresolved callee / rest-param boundary — the sink type is unknown; flag it, never guess.
-      return boundarySink(
-        host,
-        refNode,
-        'passed-to',
-        'call target unresolved — type at this boundary unknown',
-      );
-    }
-    const sinkType = checker.getTypeOfSymbolAtLocation(param, paramDecl);
-    const nameNode = ts.isIdentifier(paramDecl.name) ? paramDecl.name : paramDecl;
-    return buildSink(
-      host,
-      checker,
-      'passed-to',
-      nameNode,
-      param.getName(),
-      srcType,
-      sinkType,
-      true,
-    );
-  }
-  // var initializer: `const x = <value>`.
-  if (
-    ts.isVariableDeclaration(parent) &&
-    parent.initializer === refNode &&
-    ts.isIdentifier(parent.name)
-  ) {
-    const varSym = checker.getSymbolAtLocation(parent.name);
-    if (varSym === undefined) return undefined;
-    const sinkType = checker.getTypeOfSymbolAtLocation(varSym, parent);
-    return buildSink(
-      host,
-      checker,
-      'assigned-to',
-      parent.name,
-      varSym.getName(),
-      srcType,
-      sinkType,
-      true,
-    );
-  }
-  // reassignment: `x = <value>` — a LEAF (the variable holds different values over its lifetime;
-  // following it forward would be flow-imprecise, so we report the widening here and stop).
-  if (
-    ts.isBinaryExpression(parent) &&
-    parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-    parent.right === refNode &&
-    ts.isIdentifier(parent.left)
-  ) {
-    const lhsSym = checker.getSymbolAtLocation(parent.left);
-    if (lhsSym === undefined) return undefined;
-    const sinkType = checker.getTypeOfSymbolAtLocation(lhsSym, parent.left);
-    return buildSink(
-      host,
-      checker,
-      'reassigned-to',
-      parent.left,
-      lhsSym.getName(),
-      srcType,
-      sinkType,
-      false,
-    );
-  }
-  // return: widens against the enclosing function's return type (a LEAF — returning into callers
-  // is a different value).
-  if (ts.isReturnStatement(parent) && parent.expression === refNode) {
-    const fn = enclosingFunction(parent);
-    if (fn === undefined) return undefined;
-    const sig = checker.getSignatureFromDeclaration(fn);
-    if (sig === undefined) return undefined;
-    const sinkType = checker.getReturnTypeOfSignature(sig);
-    const nameNode = fn.name ?? fn;
-    const label = `return of ${fn.name?.getText() ?? '<anonymous>'}`;
-    return buildSink(host, checker, 'returned-as', nameNode, label, srcType, sinkType, false);
-  }
-  return undefined;
-}
-
-/** Assemble a sink from the widening verdict. `next` is included only when `wantNext` AND the
- *  verdict is not a precision-erasing boundary (`stop`) — the walk must not continue past `any`. */
-function buildSink(
-  host: TsProjectHost,
-  checker: ts.TypeChecker,
-  relation: WideningRelation,
-  toNameNode: ts.Node,
-  label: string,
-  srcType: ts.Type,
-  sinkType: ts.Type,
-  wantNext: boolean,
-): WideningSink {
-  const verdict = classifyWidening(checker, srcType, sinkType);
-  const span = spanOf(host, toNameNode);
   return {
-    relation,
-    to: { span, label, typeText: typeStr(checker, sinkType) },
-    widened: verdict.widened,
-    ...(verdict.kind !== undefined ? { kind: verdict.kind } : {}),
-    confidence: verdict.confidence,
-    ...(verdict.note !== undefined ? { note: verdict.note } : {}),
-    ...(wantNext && verdict.stop !== true
-      ? { next: { file: span.file, line: span.line, col: span.col } }
+    node: endpoint,
+    sinks,
+    ...(capped
+      ? {
+          truncated: {
+            shown: examined,
+            total: claimed.size,
+            // The denominator counts only the programs we consulted, so an unconsulted program
+            // makes it a floor — rendered `≥N`, never as an exact total (§12).
+            ...(skipped.length > 0 ? { totalIsLowerBound: true as const } : {}),
+          },
+        }
       : {}),
+    coverage: {
+      programs: per,
+      refs: claimed.size,
+      examined,
+      limit: REF_SCAN_CAP,
+      ...(skipped.length > 0 ? { skipped } : {}),
+      ...(fanout.fallbackOnly ? { fallbackOnly: true as const } : {}),
+      ...(fanout.excludedFallback !== undefined ? { fallbackExcluded: true as const } : {}),
+      ...(deadlineHit ? { deadlineHit: true as const } : {}),
+    },
   };
 }
 
-/** A sink at an unresolvable boundary (an untyped callee): honestly `dynamic`, never a guessed
- *  widening, and a leaf (no `next`) — §3.3 flags the boundary, never bridges it. */
-function boundarySink(
-  host: TsProjectHost,
-  refNode: ts.Node,
-  relation: WideningRelation,
-  note: string,
-): WideningSink {
-  return {
-    relation,
-    to: { span: spanOf(host, refNode), label: refNode.getText(), typeText: 'unknown' },
-    widened: false,
-    confidence: 'dynamic',
-    note,
-  };
-}
-
-/** Climb to the nearest enclosing function-like declaration whose return type a `return` widens. */
-function enclosingFunction(node: ts.Node): ts.SignatureDeclaration | undefined {
-  let current: ts.Node | undefined = node.parent;
-  while (current !== undefined) {
-    if (
-      ts.isFunctionDeclaration(current) ||
-      ts.isFunctionExpression(current) ||
-      ts.isArrowFunction(current) ||
-      ts.isMethodDeclaration(current) ||
-      ts.isGetAccessorDeclaration(current)
-    ) {
-      return current;
-    }
-    current = current.parent;
+/** This program's forward references to the value, minus its own declaration site and anything a
+ *  program earlier in the fan already claimed — so the checked surface is the UNION of the fan's
+ *  reference sets, and the expensive per-reference analysis runs once per site. */
+function claimRefs(
+  service: ts.LanguageService,
+  abs: string,
+  offset: number,
+  slot: number,
+  claimed: Set<string>,
+): RefCandidate[] {
+  const queue: RefCandidate[] = [];
+  for (const ref of service.getReferencesAtPosition(abs, offset) ?? []) {
+    if (ref.fileName === abs && ref.textSpan.start === offset) continue; // the value's own decl
+    if (ref.fileName.includes('/node_modules/')) continue;
+    const key = `${ref.fileName}|${ref.textSpan.start}`;
+    if (claimed.has(key)) continue;
+    claimed.add(key);
+    queue.push({ fileName: ref.fileName, start: ref.textSpan.start, slot });
   }
-  return undefined;
-}
-
-function spanOf(host: TsProjectHost, node: ts.Node): Span {
-  const sf = node.getSourceFile();
-  return spanFromRange(sf, host.relOf(sf.fileName), node.getStart(sf), node.getEnd());
-}
-
-/** `typeToString` with NoTruncation then the `common/truncate` chokepoint (`type-widening` `CapId`,
- *  `length-only` marker — `trace_type_widening` does not thread `verbosity:full`) — a silent checker
- *  `…` reads as completeness (§3.4). */
-function typeStr(checker: ts.TypeChecker, type: ts.Type): string {
-  return elideType(
-    checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation),
-    'type-widening',
-  );
+  return queue;
 }

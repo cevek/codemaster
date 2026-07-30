@@ -1,7 +1,7 @@
 ---
 id: t-919920
 title: 'Audit every op emitting a bare scanned:/examined: counter — a numerator with no denominator and no scope reads as proof of completeness, and cost a real false-diagnosis round-trip'
-status: backlog
+status: done
 priority: medium
 parent: t-647309
 type: imp
@@ -51,3 +51,25 @@ Cannot be misread: the denominator and the partition are both in the line. Cost:
 inherits the same shared coverage vocabulary — so fix it there rather than twice.
 
 The failure mode to keep in view is not the missing fan: it is that **the counter looked like an answer.**
+
+
+## Audit result
+
+`trace_type_widening` (the known adjacent instance) is CLOSED with t-467009: its step now states
+`programsScanned: ["<config>: N forward reference(s), M/N checked"]` — denominator and partition in
+the line — on the text AND the sql/table surface, in its own unit (references, not files, since it
+enumerates candidates from `getReferencesAtPosition` rather than a file walk).
+
+Sweep of the remaining ops that emit a `scanned:` block (`grep` over `src/ops`, then rendered
+output):
+
+- **`find_unused_exports`** — REPRODUCED on current main:
+  `node src/bin.ts op find_unused_exports '{"pathInclude":["src/common/iter/**"]}'` →
+  `scanned: exports=1 files=1` with nothing saying WHICH programs were searched. It fans across
+  programs for candidates dead-in-primary, so the same "one package read as the repo" misreading is
+  available here. It already carries the separate undiscovered-config floor, which is a DIFFERENT
+  fact and does not supply the denominator. → filed as its own task.
+- **`find_unused_i18n_keys`** (`scanned: {keys, usages}`), **`find_unused_scss_classes`**
+  (`scanned.modules/classes`), **`css_cascade`** (`scanned: {sheets}`) — same bare shape, UNVERIFIED
+  (not reproduced hermetically here; each has its own partial-disclosure machinery — css_cascade
+  names its failed sheets and caps confidence — so the residual may be smaller or absent).

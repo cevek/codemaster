@@ -261,7 +261,7 @@ test('a died-engine redirect never names a call that builds a program', () => {
 
 test('a died-engine redirect never echoes back the call that just failed', () => {
   const args = { name: 'Button', prop: 'size', file: 'src/Button.tsx' };
-  for (const op of ['trace_prop_through_tree', 'trace_type_widening', 'find_definition']) {
+  for (const op of ['trace_prop_through_tree', 'find_definition']) {
     const { calls, substitute } = cheapCallsFor(op, args, 'any-program-build');
     for (const c of calls) {
       assert.ok(!c.call.startsWith(`${op} `), `${op} redirects to itself after dying: ${c.call}`);
@@ -274,6 +274,25 @@ test('a died-engine redirect never echoes back the call that just failed', () =>
     // With a file already pinned, the only specific call each of these had was the program-building
     // one, so all three honestly fall back rather than claim a substitute they no longer have.
     assert.equal(substitute, false, `${op} claims a substitute it cannot deliver after dying`);
+  }
+
+  // trace_type_widening is the OTHER shape and must not be folded into the loop above: its fan
+  // follows the value's DECLARATION (t-467009), so a `file` pin fans identically and a re-pin can
+  // never escape the refusal. It therefore offers no self-call under EITHER claim — printing one
+  // would be the inert lever this module exists to prevent — and honestly claims no substitute.
+  for (const claim of ['this-call', 'any-program-build'] as const) {
+    const { calls, substitute } = cheapCallsFor('trace_type_widening', args, claim);
+    for (const c of calls) {
+      assert.ok(
+        !c.call.startsWith('trace_type_widening '),
+        `trace_type_widening offers a re-pin that cannot escape its own fan (${claim}): ${c.call}`,
+      );
+    }
+    assert.equal(
+      substitute,
+      false,
+      `trace_type_widening claims a substitute for the widening question (${claim})`,
+    );
   }
 
   // Without a file, find_definition still has a genuine no-build partial (the syntactic scan finds

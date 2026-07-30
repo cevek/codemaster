@@ -389,6 +389,8 @@ Initial topics (each populated as Phase 0+ work demands):
   poll-able budget an op / the LS cancellation token checks to degrade to `timeout` / `partial`.
 - **`debug-spec/`** — parse `'plugin:ts:*,watcher,-eviction'` into a matcher
   (`DebugSystem.configure` consumes this, §13).
+- **`iter/`** — `roundRobin`: interleave N queues so ONE shared budget spans a cross-program fan
+  instead of being drained by whichever queue leads (§5-L2).
 - **`lru/`** — generic LRU map, used by the orchestrator's memory governor (§9) and
   anything else that needs bounded caching.
 - **`condition/`** — the domain-neutral per-site enclosing-condition chain contract + its one
@@ -683,6 +685,22 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   explicitly NOT "index the config" (the undiscovered-config remedy is inert when the program is
   loaded), an unloaded config rides the shared `lowerBoundNote`, fallback-only files ask for a
   tsconfig, and a complete scan names no glob at all.
+  **The forward FLOW trace fans too, on its own unit** (`trace_type_widening`,
+  [`plugins/ts/type-widening.ts`](src/plugins/ts/type-widening.ts)). Each step enumerates its
+  candidates with `getReferencesAtPosition`, not by walking files, so it reuses the scans' program
+  SELECTION (`selectScanFanout` — authority-first, no-config fallback demoted) and none of their
+  file-denominated machinery: over ONE program a sink in a sibling was invisible and the answer read
+  as "the type never widens". The three fan invariants hold identically — the value is **re-resolved
+  in each program** (a widening verdict is invalid across checkers), a reference two programs both
+  surface is claimed by the first in fan order (UNION, not sum), and ONE `REF_SCAN_CAP` budget is
+  spent ROUND-ROBIN across the fan with a `Deadline` poll at the program and reference boundary. The
+  ENDPOINT is the authority's alone: the op's walk keys its visited-set off that label, so two
+  programs typing one value differently would expand it twice and double-count `widenings` — a sink
+  a non-authority program judged carries `prog <label>`, plus that program's own source type where
+  it diverges. Scope is stated positively per program in REFERENCES
+  ([`ops/trace-type-widening-scope.ts`](src/ops/trace-type-widening-scope.ts)); emptiness is
+  two-state there, not three, because a step whose fan could consult NO program FAILS rather than
+  answering `0` — the empty-SCAN case is refused upstream instead of explained downstream.
   **Writes fan out too:** `rename_symbol` / `change_signature` compute their edit sites across
   every containing program (a `test/**` reference is rewritten, not left dangling) — but a rename
   whose TARGET DECLARATION is itself outside the primary is REFUSED with an actionable `root:<pkg>`
@@ -1823,6 +1841,7 @@ codemaster/
       plugin-registry/       # topological sort + cycle detection for the Plugin DAG
       async/                 # Clock seam; debounce / deferred / withTimeout over Clock; Deadline (§1 never-hang)
       debug-spec/            # parse 'plugin:ts:*,watcher,-eviction' into a matcher
+      iter/                  # roundRobin — interleave N queues so one shared budget spans a fan (§5-L2)
       lru/                   # generic LRU map (memory governor §9)
       shape-tag/             # ~shape render-dispatch vocabulary: ShapeTag, SHAPE_KEY, tag(), stripShapeTags (§12)
       truncate/              # §3.4 truncation chokepoint: elideString / elideType + CapId registry / capList / nameWithMore / capOpNames (the shared breadcrumb op-name cap, §13); cap-response (§12 MCP-seam total-size cap)
@@ -1843,7 +1862,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
@@ -1859,8 +1878,9 @@ codemaster/
                              #   search_symbol's pre-warm guard and daemon/process-host's oom/timeout path)
       lower-bound-note.ts    # the shared undiscovered-program floor prose (find_usages / importers_of)
       scan-coverage.ts       # the shared five-cause coverage vocabulary of the type-anchored scans (§5-L2) + the `!! NOT A VERDICT` empty-walk marker every op reaching that state prints (find_unused_exports too)
+      trace-type-widening-scope.ts  # the same doctrine on the REFERENCE unit — trace_type_widening's scope + floor notes (§5-L2)
       find-definition.ts  find-usages.ts  expand-type.ts  construction-sites.ts  discrimination-sites.ts
-      search-symbol.ts  source.ts  source-syntactic.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts
+      search-symbol.ts  source.ts  source-syntactic.ts  list.ts  symbols-overview.ts  symbols-overview-facets.ts  trace-invalidation.ts  trace-prop-through-tree.ts  trace-type-widening.ts
       rename-symbol.ts  move-file.ts  move-symbol.ts  extract-symbol.ts  change-signature.ts  codemod.ts  transaction.ts
       find-unused-scss-classes.ts  find-unused-i18n-keys.ts
       impact.ts  impact-type-error.ts  affected.ts  …

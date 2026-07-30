@@ -290,11 +290,16 @@ const BY_OP = new Map<string, (nav: NavArgs) => CheapCall[]>([
   // search_symbol) list names and cannot print a body. Once the cheap mode is what failed, there IS no
   // substitute left and the arm is the honest answer.
   ['source', (nav: NavArgs) => syntacticModeAlternatives('source', nav, SYNTACTIC_SOURCE_GIVES)],
-  // NOT definitionAlternatives: "where is X declared" is not "where does this prop flow" / "where
-  // does this type widen", and offering it under a `RUN INSTEAD` lead would claim an equivalence
-  // that does not hold (§3.6). These are addressing refusals — re-pin the same op.
+  // NOT definitionAlternatives: "where is X declared" is not "where does this prop flow", and
+  // offering it under a `RUN INSTEAD` lead would claim an equivalence that does not hold (§3.6).
+  // This one IS an addressing refusal — re-pin the same op.
   ['trace_prop_through_tree', (nav: NavArgs) => repinAlternatives('trace_prop_through_tree', nav)],
-  ['trace_type_widening', (nav: NavArgs) => repinAlternatives('trace_type_widening', nav)],
+  // `trace_type_widening` deliberately has NO entry: each of its steps fans across every program
+  // containing the value (t-467009), so its refusal is addressing-INDEPENDENT and a `file` re-pin
+  // cannot escape it. Registering one would print the caller a call that lands in the same refusal
+  // — the inert lever this module exists to prevent. It falls through to the no-substitute arm,
+  // which offers the orientation calls that build no program and says plainly that no cheaper
+  // in-tool path to this question exists (the same treatment `construction_sites` gets).
   [
     'search_symbol',
     (nav: NavArgs) =>

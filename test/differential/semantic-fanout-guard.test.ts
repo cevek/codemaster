@@ -154,7 +154,7 @@ test('over threshold, in-process: member_usages / affected / trace_type_widening
     for (const req of [
       { name: 'member_usages', args: { name: 'Widget', member: 'x' } },
       { name: 'affected', args: { files: ['src/a.ts'] } },
-      { name: 'trace_type_widening', args: { name: 'Widget' } }, // bare name → fan-capable
+      { name: 'trace_type_widening', args: { name: 'Widget' } }, // fans on ANY addressing
       { name: 'impact_type_error', args: { name: 'Widget', edit: { remove: true } } },
     ] as const) {
       const res = await p.op(req.name, req.args);
@@ -172,26 +172,28 @@ test('over threshold, in-process: member_usages / affected / trace_type_widening
   }
 });
 
-// CONDITIONAL ops (trace_prop_through_tree / trace_type_widening): the fan is ONLY the bare-name /
-// symbolId target resolve (searchSymbols). A file+line+col target is single-program-exact → NOT
-// guarded, exactly like find_definition. This is the discriminating pair the guards' addressing
-// predicate must honor (a false refusal on a cheap file:col trace is a regression).
-test('trace_type_widening addressing predicate: bare {name} REFUSES; {file+line+col} does NOT', async () => {
+// The CONDITIONAL addressing predicate keeps its discriminating pair below (find_definition here,
+// trace_prop_through_tree in the react-fixture test further down) — trace_type_widening no longer
+// belongs to that class.
+//
+// trace_type_widening is UNCONDITIONAL (t-467009): each forward step fans across every program
+// containing the value's file, so pinning the file changes nothing about the exposure. The
+// discriminating assertion is that a file+line+col target ALSO refuses — the addressing carve-out it
+// used to have would now under-guard exactly the fan that was added.
+test('trace_type_widening refuses on ANY addressing: a file+line+col pin does not escape the fan', async () => {
   const p = await project(FILES(1));
   try {
-    const byName = await p.op('trace_type_widening', { name: 'Widget' });
-    assert.ok(
-      refused(byName),
-      `bare-name trace_type_widening must refuse: ${JSON.stringify(byName)}`,
-    );
-    // `export const Widget` → the value token at col 14; single-program-exact, no navto fan.
-    // Assert it actually ANSWERS (ok), not merely "not size-guard" — a weak `!refused` would also
-    // pass on an unrelated failure, masking a broken position path.
     const byPos = await p.op('trace_type_widening', { file: 'src/a.ts', line: 1, col: 14 });
     assert.ok(
-      ok(byPos),
-      `file+line+col trace_type_widening must resolve single-program, not refuse: ${JSON.stringify(byPos)}`,
+      refused(byPos),
+      `a file-pinned trace_type_widening still fans, so it must refuse: ${JSON.stringify(byPos)}`,
     );
+    // The refusal must not print a re-pin the caller has already done — the inert lever the
+    // navigate table drops for this op.
+    if ('result' in byPos && !byPos.result.ok) {
+      assert.doesNotMatch(byPos.result.failure.message, /trace_type_widening \{/);
+    }
+    assert.equal(await tsFingerprint(p), 'cold', 'a refused fan-out must not warm the LS');
   } finally {
     await p.dispose();
   }

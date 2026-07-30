@@ -37,7 +37,7 @@ import type { FieldRenderSitesView } from './field-render-sites.ts';
 import type { MemberUsagesView, MemberUsagesOptions } from './member-usages.ts';
 import type { MemberInFile } from './member-in-file.ts';
 import type { ParamTypeMembersView } from './first-param-members.ts';
-import type { WideningSinksView } from './type-widening.ts';
+import type { WideningSinksView } from './type-widening-view.ts';
 import type { OverlaySymbolType } from './overlay-type.ts';
 import type { ImportersView } from './importers.ts';
 import type { TsUnusedExportsFilter, UnusedExportsView } from './unused-exports.ts';
@@ -242,9 +242,16 @@ export interface TsPluginApi extends Plugin {
    *  recursion (depth/visited/node-cap) over `next`. The source type is read at the value's OWN
    *  declaration (never the arg position — contextual typing would hide every literal widening).
    *  An `any`/`unknown` boundary is flagged `dynamic` and is a leaf (§3.3). A `string` when the
-   *  target is not a value with a symbol. */
+   *  target is not a value with a symbol.
+   *
+   *  The step FANS across every loaded program containing the target's file (t-467009): a sink that
+   *  lives only in a sibling program is otherwise invisible and the trace reads as "never widens".
+   *  Each program re-resolves the value and judges its own references with its own checker; the
+   *  returned `view.coverage` states that scope positively, per program. `deadline` is polled at the
+   *  program boundary — where `getProgram()` warms a checker, i.e. where the fan actually costs. */
   wideningSinksAt(
     target: TsTargetInput,
+    opts?: { deadline?: Deadline },
   ): { view: WideningSinksView; rebind?: HandleRebind } | UnresolvedTarget | string;
   /** Cross-tier API (§5-L2): the JSX elements rendered in the BODY of the declaration at `target` —
    *  per `<Tag .../>`, its tag-name span (a chainable `classify` target), the named attributes with

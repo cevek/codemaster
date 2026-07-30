@@ -83,7 +83,7 @@ export type { DiscriminationSite, DiscriminationTargetView } from './discriminat
 export type { JsxCallSite, JsxOpaqueRef, JsxCallSitesView } from './jsx-call-sites.ts';
 export type { JsxChildSite, JsxChildAttr, JsxChildSitesView } from './jsx-child-sites.ts';
 export type { ParamTypeMember, ParamTypeMembersView } from './first-param-members.ts';
-export type { WideningSink, WideningEndpoint } from './type-widening.ts';
+export type { WideningSink, WideningEndpoint, WideningScanCoverage } from './type-widening-view.ts';
 // Pure syntactic helper exposed through the public surface (a stateless AST scan, not warm-LS
 // state): the rename-completeness signal's alias half. See rename-sites.ts for the contract.
 export { findReExportAliasSites } from './refactor/rename/rename-sites.ts';
@@ -386,12 +386,12 @@ export function createTsPlugin(
     jsxChildSites: (target) =>
       resolvedScan(resolve, warm, target, scanJsxChildSites, 'no source at the resolved position'),
 
-    wideningSinksAt: (target) =>
+    wideningSinksAt: (target, opts) =>
       resolvedScan(
         resolve,
         warm,
         target,
-        collectWideningSinks,
+        (host, abs, offset) => collectWideningSinks(host, abs, offset, opts?.deadline),
         'no value at the resolved position',
       ),
 

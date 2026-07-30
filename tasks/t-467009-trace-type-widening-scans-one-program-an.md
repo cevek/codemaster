@@ -1,7 +1,7 @@
 ---
 id: t-467009
 title: trace_type_widening scans ONE program and renders a verdict over it — the third instance of the single-program-scan false zero, to be closed with the shared scope/floor helper
-status: backlog
+status: done
 priority: high
 parent: t-647309
 type: bug
@@ -105,3 +105,12 @@ Repro of the underlying defect on current main (two sibling programs): `trace_ty
 {name:'color',file:'src/a.ts'}` → `widenings=0 found=0 hops(0)`, a bare zero with no word about scope, while
 `find_usages` on the same symbol finds `test/uses.ts:3:7 · prog tsconfig.test.json` — which is exactly the
 `'red'` → `string` sink.
+
+## Measurement
+
+Fan size is per-file, not repo-wide: it is the set of loaded programs whose glob contains the value's
+file. On codemaster (ONE tsconfig) the fan is 1 — the answer and the cost are byte-identical to the
+single-program path (cold one-shot 1.63 s, vs 1.88 s for the already-fanning `find_usages` on the same
+symbol; the delta is that op's own work). The marginal cost of the fan is ONE sibling checker warm,
+amortized across a warm daemon session and shared with every other fanning read; on a 2-program repo
+that is the same second program measured by t-162650 (+654 ms / +85 MB RSS cold).

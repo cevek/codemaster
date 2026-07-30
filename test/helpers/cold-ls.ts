@@ -19,8 +19,8 @@ export interface ColdView {
 
 /** A cold `ts.Program` over the whole fixture, built from its own `tsconfig.json` (same
  *  file set + options a real cold boot would compile). Whole-repo, not single-file, so
- *  cross-file references resolve — `coldMembers` and (Stage 3) `coldFindReferences` share it.
- *  Internal until a test imports it directly; keeping it unexported avoids a knip dead-export. */
+ *  cross-file references resolve — `coldMembers` and `coldFindReferences` share it, and the
+ *  type-string oracle in `cold-type-string.ts` (split out at this file's 300-line cap) builds on it. */
 // The default-lib SourceFiles (lib.es2022.d.ts, …) are immutable and identical across every
 // cold Program/LS this process builds, yet re-parsing them per oracle call is a big slice of the
 // e2e cost (many tests per file, each rebuilding from cold). Cache the parsed lib SourceFile per
@@ -41,7 +41,7 @@ function cachingHost(options: ts.CompilerOptions): ts.CompilerHost {
   return host;
 }
 
-function coldProgram(root: string, configRel = 'tsconfig.json'): ColdView {
+export function coldProgram(root: string, configRel = 'tsconfig.json'): ColdView {
   const configPath = path.join(root, configRel);
   const raw: unknown = ts.parseConfigFileTextToJson(configPath, readFileSync(configPath, 'utf8'));
   const { config, error } = raw as { config: unknown; error?: unknown };
@@ -257,30 +257,6 @@ export function coldDeclarationAt(
     file: path.relative(root, declSf.fileName).split(path.sep).join('/'),
     line: declSf.getLineAndCharacterOfPosition(decl.getStart(declSf)).line + 1,
   };
-}
-
-/** Independent raw-type-string oracle for `trace_type_widening` (§16): the cold checker's
- *  `typeToString` at the nth occurrence of an identifier — the GROUND TRUTH the op's widening
- *  classifier is judged against (the op is the classifier under test; this is just the type strings
- *  at each chain position, so the comparison is non-circular). Reads the type at the identifier's
- *  OWN location, mirroring the op's "type at the value's own declaration" rule. */
-export function coldTypeStringAt(root: string, fileRel: string, needle: string, nth = 0): string {
-  const { program, checker } = coldProgram(root);
-  const sf = program.getSourceFile(path.join(root, fileRel));
-  assert.ok(sf !== undefined, `oracle could not load ${fileRel}`);
-  let found: ts.Identifier | undefined;
-  let count = 0;
-  const visit = (n: ts.Node): void => {
-    if (ts.isIdentifier(n) && n.text === needle) {
-      if (count === nth) found = n;
-      count++;
-    }
-    ts.forEachChild(n, visit);
-  };
-  visit(sf);
-  assert.ok(found !== undefined, `oracle could not find occurrence ${nth} of ${needle}`);
-  const type = checker.getTypeAtLocation(found);
-  return checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation);
 }
 
 /** Independent drift oracle for `construction_sites` (§16): every object literal a

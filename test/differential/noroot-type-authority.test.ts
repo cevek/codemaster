@@ -120,14 +120,33 @@ test('(B) construction_sites on the member-resident type target scans under memb
   }
 });
 
-// NOTE — the 5th routed op, wideningSinksAt (trace_type_widening), is NOT committed-tested here: its
-// output surfaces the value's type NAME (e.g. `Widget`), so a whole-repo augmentation stray (which
-// only adds MEMBERS) is invisible in its rendered output, and its one observable routing effect — the
-// forward-sink scope narrowing to the value's own-config program — is honestly disclosed via the op's
-// static note rather than asserted (asserting it would pin a limitation, not the fix). Its routing swap
-// is the identical one-line `host.service`→`host.typeAuthorityFor(abs)` the four tested ops use, sound
-// by construction + tsc-checked. (Empirically confirmed non-discriminating: with the routing reverted,
-// a widening assertion still passes — so a pollution test would be green-on-bug.)
+// The 5th routed op, wideningSinksAt (trace_type_widening), cannot be pinned by a POLLUTION
+// assertion the way the four above are: its output surfaces the value's type NAME (`Widget`), so a
+// stray that only adds MEMBERS is invisible in its render (empirically confirmed — with the routing
+// reverted a widening assertion still passes, i.e. a pollution test here would be green-on-bug).
+// What IS observable is the fan's own scope: it consults the member program and DEMOTES the
+// whole-repo fallback, which it must disclose rather than quietly narrow to.
+test('(B2) trace_type_widening fans over the MEMBER program only, and discloses the demoted no-config fallback', async () => {
+  const p: TestProject = await project(NOROOT_FIXTURE);
+  try {
+    const d = data(await p.op('trace_type_widening', { name: 'w' }));
+    const scope = (d.programsScanned as string[] | undefined) ?? [];
+    assert.deepEqual(
+      scope.map((s) => s.split(':')[0]),
+      ['packages/a/tsconfig.json'],
+      `only the member program may judge a member value: ${JSON.stringify(d)}`,
+    );
+    // The demoted fallback is a real gap (references living only in files no tsconfig covers were
+    // never enumerated), so the answer is a FLOOR that says so — not a silent narrowing.
+    assert.equal(d.complete, false, `a demoted fallback demotes the trace: ${JSON.stringify(d)}`);
+    assert.match(
+      ((d.notes as string[] | undefined) ?? []).join('\n'),
+      /no-config fallback program containing this value was NOT consulted/,
+    );
+  } finally {
+    await p.dispose();
+  }
+});
 
 test('(C2) discrimination_sites scans under the member program — the switch is found ONLY when the member config resolves the union alias (fallback finds 0)', async () => {
   // The union `Shape` is imported into the switch file via a MEMBER-ONLY `@shapes` alias. Under the

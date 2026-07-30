@@ -18,7 +18,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { project, assertSpansValid } from '../helpers/project.ts';
-import { coldTypeStringAt } from '../helpers/cold-ls.ts';
+import { coldTypeStringAt } from '../helpers/cold-type-string.ts';
 import type { OpResult } from '../../src/ops/contracts.ts';
 
 interface Hop {
