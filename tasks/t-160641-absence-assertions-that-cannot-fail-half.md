@@ -1,8 +1,8 @@
 ---
 id: t-160641
-title: "Absence assertions that cannot fail: half of codemaster's honesty-channel tests assert a marker is missing from a surface with no code path to it — green under every mutation, and the tell is mechanical"
+title: Absence assertions that cannot fail — MEASURED at 3 of 136 honesty-channel negatives, not the half this task first claimed
 status: backlog
-priority: urgent
+priority: medium
 parent: t-532530
 type: infra
 complexity: M
@@ -77,3 +77,45 @@ treat as anecdote — and every green run in the meantime carries a claim of cov
 The mechanical tell (below) is cheap and applies today; the mutation table is the general instrument and is
 already being run by hand in tracks. Both should exist as something a change can be checked against, before
 more honesty-channel prose accumulates assertions that document intent and enforce nothing.
+
+## MEASURED — the scale claimed above is WRONG, and the class splits in two
+
+A full inventory of `test/**` (brace-balanced extraction, not line grep) over `doesNotMatch` / `ok(!…)` /
+`notEqual|notStrictEqual|notDeepEqual` / `equal(x.includes(…), false)`:
+
+- **618** negative assertions total, in 120 files;
+- **136** are this class (negatives whose subject is RENDERED PROSE — msg / note / rendered / stdout / hint /
+  terse / full), the rest are negatives over data fields or fixture content;
+- of those 136: **133 hold, 3 lines in 2 files are vacuous.**
+
+So the title's "half" is off by ~50×, and the honest figure is 2%. Corrected rather than quietly dropped:
+a task overstating its own scale is the same lie about volume this repo files against everything else.
+
+## What the measurement did NOT cover — and why the class still exists
+
+The urgent priority rested on TWO pieces of evidence. Only the first is measured here.
+
+1. **Absence assertions** (this inventory) — measured, small, closed by the accompanying track.
+2. **A message string pinned by nothing on the POSITIVE side** — a mutant erasing an entire message passed
+   12/12 across four suites; 8 of 9 mutants on one commit's own lines stayed green. **Not covered by this
+   map**: it looked for negatives, and that defect lives on the positive side. Its real scale is UNKNOWN,
+   and a full mutation table over the suite is a different instrument, not an extension of this task.
+
+Filed as its own task so the unmeasured half does not inherit a figure that was measured for the other one.
+
+## The tell, corrected
+
+The strict form ("is there an INPUT that makes the marker appear?") cuts too wide — it would condemn the
+whole density/render-compact layer, where the renderer legitimately decides NOT to print and a one-line
+mutation of the renderer reddens the test. The working definition:
+
+> **Vacuous = the marker appears under NO input AND under no plausible one-step mutation of the producer.**
+
+Three buckets, only the third is a defect: **REAL** (absence produced by computation — another input on the
+same surface prints it), **GUARD** (input does not toggle it, but a one-line mutation of the surface's own
+code does), **VACUOUS** (neither — the literal exists nowhere, or the marker does not correspond to the
+mechanism the test names).
+
+A worked reversal, worth keeping: one candidate flagged vacuous by grep (`expand-type.test.ts:347`,
+`!/more member/`) turned out REAL — adding a soft note that does not exist today reddens exactly that line,
+and the neighbouring `deepEqual` does not cover it. Grep proposes; mutation decides.
