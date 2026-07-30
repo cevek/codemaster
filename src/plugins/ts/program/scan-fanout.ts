@@ -245,6 +245,12 @@ function scannableRel(host: TsProjectHost, sourceFile: ts.SourceFile): RepoRelPa
   return path.isAbsolute(String(rel)) ? undefined : rel;
 }
 
+/** A declaration file by PATH — the `fileNames()` counterpart of `isDeclarationFile`, which needs a
+ *  parsed SourceFile the fallback program must not be built to provide. All three modern extensions,
+ *  so the unclaimed count cannot be inflated by `.d.mts`/`.d.cts` files that carry no expressions and
+ *  would never have been scanned anyway (a floor must not over-state either). */
+const DECL_EXT = /\.d\.(ts|mts|cts)$/;
+
 /** How many of the excluded fallback primary's files no fanned program claimed — the files whose
  *  ONLY cover is a program we may not trust for a type verdict, so they are genuinely unscanned.
  *  One pass over an already-globbed array (no I/O, no build). */
@@ -255,7 +261,7 @@ function countUnclaimed(
 ): number {
   let n = 0;
   for (const abs of fallback.fileNames()) {
-    if (abs.includes('/node_modules/') || abs.endsWith('.d.ts')) continue;
+    if (abs.includes('/node_modules/') || DECL_EXT.test(abs)) continue;
     const rel = host.relOf(abs);
     if (path.isAbsolute(String(rel))) continue;
     if (!claimed.has(String(rel))) n++;
