@@ -119,3 +119,35 @@ mechanism the test names).
 A worked reversal, worth keeping: one candidate flagged vacuous by grep (`expand-type.test.ts:347`,
 `!/more member/`) turned out REAL — adding a soft note that does not exist today reddens exactly that line,
 and the neighbouring `deepEqual` does not cover it. Grep proposes; mutation decides.
+
+
+## The third sub-shape: an assertion that BECOMES vacuous, in someone else's commit
+
+The two sub-shapes above are born with the test and are catchable in review of the diff that adds them —
+an absence arm on a surface with no code path to the marker, and a marker that does not track the property
+the test names. The third is not:
+
+**an assertion whose prose is real when written, and whose producer is later reworded.** The literal in the
+test then matches nothing, silently: the assertion goes green-forever, its file header keeps claiming the
+property, and the commit that caused it touched only `src/` — no reviewer of that diff had the test in
+front of them, and the suite stayed green, which is exactly the signal that says "nothing to look at".
+
+Measured instance: `test/differential/scan-coverage-honesty.test.ts` asserted the absence of
+`were walked across` in the deadline-cut scan note. `ops/scan-coverage.ts` emitted that phrasing when the
+arm was written; the note was later rewritten to the file-denominated form (`after walking N of M in-scope
+file(s)`), and the assertion outlived its own subject.
+
+**Why this changes the remedy.** A one-time inventory closes sub-shapes 1 and 2 and does not close this one:
+it accrues, at the rate the honesty prose is reworded, in commits that are not about tests. So the 3-of-136
+figure is a snapshot, not a steady state — it is the residue after this repo's ordinary rewording, and the
+same audit re-run after N more prose changes will not find zero. That is the argument for a periodic pass
+(cheap: the extraction is scripted, the verdict is per-item), and the argument against reading the small
+number as "the class is closed".
+
+**What a mechanical check would need.** Not literal-exists-in-`src` — that misses sub-shape 1 (the banner
+literal does exist) and mis-fires on fixture-content negatives. The two capabilities that would answer it
+are call-graph reachability from a call SITE, and "which expressions can produce a string matching this
+pattern" with template assembly reported as an explicit lower bound (half the honesty channels are
+template-built, which is precisely where a grep verdict is wrong in both directions). Filed as codemaster
+feedback; until such an op exists, mutation of the producer is the instrument, and it costs minutes per
+assertion rather than one call.
