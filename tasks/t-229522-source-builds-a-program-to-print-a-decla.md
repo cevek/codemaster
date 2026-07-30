@@ -1,7 +1,7 @@
 ---
 id: t-229522
 title: source builds a program to print a declaration body — a no-program syntactic path would make 'show me the code' work at any repo size
-status: in-progress
+status: done
 priority: high
 parent: t-338692
 type: feat

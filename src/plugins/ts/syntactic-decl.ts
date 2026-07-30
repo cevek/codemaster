@@ -51,6 +51,7 @@ import {
   viewOf,
   type DeclIndex,
   type DeclSite,
+  type RivalCause,
 } from './syntactic-decl-index.ts';
 import { missingFileReason } from './syntactic-decl-miss.ts';
 
@@ -170,7 +171,9 @@ function byName(index: DeclIndex, name: string): SyntacticDeclOutcome {
     // The identity question a bare name cannot settle — and the scan is COMPLETE under the root, so this
     // really is >1 declaration, not a ranking artefact. The list IS the remedy: each candidate prints as
     // a paste-able SymbolId.
-    return { miss: rivalsMessage(name, real, index.rootTag, files.size) };
+    // Several FILES: the cause is the file split itself, and 'scope' is the neutral spelling for it (the
+    // message keys its wording on `fileCount` first).
+    return { miss: rivalsMessage(name, real, index.rootTag, files.size, 'scope') };
   }
   return fromCandidates(hits, index.rootTag, () => noSuchNameOnSurface(name));
 }
@@ -257,6 +260,7 @@ function fromCandidates(
         collapsed.rivals,
         rootTag,
         new Set(collapsed.rivals.map((d) => d.rel)).size,
+        collapsed.cause,
       ),
     };
   }
@@ -303,25 +307,33 @@ function rebound(
 
 // ── miss messages (each names what this path cannot do, and where the answer is) ───────────────
 
-/** Candidates no address has chosen between; the list IS the remedy. What the message may ASSERT differs
- *  by cause: different scopes in one file PROVE two different symbols, while several files do not — a
- *  `declare module` augmentation is one merged symbol declared twice, and telling them apart needs the
- *  checker this path does without. So the cross-file wording states the ambiguity, not a verdict. */
+/** Candidates no address has chosen between; the list IS the remedy.
+ *
+ *  It states what was OBSERVED and never a verdict on identity. Neither observation proves distinctness:
+ *  across files, a `declare module` augmentation is one symbol declared twice; within one file, so are two
+ *  `declare global` blocks, two `namespace` bodies, and a function-scoped `var` in two blocks. Telling
+ *  those from two symbols needs the checker this path does without — so claiming "these are different
+ *  symbols" would be a verdict off an observation that does not carry it. The cause named is the one that
+ *  actually fired (`RivalCause`): an expando pair shares its scope and was separated by its assignment
+ *  TARGET, so reporting a scope boundary there would invent a cause (§3.6). */
 function rivalsMessage(
   name: string,
   rivals: readonly DeclSite[],
   rootTag: string,
   fileCount: number,
+  cause: RivalCause,
 ): string {
   const ids = nameWithMore(
     rivals.map((d) => idOf(d, rootTag)),
     CANDIDATE_PREVIEW,
   );
-  const verdict =
+  const where =
     fileCount > 1
-      ? `in ${fileCount} files (${ids}) — this path cannot tell two same-named symbols from one symbol augmented across files (that needs the checker), so pick the one you mean`
-      : `in different scopes of one file (${ids}) — a scope boundary makes these different symbols, so pick the one you mean`;
-  return `${rivals.length} declarations named '${name}' ${verdict}: pass one of these SymbolIds, or name+file / file:line:col`;
+      ? `in ${fileCount} files`
+      : cause === 'target'
+        ? 'as property assignments on different objects (as written) in one file'
+        : 'in different scopes of one file';
+  return `${rivals.length} declarations named '${name}' ${where} (${ids}) — this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker), so pick the one you mean: pass one of these SymbolIds, or name+file / file:line:col`;
 }
 
 function handleRivals(
@@ -369,7 +381,7 @@ function noSuchNameInFile(name: string, file: string): string {
   // it statically. A string-literal or `[Symbol.x]` name IS readable and does anchor — naming those as
   // blind spots steered an agent off a call that works, the same wrong-cause defect as a guessed file
   // reason (§3.6). What genuinely has no key is a name only computable at runtime.
-  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a declaration whose name is computed at runtime (\`[key]\`, \`[\${expr}]\`) is indexed under no name at all, so no name can reach it; address it by position.`;
+  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file (a member is indexed under its KEY, so \`[Symbol.iterator]\` is reachable as 'iterator' and \`'a-b'\` as 'a-b'), or pass file:line:col. NOTE: this is NOT proof of absence — a declaration whose name is computed at runtime (\`[key]\`, \`[\${expr}]\`) is indexed under no name at all, so no name can reach it; address it by position.`;
 }
 
 function noSuchNameOnSurface(name: string): string {

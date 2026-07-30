@@ -48,6 +48,21 @@ export const SYNTACTIC_FIXTURE: Record<string, string> = {
     '  for (let idx = 5; idx < 9; idx++) { void idx; }',
     '  try { void 0; } catch (err) { void err; }',
     '  try { void 1; } catch (err) { void err; }',
+    // NO braces around the clause body: a braced one is a `Block` (already a container), so only the
+    // brace-less form reaches the `CaseBlock` — the switch body itself — as its binding region.
+    '  switch (idxSeed) { default: let cse = 1; void cse; }',
+    '  switch (idxSeed) { default: let cse = 2; void cse; }',
+    '}',
+    'export const idxSeed = 0;',
+    // Merges whose collapse depends on a container OTHER than SourceFile — the two the top-level
+    // `Both` case cannot exercise, since that one is decided by the first predicate tested.
+    'export namespace Outer {',
+    '  export interface Deep { a: string }',
+    '  export namespace Deep { export const q = 1; }',
+    '}',
+    'export class Holder {',
+    '  get pair() { return 1; }',
+    '  set pair(v: number) { void v; }',
     '}',
   ].join('\n'),
   'src/rivals.ts': [

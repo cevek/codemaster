@@ -127,11 +127,15 @@ test('same-named declarations in DIFFERENT SCOPES are a pick-list, never a silen
     const syn = await sourceOf(p, { name: 'twin', file: 'src/rivals.ts' }, true);
     assert.equal(syn.sources?.length ?? 0, 0, 'the syntactic path refuses too');
     const reason = missReason(syn, 'scope rivals');
-    assert.match(
-      reason,
-      /different symbols/i,
-      'says they are different symbols, not one merged one',
+    assert.match(reason, /different scopes/i, 'reports the boundary it observed');
+    // …and does NOT convert that observation into a verdict on identity: two `declare global` blocks and a
+    // function-scoped `var` in two blocks are ONE symbol in different scopes, and only the checker can
+    // tell those from two symbols. A refusal is honest; a refusal that asserts distinctness is not.
+    assert.ok(
+      !/makes these different symbols/i.test(reason),
+      `must not claim distinctness it cannot prove — got: ${reason}`,
     );
+    assert.match(reason, /cannot tell separate symbols/i, 'states the inability instead');
     // The pick-list IS the remedy, so both candidates must be in it as paste-able SymbolIds.
     assert.match(reason, /ts:twin@src\/rivals\.ts:2:/, 'lists the first candidate');
     assert.match(reason, /ts:twin@src\/rivals\.ts:5:/, 'lists the second candidate');
@@ -139,13 +143,26 @@ test('same-named declarations in DIFFERENT SCOPES are a pick-list, never a silen
     // The inverse lie, guarded for real: a genuinely MERGED symbol must resolve AND list its other
     // declaration. Without this arm a policy that refused everything would stay green, which is what let
     // the merge branch ship untested in both directions.
-    const merged = sole(await sourceOf(p, { name: 'Both', file: 'src/merged.ts' }, true), 'merge');
-    assert.match(merged.decl.text, /interface Both/, 'the merged symbol resolves');
-    assert.deepEqual(
-      merged.moreDefinitions,
-      ['src/merged.ts:2'],
-      'and its OTHER declaration is listed — the merge arm really merges',
-    );
+    // `Both` is TOP-LEVEL, so its scope is decided by the first predicate tested — it cannot fail if the
+    // rest of the container list is wrong. `Deep` (inside a `namespace` body) and `pair` (a getter/setter
+    // pair inside a class) are the arms that DO depend on `isModuleBlock` / `isClassLike`, so the merge
+    // branch is exercised for containers other than the SourceFile.
+    for (const [name, bodyPattern] of [
+      ['Both', /interface Both/],
+      ['Deep', /interface Deep/],
+      ['pair', /get pair/],
+    ] as const) {
+      const merged = sole(
+        await sourceOf(p, { name, file: 'src/merged.ts' }, true),
+        `merge/${name}`,
+      );
+      assert.match(merged.decl.text, bodyPattern, `${name}: the merged symbol resolves`);
+      assert.equal(
+        merged.moreDefinitions?.length,
+        1,
+        `${name}: its OTHER declaration is listed — the merge arm really merges`,
+      );
+    }
   } finally {
     await p.dispose();
   }
@@ -159,10 +176,25 @@ test('a shared enclosing node is not a shared BINDING scope — loop, catch, and
     // DIFFERENT objects (`Owner.tag` / `Other.tag` — an expando binds no scope at all, so scope identity
     // alone cannot separate them). Each pair is two symbols; merging them would claim one is "another
     // definition" of the other.
-    for (const name of ['idx', 'err', 'tag']) {
+    for (const name of ['idx', 'err', 'cse', 'tag']) {
       const data = await sourceOf(p, { name, file: 'src/merged.ts' }, true);
       assert.equal(data.sources?.length ?? 0, 0, `${name}: must not resolve to one of two symbols`);
-      assert.match(missReason(data, name), /different symbols/i, `${name}: says they are distinct`);
+      const reason = missReason(data, name);
+      // The pick-list IS the remedy, so every candidate must be in it as a paste-able SymbolId — a
+      // regression that emptied the list would otherwise stay green on the prose alone.
+      assert.equal(
+        (reason.match(new RegExp(`ts:${name}@`, 'g')) ?? []).length,
+        2,
+        `${name}: both candidates listed as SymbolIds — got: ${reason}`,
+      );
+      // And it may state only what it OBSERVED: an expando pair shares its scope (the assignment target
+      // separated it), so claiming a scope boundary there would be an invented cause.
+      const expectedCause = name === 'tag' ? /different objects/i : /different scopes/i;
+      assert.match(reason, expectedCause, `${name}: names the cause that actually fired`);
+      assert.ok(
+        !/makes these different symbols/i.test(reason),
+        `${name}: must not assert distinctness it cannot prove — got: ${reason}`,
+      );
     }
   } finally {
     await p.dispose();

@@ -3,15 +3,20 @@
 // question: not "where did the agent point" but "given N declarations that share a name, which of them
 // are ONE symbol and which are rivals" — the question whose wrong answer is a silent pick.
 //
-// THE POLICY, and why scope is the discriminator. TypeScript rejects a non-mergeable duplicate WITHIN
-// one binding scope, so several same-named declarations in the SAME scope are one symbol seen several
-// times (an overload set, `interface` + `namespace`). Two DIFFERENT scopes are two symbols that merely
-// share a name — `class A { run(){} }` and `class B { run(){} }`, a `const tmp` in each of two functions,
-// two `for (let i…)` headers in one body — and this surface is full of them, because it indexes nested,
-// member and loop declarations too, not just the top-level ones the checker path's name resolution
-// anchors. Picking one of those and calling the other "another definition of it" asserts a merge
-// relationship the set cannot support (§3.4/§6): so rivals come back as a pick-list, and only a
-// same-scope set collapses.
+// THE POLICY, and what it may CLAIM. TypeScript rejects a non-mergeable duplicate WITHIN one binding
+// scope, so several same-named declarations in the SAME scope are one symbol seen several times (an
+// overload set, `interface` + `namespace`) — that direction is sound, and it is the only direction this
+// module asserts. The converse is NOT sound: different scopes do not prove different symbols (two
+// `declare global { interface Win }` blocks, two `namespace Ns` bodies, and a function-scoped `var` in two
+// blocks are each ONE symbol declared in several regions). So a same-scope set COLLAPSES, and anything
+// else comes back as a pick-list that reports what was OBSERVED — a scope boundary — without a verdict
+// on identity, which needs the checker this path does without.
+//
+// Getting the collapse direction wrong is the expensive error: this surface indexes nested, member and
+// loop declarations, so same-name-different-region is routine (`class A { run(){} }` beside
+// `class B { run(){} }`, a `const tmp` in each of two functions, two `for (let i…)` headers in one body),
+// and picking one while calling the other "another definition of it" asserts a merge the set cannot
+// support (§3.4/§6). Erring the other way costs a pick-list the agent can resolve in one more call.
 //
 // The premise holds for SCOPE BINDINGS, which is why `isScopeContainer` must list every construct that
 // binds (a loop header and a catch clause bind their own variable; a function binds its parameters) —
@@ -141,6 +146,10 @@ function isScopeContainer(node: ts.Node): boolean {
     ts.isForOfStatement(node) ||
     ts.isForInStatement(node) ||
     ts.isCatchClause(node) ||
+    // The `switch` BODY, not its clauses: one `CaseBlock` is the block scope shared by every clause, so
+    // two `let z` in two clauses of ONE switch collapse (TS rejects that code, so the premise holds)
+    // while two separate `switch` statements are two scopes.
+    ts.isCaseBlock(node) ||
     ts.isFunctionLike(node)
   );
 }
@@ -158,7 +167,9 @@ function scopeNodeOf(node: ts.Node): ts.Node {
  *  `Baz.bar` at top level share the SourceFile and would read as one merged symbol. What separates them
  *  is the assignment TARGET, so it joins the scope key. Text, not a resolved symbol — resolving one
  *  would need the checker this path does without; two spellings of one object therefore read as two
- *  scopes, which errs toward a pick-list (an honest "you choose") rather than a false merge. */
+ *  scopes, which errs toward a pick-list (an honest "you choose") rather than a false merge. Known and
+ *  accepted in the same direction: two assignments to ONE object from inside two different arrow
+ *  functions differ by enclosing scope, so they are a pick-list rather than a merge. */
 function expandoTarget(node: ts.Node): string | undefined {
   if (!ts.isBinaryExpression(node)) return undefined;
   const lhs = node.left;
@@ -183,11 +194,21 @@ export function isTopLevel(site: DeclSite): boolean {
   return ts.isSourceFile(scopeNodeOf(site.node));
 }
 
-/** One symbol (with the rest of its own declarations), or a set of rivals no address has picked between.
- *  `rivals` is the honest answer for a name that denotes different symbols in different scopes. */
+/** What separated a candidate set that did NOT collapse — so the message can name the cause that fired
+ *  instead of a plausible one. `'scope'`: the declarations bind in different regions. `'target'`: they are
+ *  expando assignments on different objects, which SHARE a region — reporting that as a scope boundary
+ *  would be a fabricated cause. */
+export type RivalCause = 'scope' | 'target';
+
+/** One symbol (with the rest of its own declarations), or a set of candidates no address picked between.
+ *
+ *  `rivals` does NOT assert "different symbols": a scope boundary is what we OBSERVED, and it does not
+ *  prove distinctness — two `declare global { interface Win }` blocks, two `namespace Ns` bodies, and a
+ *  function-scoped `var` in two blocks are each ONE symbol declared in several regions. Proving that needs
+ *  the checker this path does without, so the honest output is the observation plus the pick-list. */
 export type Collapsed =
   | { one: DeclSite; merged: readonly DeclSite[] }
-  | { rivals: readonly DeclSite[] };
+  | { rivals: readonly DeclSite[]; cause: RivalCause };
 
 /** Apply the policy in this module's header to same-named real declarations.
  *
@@ -199,11 +220,14 @@ export function collapseByScope(real: readonly DeclSite[]): Collapsed | undefine
   if (real.length === 0) return undefined;
   const top = real.filter(isTopLevel);
   const group = top.length > 0 ? top : real;
-  const scopes = new Set(group.map(scopeKeyOf));
   const first = group[0];
   if (first === undefined) return undefined;
-  if (scopes.size > 1) return { rivals: group };
-  return { one: first, merged: group.slice(1) };
+  if (new Set(group.map(scopeKeyOf)).size === 1) return { one: first, merged: group.slice(1) };
+  // WHICH half of the key diverged decides what the refusal may claim: identical scope NODES mean the
+  // expando target is what separated them, and calling that a scope boundary would invent a cause.
+  const cause: RivalCause =
+    new Set(group.map((d) => scopeNodeOf(d.node))).size === 1 ? 'target' : 'scope';
+  return { rivals: group, cause };
 }
 
 /** The declaration node whose text IS the body to print. We already HAVE the declaration node (it came
