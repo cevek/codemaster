@@ -1382,15 +1382,36 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   back-compat alias of the terse default. It also carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the per-op/`batch` responses prepend — on
-  EVERY stale response, not just the first — a one-line "run `codemaster daemon restart`"
-  banner (a multi-edit session must be warned on every answer it acts on). It is a PREFIX so the
-  render cap (which trims the tail) can never lose it and it never lands inside a batch's
-  per-section JSON; suppressed in `format:'json'` (a prefix would corrupt the single bare-JSON
-  payload — json consumers read the structured `sourceStale` from `status`) and silent where the
-  source can't be located (global/`npx` — §19). The
-  remedy is **restart**, not a bridge reconnect: a reconnect re-attaches to the same stale-code
-  daemon on the same socket (§2 singleton), so the daemon itself must be restarted (`codemaster
-daemon restart` — the management verbs, §2).
+  EVERY stale response, not just the first — the one-line banner
+  ([`format/render/render-status.ts`](src/format/render/render-status.ts) `sourceStaleBanner`, its
+  ONE home, shared so the two surfaces cannot drift; a multi-edit session must be warned on every
+  answer it acts on). It is a PREFIX so the render cap (which trims the tail) can never lose it and
+  it never lands inside a batch's per-section JSON; suppressed in `format:'json'` (a prefix would
+  corrupt the single bare-JSON payload — json consumers read the structured `sourceStale` from
+  `status`) and silent where the source can't be located (global/`npx` — §19).
+  **The line carries three facts, and they are what make it usable by the two audiences it always
+  had.** It has one producer — codemaster's own source moved — and reaches BOTH the agent editing
+  codemaster and every agent in an unrelated repo sharing the machine-wide daemon (§2).
+  (1) **What is stale**: the ANALYSIS code, not the inspected repo — files are still re-read per
+  call (§3.5), so the answer may lack a fix newer code has but is not computed over stale data. An
+  external reader otherwise cannot tell whether the answer in hand is degraded. (2) **The cheap
+  remedy**: a CLI one-shot (`node src/bin.ts op <name> '<json>'`) is fresh by construction (§5-L5)
+  and needs no restart — naming only the restart taught dogfooders to leave for grep, since a
+  restart discards the warm LS per QUESTION. (3) **What the restart does HERE**, which is the one
+  thing the banner discriminates on: under a **daemon**-backed bridge it is machine-wide (it drops
+  every connection's warm state, including third parties who staled nothing), and under
+  **`--in-process`** serving there is no daemon at all, so `codemaster daemon restart` is a plain
+  no-op and is named as an inert lever, never as an action (naming a lever that cannot change the
+  outcome is the CONTRIBUTING refusal doctrine's cardinal case — `ops/guard/navigate.ts`). The
+  serving mode is passed in by the composition root (`bin.ts` — it alone knows the topology; the
+  daemon process hosts a LOCAL orchestrator, so deriving it from `OrchestratorApi` would answer
+  `in-process` for a client talking to a daemon) and is a REQUIRED option, so no call site can
+  default into the wrong remedy. The banner deliberately does NOT discriminate the AUDIENCE: a
+  codemaster worktree lives outside the serving process's own source tree, so an "is the caller
+  inside our `src/`" test labels the codemaster-editing agent a stranger and withholds exactly the
+  remedy it needs; the criterion ("editing codemaster?") is stated for the reader to apply instead.
+  Its size is a standing per-response tax, so the wording is budgeted (≤250 chars, pinned by test):
+  a new fact must displace prose, never widen the channel.
 - **`batch(requests)`** — one tool carrying a list of op invocations (each `{name, args, …}`);
   results come back
   in order. Reads run against per-plugin freshness checked once at batch entry, so all

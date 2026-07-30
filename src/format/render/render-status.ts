@@ -7,14 +7,48 @@ import type { JsonValue } from '../../core/json.ts';
 import type { OpExample } from '../../core/op-example.ts';
 import { CONCEPTS_LINES } from './concepts.ts';
 
-/** The self-staleness line (§3.6 applied to the tool). Shared by `status` (first line) and
- *  the MCP op/batch banner so the two surfaces never drift in wording. The remedy is `codemaster
- *  daemon restart`, NOT "reconnect MCP": in the singleton-daemon model (spec-daemon-singleton) a
- *  bridge reconnect just re-attaches to the SAME stale-code daemon on the same socket — the daemon
- *  itself must be restarted to spawn a fresh one on current source. (`--in-process` serving has no
- *  daemon; there, restart the MCP client.) */
-export const SOURCE_STALE_LINE =
-  '!! daemon code behind source — run `codemaster daemon restart` to pick up edits (running pre-edit behavior)';
+/** How THIS process serves codemaster — the one fact that decides which remedy is real, and the
+ *  only discrimination the self-staleness banner makes. Known exactly and locally by whoever wires
+ *  the server (`bin.ts`), never inferred: `daemon` = the bridge forwarding to the shared singleton
+ *  (spec-daemon-singleton), `in-process` = a local orchestrator with no daemon at all (the
+ *  `mcp --in-process` dev path, the daemon-unreachable fallback, and the CLI one-shot).
+ *
+ *  It deliberately does NOT discriminate the AUDIENCE. Who is reading — the agent editing
+ *  codemaster, or one in an unrelated repo sharing the daemon — cannot be decided mechanically: a
+ *  codemaster worktree lives OUTSIDE the serving process's own source tree, so a "is the caller
+ *  inside our src/" test labels the codemaster-editing agent a stranger, withholding the one remedy
+ *  it needs. The banner states the criterion instead and lets the reader apply it in one glance. */
+export type ServingMode = 'daemon' | 'in-process';
+
+/** The self-staleness banner (§3.6 applied to the tool itself): codemaster's OWN `src/**` moved
+ *  since this process started, so it answers with code older than its checkout. ONE home, shared by
+ *  `status` (first line) and the MCP op/batch prefix, so the two surfaces cannot drift.
+ *
+ *  Three facts, none droppable (t-034392 / t-793745):
+ *  1. WHAT is stale — the analysis code, not the inspected repo: files are still re-read per call
+ *     (§3.5), so the answer may lack a fix newer code has, but it is not computed over stale data.
+ *     Without this an external reader cannot tell whether the answer in hand is degraded.
+ *  2. The CHEAP remedy — a CLI one-shot is fresh by construction (~2 s, measured) and needs no
+ *     restart. Naming only the restart taught dogfooders to leave the tool for grep.
+ *  3. WHAT the restart actually does HERE — machine-wide under `daemon` (it discards every
+ *     connection's warm LS, including third parties who did not stale anything), and a plain NO-OP
+ *     under `in-process` (there is no daemon to restart). A remedy that cannot change the outcome
+ *     is the defect this banner used to ship, in the most-read place the tool has
+ *     (`ops/guard/navigate.ts` states the same rule for refusals: name a lever that works HERE). */
+export function sourceStaleBanner(serving: ServingMode): string {
+  // The one-shot leads in BOTH variants: it is the only remedy the reader can execute in-session.
+  // Under `in-process` it is also the ONLY one that exists — so the restart is named there as the
+  // lever that does nothing, never as an alternative (naming it as one is the t-259465 defect).
+  const remedy =
+    serving === 'daemon'
+      ? '. Else none: `codemaster daemon restart` hits every connection.'
+      : ' — the only fix here: no daemon, so `daemon restart` is a no-op.';
+  return (
+    '!! PRE-EDIT codemaster (own src/ moved since start): your repo is re-read fresh, the ANALYSIS code is old. ' +
+    "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s" +
+    remedy
+  );
+}
 
 export interface PluginStatusView {
   id: string;
@@ -86,6 +120,10 @@ export interface StatusView {
  *  - `brief` — back-compat alias of the terse default (accepted so an existing caller never breaks).
  *  `op` takes precedence over `full`/`brief`. */
 export interface RenderStatusOptions {
+  /** How this process serves codemaster — REQUIRED, because it decides which remedy the
+   *  self-staleness banner may name (§3.6). Not defaulted: a wrong default would print a lever that
+   *  cannot change the outcome, which is the defect the banner exists to avoid. */
+  serving: ServingMode;
   brief?: boolean | undefined;
   /** Render the full per-op catalogue (arg schemas + notes + examples + concepts) — the opt-in
    *  heavyweight dump the terse default replaces. */
@@ -94,22 +132,22 @@ export interface RenderStatusOptions {
   op?: string | undefined;
 }
 
-export function renderStatus(view: StatusView, options?: RenderStatusOptions): string {
-  const header = renderHeader(view);
-  if (options?.op !== undefined) return [...header, ...renderSingleOp(view, options.op)].join('\n');
-  if (options?.full === true) return renderFull(view, header).join('\n');
+export function renderStatus(view: StatusView, options: RenderStatusOptions): string {
+  const header = renderHeader(view, options.serving);
+  if (options.op !== undefined) return [...header, ...renderSingleOp(view, options.op)].join('\n');
+  if (options.full === true) return renderFull(view, header).join('\n');
   return renderTerse(view, header).join('\n');
 }
 
 /** The daemon line (+ self-staleness banner + warm roots) — shared verbatim by every render
  *  mode so the brief/op surfaces never drift from full in the header. */
-function renderHeader(view: StatusView): string[] {
+function renderHeader(view: StatusView, serving: ServingMode): string[] {
   const lines: string[] = [
     `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
   // §3.6 applied to the tool itself: if our own source moved since spawn, say so loudly and
   // first — the agent is otherwise talking to a daemon serving pre-edit behavior.
-  if (view.sourceStale) lines.push(SOURCE_STALE_LINE);
+  if (view.sourceStale) lines.push(sourceStaleBanner(serving));
   // Warm engines by root (cross-repo §2): a query/batch request may carry `root` to target
   // any of these sibling repos; this is the agent's signal that multi-root is live.
   if (view.engineRoots.length > 0) lines.push(`warm roots: ${view.engineRoots.join(' · ')}`);

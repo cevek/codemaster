@@ -99,7 +99,9 @@ export async function multiRepo(
       return outcome.results;
     },
     async status(toolRoot) {
-      return renderStatus(await orchestrator.status(toolRoot ?? first, toolRoot));
+      return renderStatus(await orchestrator.status(toolRoot ?? first, toolRoot), {
+        serving: 'in-process',
+      });
     },
     async dispose() {
       await orchestrator.dispose();

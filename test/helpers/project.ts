@@ -37,7 +37,7 @@ export interface TestProject {
   op(name: string, args: JsonValue): Promise<OpResult>;
   /** The rendered `status` reply for this workspace (the per-repo documentation). Pass
    *  `{brief}` / `{op}` to exercise the token-saver renders (spec-agent-surface-ergonomics §1). */
-  status(options?: RenderStatusOptions): Promise<string>;
+  status(options?: Omit<RenderStatusOptions, 'serving'>): Promise<string>;
   /** Drive a (sql-)batch directly: returns the engine's ordered results, unrendered. */
   request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]>;
   write(rel: string, content: string): void;
@@ -217,7 +217,12 @@ export async function project(
       return result;
     },
     async status(options) {
-      return renderStatus(await orchestrator.status(root, root), options);
+      // A test harness drives a LOCAL orchestrator with no daemon in front of it, so `in-process`
+      // is the truthful topology here (it decides which remedy the self-staleness banner names).
+      return renderStatus(await orchestrator.status(root, root), {
+        ...options,
+        serving: 'in-process',
+      });
     },
     async request(reqs, batch) {
       const outcome = await orchestrator.request(root, root, reqs, batch);

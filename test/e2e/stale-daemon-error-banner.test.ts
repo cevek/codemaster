@@ -49,7 +49,10 @@ function stubOrchestrator(stale: () => boolean, mode: Mode): OrchestratorApi {
 
 async function wire(stale: () => boolean, mode: Mode): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await serveMcp(stubOrchestrator(stale, mode), 'test', { transport: serverT });
+  await serveMcp(stubOrchestrator(stale, mode), 'test', {
+    serving: 'daemon',
+    transport: serverT,
+  });
   const client = new Client({ name: 'test-client', version: '0' });
   await client.connect(clientT);
   return client;
@@ -60,7 +63,7 @@ function textOf(result: CallToolResult): string {
   return first !== undefined && first.type === 'text' ? first.text : '';
 }
 
-const MARKER = /daemon code behind source/;
+const MARKER = /!! PRE-EDIT codemaster/;
 
 test('always-on: a STALE daemon carries the marker on an `unknown_op` ERROR response', async () => {
   const client = await wire(() => true, 'unknown_op');

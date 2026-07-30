@@ -33,7 +33,7 @@ function textOf(r: CallToolResult): string {
 
 async function wire(p: TestProject): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await serveMcp(p.orchestrator, 'test', { transport: serverT });
+  await serveMcp(p.orchestrator, 'test', { serving: 'in-process', transport: serverT });
   const client = new Client({ name: 'size-test', version: '0' });
   await client.connect(clientT);
   return client;
@@ -211,6 +211,63 @@ test('DISCRIMINATING oversized-json-section: a >budget json section becomes a VA
       'output_capped',
       'over-budget json section → valid capped envelope',
     );
+  } finally {
+    await p.dispose();
+  }
+});
+
+// ── The banner arm ────────────────────────────────────────────────────────────────────────────
+// Every case above runs on a FRESH daemon, so the cap was only ever asserted over un-bannered
+// frames. The self-staleness banner is a PREFIX precisely so the tail-trimming cap cannot reach it
+// (§12) — an invariant nothing exercised while the two features were tested apart. A stale daemon
+// is the state a dogfood session spends most of its time in, and an over-cap answer there is where
+// dropping the marker would be silent.
+
+/** A project whose own-source fingerprint moves after spawn → `sourceStale()` is true. */
+async function staleProject(files: Record<string, string>): Promise<TestProject> {
+  let fingerprint = 'spawn';
+  const p = await project(files, { sourceFingerprint: () => fingerprint });
+  fingerprint = 'moved';
+  return p;
+}
+
+test('STALE + over-cap text: the staleness banner survives the cut (it is a prefix, not a tail)', async () => {
+  const p = await staleProject(MANY_USAGES);
+  try {
+    const client = await wire(p);
+    // Three json find_usages sections (~26KB each) — the same over-cap batch as above, now with the
+    // banner in front of it. The cap trims the TAIL, so the marker must still lead the response.
+    const req = { name: 'find_usages', args: { name: 'Button' }, format: 'json' };
+    const r = (await client.callTool({
+      name: 'batch',
+      arguments: { requests: [req, req, req], root: p.root },
+    })) as CallToolResult;
+    const body = textOf(r);
+    assert.ok(frameBytes(r) < HARNESS_CEILING_BYTES, 'capped under the real ceiling');
+    assert.ok(body.startsWith('!! PRE-EDIT codemaster'), 'the banner still LEADS the capped body');
+    assert.match(body, /OUTPUT CAPPED/, 'and the response really was over the cap');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('STALE + over-cap status: the banner rides inside the header block and survives too', async () => {
+  const p = await staleProject(RICH_FILES);
+  try {
+    const client = await wire(p);
+    const r = (await client.callTool({
+      name: 'status',
+      arguments: { full: true, root: p.root },
+    })) as CallToolResult;
+    const lines = textOf(r).split('\n');
+    assert.ok(frameBytes(r) < HARNESS_CEILING_BYTES, 'capped under the real ceiling');
+    assert.ok(lines[0]?.startsWith('codemaster v'), 'verdict-first: the daemon header leads');
+    assert.match(
+      lines[1] ?? '',
+      /^!! PRE-EDIT codemaster/,
+      'the banner is the second line, intact',
+    );
+    assert.ok(textOf(r).includes(CAP_MARKER), 'and the render really was capped');
   } finally {
     await p.dispose();
   }

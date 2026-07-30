@@ -21,7 +21,11 @@ import type { AnyOpDefinition } from '../ops/registry.ts';
 import { builtinOps } from '../ops/builtins.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
 import type { UsageLogger } from '../support/usage-log/entry.ts';
-import { renderStatus, SOURCE_STALE_LINE } from '../format/render/render-status.ts';
+import {
+  renderStatus,
+  sourceStaleBanner,
+  type ServingMode,
+} from '../format/render/render-status.ts';
 import { renderBatch, renderOne, renderResults } from './render-response.ts';
 import { capResponse } from './cap-seam.ts';
 import {
@@ -46,6 +50,15 @@ interface IdleExitOptions {
 }
 
 export interface ServeMcpOptions {
+  /** How THIS process serves codemaster — `daemon` when the orchestrator is the bridge's remote
+   *  forwarder, `in-process` when it is a local orchestrator (the `--in-process` path, the
+   *  daemon-unreachable fallback, and every test harness). REQUIRED, and deliberately not derivable
+   *  from the orchestrator: the daemon process itself hosts a LOCAL orchestrator, so an
+   *  `OrchestratorApi`-level flag would answer `in-process` for a client that is talking to a
+   *  daemon — the same latent lie that keeps `daemonInfo` off that interface. It decides which
+   *  remedy the self-staleness banner may name (§3.6): under `in-process` there is no daemon, so
+   *  `codemaster daemon restart` is a no-op and must not be offered as an action. */
+  serving: ServingMode;
   /** Bound the process's life to the idle TTL even when stdin-EOF never arrives. Omitted →
    *  no idle deadline (EOF/signal shutdown only). The `mcp` CLI path always supplies it. */
   idle?: IdleExitOptions;
@@ -79,7 +92,7 @@ export interface ServeMcpOptions {
 export async function serveMcp(
   orchestrator: OrchestratorApi,
   version: string,
-  options?: ServeMcpOptions,
+  options: ServeMcpOptions,
 ): Promise<void> {
   const server = new Server(
     { name: 'codemaster', version },
@@ -94,12 +107,12 @@ export async function serveMcp(
   // the per-result Result envelope. `suppressed` is the json guard — a prefix would corrupt a
   // single bare-JSON payload (§12); json consumers read the structured `sourceStale` from `status`.
   const banner = (suppressed: boolean): string =>
-    suppressed ? '' : staleBanner(orchestrator.sourceStale());
+    suppressed ? '' : staleBanner(orchestrator.sourceStale(), options.serving);
 
   // Per-op tools (§11): one generated tool per op, plus the handwritten status/batch. The set is
   // built once at connect — a static UNION over the whole op catalogue (per-connection, multi-repo);
   // an op whose plugin is inactive for the resolved repo dispatches to an honest `unavailable`.
-  const ops = options?.ops ?? builtinOps();
+  const ops = options.ops ?? builtinOps();
   const opDescriptors = buildOpToolDescriptors(ops);
   const opNames = new Set(ops.map((o) => o.name));
   const opExamples = new Map(ops.map((o) => [o.name, opToolExample(o)] as const));
@@ -111,8 +124,8 @@ export async function serveMcp(
 
   // Usage telemetry (spec usage-telemetry): default no-op; the composition root injects the real
   // file logger. `clock` stamps each entry's start time + duration (§16 determinism).
-  const usage = options?.usage ?? noopUsageLogger;
-  const clock = options?.clock ?? systemClock;
+  const usage = options.usage ?? noopUsageLogger;
+  const clock = options.clock ?? systemClock;
 
   // The idle deadline is created (and the timer armed) only when `idle` is supplied — i.e.
   // the `mcp` serve path. The CLI one-shot path (`status`/`op`) never calls serveMcp, so no
@@ -129,9 +142,9 @@ export async function serveMcp(
   // where `process.exit` would kill the runner (false-green); real stdio is the daemon, which MUST
   // terminate. Explicit `exit`/`idle.exit` override either (the test's masking-arm forces exit).
   const exit =
-    options?.exit ??
-    options?.idle?.exit ??
-    (options?.transport !== undefined
+    options.exit ??
+    options.idle?.exit ??
+    (options.transport !== undefined
       ? (): void => undefined
       : (code: number): void => process.exit(code));
   let shuttingDown = false;
@@ -145,7 +158,7 @@ export async function serveMcp(
       .catch(() => undefined)
       .finally(() => exit(0));
   };
-  if (options?.idle !== undefined) {
+  if (options.idle !== undefined) {
     idleExit = createIdleExit({
       clock: options.idle.clock,
       idleMs: options.idle.idleMs,
@@ -182,7 +195,7 @@ export async function serveMcp(
         if (!parsed.success) return fail(badArgs('status', parsed.error.message));
         const view = await orchestrator.status(cwd, parsed.data.root);
         const { brief, full, op } = parsed.data;
-        return ok(text(renderStatus(view, { brief, full, op })));
+        return ok(text(renderStatus(view, { brief, full, op, serving: options.serving })));
       }
       case 'batch': {
         // §7/§11: normalize each request's flat `{op,…}` envelope to canonical `{name,args}` before
@@ -322,7 +335,7 @@ export async function serveMcp(
     });
   });
 
-  const transport = options?.transport ?? new StdioServerTransport();
+  const transport = options.transport ?? new StdioServerTransport();
   await server.connect(transport);
   // Arm the initial deadline only after connect — a server that never receives a request still
   // self-exits after the TTL.
@@ -352,9 +365,11 @@ export function opResultText(
  *  response while the daemon's own source is behind disk — always-on, never one-shot: a long
  *  multi-edit session must be warned on every answer it acts on, not just the first. Empty when
  *  fresh (no false-positive nag) — pure, exported, unit-tested. A PREFIX so it can never be lost to
- *  the render cap (which trims the tail) and never lands inside a batch's per-section JSON. */
-export function staleBanner(sourceStale: boolean): string {
-  return sourceStale ? `${SOURCE_STALE_LINE}\n` : '';
+ *  the render cap (which trims the tail) and never lands inside a batch's per-section JSON. The
+ *  wording (and its `serving`-dependent remedy) has ONE home — `format/render/render-status.ts` —
+ *  shared with `status`, so the two surfaces cannot drift. */
+export function staleBanner(sourceStale: boolean, serving: ServingMode): string {
+  return sourceStale ? `${sourceStaleBanner(serving)}\n` : '';
 }
 
 /** A handled tool call: the agent-facing response plus its telemetry classification

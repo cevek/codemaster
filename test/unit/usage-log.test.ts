@@ -69,6 +69,7 @@ function byName(name: string): OpResult {
 async function wire(dir: string): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await serveMcp(stubOrchestrator(), 'test', {
+    serving: 'in-process',
     transport: serverT,
     usage: createFileUsageLogger(dir),
     clock: fixedClock,

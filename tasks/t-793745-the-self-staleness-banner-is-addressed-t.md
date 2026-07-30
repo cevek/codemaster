@@ -1,7 +1,7 @@
 ---
 id: t-793745
 title: The self-staleness banner is addressed to the agent editing codemaster but is prefixed to EVERY connection's answers — an agent in another repo is told to restart a daemon it did not stale, discarding a third party's warm LS
-status: backlog
+status: done
 priority: high
 tags:
   - agent-surface
@@ -65,3 +65,26 @@ saying which would settle it."
 
 So beyond being addressed to the wrong audience, the banner does not state its own CONSEQUENCE for the answer
 in hand. Both halves are one wording fix: who it is for, and whether the data is affected.
+
+
+## Closure
+
+The banner no longer instructs an uninvolved reader to restart a daemon it did not stale, and it now
+states its own consequence for the answer in hand.
+
+- OWNERSHIP + consequence, in the line itself: `!! PRE-EDIT codemaster (own src/ moved since start):
+  your repo is re-read fresh, the ANALYSIS code is old.` — the external reader's verbatim ask ("as a
+  consumer I cannot tell whether that degrades the answers I am about to get") is answered by the two
+  halves being stated separately: inputs current (§3.5), analysis code behind its checkout.
+- The REMEDY is no longer a bare instruction: the one-shot leads (any reader editing codemaster can
+  run it), and the restart clause states its blast radius instead of commanding it — under a daemon
+  it "hits every connection", under `mcp --in-process` it is a named no-op.
+- The AUDIENCE is discriminated by the reader, not mechanically. A mechanical test ("is the caller
+  inside our own `src/`") was rejected on evidence: this machine's servers run from the main checkout
+  while codemaster-editing agents work in worktrees OUTSIDE it, so that test would label exactly the
+  agents this fix is for as strangers and withhold the one-shot from them. What IS decided
+  mechanically is the serving TOPOLOGY, which the composition root knows exactly.
+
+The third direction the task lists (make the remedy local — a per-connection re-attach) stays unbuilt
+and unneeded for this defect: the one-shot already gives every reader an in-session path that costs
+no third party anything.

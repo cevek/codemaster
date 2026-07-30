@@ -28,7 +28,7 @@ const TOOLS_LIST_MAX_BYTES = 56_000;
 
 async function wire(p: TestProject): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await serveMcp(p.orchestrator, 'test', { transport: serverT });
+  await serveMcp(p.orchestrator, 'test', { serving: 'in-process', transport: serverT });
   const client = new Client({ name: 'test-client', version: '0' });
   await client.connect(clientT);
   return client;

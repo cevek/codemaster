@@ -178,15 +178,26 @@ fresh one-shot process, so it always reflects the current source. Composition is
 `node src/bin.ts batch '<json-requests>' --sql '<SELECT>'`, and `--sql` on a single `op` — so
 working on current source costs no expressiveness (§5-L5).
 
-A **long-lived** daemon (the singleton the MCP bridge connects to) does **not** — it serves
-the behavior it spawned with. So after you edit `src/`, the running daemon is stale.
-`status` and every op response say so outright (`!! daemon code behind source — run
-`codemaster daemon restart``), driven by a `src/**` fingerprint taken at spawn (§3.6 applied
-to the tool itself). **Run `codemaster daemon restart` to pick up your change\** — it stops the
-stale-code daemon so the next bridge spawns a fresh one on current source (a bridge *reconnect\*
-alone re-attaches to the SAME stale daemon on the same socket; for the dev loop, `codemaster mcp
---in-process` skips the daemon entirely). The signal degrades silently to off where the source
-tree can't be located (a global / `npx` install — §19), never a false positive.
+A **long-lived** server (the singleton daemon the MCP bridge connects to, or an
+`mcp --in-process` server) does **not** — it serves the behavior it spawned with. So after you
+edit `src/`, the running server is stale, and `status` and every op response say so outright
+(`!! PRE-EDIT codemaster …`), driven by a `src/**` fingerprint taken at spawn (§3.6 applied to the
+tool itself).
+
+**The banner names the one-shot above as the in-place remedy, and it is the one to reach for**: it
+answers on current source in ~2 s and costs nobody their warm state. The alternatives are worse or
+absent, which is why the banner states which topology you are in rather than one blanket
+instruction: `codemaster daemon restart` works only for the daemon-backed bridge, and there it is
+**machine-wide** — it discards the warm LS of every agent on that daemon, including repos that
+staled nothing (a bridge _reconnect_ is not an alternative: it re-attaches to the SAME stale daemon
+on the same socket). Under `mcp --in-process` there is no daemon at all, so that command is a plain
+no-op and only restarting the MCP client picks up the edit. The signal degrades silently to off
+where the source tree can't be located (a global / `npx` install — §19), never a false positive.
+
+Its wording has ONE home (`format/render/render-status.ts` `sourceStaleBanner`), shared by `status`
+and the MCP prefix, and its serving mode is a REQUIRED option on `serveMcp` — a remedy that cannot
+change the reader's outcome is the same defect as a refusal naming a call it cannot run (above), so
+it is not left to a default.
 
 ## Output is the product
 

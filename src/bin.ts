@@ -216,6 +216,9 @@ async function main(): Promise<number> {
         // no-op, never a broken serve path.
         installWatchdog({ clock: systemClock, orphanAware: true });
         await serveMcp(buildOrchestrator(), VERSION, {
+          // No daemon in this topology — the self-staleness banner must not offer `codemaster
+          // daemon restart` here, which would be a no-op on THIS process (§3.6).
+          serving: 'in-process',
           idle: { clock: systemClock, idleMs },
           usage,
         });
@@ -237,7 +240,10 @@ async function main(): Promise<number> {
       if (connection === undefined) {
         // Daemon unreachable (spawn/connect failed within budget) — fall back to in-process serving
         // (Stage-1 behavior). Worst case is "no amortization", never a hang or a hard failure (D1).
+        // Serving is genuinely daemon-LESS here, so the banner's remedy follows the topology, not
+        // the invocation the user typed.
         await serveMcp(buildOrchestrator(), VERSION, {
+          serving: 'in-process',
           idle: { clock: systemClock, idleMs },
           usage,
         });
@@ -249,7 +255,7 @@ async function main(): Promise<number> {
         replyDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
         version: VERSION,
       });
-      await serveMcp(remote, VERSION, { usage });
+      await serveMcp(remote, VERSION, { serving: 'daemon', usage });
       return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {
@@ -278,7 +284,7 @@ async function main(): Promise<number> {
       }
       const orchestrator = buildOrchestrator();
       const view = await orchestrator.status(process.cwd(), root);
-      out(renderStatus(view, { full, brief, op }));
+      out(renderStatus(view, { full, brief, op, serving: 'in-process' }));
       await orchestrator.dispose();
       return 0;
     }

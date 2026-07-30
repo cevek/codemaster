@@ -14,6 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { serveMcp } from '../../src/mcp/server.ts';
 import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
+import type { ServingMode } from '../../src/format/render/render-status.ts';
 
 process.setMaxListeners(50);
 
@@ -31,9 +32,9 @@ function stubOrchestrator(stale: () => boolean): OrchestratorApi {
   };
 }
 
-async function wire(stale: () => boolean): Promise<Client> {
+async function wire(stale: () => boolean, serving: ServingMode = 'daemon'): Promise<Client> {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  await serveMcp(stubOrchestrator(stale), 'test', { transport: serverT });
+  await serveMcp(stubOrchestrator(stale), 'test', { serving, transport: serverT });
   const client = new Client({ name: 'test-client', version: '0' });
   await client.connect(clientT);
   return client;
@@ -44,7 +45,7 @@ function textOf(result: CallToolResult): string {
   return first !== undefined && first.type === 'text' ? first.text : '';
 }
 
-const MARKER = /daemon code behind source/;
+const MARKER = /!! PRE-EDIT codemaster/;
 
 test('always-on: a STALE daemon carries the marker on EVERY op text response (not just the first)', async () => {
   const client = await wire(() => true);
@@ -92,4 +93,41 @@ test('no false positive: a FRESH daemon never emits the marker on op/batch', asy
   })) as CallToolResult;
   assert.doesNotMatch(textOf(op), MARKER, 'a fresh daemon must not nag on op');
   assert.doesNotMatch(textOf(batch), MARKER, 'a fresh daemon must not nag on batch');
+});
+
+test('the remedy on the wire follows the TOPOLOGY, not the wording (t-034392 finding 4)', async () => {
+  // The same stale state served two ways. Under `in-process` there is no daemon at all, so
+  // `codemaster daemon restart` — the only remedy the banner used to name — cannot change the
+  // outcome; naming it as an action there is a lever that does nothing, in the most-read place
+  // the tool has. Driven through the REAL MCP response path, because the topology is a serve-time
+  // fact of the facade: a unit test on the renderer cannot show that the wiring carries it.
+  const ask = async (client: Client): Promise<string> =>
+    textOf(
+      (await client.callTool({ name: 'find_definition', arguments: { q: 'X' } })) as CallToolResult,
+    );
+  const daemon = await ask(await wire(() => true, 'daemon'));
+  const inProcess = await ask(await wire(() => true, 'in-process'));
+
+  assert.notEqual(daemon, inProcess, 'the two topologies must not answer identically');
+  assert.match(daemon, /codemaster daemon restart/, 'daemon-backed: the restart is real');
+  assert.match(
+    inProcess,
+    /no daemon, so `daemon restart` is a no-op/,
+    'in-process: named as inert',
+  );
+  // The one-shot is the lever BOTH readers can pull in-session — it is what a restart-only banner
+  // never told the dogfooders, and under `in-process` it is the only remedy that exists.
+  for (const body of [daemon, inProcess]) assert.match(body, /node src\/bin\.ts op/);
+});
+
+test('the banner answers the external reader: the DATA is fresh, the analysis code is not', async () => {
+  // Verbatim from a dogfood report in another repo: "as a consumer I cannot tell whether that
+  // degrades the answers I am about to get". Both halves must be on the wire, or the reader is
+  // left to guess whether the answer in hand is degraded (t-793745).
+  const client = await wire(() => true);
+  const body = textOf(
+    (await client.callTool({ name: 'find_definition', arguments: { q: 'X' } })) as CallToolResult,
+  );
+  assert.match(body, /re-read fresh/, 'says the inspected repo is NOT what is stale');
+  assert.match(body, /ANALYSIS code is old/, 'and says what IS stale instead');
 });

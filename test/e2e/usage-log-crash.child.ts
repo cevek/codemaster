@@ -38,6 +38,7 @@ const orchestrator = {
 
 const [clientT, serverT] = InMemoryTransport.createLinkedPair();
 await serveMcp(orchestrator, 'test', {
+  serving: 'in-process',
   transport: serverT,
   usage: defaultUsageLogger(),
   ops: [op],

@@ -172,6 +172,7 @@ test('a throwing `record` still clears the breadcrumb — no phantom crash for a
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   const file = createFileUsageLogger(dir);
   await serveMcp(throwingOrchestrator(), 'test', {
+    serving: 'in-process',
     transport: serverT,
     ops: [stubOp()],
     usage: {
@@ -196,6 +197,7 @@ test('a throwing `record` still clears the breadcrumb — no phantom crash for a
 test('a throwing `begin` never reaches the agent (the telemetry seam is injected, not trusted)', async () => {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await serveMcp(throwingOrchestrator(), 'test', {
+    serving: 'in-process',
     transport: serverT,
     ops: [stubOp()],
     usage: {

@@ -12,6 +12,8 @@ type: imp
 complexity: M
 area: correctness
 source: dogfood-jul
+relates:
+  - t-034392
 audience: both
 evidence: measured
 created: '2026-07-28T21:23:08.452Z'
@@ -76,8 +78,38 @@ Unlike its neighbours it is STATICALLY TESTABLE: every arg / op / flag named in 
 one the answering op actually consumes, and a remedy must be reachable from the state the call is already
 in. A lint over hint/refusal texts against the ops own arg schemas catches four of the five above.
 
-Executable precedent landed (dogfood-jul): the self-staleness banner track wrote the first working instance of this invariant — EXTRACT the lever out of the rendered text and RUN it as a subprocess, so the oracle is the mechanism (exit code + output) rather than a second copy of the expected wording. It is discriminating (corrupting the script path in the banner reddens it) and it also catches the drift case where a remedy is reworded into something un-runnable.
 
-For the `navigate.ts` redirects the same shape is CHEAPER STILL and needs no subprocess: those name `<op> {args}` calls whose op names and arg keys are already machine-readable via `builtinOps()` plus each op's canonical zod schema, so a lint can validate a redirect statically — every op named must exist, and every arg key must be one that op's schema accepts. That covers four of the five instances catalogued above.
+## An EXECUTABLE precedent now exists in the tree (from t-034392)
 
-Cautionary half from the same track (filed as its own task): the NEGATIVE arm of such a test is usually vacuous — asserting a remedy string is absent from a surface that has no code path to it is green under every input. Pair any absence assertion with the surface that DOES render the marker.
+The self-staleness banner's remedy is checked by running it, not by matching prose:
+`test/e2e/stale-banner-remedy.test.ts` EXTRACTS the command from the rendered banner text
+(`` `node src/bin.ts op <name> '<json>'` ``), asserts the remaining tokens are placeholders rather
+than a hardcoded call, then EXECUTES it as a real subprocess against a fixture repo and asserts it
+answers the question it was named for. Verified discriminating: corrupting the script path in the
+banner turns the test red.
+
+That is the first working instance of this epic's invariant on a real surface — the lever a message
+names is proven to exist and to work, from the message itself. Two properties make it reusable as
+the shape for the lint this epic asks for:
+
+- the oracle is the MECHANISM (a subprocess exit + its output), never a second copy of the expected
+  wording — a hand-written expectation agrees with the code exactly where the code is wrong;
+- it reads the command OUT of the rendered text, so it also covers the drift case where the remedy
+  is reworded into something un-runnable.
+
+For the `ops/guard/navigate.ts` redirects the same shape applies more cheaply still and needs no
+subprocess: those name `<op> {args}` calls whose op names and arg keys are already machine-readable
+(`builtinOps()` + each op's canonical zod schema), so a lint can validate a redirect statically —
+every op named must exist, every arg key must be one that op's schema accepts. That covers four of
+the five instances catalogued above.
+
+The same track also pins WHICH topology a remedy is printed for, behaviourally rather than by
+wording: `test/e2e/stale-banner-topology-smoke.test.ts` drives a real `node bin.ts mcp` bridge and
+reads the remedy off the wire, so miswiring the composition root reddens a test instead of shipping
+a lever that cannot act. A required option prevents an omitted topology; only a live read prevents a
+wrong one.
+
+Cautionary half from the same track, tracked separately as **t-160641**: the NEGATIVE arm of such a
+test is usually vacuous — asserting a remedy string is absent from a surface that has no code path
+to it is green under every input. Pair any absence assertion with the surface that DOES render the
+marker, or drop it.

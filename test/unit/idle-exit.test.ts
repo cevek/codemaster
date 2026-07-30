@@ -135,6 +135,7 @@ async function wire(
   const exits: number[] = [];
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   await serveMcp(stubOrchestrator(request), 'test', {
+    serving: 'in-process',
     idle: { clock, idleMs: 1000, exit: (code) => exits.push(code) },
     transport: serverT,
   });

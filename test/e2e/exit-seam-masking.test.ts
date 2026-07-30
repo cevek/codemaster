@@ -54,7 +54,9 @@ const stub = {
 test('intentionally RED subtest — masked iff shutdown reaches process.exit', async () => {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
   // MASK arm forces process.exit even over the injected transport; fix arm omits exit → no-op default.
-  await serveMcp(stub, 'test', MASK ? { transport: serverT, exit: (c) => process.exit(c) } : { transport: serverT });
+  await serveMcp(stub, 'test', MASK
+      ? { serving: 'in-process' as const, transport: serverT, exit: (c: number) => process.exit(c) }
+      : { serving: 'in-process' as const, transport: serverT });
   const client = new Client({ name: 'masking-child', version: '0' });
   await client.connect(clientT);
   await client.callTool({ name: 'find_definition', arguments: { q: 'X' } });
