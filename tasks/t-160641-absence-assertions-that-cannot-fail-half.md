@@ -1,7 +1,7 @@
 ---
 id: t-160641
 title: Absence assertions that cannot fail — MEASURED at 3 of 136 honesty-channel negatives, not the half this task first claimed
-status: backlog
+status: done
 priority: medium
 parent: t-532530
 type: infra

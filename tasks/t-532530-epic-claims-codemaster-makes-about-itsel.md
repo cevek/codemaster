@@ -48,3 +48,9 @@ would make it fail, resolve a cited path.
 Members are landable independently, and each states its own mechanism. Filed as an epic because fixing them
 one at a time re-derives the same insight four times — and because the failure they share is exactly the one
 codemaster exists to prevent, aimed inward.
+
+FIRST MEMBER CLOSED (t-160641), and its result reshapes the epic. The absence-assertion half was inventoried mechanically — 618 negative assertions, 136 of this class, **3 vacuous** — so the "half the suite" framing was off by ~50x. Three consequences worth carrying to the other members:
+
+1. **Measure before reforming.** The claimed scale came from two vivid incidents; the measurement turned a suite-wide reform into three lines. Do the same for every remaining member before scoping work from it.
+2. **The figure is a SNAPSHOT, not a steady state.** A third sub-shape surfaced during the audit: an assertion that BECOMES vacuous later, in a commit touching only `src/`, when the prose it watched is rewritten. Sub-shapes 1-2 are born with the test and are caught by review of the same diff; this one appears where no reviewer has the test in view and the suite stays green — the signal literally says "nothing to look at". So 3 of 136 is what remains after ordinary prose churn, and the same audit after the next N rewordings will not return zero.
+3. **A mechanical guard was considered and REJECTED with reasons** (t-210913, terminal): a `literal-exists-in-src` lint misses sub-shape 1 entirely (the incident that started this had its literal present; the vacuity was in the call graph) and noises over 419 fixture negatives. What the class actually needs is a reachability capability, filed as t-777453 — which is why that op is a member of the addressability epic rather than a nice-to-have.
