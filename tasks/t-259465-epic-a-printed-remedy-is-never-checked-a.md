@@ -113,3 +113,7 @@ Cautionary half from the same track, tracked separately as **t-160641**: the NEG
 test is usually vacuous — asserting a remedy string is absent from a surface that has no code path
 to it is green under every input. Pair any absence assertion with the surface that DOES render the
 marker, or drop it.
+
+EXTERNAL INSTANCE, and the cheapest possible test case for the lint this task asks for: the `!! LOWER BOUND` note on a monorepo says only "Load/reference the config for a complete count" — a REPO EDIT the external caller cannot make — while the SAME op accepts `programs:["apps/patient-care/tsconfig.test.json"]`, a copy-pasteable one-call fix. The runnable lever exists, is declared in the answering op's own schema, and is not named.
+
+That is exactly the shape the proposed lint catches statically (every arg/op/flag named in a note must be one the answering op consumes, and a remedy must be reachable from the state the call is already in) — here it would go further and catch the INVERSE too: an op declares a lever that its own note fails to offer. Two independent copies of this defect were observed in one session (the note itself, and the envelope disclosure repeating the same repo-edit remedy).

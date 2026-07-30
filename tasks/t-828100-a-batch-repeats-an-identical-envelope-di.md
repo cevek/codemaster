@@ -39,3 +39,7 @@ which is the point of the ambient ledger.
 
 Distinct from `t-316487` (one fact in two PROSE CHANNELS of one answer) and from `t-000075` (the floor is
 repo-global rather than symbol-scoped). `t-286255` owns the "fires on 100% of calls" half.
+
+SECOND SURFACE: `sql`. A `batch {r: find_usages …, f: find_usages …}` + `sql` prints the identical `!! LOWER BOUND` line ONCE PER PRODUCER TABLE — plus the `CANNOT CLAIM` disclosure making a third statement of the same underlying gap, in one response. So the repetition is not specific to per-request sections: it recurs wherever an envelope is assembled OVER producers, which is precisely where the merge helper already forwards the channels.
+
+One merged line naming BOTH affected tables carries the same honesty at a third of the cost. Note this also compounds with the remedy defect (t-259465): all three copies name a repo edit the external caller cannot perform, while the ops involved accept `programs:[…]` per call — so the response spends triple tokens restating an unusable instruction.
