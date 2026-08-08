@@ -288,11 +288,11 @@ work by how a filer chose to document their proof: on live data it floats 27 `im
 **Three gates decide what can enter the queue at all.** Each closes a different class, and none
 substitutes for another:
 
-| gate | removes | why it is structural |
-| --- | --- | --- |
-| `-has:children` | epics | an epic is an AXIS, not work. Test on `children`, never on `tag:epic` — 7 of 12 epics do not carry the tag |
-| `-complexity:L` | "fat task / design needed" | catches what the first misses: a childless, untagged `L` item is still not pickable |
-| `type:bug,perf,imp,dx` + `evidence:measured,repro` | unproven work | §1/§3: a proven live lie weighs differently from a reported absence |
+| gate                                               | removes                    | why it is structural                                                                                       |
+| -------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `-has:children`                                    | epics                      | an epic is an AXIS, not work. Test on `children`, never on `tag:epic` — 7 of 12 epics do not carry the tag |
+| `-complexity:L`                                    | "fat task / design needed" | catches what the first misses: a childless, untagged `L` item is still not pickable                        |
+| `type:bug,perf,imp,dx` + `evidence:measured,repro` | unproven work              | §1/§3: a proven live lie weighs differently from a reported absence                                        |
 
 Then sort: `urgent` pinned first → `type` (`bug` → `perf` → `imp` → `dx`) → `evidence` (`measured`
 before `repro`) → `priority` → `complexity` → `id` (the last key keeps two runs byte-identical, §16).
