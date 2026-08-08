@@ -70,3 +70,17 @@ the deciding factor in a single report.
 
 Related classes: t-647309 (emptiness must carry how it was established) — that one is about answers being
 wrong-by-scope; this one is about answers never being requested.
+
+## Instance (2026-08-08, task-manager worktree): the remedy this one asks for is not in the tool
+
+An agent widened `evaluateQuery`'s return type from `EnrichedTask[]` to `{tasks, archivedHidden}` and `api.list`/`search` from `TaskSummary[]` to `{items, archivedHidden?}` — then discovered the blast radius by editing and iterating on `npx tsc --noEmit`: four rounds, ~14 call sites, found a batch at a time because tsc stops reporting downstream once an earlier file fails. `impact_type_error` is that question exactly ("what tsc errors would this decl change introduce"). It was never called. The op did nothing wrong and returned no wrong answer.
+
+Two details make this instance worth more than a tally mark.
+
+**1. The catalogue text was already correct, and already carried.** The reporter had the op's description in the spec it was operating under — "what tsc errors a change to X's decl/type/signature would introduce" — and states plainly that this was accurate and still not what came to mind while editing. So this instance cannot be closed by rewording a summary, which is the remedy most of the other instances here point at. The reporter's own proposal is different in kind: the steer has to be shaped as an AGENT-SIDE TRIGGER tied to the action ("before changing the return type / signature of an exported symbol, run impact_type_error"), not as a capability description. A description is read while choosing an op; a trigger fires while doing something else, which is when the miss actually happens.
+
+**2. The second half looked like a separate output gap and is not — verified.** The same report says `grep -rn` was used for "who calls `evaluateQuery`", because of uncertainty whether `find_usages` spans the test tsconfig. A live call on this repo shows the output answers that prominently: rows carry `prog tsconfig.test.json` where a usage is test-only, `allProgram=tsconfig.json` states the default with a legend explaining the tags, and unloaded configs get their own `!! LOWER BOUND` note. Nothing needs adding to the output.
+
+So the doubt was resolved by the answer — and the answer was never fetched, because the doubt was enough to skip the call. Both halves of the report reduce to one fact, which is this epic's thesis in its sharpest form so far: **the decision not to use the tool is taken before any call, against prior belief, and everything the tool says — however complete — arrives after that decision.**
+
+The actionable surface that follows is the MCP `initialize` steer (the one text every session reads before any work), phrased as triggers on editing actions rather than as a catalogue. Whether that lands is genuinely uncertain — the props-filter instance above shows session-start text gets skimmed too — but it is the only surface that is read before the moment of the miss.
