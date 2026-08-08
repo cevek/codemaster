@@ -7,12 +7,14 @@ parent: t-786727
 tags:
   - agent-surface
   - dogfood
+  - dogfood-aug
 type: feat
 complexity: M
 area: render
 source: dogfood-jul
 relates:
   - t-034392
+  - t-208047
   - t-245013
   - t-633403
 surface:
@@ -71,3 +73,26 @@ differently from the standing one.
 
 Cost measured elsewhere: in a 15-request batch this same claim was emitted 13 times, ~10 KB against the 60 KB
 seam cap (see the batch-hoist task).
+
+## Свидетельство (field report, 2026-08-07, /Users/cody/Dev/backoffice2) — the same defect outside our own tree
+
+External agent, pnpm monorepo, 12 apps, repo it does not maintain. Every op call in the session (search /
+source / find_usages / find_definition / construction_sites, all on `kalendarik` symbols) appended the
+identical disclosure naming ONE unloaded config from a DIFFERENT app:
+
+    !! CANNOT CLAIM unsafe=target-is-the-only-symbol-of-this-name … 1 nested tsconfig(s) are NOT loaded
+    as programs (apps/patient-care/tsconfig.test.json)
+
+Reporter: "By call ~8 I was skipping the line entirely, which is exactly when a real ambiguity would slip
+past." Independently raised twice in one session (also as a trailing note on the `construction_sites` report
+that became `t-631139`).
+
+This confirms the task's premise on a repo that is not codemaster's own fixture tree: the always-on channel is
+not a self-dogfood artifact — it is the normal experience of a monorepo, where a stray test-only tsconfig in
+some other package is the rule.
+
+## Related
+
+`t-208047` is the PREDICATE half of this: the same channel is also SILENT on a name with two real declarations
+and no truncation. The two must be fixed together — a once-per-session header remedy applied alone leaves the
+false negatives, and calibrating the predicate alone makes an already-ignored line louder.

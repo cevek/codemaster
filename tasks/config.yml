@@ -49,6 +49,7 @@ fields:
     type: enum
     values:
       - dogfood-jul
+      - dogfood-inbox-aug
     required: false
   relates:
     type: reflist
@@ -67,6 +68,7 @@ fields:
       - repro
       - reported
       - unverified
+      - field-report
 web:
   host: 127.0.0.1
   port: 57345

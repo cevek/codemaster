@@ -3,6 +3,7 @@ id: t-619235
 title: "`move_file` leaves the emptied source directory on disk — git doesn't track empty dirs, so `git status` is clean and nothing surfaces it"
 status: backlog
 priority: low
+parent: t-915659
 tags:
   - dogfood
   - ts-refactor

@@ -13,6 +13,8 @@ area: render
 source: dogfood-jul
 relates:
   - t-158109
+  - t-233900
+  - t-731041
   - t-815425
 surface:
   - cli
@@ -111,3 +113,34 @@ different track.
 the answer is already on screen — post-hoc by construction, so it cannot redirect the question it is
 about. If a nudge is to work it must intercept the grep whose pattern is a BARE IDENTIFIER, before or
 instead of the call, not comment on it afterwards.
+
+## The same recognition failure with a DIFFERENT cause: the oracle lives outside the tool's perimeter (dogfood-inbox-aug)
+
+Three external field reports, 2026-08-03..08-05, repos amiro / amiro-frontend (contract oracle = a sibling
+java repo `../control-plane`, plus `openapi.json` and a markdown spec repo). Ops used per shift: 0. In each
+case the reporter's own diagnosis is recognition, not preference — and the mechanism is a variant this task
+does not yet name.
+
+**The variant: momentum across a perimeter boundary.** Here the 95% is not legitimate-grep-on-prose, it is
+legitimate-grep-on-code-we-do-not-index. Once the agent is in grep mode for the java repo / the spec json, it
+stays in grep mode for the TS repo out of momentum, and the codemaster-shaped residue rides along. Quotes:
+
+- «Steps 1-3 carry the entire verdict, and none of them is a TS symbol question, so I never opened codemaster
+  for them … once I am in grep mode for the Java repo, I stay in grep mode for the TS repo too, out of
+  momentum. That is a real cost — I nearly missed that `accessGrantsFrom` collapses `undefined` and `[]`
+  into one value, which IS a codemaster-shaped question.» (2026-08-05)
+- «промах не в том, что инструмент чего-то не умеет, а в том, что момент, когда он нужен, наступает внутри
+  задачи, где он в остальном бесполезен, — и поэтому пропускается.» That track deleted an exported type and
+  changed the semantics of the function reading it, and proved "no producer sends a bare value" with grep over
+  two identifiers — «ровно тем способом, который молча пропускает алиас и ре-экспорт». What saved it was an
+  independent reviewer re-asking the same question, not the tool. (2026-08-03)
+- «За смену я не вызвал ни одного опа, и честная причина — не "забыл", а "оракул жил не здесь".» The place the
+  tool stayed silent and review found the defect: a second consumer of a changed field semantic
+  (`bi-reports.ts`) — «ровно тот класс, который символьный обход обязан находить». (2026-08-03)
+
+Consequence for the fix direction argued above: an identifier-discriminating nudge does not reach this
+variant, because the greps that build the momentum are in ANOTHER repo (or over a json spec), where any nudge
+is correctly silent. What these reports ask for instead is a legible perimeter EDGE — see t-731041 (mark a
+type whose producer is outside the index; state in the op-map that codemaster answers what the code does, not
+what the server does). t-233900 is the temporal cousin: a whole track's questions were about revisions, which
+no op is addressed by, so it ran on `git log -S`.

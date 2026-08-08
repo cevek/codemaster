@@ -51,3 +51,41 @@ measured.
 CLAUDE.md already states the honest scope — grep is correct for "literal non-symbol text: log lines,
 TODOs, config keys, prose". This report says config KEYS do not belong in that list: they have structure,
 they are load-bearing, and their absence is a decision input.
+
+## Field evidence — the same class as a store-collection key, with the read/write split as the load-bearing half (dogfood-inbox-aug)
+
+The class is not env vars specifically: it is **a string literal in a known accessor position that IS the
+identity of an entity**, with no symbol anywhere. Generalised shape asked for by the field: a configurable
+**string-keyed accessor** — `{function, argIndex}` — after which the literal in that position is indexed as
+a symbol. One rule then covers `collection('payments_v2')`, `store.get('x')`, `table('users')`,
+`queryKeys.x`, `overrideHandler('<operationId>')`, `t('<key>')`, and `process.env.X` alike.
+
+**Direction is the half grep cannot supply and the half decisions rest on.** The report is explicit: who
+WRITES a key versus who READS it is what decides whether the data can be trusted, and a text search says
+nothing about it. So write-sites (push/splice/assignment to an element field) and read-sites must be
+separated in the answer, grouped by enclosing declaration like `find_usages`.
+
+### Свидетельство
+
+2026-08-03, `amiro/local-api-fixtures`. The whole mock backend addresses data by string:
+`localStore.collection<PaymentV2Dto>('payments_v2')`, `collection('sales_v2')`, `'encounter_files'`,
+`'medication_revisions'`. The type parameter is shared by a dozen sites, and the collection itself is not a
+symbol. Questions asked "literally dozens of times" in one track, none expressible:
+
+- who WRITES to `'payments_v2'` (does every payment go through `payV2Sale`, or is there a direct push past
+  the handler — which decides whether a payment can exist without a line snapshot);
+- who READS `'sales_v2'` after `sale.total` changed meaning;
+- which collections the seed fills and which stay empty — "no fixture" being indistinguishable from
+  "nothing to show" is the exact defect class that track was fixing.
+
+Fallback: grep on the string literal plus separating declaration from use by eye. `find_usages` on
+`localStore.collection` returns 200+ call sites with no discrimination between collections. Cost: a
+consumer was MISSED (`bi-reports.ts`, a second reader of the changed semantics) and found only by
+adversarial review; the same track reports two of its review findings were "a second consumer of the same
+key the author did not know about".
+
+Priority raised `high → urgent`: a second independent external report, a missed consumer that review had to
+catch, and a generalisation that subsumes several separately-requested ops.
+
+Priority note: the raise to `urgent` is withdrawn — this class errs toward OMISSION (a missed consumer, a
+silent read/write asymmetry), which is the `high` band. The evidence above stands unchanged.

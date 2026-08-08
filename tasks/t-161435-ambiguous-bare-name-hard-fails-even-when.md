@@ -6,6 +6,7 @@ priority: high
 tags:
   - agent-surface
   - dogfood
+  - dogfood-aug
 type: feat
 complexity: M
 area: impact-usages
@@ -101,3 +102,27 @@ pre-empt the ambiguity.
 
 `mergeDeclarations:true` already covers the union case; this is the missing opposite — pick ONE without a
 round-trip.
+
+## Свидетельство (field reports, aug wave) — two more instances, and one adds a BATCH requirement
+
+**(1) 2026-07-30, `/Users/cody/Dev/worktrees/task-manager/api-shape-only-read`.** The same `src/` vs `web/`
+duplicate-by-design shape already recorded above, reported independently by another agent:
+`find_usages {name:'TaskDetail'}` → FAIL "ambiguous — 2 distinct declaration sites" (`src/api/views.ts` vs
+`web/src/api/types.ts`). The reporter's framing sharpens the ask: the two declarations live in **two tsconfig
+programs with no edge between them** — the layer contract forbids core importing the SPA — so this is not an
+ambiguity in any sense the caller can act on. Suggested resolution beyond pathInclude-narrowing: rank the
+candidate from the program containing the current file / the argument first, or answer per program.
+
+**(2) 2026-08-07, `/Users/cody/Dev/amiro`.** OpenAPI codegen emits `src/api/generated/hooks.ts` while
+hand-written overrides live in `src/api/hooks/*` with IDENTICAL names (e.g. `useSuspenseClinicEmployees`).
+A **batched** `find_usages` over 6 hook names returned 5 resolved and dropped the sixth to
+`unresolved: ambiguous`, so one symbol's answer was lost and had to be re-issued by SymbolId.
+
+That instance adds a requirement this task does not yet state: the narrowing must be expressible **once for a
+whole batch**, not per failing request. The reporter asks for a per-request tiebreak (`preferPath` /
+`pathPrefer:["src/api/hooks/**"]`) so a multi-symbol call resolves in one pass; today a single ambiguous name
+turns an otherwise complete multi-symbol answer into a partial one plus a round-trip. `mergeDeclarations`
+does not serve here — the caller wants the hand-written declaration, not the union.
+
+Both reporters are external agents in repos they do not maintain; generated-vs-hand-written same names are a
+structural property of a codegen repo, not an accident.

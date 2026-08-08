@@ -76,3 +76,30 @@ overlapping queries demote. Only a fully headless `t(key)` deserves todays globa
 
 Report WHICH blockers have a static head and what it is ("3 blockers, 1 of them unbounded"), so the caller
 judges overlap instead of being told outright that narrowing is pointless.
+
+## Свидетельство (2026-08-05, `amiro/qa2-hide-conditions-tab`) — field report, and why it is NOT t-949045
+
+```
+find_unused_i18n_keys {prefix:'patient.record.tabs'}
+→ degraded=true globalDemote=true  unused (0)
+  reason "cannot prove any key dead — a dynamic t() call with no static prefix exists"
+  114 blocking sites, e.g. AppSidebar.tsx:52:66 · labelKey, MobileNav.tsx:27:59 · labelKey
+```
+
+**This is the path t-949045 explicitly did NOT change, and its output confirms t-949045 shipped**: the
+blocking call sites are now NAMED (114 of them), which is exactly the actionable half that task added.
+What remains is the population t-949045 measured and deferred here — headless `t(item.labelKey)` calls
+with no textual bound. So this is neither a regression nor an under-fix of that task; it is the
+unfinished half, and it lives on this one.
+
+The report adds one ask this task does not carry, and it is the cheap escape hatch: an explicit
+CALLER-RESPONSIBILITY opt-out (`ignoreDynamicSites: [file:line]`, or
+`assumeStaticOutside: ['patient.record.tabs', …]`), so a caller who has vetted a known-enumerable site
+gets a real answer for everything else. That turns "the op cannot help in this repo, ever" into "the op
+helps for everything the caller has vetted" WITHOUT touching `isKeyDemoted`'s inference — worth
+considering as a shippable first slice ahead of the checker work.
+
+Field cost as stated: this repo will always have such sites (a stored `labelKey` passed to `t()` is an
+established idiom there), so the op can name no dead key anywhere, for any prefix, indefinitely — while
+`i18n_lookup` reports the same keys as having 0 usages. Two ops, opposite impressions, neither
+actionable. The literal-occurrence half of that pair is filed as t-777834.
