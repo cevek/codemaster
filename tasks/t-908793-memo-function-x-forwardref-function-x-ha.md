@@ -68,3 +68,19 @@ Two smaller arg-surface frictions from the same session, recorded here so they a
 `bad_args`, both from op DESCRIPTIONS implying filters that do not exist): `scss_classes` rejects `{query}`,
 `list` rejects `{kind}`, while the spec lines read "SCSS class declarations in a sheet" and "does a component
 / hook / dialog already exist → list". Either add the filters or make the description name the real args.
+
+## The MESSAGE is separately fixable, and cheaper than the collapse
+
+Reproduced deliberately on a 4-line hermetic fixture, so this is first-hand. What follows is about what the failure TEXT does to a reader who does not already know the answer — it can ship before, and independently of, the resolution fix.
+
+    ts:DiffView@src/DiffView.tsx:2:39 (function), ts:DiffView@src/DiffView.tsx:2:14 (const)
+
+1. **Both candidates carry the same file AND the same line.** That is the strongest available evidence that they are one binding, and nothing in the message uses it. A reader without the "a function expression's name binds only inside its own body" fact cannot tell this pair from a genuine two-declaration collision in one file — which does exist (two same-named locals in different scopes), so the shapes are not distinguishable by eye.
+
+2. **`candidates (real declarations first)` steers wrong here.** It reads as a curation guarantee — the list was vetted, the leader is the one you want. The leader is `2:39`, the function-expression name: the single candidate that is never what a caller means. Ranking prose that cannot be trusted on the commonest React idiom is worse than no ranking prose, because it is believed.
+
+3. **The offered remedy is semantically wrong for this shape.** `mergeDeclarations:true` unions "all same-named declarations"; for a `memo`/`forwardRef` component there is nothing to union — there is one symbol. It additionally stamps `complete:false` whenever the candidate set was capped, so the cheap-looking escape DEGRADES an answer that had no incompleteness in it.
+
+**Smallest useful change short of the collapse:** when two candidates share a file and a line, say so — "2 candidates on one line — likely one binding: a function/class expression name and the const it initialises". One comparison, no change to resolution semantics, and a failed call becomes self-explaining.
+
+Worth keeping the two apart when planning: the collapse fixes the ANSWER, this fixes what the reader concludes while the answer is still wrong.

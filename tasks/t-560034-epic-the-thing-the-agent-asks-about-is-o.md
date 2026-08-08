@@ -37,3 +37,26 @@ vocabulary) and one honesty requirement: whatever cannot be resolved must come b
 
 The sibling epic for NON-CODE nodes (package.json / hooks / CI / prose) is separate — those are not TS at
 all. This epic is about TS entities that the checker can see but the address space cannot name.
+
+## Read as one set, 18 field reports converge on four unnamed places — and on one sharp danger
+
+A thematic pass over 18 wish/friction reports (2026-07-30..08-05; amiro 11, task-manager 5, claude-ui 2) read consecutively rather than one at a time. The conclusion is not visible from any single entry.
+
+Every one of the 18 hits the same wall: **only a DECLARED NAME is addressable.** The decisions code actually turns on live in four places that have no name:
+
+1. **POSITION** — what sits in argument N, who built it, whether it is the same across all sites (5 reports)
+2. **SHAPE** — "where else is it done this way": AST pattern, array-access form (`content[0]` vs `map`), assertion cast, a call's surroundings (5)
+3. **LITERAL** — a string that IS the entity's identity: collection key, permission code, union-protocol discriminant, co-varying literals (4)
+4. **DIRECTION** — where a value gets to: forward call path, field → request body, import cycle (4)
+
+**What makes this priority rather than cosmetics: in every report that names an outcome, the miss is SILENT.** A bare value reads as "clear the field" (quiet data loss); a diverged key wipes state on every reload; a removed server-side code greys a button for all roles; the second consumer of changed semantics is found by a reviewer; a cycle is found by a human. Not one of these produces a red type or a red test. So the class where we promise the most value — proof instead of reading by eye — is exactly the class where we are absent.
+
+### The sharper finding: the documented anti-join AMPLIFIES a wrong premise
+
+"Which member of the family does NOT call F" answers confidently and completely when the premise inside F is false — e.g. the guard shipped under a different name. The set is complete, the counters are right, and only the hypothesis is wrong.
+
+Our four documented limits on that recipe (one-member-per-file, helper-file over-report, completeness floors, `role:'call'`) do NOT cover this: every one of them is about completeness of the SET, none about correctness of the PREMISE. Until an op can prove reachability — that F calls nothing resembling X — a confident "not found" in an audit stays the most expensive answer we know how to produce. That gap is `t-904217`.
+
+### Planning lever
+
+Half the 18 close with ONE thing: make the expression in argument position an addressable object (its value, its literal, its producer, its origin — with honest `dynamic` where the producer is invisible). The other half close with structural search that returns SITES rather than a diff (`t-127800`). Treat those two as the axes; the individual wishes are instances.
