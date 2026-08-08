@@ -5,6 +5,9 @@ status: backlog
 priority: low
 tags:
   - dogfood
+type: feat
+complexity: L
+evidence: reported
 created: '2026-07-16T10:30:55.505Z'
 ---
 Split from t-584829 ask (b). The undiscovered-program floor notes (`!! LOWER BOUND — N repo tsconfig(s) NOT loaded …`) are honest but only WARN; they do not tell the caller HOW MANY usages/importers live under the unloaded programs. The stronger fix: where auto-loading the sibling is cheap, actually search the named programs and resolve the caveat to a COMPLETE count, so the agent gets a number instead of "do not trust this count".

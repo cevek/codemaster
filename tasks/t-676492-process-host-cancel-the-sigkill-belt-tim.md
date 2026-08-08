@@ -7,6 +7,9 @@ tags:
   - daemon
   - nit
   - process-isolation
+type: imp
+complexity: S
+evidence: repro
 created: '2026-07-17T00:52:06.411Z'
 ---
 The `KILL_BELT_MS` belt timer added in t-000052 (process-host.ts, on the per-request deadline

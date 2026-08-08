@@ -4,6 +4,7 @@ title: stylesheet-extension matching is case-sensitive
 status: backlog
 priority: low
 type: bug
+complexity: S
 area: scss
 relates:
   - t-000119

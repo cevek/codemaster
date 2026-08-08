@@ -32,6 +32,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "knip": "knip",
+    "queue": "node scripts/queue.mjs",
+    "backlog:lint": "node scripts/backlog-lint.mjs",
     "fix-and-check": "eslint src test --fix && knip --fix-type exports --fix-type types && prettier --write . && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && knip",
     "check": "eslint src test && npm run format:check && npm run typecheck && knip",
     "test": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/**/*.test.ts\"",

@@ -6,6 +6,9 @@ priority: medium
 tags:
   - freshness
   - platform
+type: bug
+complexity: M
+evidence: repro
 created: '2026-07-14T14:27:21.408Z'
 ---
 PLATFORM freshness bound (affects BOTH navto and the syntactic search — not feature-specific). `git status --porcelain` summarizes a dirty submodule as ONE path-level line (` M sub`), never enumerating `sub/a.ts`. So an edit to a file INSIDE an already-dirty submodule (after the first clean→dirty flip) is invisible to any freshness check keyed on the porcelain dirty set:

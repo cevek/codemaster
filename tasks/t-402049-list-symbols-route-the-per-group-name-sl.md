@@ -6,5 +6,8 @@ priority: low
 tags:
   - cleanup
   - ts-core
+type: imp
+complexity: S
+evidence: repro
 created: '2026-07-16T13:06:14.068Z'
 ---

@@ -4,6 +4,7 @@ title: scss/plugin.ts` near the 300-line cap
 status: backlog
 priority: low
 type: dx
+complexity: S
 area: scss
 relates:
   - t-000152

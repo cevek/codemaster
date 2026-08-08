@@ -61,6 +61,11 @@ fields:
       - internal
       - external
       - both
+  # The ordering axis of the work queue (CONTRIBUTING "Backlog discipline"). Records the
+  # OBSERVED ACT, never the importance — `measured` needs a number, `repro` needs a command
+  # that reproduces on current main. That is what makes it the one field an inflation wave
+  # cannot reach. Do not add a value that no check stands behind: `field-report` was such a
+  # value and ended up on zero tasks.
   evidence:
     type: enum
     values:
@@ -68,7 +73,6 @@ fields:
       - repro
       - reported
       - unverified
-      - field-report
 web:
   host: 127.0.0.1
   port: 57345

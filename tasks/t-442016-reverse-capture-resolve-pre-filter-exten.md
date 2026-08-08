@@ -7,6 +7,9 @@ parent: t-031282
 tags:
   - perf
   - ts-refactor
+type: perf
+complexity: L
+evidence: measured
 created: '2026-07-17T00:35:06.122Z'
 ---
 A relative-only reverse-resolve pre-filter (`canSkipReverseResolve`: skip the FS-probing

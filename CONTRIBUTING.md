@@ -259,6 +259,71 @@ open work, and an agent will build against a bug that no longer exists. Two rule
   one-shot / fixture); if you can't, either omit it or tag it `UNVERIFIED` so the next
   reader knows it's unconfirmed, not a known bug.
 
+### What to work on next — `npm run queue`, and why `priority` is not the answer
+
+The queue is **computed**, not curated. `npm run queue` prints it, ordered, with the reason each
+item is where it is; the rule below is what it runs.
+
+**`evidence` GATES; `type` ORDERS; `priority` breaks ties.** Keeping those three jobs apart is the
+whole design.
+
+`evidence` records an OBSERVED ACT — `measured` needs a number or a run, `repro` needs a command
+that reproduces on current `main` — so it cannot be inflated by good intentions: to overstate it
+you must produce the number or the command, and the first reader who opens the body catches you.
+That property makes it the right GATE. It is not hypothetical: one triage wave landed 49 `high`
+and, in those same tasks, `reported` 49 times against `measured` once. The wave went straight
+through `priority` and could not touch `evidence`.
+
+`priority` is a judgement, and a judgement made 49 times in one day by one rule stops ordering
+anything. So the fix is not to police it — it is to stop depending on it. Set it honestly and let
+it break ties.
+
+But do NOT let `evidence` lead the sort as well. Everything past the gate is already proven, and
+`repro` — a command that reproduces the defect — is not weak evidence; the gap between `measured`
+and `repro` is a detail of how the proof was written down. The gap between a proven live lie and a
+measured improvement is doctrine (§1). Sorting on the former ahead of the latter would reorder the
+work by how a filer chose to document their proof: on live data it floats 27 `imp`/`measured` above
+72 `bug`/`repro`. So `type` leads, and `evidence` orders within one `type`.
+
+**Three gates decide what can enter the queue at all.** Each closes a different class, and none
+substitutes for another:
+
+| gate | removes | why it is structural |
+| --- | --- | --- |
+| `-has:children` | epics | an epic is an AXIS, not work. Test on `children`, never on `tag:epic` — 7 of 12 epics do not carry the tag |
+| `-complexity:L` | "fat task / design needed" | catches what the first misses: a childless, untagged `L` item is still not pickable |
+| `type:bug,perf,imp,dx` + `evidence:measured,repro` | unproven work | §1/§3: a proven live lie weighs differently from a reported absence |
+
+Then sort: `urgent` pinned first → `type` (`bug` → `perf` → `imp` → `dx`) → `evidence` (`measured`
+before `repro`) → `priority` → `complexity` → `id` (the last key keeps two runs byte-identical, §16).
+
+A gate that removes proven work states it. `feat`/`infra`/`doc` are filtered out by the type gate,
+so anything among them carrying `measured`/`repro` is reported in the health line rather than
+dropped in silence — the same rule the tool applies to its own results (§3.4): a filtered set names
+what the filter removed, or the remainder reads as the whole.
+
+**Writing rules that keep the queue usable.** Two, both checkable by eye:
+
+1. **Set `evidence` from what was observed, never from how much it matters.** This is the whole
+   load-bearing convention. A value no check stands behind does not get filled at all — `evidence:
+field-report` was declared and ended on zero tasks.
+2. **The body names ONE decided minimal outcome.** Passing every gate does not make a task
+   pickable if the body offers two remedies and picks neither — the taker must first make a design
+   call, which is a different job. Put the decided half first ("this is the honesty half, it is
+   cheap and closes on its own"); park open forks below it, explicitly. Autonomy is not derivable
+   from any field, so this convention is the only thing that carries it.
+
+**The failure mode is exhaustion, not inflation.** The pickable pool is small by construction, and
+the queue CONSUMES the proof that triage produces. When it runs low the answer is not to relax a
+gate — it is to spend a session promoting `repro` to `measured` on tasks where the number takes a
+minute. `npm run queue` prints pool health for that reason, including how many tasks are INVISIBLE
+to the rule for lack of `type`/`complexity`/`evidence`: such a task is never queued at any priority.
+
+**`feat` cannot enter this queue, by design.** Capability gaps are almost all `reported` — there is
+nothing to measure about an op that does not exist. They are taken as a separate lane, at most one
+bet per session, sized by the epic that owns them. Ordering "we have proven we lie" against "we
+think this would help" in one sequence collapses to taste, so the two are not mixed.
+
 ## Dependencies
 
 Lean — a new dependency needs a reason. A dependency declared ahead of its first use goes
