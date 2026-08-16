@@ -73,6 +73,13 @@ fields:
       - repro
       - reported
       - unverified
+  author:
+    type: string
+    required: new
+    icon: user-pen
+  assignee:
+    type: string
+    icon: user-check
 web:
   host: 127.0.0.1
   port: 57345
