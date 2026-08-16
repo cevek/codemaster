@@ -26,8 +26,10 @@ tm --json list "priority:>=high is:ready" | jq -r '.[].task.id'        # bare id
 tm --json list "-status:done" | jq -r 'group_by(.task.fields.area)[] | "\(.[0].task.fields.area//"—"): \(length)"'
 ```
 
-- Pick up work → `set_status <id> in-progress`; done → `set_status <id> done`. Pass
-  `expected_hash` from your read to catch a stale view.
+- Pick up work → `set_status <id> in-progress`. Pass `expected_hash` from your read to catch a
+  stale view. **Closing is role-dependent.** Solo, you set `done` yourself. Under a manager you
+  stop at `review` and the manager sets `done` after the merge — a track you cannot see merged is
+  a track you cannot close.
 - Uncover new work — incl. an out-of-scope bug/debt, **file it, never drop it** →
   `create_task "<title>" [parent, depends_on, priority, tags, field=…]`. A subtask is just a
   task with a `parent`.
@@ -93,6 +95,22 @@ and match your hunches to REAL names instead of guessing.
 
 Исключение одно: публичный API пакета, который читают СНАРУЖИ — люди или генератор доков. Там
 doc-комментарий сам является продуктом и живёт по своим правилам.
+
+## Чужое рабочее дерево не мутируй
+
+Параллельно с тобой в соседних worktree того же репозитория работают другие агенты, и их деревья
+живые. Читать их можно, менять — нет: ни `git checkout` (включая `git checkout <sha> -- .`), ни
+`restore`, ни `clean`, ни `reset`, ни `stash`.
+
+«Я работаю только на чтение» этого не покрывает: такой checkout не меняет ни строчки в том, что ты
+делаешь, и при этом стирает незакоммиченную работу владельца дерева. HEAD не двигается, в reflog и
+stash пусто, `git status` чист — следов нет нигде, и потеря обнаружится тем, что чужая правка
+перестала действовать.
+
+Нужен файл на каком-то коммите — читай его (`git show <sha>:<path>`), а не выкладывай в дерево.
+
+То же правило записано в промптах воркера и всех ревьюверов. Дублирование здесь намеренное: оно
+стоит нескольких строк, а пропущенная копия стоит чужого рабочего дня, который не восстановить.
 
 ## Догфудинг — codemaster жив на этом репозитории
 

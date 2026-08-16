@@ -73,11 +73,10 @@ description: Adversarial correctness review — hunts bugs (wrong output, crashe
 4. **Completeness-ложь.** Silent-truncation; partial выдан за complete; `dynamic`-хоп смостили без
    флага; кросс-плагин op компонует несколько `Result<T>` и теряет чей-то `FreshnessNote`/`ToolFailure`.
 
-Плюс общее для демона: **async/concurrency** — floating/misused promise, гонка op↔watcher или
-mutating-op↔reindex, shared mutable state между конкурентными запросами, долгий СИНХРОННЫЙ вызов на
-главном треде (LS, typecheck, `JSON.parse/stringify` большого payload, `execSync`, bulk-parse) блокирует
-loop оркестратора — тяжёлое в workspace-engine off-orchestrator (§2); **undefined/edge** —
-`noUncheckedIndexedAccess`-дыры, пустой массив, zero-length span, first/last, off-by-one; **error-paths**
-— необёрнутый внешний вызов (LS/git/ast-grep/prettier/fs), из-за которого исключение утекает агенту
-вместо `ToolFailure`; **resource leaks** — LS/watcher/file-handle вокруг LRU-eviction; **path/encoding**
-— posix vs windows separators, symlink, non-UTF-8, CRLF-сдвиг офсетов.
+Плюс демон-специфика: гонка op↔watcher или mutating-op↔reindex, shared mutable state между
+конкурентными запросами; долгий СИНХРОННЫЙ вызов на главном треде (LS, typecheck,
+`JSON.parse/stringify` большого payload, `execSync`, bulk-parse) блокирует loop оркестратора — тяжёлое
+в workspace-engine off-orchestrator (§2); необёрнутый внешний вызов (LS/git/ast-grep/prettier/fs), из-за
+которого исключение утекает агенту вместо `ToolFailure`; resource leaks вокруг LRU-eviction
+(LS/watcher/file-handle); `noUncheckedIndexedAccess`-дыры и proof-span сдвиг офсетов при non-UTF-8/
+CRLF/symlink.
