@@ -33,6 +33,15 @@ tm --json list "-status:done" | jq -r 'group_by(.task.fields.area)[] | "\(.[0].t
 - Uncover new work — incl. an out-of-scope bug/debt, **file it, never drop it** →
   `create_task "<title>" [parent, depends_on, priority, tags, field=…]`. A subtask is just a
   task with a `parent`.
+  **In a filed task, address code by SYMBOL — never by line number.** A backlog entry waits weeks
+  before anyone opens it, and by then `foo.ts:214` points at unrelated code — worse than no pointer
+  at all, because it still reads like an exact address and gets trusted as one. Name the function /
+  type / constant plus its file: that survives edits above it, and survives the symbol moving to
+  another file, because the name still finds it and a number never will. Nothing nameable there (a
+  config value, a data row) → anchor on stable content: the key, the section heading, the literal
+  string. Must pin an exact spot → pin it against an immutable revision (`file:line@<sha>`), not
+  against a branch that moves. (A task you open and close the same day is free to cite lines — the
+  rule is about the ones that wait.)
 - Find things → `list_tasks "<query>"` / `search`, GitHub-style DSL (`status:todo
 priority:>=high tag:auth is:ready -is:blocked sort:-priority`); `ready_tasks` /
   `blocked_tasks` / `tree` for shape; `get_task <id>` for detail; `update_task` /
