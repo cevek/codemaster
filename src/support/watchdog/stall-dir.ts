@@ -1,5 +1,6 @@
-// The stall diagnostic writer (t-095661). When the watchdog reaps a wedged/orphaned process — or a
-// bounded deadline fires (§19 fold-in) — it drops a breadcrumb record to `~/.codemaster/stalls/`
+// The stall diagnostic writer (t-095661). When the watchdog reaps a wedged/orphaned process, a
+// bounded deadline fires (§19 fold-in), or the fatal handlers terminate a host-gone/fault-loop
+// process (t-216182) — it drops a breadcrumb record to `~/.codemaster/stalls/`
 // FIRST, then SIGKILLs. This is the honest form of the "dump file" ask: a JS stack from a wedged
 // thread is uncapturable, but the breadcrumb says WHAT was running ("op:find_usages … started 340s
 // ago") — the actual diagnostic value. The write is synchronous (the worker thread is not wedged)

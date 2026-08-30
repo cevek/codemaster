@@ -1909,7 +1909,7 @@ codemaster/
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
       usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl + inflight/ crash breadcrumbs (§13)
-      watchdog/              # never-hang backstops (§1): beacon (SAB breadcrumb) + worker (wedge reaper, SIGKILL) + orphan-poll + stall-dir + install
+      watchdog/              # never-hang backstops (§1): beacon (SAB breadcrumb) + worker (wedge reaper, SIGKILL) + orphan-poll + stall-dir + install + fatal-handlers (EPIPE-storm-proof uncaught pair: host-gone exit + fault-loop guard)
       prettier/              # invoke project's own prettier
       text-edits/            # span-based edits, atomic apply, conflict detection
       transport/             # Transport seam: unix socket + NDJSON — the daemon's wire (§19)
@@ -2263,7 +2263,17 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   (kernel-delivered, uncatchable — bypasses the wedged loop; `process.abort()` is unsupported in a
   worker, `process.exit` exits only the worker). A **getppid/orphan poll** (existence-probe on the
   spawning parent, `kill(pid,0)`) self-exits an orphaned in-process server (backstop for a missed
-  stdin-EOF) — DISABLED for `daemon serve`, which is detached by design. Installed on both in-process
+  stdin-EOF) — DISABLED for `daemon serve`, which is detached by design. A `ppid <= 1` read at
+  install on the orphan-aware path is an orphan VERDICT, not "nothing to watch" (t-216182: the
+  spawner exited during the ~1s boot window) — logged, graceful shutdown on the first poll tick,
+  worker SIGKILL as the backstop. A third mechanism, the **fatal handlers**
+  (`watchdog/fatal-handlers.ts`, wired at the composition roots): the process-level
+  `uncaughtException`/`unhandledRejection` pair never throws (a stderr write to a dead socket
+  re-entering the handler is an infinite EPIPE storm at 100% CPU), exits with a `host-gone` stall
+  record on an EPIPE/stream-destroyed/IPC-closed fault where stdio/IPC IS the serving transport
+  (`mcp`, `daemon serve-engine` — never the machine-wide daemon, whose bridge sockets may die
+  routinely), and terminates a repeating fault storm with one `fault-loop` record + exit instead of
+  a CPU-pinning swallow loop. Installed on both in-process
   paths; the daemon's PRODUCTION hard guarantee remains §9 process-mode kill-on-deadline (per-child
   SIGKILL — more precise), which the watchdog complements as a same-process last resort. (§1, §9)
 - **Per-plugin tear-free reads.** Plugins choose their internal storage, but the contract
