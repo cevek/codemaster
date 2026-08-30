@@ -30,6 +30,7 @@ import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
 import { pidfilePathFor } from './support/pidfile/write.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
+import { installFatalHandlers } from './support/watchdog/fatal-handlers.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
 import { flagIssue, flagValue, hasFlag } from './cli/flags.ts';
@@ -95,6 +96,16 @@ function mcpIdleMs(cwd: string): number {
   return minutes * 60_000;
 }
 
+/** Watchdog evidence sink (t-216182: a disarmed/degraded watchdog must say so, never go quiet).
+ *  Write-wrapped — stderr may itself be a dead socket. */
+function watchdogLog(message: string): void {
+  try {
+    process.stderr.write(`codemaster: ${message}\n`);
+  } catch {
+    /* best-effort evidence */
+  }
+}
+
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
@@ -109,12 +120,6 @@ async function emit(outcome: CliOutcome, orchestrator: Orchestrator): Promise<nu
 }
 
 async function main(): Promise<number> {
-  // §3.6: a stray rejection must never take the front door down.
-  process.on('uncaughtException', (err) => process.stderr.write(`codemaster: ${err.message}\n`));
-  process.on('unhandledRejection', (err) =>
-    process.stderr.write(`codemaster: unhandled rejection: ${String(err)}\n`),
-  );
-
   const args = process.argv.slice(2);
   // `--root` is a position-free GLOBAL flag: extract it from the whole argv BEFORE shifting the
   // subcommand, so `--root <dir> op …` parses as well as `op … --root <dir>` (t-713862). Read with
@@ -123,6 +128,16 @@ async function main(): Promise<number> {
   // It splices wherever it sits, so the shift below always lands on the real subcommand token.
   const root = flagValue(args, '--root');
   const command = args.shift();
+
+  // §3.6 + t-216182: a stray fault must never take the front door down — but the handler itself
+  // must never throw (a stderr write to a dead socket re-enters it: the EPIPE storm), must exit
+  // when a host-gone code proves the stdio peer died on the ONE path where stdio IS the transport
+  // (`mcp` — the daemon must NOT die because one bridge socket vanished), and a repeating fault
+  // storm ends in one `fault-loop` stall record + exit, never a 100%-CPU swallow loop. The engine
+  // child (`daemon serve-engine`) installs its own IPC-aware pair in `serveEngineChild`.
+  if (!(command === 'daemon' && args[0] === 'serve-engine')) {
+    installFatalHandlers({ label: 'codemaster', exitOnHostGone: command === 'mcp' });
+  }
 
   switch (command) {
     case 'daemon': {
@@ -135,7 +150,7 @@ async function main(): Promise<number> {
         // Hosts one in-process orchestrator behind the unix socket, shared across every bridge.
         // Wedge watchdog only (t-095661): the daemon is DETACHED by design (parent → init), so
         // orphan-exit is off here; its production hard-guarantee is §9 kill-on-deadline.
-        installWatchdog({ clock: systemClock, orphanAware: false });
+        installWatchdog({ clock: systemClock, orphanAware: false, log: watchdogLog });
         const orchestrator = buildOrchestrator();
         const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
         const transport = createUnixSocketTransport(socket);
@@ -214,7 +229,7 @@ async function main(): Promise<number> {
         // Never-hang backstops (t-095661): the in-process path has NO external killer, so a wedge
         // watchdog (worker thread) + orphan poll self-reap. Best-effort — a failed install is a
         // no-op, never a broken serve path.
-        installWatchdog({ clock: systemClock, orphanAware: true });
+        installWatchdog({ clock: systemClock, orphanAware: true, log: watchdogLog });
         await serveMcp(buildOrchestrator(), VERSION, {
           // No daemon in this topology — the self-staleness banner must not offer `codemaster
           // daemon restart` here, which would be a no-op on THIS process (§3.6).

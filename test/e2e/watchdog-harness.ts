@@ -28,7 +28,11 @@ if (mode === 'wedge') {
       /* busy-loop — never yields */
     }
   });
-} else if (mode === 'orphan-parent') {
+} else if (mode === 'orphan-parent' || mode === 'orphan-parent-fast') {
+  // 'orphan-parent-fast' (t-216182): the parent exits IMMEDIATELY after the spawn — before the
+  // child's ~1s boot reaches `installWatchdog`, so the child reads ppid=1 at install. Pre-fix that
+  // silently DISARMED orphan detection for the process lifetime; the fix must treat it as an
+  // orphan verdict and still reap.
   const self = fileURLToPath(import.meta.url);
   const child = spawn(process.execPath, [self, 'orphan-child'], {
     detached: true,
@@ -46,7 +50,9 @@ if (mode === 'wedge') {
       /* best-effort */
     }
   }
-  // Give the child time to install its watchdog, then exit so it is reparented (orphaned).
+  // 'orphan-parent': give the child time to install its watchdog, then exit so it is reparented.
+  // 'orphan-parent-fast': exit NOW, while the child is still booting (the ppid race).
+  if (mode === 'orphan-parent-fast') process.exit(0);
   setTimeout(() => process.exit(0), 200);
 } else if (mode === 'orphan-child') {
   const marker = process.env['CODEMASTER_TEST_MARKER'];

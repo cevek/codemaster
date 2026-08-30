@@ -6,11 +6,13 @@
 // and fully wrapped: a write failure must never block the SIGKILL that follows — the kill is the
 // guarantee, the file is best-effort.
 
+import process from 'node:process';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 export interface StallRecord {
-  reason: 'wedge' | 'orphan' | 'deadline';
+  reason: 'wedge' | 'orphan' | 'deadline' | 'host-gone' | 'fault-loop';
   pid: number;
   /** The breadcrumb text — the op label + a bounded args preview. */
   op: string;
@@ -30,5 +32,22 @@ export function writeStallRecord(stallDir: string, record: StallRecord): string 
     return file;
   } catch {
     return null;
+  }
+}
+
+/** The stall dir: `CODEMASTER_STALL_DIR` override, else `~/.codemaster/stalls` off the
+ *  env-independent passwd home (mirroring `socket-path.ts` — must resolve the same whether spawned
+ *  by a stripped-env host or a normal shell). */
+export function resolveStallDir(): string {
+  const override = process.env['CODEMASTER_STALL_DIR'];
+  if (override !== undefined && override.length > 0) return override;
+  return path.join(homeDir(), '.codemaster', 'stalls');
+}
+
+function homeDir(): string {
+  try {
+    return os.userInfo().homedir;
+  } catch {
+    return os.tmpdir();
   }
 }

@@ -1,7 +1,7 @@
 ---
 id: t-216182
 title: 'REGRESSION t-895142: orphaned `mcp --in-process` servers spin at 70-100% CPU in an uncaught-exception storm; neither watchdog branch reaps them'
-status: backlog
+status: done
 priority: urgent
 tags:
   - never-hang

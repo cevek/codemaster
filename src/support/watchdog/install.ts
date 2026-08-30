@@ -9,12 +9,11 @@
 
 import process from 'node:process';
 import { Worker } from 'node:worker_threads';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import type { Clock } from '../../common/async/clock.ts';
 import { beacon } from './beacon.ts';
 import { SAB_BYTES } from './beacon-sab.ts';
 import { startOrphanPoll } from './orphan-poll.ts';
+import { resolveStallDir } from './stall-dir.ts';
 
 const DEFAULT_THRESHOLD_MS = 5 * 60_000; // §1: no legitimate op approaches 5 min → no false-positive
 const DEFAULT_POLL_MS = 5_000;
@@ -47,10 +46,19 @@ export function installWatchdog(options: InstallWatchdogOptions): WatchdogHandle
     const thresholdMs = readEnvMs('CODEMASTER_WATCHDOG_MS', DEFAULT_THRESHOLD_MS);
     const pollMs = readEnvMs('CODEMASTER_WATCHDOG_POLL_MS', DEFAULT_POLL_MS);
     const stallDir = resolveStallDir();
-    // The parent whose lifetime owned ours (the MCP host). <= 1 means we were launched already
-    // detached — nothing to orphan-watch, so disable rather than watch init forever.
+    // The parent whose lifetime owned ours (the MCP host). On the orphanAware path `ppid <= 1`
+    // means the spawner ALREADY exited during our boot window (Node + type-stripping needs ~1s to
+    // reach this line) and we are reparented to init — i.e. already orphaned. Reading it as
+    // "nothing to watch" is the exact inversion (incident t-216182: 77 disarmed orphans pinning
+    // cores); treat it as an orphan verdict, loudly.
     const parentAtStart = process.ppid;
-    const watchParent = options.orphanAware && parentAtStart > 1;
+    const alreadyOrphaned = options.orphanAware && parentAtStart <= 1;
+    const watchParent = options.orphanAware && !alreadyOrphaned;
+    if (alreadyOrphaned) {
+      log(
+        `watchdog: parent already gone at install (ppid=${parentAtStart}) — treating as orphaned`,
+      );
+    }
 
     const sab = new SharedArrayBuffer(SAB_BYTES);
     beacon.bind(sab, options.clock);
@@ -62,6 +70,9 @@ export function installWatchdog(options: InstallWatchdogOptions): WatchdogHandle
         pollMs,
         stallDir,
         orphanParent: watchParent ? parentAtStart : null,
+        // SIGKILL backstop for the boot-window race above: the worker reaps after the grace ticks
+        // even if the main-loop poll below never runs (e.g. a wedge right after install).
+        alreadyOrphaned,
       },
     });
     // The worker must never hold the main process open past its own work, and its errors must never
@@ -69,12 +80,15 @@ export function installWatchdog(options: InstallWatchdogOptions): WatchdogHandle
     worker.unref();
     worker.on('error', (err) => log(`watchdog worker error: ${err.message}`));
 
-    const stopOrphanPoll = watchParent
+    // Already orphaned → the first poll tick fires the graceful path (probe short-circuits false);
+    // the worker's `alreadyOrphaned` SIGKILL is the backstop if this loop never gets to run.
+    const stopOrphanPoll = options.orphanAware
       ? startOrphanPoll({
           clock: options.clock,
           parentAtStart,
           pollMs,
           onOrphan: options.onOrphan ?? defaultOnOrphan,
+          ...(alreadyOrphaned ? { probe: (): boolean => false } : {}),
         })
       : undefined;
 
@@ -105,22 +119,6 @@ function defaultOnOrphan(): void {
     process.kill(process.pid, 'SIGTERM');
   } catch {
     /* nothing more we can do from here */
-  }
-}
-
-function resolveStallDir(): string {
-  const override = readEnvFlag('CODEMASTER_STALL_DIR');
-  if (override !== undefined && override.length > 0) return override;
-  return path.join(homeDir(), '.codemaster', 'stalls');
-}
-
-/** Env-independent home (passwd), mirroring `socket-path.ts` — the stall dir must resolve the same
- *  whether spawned by a stripped-env host or a normal shell. */
-function homeDir(): string {
-  try {
-    return os.userInfo().homedir;
-  } catch {
-    return os.tmpdir();
   }
 }
 

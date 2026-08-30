@@ -30,6 +30,7 @@ import { createDebugSystem } from '../support/debug/system.ts';
 import { createStderrSink } from '../support/debug/stderr-sink.ts';
 import { createChokidarWatcher } from '../support/watch/chokidar.ts';
 import { installWatchdog } from '../support/watchdog/install.ts';
+import { installFatalHandlers } from '../support/watchdog/fatal-handlers.ts';
 import { loadConfig } from '../support/config-load/load.ts';
 import { isOk } from '../common/result/narrow.ts';
 import { attachRepoLogSink } from './repo-log-sink.ts';
@@ -62,11 +63,15 @@ let shuttingDown = false;
  *  dies. Resolves when the child has committed to exit (dispose / disconnect); a build failure
  *  emits `fatal` and exits non-zero so the parent's spawn returns an honest failure. */
 export async function serveEngineChild(deps: EngineChildDeps): Promise<void> {
-  // §3.6: a stray rejection must never crash the child silently — trace and stay up.
-  process.on('uncaughtException', (err) => process.stderr.write(`engine-child: ${err.message}\n`));
-  process.on('unhandledRejection', (err) =>
-    process.stderr.write(`engine-child: unhandled rejection: ${String(err)}\n`),
-  );
+  // §3.6 + t-216182: a stray fault must never crash the child silently — but the handler never
+  // throws (an EPIPE from its own stderr write would storm), a host-gone code (EPIPE on relayed
+  // stderr / a closed fork IPC channel) means the daemon parent died → exit, and a repeating fault
+  // storm ends in a `fault-loop` stall record + exit, never a CPU-pinning swallow loop.
+  installFatalHandlers({
+    label: 'engine-child',
+    exitOnHostGone: true,
+    extraHostGoneCodes: ['ERR_IPC_CHANNEL_CLOSED'],
+  });
 
   const debugSpec = process.env['CODEMASTER_DEBUG'] ?? '';
   const debug = createDebugSystem(systemClock, debugSpec);

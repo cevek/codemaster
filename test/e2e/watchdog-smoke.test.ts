@@ -101,6 +101,47 @@ test('backstop 2: an ORPHANED in-process child is reaped (not lingering) when it
   }
 });
 
+test('backstop 2 (ppid race, t-216182): a spawner that dies DURING the child boot still gets the child reaped', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-wd-orphan-fast-'));
+  const marker = path.join(dir, 'orphaned.marker');
+  const pidFile = path.join(dir, 'child.pid');
+  try {
+    const parent = spawn(process.execPath, [HARNESS, 'orphan-parent-fast'], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: {
+        ...process.env,
+        CODEMASTER_TEST_MARKER: marker,
+        CODEMASTER_TEST_CHILD_PID_FILE: pidFile,
+        CODEMASTER_WATCHDOG_POLL_MS: '50',
+        CODEMASTER_WATCHDOG_MS: '600000',
+      },
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('orphan-parent-fast never exited')), 15_000);
+      timer.unref();
+      parent.on('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      parent.on('error', reject);
+    });
+    // The parent exited BEFORE the child's ~1s boot reached `installWatchdog` — the child reads
+    // ppid=1 at install. Pre-fix this DISARMED detection for the process lifetime (the incident's
+    // 77 accumulated orphans); the fix treats it as an orphan verdict → the child is still reaped.
+    await waitFor(() => existsSync(pidFile), 15_000);
+    const childPid = Number(readFileSync(pidFile, 'utf8'));
+    assert.ok(Number.isInteger(childPid) && childPid > 0, 'harness recorded the child pid');
+    await waitFor(() => !alive(childPid), 15_000);
+    assert.equal(alive(childPid), false, 'the boot-window orphan was reaped, not disarmed forever');
+    // Discriminates a real orphan-verdict shutdown from a boot crash faking the reap: the marker is
+    // written only by the child's graceful SIGTERM path.
+    await waitFor(() => existsSync(marker), 15_000);
+    assert.ok(existsSync(marker), 'the child shut down via the graceful orphan path');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('backstop 1 (process-mode child): a wedge in the forked engine-child is reaped through the ENGINE op wrap', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cm-wd-child-'));
   // A minimal real project so `serveEngineChild` → `createEngine` boots (loadConfig + ts plugin).

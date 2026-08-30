@@ -24,6 +24,9 @@ interface WatchdogWorkerData {
   /** The spawning parent pid to watch for the in-process path; `null` disables orphan-kill (the
    *  daemon is detached by design — its parent legitimately becomes init). */
   orphanParent: number | null;
+  /** The spawner exited during our boot window (ppid read 1 at install) — an orphan verdict, not a
+   *  pid to probe (t-216182): reap after the grace ticks if the graceful main-loop path doesn't. */
+  alreadyOrphaned: boolean;
 }
 
 // Grace before the worker SIGKILLs a healthy orphan: give the main-loop orphan poll (backstop 2) a
@@ -56,7 +59,10 @@ function tick(): void {
     reap('wedge', snap.text, snap.startMs, snap.seq);
     return;
   }
-  if (data.orphanParent !== null && isOrphaned(data.orphanParent, processAlive)) {
+  if (
+    data.alreadyOrphaned ||
+    (data.orphanParent !== null && isOrphaned(data.orphanParent, processAlive))
+  ) {
     orphanTicks += 1;
     if (orphanTicks >= ORPHAN_GRACE_TICKS) {
       reap('orphan', snap.busy ? snap.text : '(orphaned)', snap.startMs, snap.seq);
