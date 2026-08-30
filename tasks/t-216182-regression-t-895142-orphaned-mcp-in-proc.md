@@ -12,54 +12,85 @@ evidence: measured
 author: opus
 created: '2026-08-30T16:59:58.783Z'
 ---
-## Observed (live box, measured)
+## Diagnosis — CONFIRMED, two independent defects, both with deterministic repro
 
-77 processes `node src/bin.ts mcp --in-process` alive with `PPID=1` (the spawning MCP host
-gone), each burning 20-100% CPU; oldest ~1h05m elapsed / 21m CPU. Machine-wide CPU
-starvation + thermal throttling. No codemaster op had run in those roots for days
-(`~/.codemaster/usage/*.jsonl`), so the burn is NOT op work.
+Observed on a live box: 77 processes `node src/bin.ts mcp --in-process`, `PPID=1`, each
+burning 20-100% CPU, oldest ~1h05m elapsed. Machine-wide CPU starvation + thermal
+throttling. `~/.codemaster/usage/*.jsonl` holds ZERO records from those roots, so the
+processes never served an op — the burn is pure fault-loop.
 
-`sample <pid>` — main thread 100% inside:
+### Defect 1 — the `uncaughtException` handler feeds its own loop
 
-    uv__run_check -> CheckImmediate -> InternalMakeCallback
-      -> Isolate::ReportPendingMessages -> MessageHandler::ReportMessage
-        -> node::errors::TriggerUncaughtException
-          -> ErrorStackGetter -> FormatStackTrace -> PrepareStackTraceCallback
-            -> CallSitePrototypeToString -> SerializeCallSiteInfo -> SourcePositionTableIterator
+Caught live via CDP (`kill -USR1 <pid>`, `Debugger.setPauseOnExceptions`):
 
-An endless uncaught-exception loop: something throws on every `setImmediate` tick, each
-throw formats a full stack, and since the process runs TS through Node type-stripping the
-source-position lookup is expensive. That serialization IS the burn.
+    Error: write EPIPE
+      at Writable.write (node:internal/streams/writable:510:10)
+      at process.<anonymous> (src/bin.ts:113:59)     <- the uncaughtException handler
+      at process._fatalException (node:internal/process/execution:155:25)
 
-`lsof`: fds 0/1/2 are `unix ... ->(none)` — the stdio socketpair peers are closed. The
-`uncaughtException` handler in `bin.ts` `main` swallows the error and WRITES TO STDERR, so
-it is a candidate for feeding its own loop.
+`bin.ts` `main` installs
 
-## Two independent defects
+    process.on('uncaughtException', (err) => process.stderr.write(`codemaster: ${err.message}\n`));
 
-1. **The storm.** `process.on('uncaughtException', ...)` keeps the process alive across an
-   error that repeats every tick. A swallow-and-continue handler over a REPEATING fault is
-   the §1 hang with a CPU price. Needs: identify the thrower on the dead-stdio path
-   (suspect: a write to a closed stdio socket, or the MCP transport read loop after peer
-   close), and give the handler a repeat-guard — N identical uncaught exceptions inside a
-   window => one stall record, then exit. Never spin.
+When the MCP host is gone, stdio fds are dead sockets (`lsof`: 0/1/2 = `unix ... ->(none)`).
+The first stdio write throws EPIPE -> uncaughtException -> the handler writes to stderr ->
+that write throws EPIPE -> uncaughtException -> ... forever. Each iteration formats a full
+stack, and because the process runs TS through Node type-stripping the source-position
+lookup dominates (`sample`: 100% in `SerializeCallSiteInfo` /
+`SourcePositionTableIterator`). That formatting IS the CPU burn.
 
-2. **Neither watchdog branch fired.** `~/.codemaster/stalls/` holds nothing newer than
-   months-old records, so none of the 77 was reaped. Check in order:
-   - `installWatchdog` reads `process.ppid` at install; if the host spawns the server
-     already detached (ppid already 1), `watchParent` is false and orphan detection is
-     SILENTLY off for the process lifetime — nothing records that.
-   - the main-loop `startOrphanPoll` cannot run while the loop is saturated (by design —
-     that is the worker's job), so the worker was the only defence and it also missed.
-   - `processAlive(parentAtStart)` is pid-existence only: a recycled pid reads as "parent
-     alive" forever on a busy box.
-   - the WEDGE branch cannot fire either: the loop is not wedged, it is LOOPING, so the
-     beacon keeps refreshing and `isWedged` stays false. **A busy-forever orphan is
-     invisible to both branches** — that is the structural gap.
+The same shape exists in `daemon/engine-child.ts:66-67`.
+
+REPRO (deterministic): keep the child's stdin peer OPEN (so no EOF -> the process will not
+exit), close the stdout AND stderr peers after a completed MCP handshake, then send one
+`tools/list`. The reply write hits EPIPE and the loop starts: ~85% CPU, forever.
+
+### Defect 2 — orphan detection is silently disabled by a startup race
+
+`installWatchdog` reads `process.ppid` at install and sets
+`watchParent = orphanAware && parentAtStart > 1`. Node + TS type-stripping needs ~1s to
+reach that line. If the spawning host exits inside that window the process is ALREADY
+reparented, `process.ppid` reads 1, and orphan detection is turned off **for the whole
+process lifetime, with no diagnostic anywhere**.
+
+REPRO: spawn with `start_new_session=True` and let the spawner exit immediately -> the
+process survives indefinitely (verified 40s+, 61% CPU, never reaped). Spawn with a spawner
+that outlives the boot -> the worker reaps it in ~10s and writes a
+`~/.codemaster/stalls/*.json` with `reason:"orphan"`.
+
+Evidence at scale: `~/.codemaster/stalls/` holds 2 records for the day against 77 surviving
+orphans — detection was armed for the rare slow-parent case only.
+
+The WEDGE branch cannot cover this either: the loop is not wedged, it is LOOPING (the event
+loop ticks), and the beacon is not even busy (no op is running), so `isWedged` stays false.
+**A busy-forever orphan is invisible to both branches.**
+
+### Why it avalanches
+
+Each Claude session / subagent worktree spawns its own `mcp --in-process` server. Every one
+whose host exits during the boot window leaks and pins a core. Enough leaks starve the box,
+which slows the next boot, which widens the race window. The 77 accumulated across sessions
+in `~/Dev/worktrees/claude-ui/*` and `~/Dev/claude-ui/.claude/worktrees/agent-*`.
+
+## Fix
+
+- [ ] The `uncaughtException` / `unhandledRejection` handlers must never throw: wrap the
+      write in try/catch. That alone breaks the loop.
+- [ ] EPIPE / ERR_STREAM_DESTROYED on our own stdio means the host is gone — exit, do not
+      swallow-and-continue. Same for `daemon/engine-child.ts`.
+- [ ] Add a repeat-guard: N uncaught exceptions inside a window => one stall record, then
+      exit. A swallow-and-continue handler over a REPEATING fault is the §1 hang with a CPU
+      price.
+- [ ] Close the orphan-detect race: do not trust the ppid read at install. Either have the
+      host pass its pid explicitly (env), or treat `ppid === 1` on the `orphanAware` path as
+      "already orphaned" rather than "nothing to watch" — the current reading is the exact
+      inversion of the truth.
+- [ ] Make a disarmed watchdog leave evidence (stall-dir note / status line), never silence.
+- [ ] The worker needs a branch for a busy-but-not-wedged orphan, since the existing two
+      provably do not cover it.
 
 ## Done when
 
-- Repro (orphan an `mcp --in-process` server with dead stdio peers) exits instead of
-  spinning, leaving a stall record that names the cause.
-- An install that CANNOT watch a parent leaves evidence instead of silence.
-- A busy-but-orphaned process is reaped: the wedge branch alone does not cover it.
+- The repro above exits instead of spinning, leaving a stall record naming the cause.
+- A process whose spawner dies during boot is still reaped.
+- An install that cannot watch a parent says so instead of going quiet.
