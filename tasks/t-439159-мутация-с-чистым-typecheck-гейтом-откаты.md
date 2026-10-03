@@ -64,3 +64,16 @@ header `refactor-apply.ts` (шаг 3), комментарий у `gateAcross`/`d
 
 ### Ревью
 plan-reviewer (1 круг); на код — bug-reviewer (обязательно, до 2 кругов по правилу брифа). Файлы > 300 строк не растут: оба хелпера сокращаются.
+
+
+### Правки плана по plan-ревью (1 круг, [BLOCK] нет, 9 should-fix)
+- Дрейф-снимок сужен до путей, способных сменить вердикт: dirty-набор минус `isJunkRelPath`, из остатка — program-расширения (`isTsLike`, вкл. `.js`/`.d.ts`) + `tsconfig*.json`/`package.json`/`.gitignore` + touched. `.DS_Store`/логи не дают отказ. Снимок hash-only (контент-хэш отфильтрованного dirty-набора) — без stat/racy-tie, без часов, без дубля `daemon/freshness.ts`.
+- Триггер widen по не-TS сужен до структурных файлов (`tsconfig*`, `.gitignore`, `package.json` — то, что `single.ts reindex` считает structural); `.scss`/`.md` не расширяют (css co-extract и dir-move со стилями остаются на узком пути). «Записанный TS-путь» = `isTsLike` (единственный предикат).
+- `overlayClaims` снимается ДО `gateAcross` (та же версия программ, что строит гейт — без лишнего `getProgram`), post-reindex `containmentAcross` идёт непосредственно перед recheck, между ними версию ничто не бампает. Removed-пути из детектора исключены.
+- `ls-host.ts` у капа 300: ОДИН новый метод хоста (`gateMembership(scope, paths, phase)`), не два.
+- Readback сверяет с тем, что реально писали (rename: `after`; plan: `commitPlan.newFiles/contentWrites` + байты moved-файлов по `contentMap`), не с `overlayFiles` (там только TS). Mismatch → `postApply.reason` прямо говорит «на диске байты, которых операция не писала: <пути>; поле typecheck описывает записанное, а не текущее»; `reindex` после mismatch всё равно best-effort.
+- Тест (d): сирота — `.ts` с `declare global {…}; export {}`, никто не импортирует, потребители используют глобал, dest вне всех `include` и не gitignored. + тест «`reindex` throw → incomplete» той же обёрткой; пин «move_file каталога с `.scss` идёт узким путём».
+- Развилка residual: альтернатива — сделать overlay верным членству (не force-add'ить в roots ключи, не owned программой; достижимость только через `fileExists`/`readFile`) — убрала бы класс целиком. Не беру: это `single.ts`/семантика гейта (зона соседнего трека t-786607) и риск ложных «Cannot find module»; завожу таску.
+- Окно планирования: гейт читает диск в момент гейта, т.е. не-touched импортёры видит; незакрытым оставалось только `before` vs диск для touched — закрыто 2(b). Таску на перенос снимка в движок НЕ завожу.
+- git status: 2 вызова на apply (вход + пре-запись) вместо 1 (`dirtyAmong`) — +сотни мс, пренебрежимо.
+- Сосед t-786607: `overlayClaims` использует приватные `affected`/`claimedBy` из `program-gate.ts`; если их кэш мемоизирует `affected`/меняет `programs` — claims должны идти в ногу. Сообщаю менеджеру.
