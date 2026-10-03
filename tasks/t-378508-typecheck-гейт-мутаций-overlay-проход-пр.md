@@ -2,7 +2,8 @@
 id: t-378508
 title: 'typecheck-гейт мутаций: overlay-проход проверяет всю программу — перевести на SemanticDiagnosticsBuilderProgram (замыкание referencedMap)'
 status: backlog
-priority: medium
+priority: high
+parent: t-116306
 tags:
   - gate
   - mutation

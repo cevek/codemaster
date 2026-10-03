@@ -3,6 +3,7 @@ id: t-835778
 title: 'Workspace root — подкаталог git-репо: пути porcelain относительны toplevel, забор дрейфа и dirty-гейт мутаций молча не работают'
 status: backlog
 priority: medium
+parent: t-116306
 tags:
   - gate
   - honesty

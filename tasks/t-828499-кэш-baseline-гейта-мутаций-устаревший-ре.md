@@ -3,6 +3,9 @@ id: t-828499
 title: 'кэш baseline гейта мутаций: устаревший резолв в gitignored-области без install-маркера может дать ложный clean'
 status: backlog
 priority: low
+parent: t-116306
+depends_on:
+  - t-710809
 tags:
   - cache
   - gate
@@ -12,8 +15,6 @@ complexity: S
 evidence: reported
 author: 4719392d
 created: '2026-10-03T14:02:10.936Z'
-depends_on:
-  - t-710809
 ---
 ## Проблема
 

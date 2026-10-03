@@ -3,6 +3,7 @@ id: t-749107
 title: 'transaction: каждый шаг заново парсит всё дерево в rewriteImports — кэшировать в пределах цепочки'
 status: backlog
 priority: medium
+parent: t-116306
 tags:
   - mutation
   - perf
