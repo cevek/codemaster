@@ -1,7 +1,7 @@
 ---
 id: t-439159
 title: Мутация с чистым typecheck-гейтом откатывается по таймауту избыточного post-apply прохода; post-apply = третья полная проверка программы
-status: in-progress
+status: review
 priority: high
 parent: t-713045
 tags:
