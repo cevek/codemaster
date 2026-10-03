@@ -270,6 +270,7 @@ export async function applyMutation(
     touched,
     changes.map((c) => ({ path: c.path, before: c.before })),
     options.dirtyOk === true,
+    ts.gateRelevance(gateProgms),
   );
   if (!pre.ok) return fail(pre.failure);
   if (pre.data !== undefined) return refused(pre.data);

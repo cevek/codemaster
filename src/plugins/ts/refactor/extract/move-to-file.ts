@@ -24,6 +24,7 @@ import type { RefactorPlan, CssExtractAnalysis, PlanningOverlay } from '../plan.
 import { assemblePlan } from '../imports/assemble.ts';
 import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
 import { rebaseAmbientImports } from '../imports/rebase-ambient.ts';
+import { reconcileNamespaceImports } from '../imports/reconcile-namespace-import.ts';
 import { fileExists } from '../../../../support/fs/exists.ts';
 import { analyzeCssExtractUsage } from './css-usage.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
@@ -111,7 +112,9 @@ export function planExtractTo(
 
   // Apply the LS edits to the tree: the new file (created at `dest`) + source/consumer edits.
   let createdNewFile = false;
-  for (const fc of edits.edits) {
+  const fileChanges =
+    program === undefined ? edits.edits : reconcileNamespaceImports(program, edits.edits, destAbs);
+  for (const fc of fileChanges) {
     const rel = host.relOf(fc.fileName);
     if (fc.isNewFile) {
       // The LS must create exactly our dest (it does — we passed it as targetFile). Anything else

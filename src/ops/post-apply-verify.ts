@@ -51,19 +51,28 @@ export async function captureEntry(
 }
 
 /** Pre-write checks. `ok(reason)` = refuse with that reason (nothing written); `ok(undefined)` =
- *  write. A git failure is a `fail` — we cannot prove the tree is the one the gate verified. */
+ *  write. A git failure is a `fail` — we cannot prove the tree is the one the gate verified.
+ *  `gateRelevant` (`ts.gateRelevance(gateAcross().programs)`) scopes the drift fence to what the
+ *  gate's verdict rests on; a deletion counts regardless — a file reached only by an import leaves
+ *  every program once it is gone, so membership can no longer vouch for it. */
 export async function preWriteCheck(
   root: string,
   atEntry: Result<WorktreeSnapshot> | undefined,
   touched: readonly RepoRelPath[],
   overwrites: readonly { path: RepoRelPath; before: string }[],
   dirtyOk: boolean,
+  gateRelevant: (rel: string) => boolean,
 ): Promise<Result<string | undefined>> {
   if (atEntry !== undefined && !isOk(atEntry)) return fail(atEntry.failure);
   const now = await captureWorktree(root, affectsTypecheck);
   if (!isOk(now)) return fail(now.failure);
   if (atEntry !== undefined) {
-    const drift = worktreeDrift(atEntry.data, now.data);
+    const touchedSet = new Set<string>(touched);
+    const drift = worktreeDrift(root, atEntry.data, now.data)
+      .filter(
+        (d) => d.path === 'HEAD' || d.deleted || touchedSet.has(d.path) || gateRelevant(d.path),
+      )
+      .map((d) => d.path);
     if (drift.length > 0) {
       return ok(
         `the working tree changed while this op ran (${drift.join(', ')}) — the typecheck verified a different tree; nothing written, re-run`,
@@ -159,6 +168,7 @@ export async function verifyAfterWrite(input: PostApplyInput): Promise<PostApply
       { anchor: input.gateScope.anchor, check },
       input.programs,
       input.deadline,
+      { files: input.written, removed: input.removed },
     );
     const gate = buildTypecheckField(input.baseline, after, input.remap);
     return gate.clean ? { kind: 'verified' } : { kind: 'introduced', field: gate.field };

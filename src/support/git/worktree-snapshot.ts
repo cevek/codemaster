@@ -1,11 +1,11 @@
 // A mutation's drift fence (t-439159): the working tree's verdict-relevant state, captured before
-// the §2.8 gate runs and again right before the write. Any difference means the tree the §2.8 gate
-// verified is not the tree about to receive the write — the write is refused, never landed on
-// unverified ground. Content-hashed rather than stat-compared: the set is bounded by the caller's
-// relevance filter, and a hash needs no clock and has no racy-mtime window.
+// the §2.8 gate runs and again right before the write. A relevant difference means the tree the
+// §2.8 gate verified is not the tree about to receive the write — the write is refused, never
+// landed on unverified ground. Content-hashed rather than stat-compared: the set is bounded by the
+// caller's relevance filter, and a hash needs no clock and has no racy-mtime window.
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
@@ -16,10 +16,18 @@ import { runGit, type GitRunner } from './run.ts';
 
 export interface WorktreeSnapshot {
   head: string;
-  /** Every git-dirty path (untracked included) — the dirty gate reads touched ∩ this. */
+  /** Every git-dirty path under the workspace root (untracked included) — the dirty gate reads
+   *  touched ∩ this. */
   dirtyPaths: readonly string[];
-  /** Relevant dirty path → content hash, or `absent` for a deleted path. */
+  /** Relevant dirty path (workspace-root-relative, `../…` outside a subdirectory root) → content
+   *  hash, or `absent` for a deleted path. */
   relevant: ReadonlyMap<string, string>;
+}
+
+export interface DriftEntry {
+  path: string;
+  /** Not absent at the first capture (present, or clean and so not captured), gone at the second. */
+  deleted: boolean;
 }
 
 const ABSENT = 'absent';
@@ -42,8 +50,7 @@ export async function captureWorktree(
   const fp = await gitRepoFingerprint(root, git);
   if (!isOk(fp)) return fail(fp.failure);
   const relevant = new Map<string, string>();
-  // Repo-wide, not gate-scoped (t-500739); paths are git-toplevel-relative (t-835778).
-  for (const rel of fp.data.dirtyPaths) {
+  for (const rel of [...fp.data.dirtyPaths, ...fp.data.outsideRoot]) {
     if (hasIgnoredDirSegment(rel) || !isRelevant(rel)) continue;
     relevant.set(rel, hashOf(root, rel));
   }
@@ -51,11 +58,22 @@ export async function captureWorktree(
 }
 
 /** What changed between two captures: `HEAD` when the commit moved, else each relevant path whose
- *  dirtiness or content differs. Empty ⇒ no verdict-relevant drift. */
-export function worktreeDrift(before: WorktreeSnapshot, after: WorktreeSnapshot): string[] {
-  const out: string[] = before.head !== after.head ? ['HEAD'] : [];
+ *  dirtiness or content differs. Empty ⇒ no relevant drift. */
+export function worktreeDrift(
+  root: string,
+  before: WorktreeSnapshot,
+  after: WorktreeSnapshot,
+): DriftEntry[] {
+  const out: DriftEntry[] = before.head !== after.head ? [{ path: 'HEAD', deleted: false }] : [];
   for (const rel of new Set([...before.relevant.keys(), ...after.relevant.keys()])) {
-    if (before.relevant.get(rel) !== after.relevant.get(rel)) out.push(rel);
+    const was = before.relevant.get(rel);
+    const now = after.relevant.get(rel);
+    if (was === now) continue;
+    // A deleted UNTRACKED file leaves porcelain altogether (`now` undefined) — unlike a deleted
+    // tracked one (` D`, hashed `absent`); a dirty file reverted to clean leaves it too, but exists.
+    const gone =
+      now === ABSENT || (now === undefined && !existsSync(path.join(root, ...rel.split('/'))));
+    out.push({ path: rel, deleted: gone && was !== ABSENT });
   }
-  return out.sort();
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

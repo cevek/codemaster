@@ -28,8 +28,16 @@ import type { RepoRelPath } from '../../core/brands.ts';
 import { messageOfThrown } from '../../common/result/construct.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import type { SingleProgram } from './program/single.ts';
+import type ts from 'typescript';
 import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
 import type { GateCache } from './program-gate-cache.ts';
+import {
+  builderEligible,
+  editViewOf,
+  scopeWantsBuilder,
+  type EditView,
+  type GateBuilders,
+} from './program-gate-builder.ts';
 
 /** The host-side context the fan-out needs — the built programs + the host's path mappers. */
 export interface GateHostCtx {
@@ -38,8 +46,19 @@ export interface GateHostCtx {
   programs: readonly SingleProgram[];
   relOf: (abs: string) => RepoRelPath;
   absOf: (rel: RepoRelPath) => string;
-  /** Host-lifetime caches (program-gate-cache.ts); absent → every pass is computed. */
+  /** Host-lifetime gate-result memo (program-gate-cache.ts); absent → every gate is computed. */
   cache?: GateCache;
+  /** Host-lifetime diagnostics builders (program-gate-builder.ts); absent → every pass is a full
+   *  LS pass. */
+  builders?: GateBuilders;
+  /** The host's cancellation as a token (cancellation.ts) — builder calls take one directly. */
+  token?: ts.CancellationToken;
+}
+
+/** The edit a post-apply recheck follows — the bytes just written and the paths removed. */
+export interface WrittenEdit {
+  files: readonly { path: RepoRelPath; content: string }[];
+  removed: readonly RepoRelPath[];
 }
 
 export interface GateScope {
@@ -75,7 +94,11 @@ export interface GateHost {
   ): GateResult;
   /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
    *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
-  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
+  diagnosticsAcross(
+    scope: GateScope,
+    restrictTo?: readonly string[],
+    written?: WrittenEdit,
+  ): TsDiagnostic[];
   gateHostCtx(): GateHostCtx;
 }
 
@@ -138,18 +161,44 @@ function overlayCollect(
   programs: readonly SingleProgram[],
   entries: readonly OverlayEntry[],
   removed: readonly RepoRelPath[] | undefined,
-  checkAbs: readonly string[],
+  collect: () => TsDiagnostic[],
 ): TsDiagnostic[] {
   try {
     program.setOverlay(
       entriesFor(ctx, program, programs, entries),
       removedFor(ctx, program, programs, removed),
     );
-    return collectFromService(program.service, ctx.relOf, checkAbs);
+    return collect();
   } finally {
     program.clearOverlay();
   }
 }
+
+/** The builders when this program may use them: present, no overlay already applied (the "disk"
+ *  pass would not be the disk), compilerOptions the incremental model is sound under, and a check
+ *  scope wide enough to pay for a pass — or a post-apply recheck of bytes whose gate ran on them,
+ *  which advances the chain the next gate's baseline starts from. Re-derived per call rather than
+ *  carried with the gate's verdict (t-787784). */
+function buildersFor(
+  ctx: GateHostCtx,
+  program: SingleProgram,
+  checkAbs: readonly string[],
+  written?: EditView,
+): GateBuilders | undefined {
+  const builders = ctx.builders;
+  if (builders === undefined || program.overlayActive()) return undefined;
+  const options = program.getProgram()?.getCompilerOptions();
+  if (options === undefined || !builderEligible(options)) return undefined;
+  const wide = scopeWantsBuilder(checkAbs.length, program.fileNames().length);
+  const follows = written !== undefined && builders.follows(program, written);
+  return wide || follows ? builders : undefined;
+}
+
+const NEVER: ts.CancellationToken = {
+  isCancellationRequested: () => false,
+  throwIfCancellationRequested: () => undefined,
+};
+const tokenOf = (ctx: GateHostCtx): ts.CancellationToken => ctx.token ?? NEVER;
 
 /** Disk diagnostics across every affected program (no overlay) — the post-apply recheck. `restrictTo`
  *  (program labels) PINS the set to the one the pre-apply baseline sampled: a move changes program
@@ -163,20 +212,35 @@ export function diagnosticsAcross(
   ctx: GateHostCtx,
   scope: GateScope,
   restrictTo?: readonly string[],
+  written?: WrittenEdit,
 ): TsDiagnostic[] {
   const checkAbs = scope.check.map((p) => ctx.absOf(p));
   const programs =
     restrictTo === undefined
       ? affected(ctx, scope.anchor)
       : ctx.programs.filter((p) => restrictTo.includes(p.label));
+  const writtenView =
+    written !== undefined
+      ? editViewOf(
+          written.files.map((f) => ({ abs: ctx.absOf(f.path), content: f.content })),
+          written.removed.map((r) => ctx.absOf(r)),
+        )
+      : undefined;
+  const token = tokenOf(ctx);
+  const collect = (program: SingleProgram): TsDiagnostic[] => {
+    const builders = buildersFor(ctx, program, checkAbs, writtenView);
+    return builders !== undefined
+      ? builders.disk(program, ctx.relOf, checkAbs, token, writtenView)
+      : collectFromService(program.service, ctx.relOf, checkAbs);
+  };
   const out: TsDiagnostic[] = [];
   for (const program of programs) {
     if (program === ctx.primary) {
-      out.push(...collectFromService(program.service, ctx.relOf, checkAbs)); // propagate → rollback
+      out.push(...collect(program)); // propagate → rollback
       continue;
     }
     try {
-      out.push(...collectFromService(program.service, ctx.relOf, checkAbs));
+      out.push(...collect(program));
     } catch {
       /* broken sibling post-apply: skip — the clean pre-apply overlay gate already verified these
          bytes; this disk pass is redundant re-verification (see the function note). */
@@ -216,24 +280,27 @@ export function gateAcross(
   const hit = key !== undefined ? cache?.result(key, programs) : undefined;
   if (hit !== undefined) return hit;
 
-  // Moved-away paths: the ops re-key their baseline errors onto the dest, so a stale entry there
-  // would surface under a path `uncoveredFiles` never names.
-  const removedAbs = (scope.removed ?? []).map((r) => ctx.absOf(r));
+  const token = tokenOf(ctx);
+  const edit = editViewOf(
+    entries,
+    (scope.removed ?? []).map((r) => ctx.absOf(r)),
+  );
+  // Both passes of one program go through the same mechanism, so baseline and overlay are never
+  // compared across two sources of truth.
   const sample = (program: SingleProgram) => {
-    const base = (): { diags: TsDiagnostic[]; fromCache: boolean } =>
-      cache !== undefined
-        ? cache.baseline(program, ctx.relOf, checkAbs)
-        : { diags: collectFromService(program.service, ctx.relOf, checkAbs), fromCache: false };
-    const b = base();
-    const o = overlayCollect(ctx, program, programs, entries, scope.removed, checkAbs);
-    // A cached baseline may only ever speed up a CLEAN verdict: every file holding an overlay
-    // diagnostic it does not cover is re-derived from disk now, so a stale entry cannot cause a
-    // refusal. A diagnostic lives in its own file, so the other files' entries cannot matter.
-    const stale = b.fromCache ? uncoveredFiles(b.diags, o) : [];
-    if (stale.length === 0) return { b: b.diags, o };
-    const moved = checkAbs.filter((a) => removedAbs.some((r) => a === r || a.startsWith(`${r}/`)));
-    cache?.refresh(program, ctx.relOf, [...stale.map((f) => ctx.absOf(f)), ...moved]);
-    return { b: base().diags, o };
+    const builders = buildersFor(ctx, program, checkAbs);
+    if (builders === undefined) {
+      const b = collectFromService(program.service, ctx.relOf, checkAbs);
+      const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>
+        collectFromService(program.service, ctx.relOf, checkAbs),
+      );
+      return { b, o };
+    }
+    const b = builders.disk(program, ctx.relOf, checkAbs, token);
+    const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>
+      builders.overlay(program, ctx.relOf, checkAbs, token, edit),
+    );
+    return { b, o };
   };
 
   const baseline: TsDiagnostic[] = [];
@@ -266,22 +333,4 @@ export function gateAcross(
   // A degraded sibling may be transient (a deadline cancel inside it is caught as degraded).
   if (key !== undefined && degraded.length === 0) cache?.storeResult(key, programs, result);
   return result;
-}
-
-/** Files of the `overlay` diagnostics `baseline` does not absorb (multiset over file|line|message —
- *  the key the ops' introduced-diff uses). */
-function uncoveredFiles(
-  baseline: readonly TsDiagnostic[],
-  overlay: readonly TsDiagnostic[],
-): RepoRelPath[] {
-  const left = new Map<string, number>();
-  const keyOf = (d: TsDiagnostic) => `${d.file}\u0000${d.line}\u0000${d.message}`;
-  for (const d of baseline) left.set(keyOf(d), (left.get(keyOf(d)) ?? 0) + 1);
-  const out = new Set<RepoRelPath>();
-  for (const d of overlay) {
-    const n = left.get(keyOf(d)) ?? 0;
-    if (n === 0) out.add(d.file);
-    else left.set(keyOf(d), n - 1);
-  }
-  return [...out];
 }

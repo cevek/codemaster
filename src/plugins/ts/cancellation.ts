@@ -12,6 +12,9 @@ export interface Cancellation {
   /** The predicate every program's `getCancellationToken` reads — `true` once the active read's
    *  deadline is spent. Default `false` (no bounded read in flight). */
   cancel(): boolean;
+  /** The same predicate as a full `ts.CancellationToken`, for TS APIs that take one directly (the
+   *  write gate's diagnostics builder) rather than reading the LS host's. */
+  token: ts.CancellationToken;
   /** Run `fn` (a synchronous LS read) under `deadline`: the shared predicate points at it for the
    *  duration, so the LS cancels on overrun. Translates TS's `OperationCanceledException` into a
    *  `DeadlineExceededError` the op turns into a `ToolFailure{tool:'timeout'}`. Not re-entrant (the
@@ -24,6 +27,12 @@ export function createCancellation(): Cancellation {
   let pred: () => boolean = () => false;
   return {
     cancel: () => pred(),
+    token: {
+      isCancellationRequested: () => pred(),
+      throwIfCancellationRequested: () => {
+        if (pred()) throw new ts.OperationCanceledException();
+      },
+    },
     withDeadline(deadline, fn) {
       pred = () => deadline.expired();
       try {

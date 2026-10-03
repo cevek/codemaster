@@ -51,7 +51,7 @@ import type { CodemodEdit } from './refactor/capture/codemod.ts';
 import type { Capture } from './refactor/capture/types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan, PlanningOverlay } from './refactor/plan.ts';
-import type { GateScope } from './program-gate.ts';
+import type { GateScope, WrittenEdit } from './program-gate.ts';
 import type { GateClaims } from './gate-membership.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
@@ -343,17 +343,23 @@ export interface TsPluginApi extends Plugin {
   /** Disk diagnostics across every affected program — the post-apply half of `gateAcross`
    *  (call `reindex` first so each program's LS sees the freshly written files). `restrictTo` pins
    *  the program set to the pre-apply baseline's (`gateAcross().programs`), so a move that shifts
-   *  program membership can't mis-count a newly-sampled program's pre-existing errors as introduced. */
+   *  program membership can't mis-count a newly-sampled program's pre-existing errors as introduced.
+   *  `written` (the edit just applied) lets the recheck chain from the state that gated those bytes —
+   *  a cost choice only, never a correctness one. */
   diagnosticsAcross(
     scope: GateScope,
     restrictTo?: readonly string[],
     deadline?: Deadline,
+    written?: WrittenEdit,
   ): TsDiagnostic[];
   /** Where the overlay gate puts each written source path — call BEFORE `gateAcross` (same scope). */
   overlayClaims(scope: GateScope, written: readonly RepoRelPath[]): GateClaims;
   /** After the write + `reindex`: written paths whose membership diverges from `claims` within the
    *  checked programs (plus structural writes). Non-empty ⇒ a written-paths-only recheck is unsound. */
   claimDivergence(claims: GateClaims, restrictTo: readonly string[]): RepoRelPath[];
+  /** Whether a working-tree change at a path (workspace-root-relative, `../…` outside the root) can
+   *  move the verdict of the gate that checked `restrictTo` (`gateAcross().programs`). */
+  gateRelevance(restrictTo: readonly string[]): (rel: string) => boolean;
   /** The resolved TYPE of the top-level symbol `name` in `declFile`, BEFORE and under the trial
    *  `overlay` — the FACT behind `impact_type_error`'s clean widen-to-`any` masking guard: a trial
    *  edit can collapse the edited symbol's own type to `any` with NO intra-file error, silencing

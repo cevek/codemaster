@@ -27,6 +27,7 @@ import { detectMoveSymbolCaptures } from '../capture/move-symbol.ts';
 import { foldSameModuleImports } from '../normalize/fold-imports.ts';
 import { stripSelfImports } from '../normalize/strip-self-import.ts';
 import { stripMovedSymbolPreimport } from '../imports/strip-moved-preimport.ts';
+import { reconcileNamespaceImports } from '../imports/reconcile-namespace-import.ts';
 import { deriveAliasPrefixes } from '../../alias-paths.ts';
 import { requestEditsWithRescue } from './taxonomy.ts';
 import {
@@ -203,9 +204,14 @@ export function planMoveSymbolTo(
   // move creates, never a duplicate that already lived in the dest.
   const destPreDups = preExistingDupModules(destNode.contentOverride() ?? destSf.text);
 
+  // `program` (not a fresh getProgram()): under a pre-strip the LS ran on a since-reverted dest
+  // overlay; consumer texts and their resolution to dest are identical in this captured program.
+  const fileChanges =
+    program === undefined ? edits.edits : reconcileNamespaceImports(program, edits.edits, destAbs);
+
   // Apply the LS edits to the tree (content overrides only — no file moves). Each file's base is
   // its current override (if an earlier fc already touched it) else the program text.
-  for (const fc of edits.edits) {
+  for (const fc of fileChanges) {
     const rel = host.relOf(fc.fileName);
     const node = tree.findByCurrentPath(rel) ?? tree.findByInitialPath(rel);
     if (node === null) {

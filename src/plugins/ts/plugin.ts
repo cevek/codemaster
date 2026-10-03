@@ -23,7 +23,7 @@ import { membersNamedInFile } from './member-in-file.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
-import { overlayClaims, claimDivergence } from './gate-membership.ts';
+import { overlayClaims, claimDivergence, gateRelevance } from './gate-membership.ts';
 import type { UnresolvedTarget, UsagesView } from './query-types.ts';
 import { searchSymbols, type SearchView } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
@@ -563,14 +563,15 @@ export function createTsPlugin(
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 
-    diagnosticsAcross: (scope, restrictTo, deadline) => {
-      const run = () => warm().diagnosticsAcross(scope, restrictTo);
+    diagnosticsAcross: (scope, restrictTo, deadline, written) => {
+      const run = () => warm().diagnosticsAcross(scope, restrictTo, written);
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 
     overlayClaims: (scope, written) => overlayClaims(warm().gateHostCtx(), scope, written),
     claimDivergence: (claims, restrictTo) =>
       claimDivergence(warm().gateHostCtx(), claims, restrictTo),
+    gateRelevance: (restrictTo) => gateRelevance(warm().gateHostCtx(), root, restrictTo),
 
     overlaySymbolType: (declFile, name, overlay) =>
       overlaySymbolType(warm(), declFile, name, overlay),
