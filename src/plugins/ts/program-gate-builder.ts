@@ -45,7 +45,6 @@ function tooManyChanged(changed: number, files: number): boolean {
 }
 
 const AFTER_GATE_SLOTS = 4;
-const AFTER_GATE_KEY_MAX_CHARS = 4_000_000;
 
 /** A narrow check scope (a rename's touched files, `impact_type_error`'s closure) is cheaper on the
  *  LS: a builder pass pays a whole-program setup plus the changed files' d.ts work before it reads
@@ -55,37 +54,51 @@ export function scopeWantsBuilder(checked: number, files: number): boolean {
   return checked * 2 >= files;
 }
 
+/** An edit by absolute path — the whole edit, unfiltered by program ownership (ownership moves once
+ *  a dest exists on disk). */
+export interface EditView {
+  files: ReadonlyMap<string, string>;
+  removed: ReadonlySet<string>;
+}
+
+export function editViewOf(
+  files: readonly { abs: string; content: string }[],
+  removed: readonly string[],
+): EditView {
+  return { files: new Map(files.map((f) => [f.abs, f.content])), removed: new Set(removed) };
+}
+
+/** Did the gate of `gated` verify bytes that are now on disk? Its overlay is the source files only,
+ *  while an op also writes what no program typechecks (a co-extracted stylesheet), so the test is
+ *  containment, not equality. An empty overlay vouches for nothing. */
+function gatedBy(gated: EditView, written: EditView): boolean {
+  if (gated.files.size === 0 && gated.removed.size === 0) return false;
+  for (const [abs, content] of gated.files) if (written.files.get(abs) !== content) return false;
+  for (const abs of gated.removed) if (!written.removed.has(abs)) return false;
+  return true;
+}
+
 export interface GateBuilders {
-  /** Is an overlay state kept under `written` — i.e. did the gate of those bytes run on the builder? */
-  follows(program: SingleProgram, written: string): boolean;
+  /** Did a kept gate of these bytes run on the builder for `program`? */
+  follows(program: SingleProgram, written: EditView): boolean;
   /** Disk diagnostics of `checkAbs`; the program must carry no overlay. `written` names the bytes
-   *  just written (post-apply): the overlay state that gated exactly them is the cheapest parent. */
+   *  just written (post-apply): the overlay state that gated them is the cheapest parent. */
   disk(
     program: SingleProgram,
     relOf: (abs: string) => RepoRelPath,
     checkAbs: readonly string[],
     token: ts.CancellationToken,
-    written?: string,
+    written?: EditView,
   ): TsDiagnostic[];
   /** Diagnostics under the overlay currently applied to `program`, chained from its disk state and
-   *  kept under `overlayKey` as a parent for the post-apply pass. */
+   *  kept with `edit` as a parent for the post-apply pass. */
   overlay(
     program: SingleProgram,
     relOf: (abs: string) => RepoRelPath,
     checkAbs: readonly string[],
     token: ts.CancellationToken,
-    overlayKey: string,
+    edit: EditView,
   ): TsDiagnostic[];
-}
-
-/** The key under which a gate's overlay state is kept and the post-apply pass looks it up — the
- *  whole edit, unfiltered by program ownership (ownership moves once a dest exists on disk). */
-export function overlayKeyOf(
-  files: readonly { abs: string; content: string }[],
-  removed: readonly string[],
-): string {
-  const entries = [...files].sort((a, b) => (a.abs < b.abs ? -1 : a.abs > b.abs ? 1 : 0));
-  return JSON.stringify([entries.map((f) => [f.abs, f.content]), [...removed].sort()]);
 }
 
 /** A parent is reused only by a builder of its own kind — the two kinds keep different state. */
@@ -96,7 +109,7 @@ type VersionMap = ReadonlyMap<string, string>;
 
 interface Chain {
   disk?: ChainState;
-  afterGate: Map<string, ChainState>; // insertion order = LRU order
+  afterGate: { edit: EditView; state: ChainState }[]; // oldest first
 }
 
 export function createGateBuilders(): GateBuilders {
@@ -104,7 +117,7 @@ export function createGateBuilders(): GateBuilders {
   const chainOf = (program: SingleProgram): Chain => {
     let chain = chains.get(program);
     if (chain === undefined) {
-      chain = { afterGate: new Map() };
+      chain = { afterGate: [] };
       chains.set(program, chain);
     }
     return chain;
@@ -115,26 +128,25 @@ export function createGateBuilders(): GateBuilders {
     return p;
   };
 
+  const gateOf = (program: SingleProgram, written: EditView): ChainState | undefined =>
+    chains.get(program)?.afterGate.findLast((g) => gatedBy(g.edit, written))?.state;
+
   return {
-    follows: (program, written) => chains.get(program)?.afterGate.has(written) === true,
+    follows: (program, written) => gateOf(program, written) !== undefined,
     disk(program, relOf, checkAbs, token, written) {
       const chain = chainOf(program);
-      const viaGate = written !== undefined ? chain.afterGate.get(written) : undefined;
+      const viaGate = written !== undefined ? gateOf(program, written) : undefined;
       const run = pass(programOf(program), viaGate ?? chain.disk, relOf, checkAbs, token);
       chain.disk = run.state;
-      if (written !== undefined) chain.afterGate.delete(written);
+      // Every kept gate was taken against the disk this write replaced.
+      if (written !== undefined) chain.afterGate = [];
       return run.diags;
     },
-    overlay(program, relOf, checkAbs, token, overlayKey) {
+    overlay(program, relOf, checkAbs, token, edit) {
       const chain = chainOf(program);
       const run = pass(programOf(program), chain.disk, relOf, checkAbs, token);
-      chain.afterGate.delete(overlayKey);
-      if (overlayKey.length <= AFTER_GATE_KEY_MAX_CHARS) chain.afterGate.set(overlayKey, run.state);
-      while (chain.afterGate.size > AFTER_GATE_SLOTS) {
-        const oldest = chain.afterGate.keys().next().value;
-        if (oldest === undefined) break;
-        chain.afterGate.delete(oldest);
-      }
+      chain.afterGate.push({ edit, state: run.state });
+      if (chain.afterGate.length > AFTER_GATE_SLOTS) chain.afterGate.shift();
       return run.diags;
     },
   };

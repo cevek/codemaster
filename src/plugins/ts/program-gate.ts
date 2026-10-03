@@ -33,8 +33,9 @@ import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
 import type { GateCache } from './program-gate-cache.ts';
 import {
   builderEligible,
-  overlayKeyOf,
+  editViewOf,
   scopeWantsBuilder,
+  type EditView,
   type GateBuilders,
 } from './program-gate-builder.ts';
 
@@ -181,14 +182,14 @@ function buildersFor(
   ctx: GateHostCtx,
   program: SingleProgram,
   checkAbs: readonly string[],
-  writtenKey?: string,
+  written?: EditView,
 ): GateBuilders | undefined {
   const builders = ctx.builders;
   if (builders === undefined || program.overlayActive()) return undefined;
   const options = program.getProgram()?.getCompilerOptions();
   if (options === undefined || !builderEligible(options)) return undefined;
   const wide = scopeWantsBuilder(checkAbs.length, program.fileNames().length);
-  const follows = writtenKey !== undefined && builders.follows(program, writtenKey);
+  const follows = written !== undefined && builders.follows(program, written);
   return wide || follows ? builders : undefined;
 }
 
@@ -221,18 +222,18 @@ export function diagnosticsAcross(
     restrictTo === undefined
       ? affected(ctx, scope.anchor)
       : ctx.programs.filter((p) => restrictTo.includes(p.label));
-  const writtenKey =
+  const writtenView =
     written !== undefined
-      ? overlayKeyOf(
+      ? editViewOf(
           written.files.map((f) => ({ abs: ctx.absOf(f.path), content: f.content })),
           written.removed.map((r) => ctx.absOf(r)),
         )
       : undefined;
   const token = tokenOf(ctx);
   const collect = (program: SingleProgram): TsDiagnostic[] => {
-    const builders = buildersFor(ctx, program, checkAbs, writtenKey);
+    const builders = buildersFor(ctx, program, checkAbs, writtenView);
     return builders !== undefined
-      ? builders.disk(program, ctx.relOf, checkAbs, token, writtenKey)
+      ? builders.disk(program, ctx.relOf, checkAbs, token, writtenView)
       : collectFromService(program.service, ctx.relOf, checkAbs);
   };
   const out: TsDiagnostic[] = [];
@@ -283,7 +284,7 @@ export function gateAcross(
   if (hit !== undefined) return hit;
 
   const token = tokenOf(ctx);
-  const overlayKey = overlayKeyOf(
+  const edit = editViewOf(
     entries,
     (scope.removed ?? []).map((r) => ctx.absOf(r)),
   );
@@ -300,7 +301,7 @@ export function gateAcross(
     }
     const b = builders.disk(program, ctx.relOf, checkAbs, token);
     const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>
-      builders.overlay(program, ctx.relOf, checkAbs, token, overlayKey),
+      builders.overlay(program, ctx.relOf, checkAbs, token, edit),
     );
     return { b, o };
   };

@@ -73,8 +73,9 @@ test('post-apply chains from the state that gated the written bytes, even past a
     // The narrow written-files scope `verifyAfterWrite` passes: on the builder only because the
     // gate of these bytes ran there.
     const scope = { anchor: [src('a.ts')], check: [src('a.ts')] };
+    // The op also wrote a file no program typechecks (a co-extracted stylesheet).
     const after = diagnosticsAcross(host.gateHostCtx(), scope, undefined, {
-      files: edits(apply),
+      files: [...edits(apply), { path: src('a.module.scss'), content: '.x {}' }],
       removed: [],
     });
     assert.deepEqual(work.checked, ['a.ts'], 'only the written file was rechecked');
