@@ -1,7 +1,7 @@
 ---
 id: t-439159
 title: Мутация с чистым typecheck-гейтом откатывается по таймауту избыточного post-apply прохода; post-apply = третья полная проверка программы
-status: backlog
+status: in-progress
 priority: high
 parent: t-713045
 tags:
@@ -29,3 +29,38 @@ created: '2026-10-03T13:35:11.681Z'
 - Два почти одинаковых post-apply блока — свести в одно место.
 
 Гипотеза, не рамка: опровергнешь посылку по коду — доложи.
+
+
+## План
+
+Посылки постановки по коду подтверждены (base 59d6791 / вершина e5ae5ce): post-apply в `applyMutation` (`ops/refactor-apply.ts`) и `applyRefactorPlan` (`ops/refactor-plan-apply.ts`) зовёт `ts.diagnosticsAcross(gateScope, gateProgms, ctx.deadline)` с тем же `check`, что и гейт (`plan.checkPaths` = весь `host.fileNames()` для move/extract/transaction/change_signature; `allProgramTsFiles()` для codemod; touched для rename); ЛЮБОЙ throw из `reindex`/`diagnosticsAcross` (включая `DeadlineExceededError`) → `revertAll`/`rollback`. Репо-отпечатка перед записью нет — только `dirtyAmong` по touched.
+
+### Замер «до» (эталон `/Users/cody/Dev/amiro` @ ec82d2be8, APFS-клон, CLI one-shot, base-код)
+`extract_symbol {name:toOptions, file:src/lib/forms/choice-option.ts, dest:src/lib/forms/choice-options-seed.ts}` (20 touched): dry-run real 84.4 с / user 80.7 с; apply real 125.4 с / user 120.8 с. **apply − dry-run = 41 с real / 40 с user** — это и есть post-apply (полный проход + reindex). load avg 17–50 (параллельные треки) — сравнивать по разности и по user-CPU. «После» — тот же вызов, тот же клон-источник.
+
+### Подход: один модуль `src/ops/post-apply-verify.ts`, оба хелпера сводятся к вызову
+1. **Вход хелпера (до гейта)**: `captureWorktree(root)` — `gitRepoFingerprint` (HEAD + porcelain) + stat-отпечаток (size+mtime, хэш контента на racy-tie через существующие `statFingerprint`/`compareFingerprints`/`hashFileContent`) каждого dirty-пути. Новый файл `support/git/worktree-snapshot.ts` (capture + compare → список изменившихся путей).
+2. **Перед записью** (на месте `dirtyAmong`, одна git status вместо двух): (a) повторный снимок; отличие от входного → refuse в dry-run-форме «репо изменилось во время операции: <пути> — ничего не записано, перезапусти»; (b) `disk(path) === before` для каждого restore-пути (rename: `c.before`; plan: `plan.diff[].before` по `d.from`) — закрывает тихое затирание чужой правки при `dirtyOk`; (c) dirty-among-touched считается из того же снимка. Сбой снимка (git) → refuse (не можем доказать отсутствие дрейфа) — сегодня `dirtyAmong` в той же ситуации тоже fail.
+3. **После записи** `verifyAfterWrite` → вердикт `verified | introduced(field) | incomplete(reason)`:
+   - readback: каждый записанный путь == проверенные overlay байты; каждый removed путь отсутствует. Расхождение → `incomplete` (НЕ rollback: после атомарной записи расхождение значит чужого писателя; rollback затёр бы его правку `before`-байтами), recheck пропускается — он был бы про чужие байты.
+   - `ts.reindex(touched)`; throw → `incomplete`.
+   - recheck: `ts.diagnosticsAcross({anchor, check: written TS-пути (touched ∪ new, без removed)}, gateProgms, deadline)` — узкий scope, тот же pinned набор программ, тот же `remapBaselineFile`; дифф против того же baseline (`buildTypecheckField`, multiset: подмножество ⊆ overlay ⊆ baseline ⇒ clean при равных байтах и равном членстве). `DeadlineExceededError`/любой throw → `incomplete`; introduced → `introduced` (единственный путь в rollback, кроме сбоя самой записи).
+   - **Residual членства (решение)**: узкий recheck корректен, только если post-reindex программы содержат каждый записанный путь РОВНО там, куда его клал overlay-гейт. Это ломается в двух местах: `claimedBy`-фолбэк (dest вне glob всех программ → overlay force-add'ит его как root в primary; на диске его не включает никто, если не импортируют) и glob-да-но-junk (gitignored dest: `mayContain` true, `loadFileList` исключает). Конкретный ложный clean: перенос `declare global`-файла в каталог вне `include` — overlay видит глобалы (root), диск нет, ломаются НЕ-touched потребители, узкий recheck их не смотрит. Поэтому: до записи снимаю `claims` (путь → метки программ из gate-набора, куда overlay его положил: тот же `affected(anchor)` + `claimedBy`), после reindex — фактическое `containsFile`; расхождение хоть по одному пути ИЛИ touched не-TS путь (tsconfig/json/scss при move каталога — overlay не моделирует) → recheck расширяется до полного `scope.check` (сегодняшнее поведение, но timeout всё равно = `incomplete`, не rollback). Две новые экспортируемые функции в `plugins/ts/program-gate.ts` (`overlayClaims`, `containmentAcross`) + проброс через `ls-host.ts`/`api.ts`/`plugin.ts`; **`gateAcross` не трогаю** (переиспользую приватные `affected`/`claimedBy` только на чтение).
+4. **Конверт**: applied-success несёт `typecheck` = поле ГЕЙТА (полный scope; узкий recheck дал бы другой `preExisting` — сегодня они совпадают, после сужения нет). При `incomplete` — `applied:true`, `rollback:{performed:false}`, плюс поле `postApply:{complete:false, reason}` в вердикт-зоне (до tail) и нота «финальная проверка не завершилась (<причина>); правка проверена overlay-гейтом до записи». При `verified` конверт байт-в-байт как сегодня (поля `postApply` нет). Текст `failTimeoutOr` («no files were written») на post-write пути НЕ используется.
+
+### Развилки
+- Точка снимка «вход»: вход хелпера (выбрано) vs `runOne` движка для `mutating && apply` (закрыл бы окно планирования ~6 с, но правит общие `engine.ts`/`OpContext`). Residual: не-touched импортёр, изменённый внешне в окне планирования (до входа хелпера), отпечатком не ловится — touched-файлы ловит проверка (2b). Завожу таску на перенос в движок.
+- Readback-mismatch: incomplete без rollback (выбрано) vs rollback (затирает чужую правку).
+- Residual членства: детектор claims-vs-containment + расширение (выбрано) vs «принять» (ложный clean на `declare global` вне glob — регресс против сегодняшнего полного прохода).
+
+### Как доказываю поведение
+- `test/helpers/project.ts`: опция `wrapTs?: (api, {clock, write}) => TsPluginApi` (обобщение `faultTsMethod`, реальный движок + реальный git-фикстур).
+- e2e (новый `test/e2e/post-apply-verify.test.ts`): (a) дедлайн истекает ПОСЛЕ записи (обёртка `reindex` двигает manual clock за бюджет; настоящий `withDeadline` бросает) → файлы новые на диске, `applied:true`, `rollback.performed:false`, `postApply.complete:false` — для rename (applyMutation) и move_file (applyRefactorPlan); (b) внешняя правка не-touched файла во время гейта (обёртка `gateAcross` пишет файл) → refuse, git-дерево = только внешняя правка; (c) touched-файл перемодифицирован после плана при `dirtyOk` → refuse, чужая правка цела; (d) residual: move `declare global`-файла в каталог вне `include` → overlay clean, расширенный recheck находит ошибку потребителя → rollback (покраснеет, если детектор членства убрать — проверю мутацией); (e) узкий scope: обёртка `diagnosticsAcross` записывает `scope.check` → для move_file это written-пути, не весь `checkPaths` (пиннит решение по perf). Мутационная проверка (a)/(b)/(d).
+- Живой: тот же `extract_symbol` apply на клоне amiro, «после» vs «до» по apply − dry-run и user-CPU.
+- Не покрыто: readback-mismatch (нужна инъекция в слой записи/параллельный писатель между write и readback — достижимо только через обёртку `reindex`, сделаю если дёшево, иначе в «не покрыто»).
+
+### Строки, которые правка сделает ложью (чиню сам)
+header `refactor-apply.ts` (шаг 3), комментарий у `gateAcross`/`diagnosticsAcross` в `plugin.ts`, doc `diagnosticsAcross` в `program-gate.ts` и `api.ts`, ARCHITECTURE §7 (apply-абзац, если упоминает post-apply), концепт `mutating-gate` в `format/render/concepts.ts` + `test/golden/status.golden.txt`.
+
+### Ревью
+plan-reviewer (1 круг); на код — bug-reviewer (обязательно, до 2 кругов по правилу брифа). Файлы > 300 строк не растут: оба хелпера сокращаются.
