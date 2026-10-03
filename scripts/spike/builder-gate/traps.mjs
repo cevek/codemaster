@@ -173,6 +173,38 @@ function runTrap(trap, options, label) {
 for (const iso of [false, true]) {
   for (const trap of TRAPS) runTrap(trap, { ...base, isolatedModules: iso }, `iso=${iso}`);
 }
+// A user-settable compilerOption that switches the builder's transitive invalidation off — the
+// builder path must refuse a project that sets it (expected: DIFF on the passthrough trap).
+runTrap(TRAPS[0], { ...base, assumeChangesOnlyAffectDirectDependencies: true }, 'assumeChangesOnlyAffectDirectDependencies');
+
+// BRANCHING: a gate keeps the disk-state builder B0 and derives EVERY overlay pass from it
+// (B1 = f(P_x, B0), later B2 = f(P_y, B0)) — valid only if deriving B1 does not mutate B0.
+// Then the realistic post-apply step: disk now holds the overlay bytes under new versions → derive
+// from the overlay builder; same text ⇒ same signatures ⇒ only the touched files recheck.
+for (const iso of [false, true]) {
+  const files = { ...TRAPS[0].files, ...DECOYS };
+  const host = createHost({ root: R, files, options: { ...base, isolatedModules: iso } });
+  const at = (label, b) => {
+    const f = fullPass(b.program, host);
+    const cmp = compare(b.keys, f.keys);
+    console.log(`  ${label.padEnd(26)} ${cmp.equal ? 'EQUAL' : `DIFF ${JSON.stringify(cmp)}`} rechecked=[${b.rechecked.map((x) => x.slice(R.length + 1))}] diags=${f.keys.length}`);
+  };
+  console.log(`iso=${iso} — branching from a kept baseline builder`);
+  const b0 = builderPass(host, undefined);
+  at('B0 base', b0);
+  host.setOverlay([{ abs: `${R}/a.ts`, content: 'export type T = string;' }]);
+  const b1 = builderPass(host, b0.builder);
+  at('B1 = (T=string, B0)', b1);
+  host.setOverlay([{ abs: `${R}/a.ts`, content: 'export type T = number; export const q = 1;' }]);
+  const b2 = builderPass(host, b0.builder);
+  at('B2 = (q added, B0) branch', b2);
+  host.setOverlay([{ abs: `${R}/a.ts`, content: 'export type T = string;' }]);
+  const b3 = builderPass(host, b1.builder);
+  at('B3 = (T=string again, B1)', b3);
+  host.clearOverlay();
+  const b4 = builderPass(host, b0.builder);
+  at('B4 = (disk, B0) branch', b4);
+}
 
 // declaration:true parity — LS.getSemanticDiagnostics appends declaration-emit diagnostics, the
 // builder's getSemanticDiagnostics does not.

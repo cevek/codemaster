@@ -11,6 +11,7 @@
 import path from 'node:path';
 import ts from 'typescript';
 import { createHost, builderPass, fullPass, compare, applyEdits, heapMB, fmt, lsKeys } from './lib.mjs';
+import { presign } from './presign.mjs';
 
 const [root, scenario, ...flags] = process.argv.slice(2);
 const fullMode = (flags.find((f) => f.startsWith('--full=')) ?? '--full=all').slice(7);
@@ -148,12 +149,12 @@ if (scenario === 'pick') {
   process.exit(0);
 }
 
-const wantFull = (p) => fullMode === 'all' || (fullMode === 'p1' && p === 'P1');
+const wantFull = (p) => fullMode === 'all' || (fullMode === 'p1' && (p === 'P1' || p === 'G1'));
 
 if (scenario === 'cancel') {
   // P0 cancelled after 200 rechecks, then resumed on the SAME builder; then an overlay pass
   // cancelled after 5 rechecks and resumed. Each resumed result is compared with the full pass.
-  const edit = pickEdit(host, counts, rootSet, 'hub');
+  const edit = pickEdit(host, counts, rootSet, 'move-file-missed');
   for (const [label, after, setup] of [
     ['P0', 200, () => {}],
     ['P1', 5, () => host.setOverlay(edit.entries, edit.removed)],
@@ -205,18 +206,50 @@ function step(label, prev) {
   return b.builder;
 }
 
+// --chain=linear: each pass derives from the previous one (P0→P1→P2→P3).
+// --chain=gate (default): the integration shape — the disk-state builder B0 is KEPT and every
+// overlay pass branches from it; the post-apply pass (disk now holds the overlay bytes under new
+// versions) derives from the overlay builder; a later baseline on unchanged disk branches from B0.
+const linear = flags.includes('--chain=linear');
 let prev;
-for (const [label, act] of [
-  ['P0 base', () => {}],
-  ['P1 overlay', () => host.setOverlay(edit.entries, edit.removed)],
-  ['P2 clear', () => host.clearOverlay()],
-  ['P3 again', () => host.setOverlay(edit.entries, edit.removed)],
-]) {
+let b0;
+let b1;
+const passes = linear
+  ? [
+      ['P0 base', () => {}, () => prev],
+      ['P1 overlay', () => host.setOverlay(edit.entries, edit.removed), () => prev],
+      ['P2 clear', () => host.clearOverlay(), () => prev],
+      ['P3 again', () => host.setOverlay(edit.entries, edit.removed), () => prev],
+    ]
+  : [
+      ['G0 base', () => {}, () => undefined],
+      ['G1 overlay←B0', () => host.setOverlay(edit.entries, edit.removed), () => b0],
+      ['G2 postwrite←B1', () => host.setOverlay(edit.entries, edit.removed), () => b1],
+      ['G3 disk←B0', () => host.clearOverlay(), () => b0],
+      ['G4 overlay←B0', () => host.setOverlay(edit.entries, edit.removed), () => b0],
+    ];
+// --presign: before an overlay pass branches from B0, record the real d.ts signature of every
+// existing file the overlay will change (on the LS's current disk-state program).
+// --release: releaseProgram() on every builder once drained — a kept builder then holds only its
+// state (signatures, references, cached diagnostics), not its Program + checker.
+const presignOn = flags.includes('--presign');
+const releaseOn = flags.includes('--release');
+for (const [label, act, from] of passes) {
+  if (presignOn && label.includes('overlay←B0')) {
+    const t = performance.now();
+    const n = presign(b0, edit.entries.map((e) => e.abs), host.service.getProgram());
+    log(`           presign ${n} files ${fmt(performance.now() - t)}s`);
+  }
   act();
-  prev = step(label, prev);
+  prev = step(label, from());
+  if (releaseOn) prev.releaseProgram();
+  if (label.startsWith('G0')) b0 = prev;
+  if (label.startsWith('G1')) b1 = prev;
   // Settled heap: only the LS + the CURRENT builder alive (b/full dropped by scope, B_{k-1} by
   // the reassignment above) — what a daemon holding the chain would retain between gate calls.
   log(`           settled heap (LS + current builder) = ${heapMB()}MB`);
 }
 prev = undefined;
+b0 = undefined;
+b1 = undefined;
 log(`           heap LS only (builder dropped) = ${heapMB()}MB`);
