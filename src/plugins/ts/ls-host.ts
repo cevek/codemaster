@@ -38,12 +38,12 @@ import {
   type ExplicitPrograms,
   type ProgramsLoadReport,
 } from './program/explicit-load.ts';
-import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from './program-gate.ts';
-import type { TsDiagnostic } from './diagnostics.ts';
+import { gateAcross, diagnosticsAcross, type GateHost, type GateHostCtx } from './program-gate.ts';
 import type { Deadline } from '../../common/async/deadline.ts';
 import { createCancellation } from './cancellation.ts';
+import { createGateCache } from './program-gate-cache.ts';
 
-export interface TsProjectHost {
+export interface TsProjectHost extends GateHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
   readonly service: ts.LanguageService;
   readonly configPath: string | undefined;
@@ -112,16 +112,6 @@ export interface TsProjectHost {
    *  mutation's edit-set (§5-L2). Idempotent, bounded (no repo walk), persisted for the warm session
    *  (cleared on a structural tsconfig reindex). Returns the three honest states for disclosure. */
   loadPrograms(paths: readonly string[]): ProgramsLoadReport;
-  /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
-   *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
-   *  sibling-program dangle is caught. Builds the sibling programs (a write must verify them). */
-  gateAcross(
-    files: readonly { path: RepoRelPath; content: string }[],
-    scope: GateScope,
-  ): { baseline: TsDiagnostic[]; overlay: TsDiagnostic[]; programs: string[]; degraded: string[] };
-  /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
-   *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
-  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
   /** READ-context fan-out set for a decl: the built programs (primary + siblings) PLUS any
    *  file-driven nested program already loaded, filtered to those containing `absPosix`. Run
    *  findReferences only where the declaration file actually lives. */
@@ -398,7 +388,8 @@ export function createTsProjectHost(
     return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
   };
   // The fan-out gate context — `built()` materializes the siblings (a write must verify them).
-  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf });
+  const cache = createGateCache();
+  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf, cache });
 
   // Shared by the `sourceFileAcross` method and `typeAuthorityFor`; the `extras` thunk keeps siblings
   // lazy for a primary-resident target (§5-L2).
@@ -510,6 +501,7 @@ export function createTsProjectHost(
     loadPrograms: (paths) => explicit.load(paths),
     gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
     diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
+    gateHostCtx: gateCtx,
     programsContaining(absPosix) {
       // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested
       // program AND any `programs:`-loaded explicit program that contains this file. WRITE paths use

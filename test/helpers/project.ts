@@ -71,6 +71,13 @@ export interface ProjectOptions {
   /** Break one `ts` plugin method so it throws — proves the op-level wrap turns an LS
    *  fault into an honest `ToolFailure` (not an `op_threw` crash), daemon staying live. */
   faultTsMethod?: 'findUsages' | 'expandType';
+  /** Patch methods on the live `ts` plugin object (wrap the real producer — e.g. advance the clock
+   *  after `reindex`, or write a file during `gateAcross`) to reach a timing the real op path
+   *  cannot be driven into otherwise. */
+  patchTs?: (
+    api: TsPluginApi,
+    env: { clock: TestProject['clock']; write: TestProject['write'] },
+  ) => void;
   /** Codemaster's own source fingerprint (the self-staleness seam — §3.6). Defaults to a
    *  constant so tests never walk the real `src/`; a staleness test injects a value that
    *  changes after spawn to drive the "daemon behind source" signal. */
@@ -159,6 +166,10 @@ export async function project(
   const evictionLog: string[] = [];
   debug.configure('eviction');
   debug.addSink({ write: (line) => evictionLog.push(line), dispose: () => undefined });
+  const patched = (api: TsPluginApi): TsPluginApi => {
+    options?.patchTs?.(api, { clock, write });
+    return api;
+  };
   const orchestrator = new Orchestrator({
     clock,
     debug,
@@ -176,12 +187,14 @@ export async function project(
     // overrides it with a value that changes after spawn.
     sourceFingerprint: options?.sourceFingerprint ?? ((): string => 'test-src'),
     pluginsFor: (config, repoRoot) => [
-      faultTs(
-        createTsPlugin(repoRoot, config.ts?.tsconfig, {
-          searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
-          searchWarmPeakMaxFiles: config.ts?.searchWarmPeakMaxFiles,
-        }),
-        options?.faultTsMethod,
+      patched(
+        faultTs(
+          createTsPlugin(repoRoot, config.ts?.tsconfig, {
+            searchWarmMaxFiles: config.ts?.searchWarmMaxFiles,
+            searchWarmPeakMaxFiles: config.ts?.searchWarmPeakMaxFiles,
+          }),
+          options?.faultTsMethod,
+        ),
       ),
       createScssPlugin(repoRoot),
       ...(config.i18n !== undefined

@@ -11,7 +11,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
 import { ok, fail } from '../common/result/construct.ts';
 import { failTimeout, failTimeoutOr } from './refactor-timeout.ts';
-import type { TsDiagnostic, TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
+import type { GateClaims, TsDiagnostic, TsPluginApi, RefactorPlan } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
 import {
   absOf,
@@ -22,8 +22,14 @@ import {
   formatOne,
   gateCoverageNotes,
   resolvePrettier,
-  dirtyAmong,
 } from './mutation-support.ts';
+import {
+  captureEntry,
+  preWriteCheck,
+  verifyAfterWrite,
+  incompleteFields,
+  INCOMPLETE_NOTE,
+} from './post-apply-verify.ts';
 import { commitMove, revertMove, type CommitMovePlan, type RevertSpec } from './refactor-commit.ts';
 
 /** Apply a planned refactor. `refusalReason` tailors the §2.8 / dirty-gate message per op. */
@@ -45,6 +51,7 @@ export async function applyRefactorPlan(
   // Result.handle, never silent (a destructive op on a re-located symbol must say so).
   const handleExtra = plan.rebind !== undefined ? { handle: plan.rebind } : undefined;
   const ts = ctx.plugins.get<TsPluginApi>('ts');
+  const atEntry = await captureEntry(root, ctx.flags.apply === true);
 
   // Format each changed file's content once (so the dry-run preview == the applied bytes).
   const prettier = await resolvePrettier(root);
@@ -120,7 +127,12 @@ export async function applyRefactorPlan(
   let diag: TsDiagnostic[];
   let gateProgms: string[];
   let gateDegraded: string[];
+  let claims: GateClaims;
   try {
+    claims = ts.overlayClaims(
+      { ...gateScope, removed: plan.removed },
+      [...contentMap.keys()].map((p) => p as RepoRelPath),
+    );
     // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set — the
     // gate refuses on errors THIS refactor introduces, not on the repo's pre-existing ones.
     const g = ts.gateAcross(overlayFiles, { ...gateScope, removed: plan.removed }, ctx.deadline);
@@ -244,13 +256,31 @@ export async function applyRefactorPlan(
     );
   }
 
-  const dirty = await dirtyAmong(root, touched);
-  if (!dirty.ok) return fail(dirty.failure);
-  if (dirty.data.length > 0 && opts.dirtyOk !== true) {
+  // Rollback restores PRE-OP bytes (`plan.diff[].before` — what was actually on disk when
+  // the op started, dirty edits included), NOT HEAD. `restore` covers moved-from + edited
+  // files; `remove` drops what the op created (move targets + new files). Synthetic new
+  // files have before='' so they're in `remove`, not `restore`.
+  const newPaths = new Set(plan.newFiles.map((f) => String(f.path)));
+  const revertSpec: RevertSpec = {
+    restore: plan.diff
+      .filter((d) => !newPaths.has(String(d.to)))
+      .map((d) => ({ path: d.from, content: d.before })),
+    remove: [...plan.newFiles.map((f) => f.path), ...plan.moves.map((m) => m.to)],
+  };
+
+  const pre = await preWriteCheck(
+    root,
+    atEntry,
+    touched,
+    revertSpec.restore.map((r) => ({ path: r.path, before: r.content })),
+    opts.dirtyOk === true,
+  );
+  if (!pre.ok) return fail(pre.failure);
+  if (pre.data !== undefined) {
     return ok<JsonValue>(
       {
         mode: 'dry-run',
-        reason: `touched files have uncommitted changes (${dirty.data.join(', ')}); commit/stash or pass dirtyOk`,
+        reason: pre.data,
         typecheck,
         ...verdictTouched,
         ...captureRows,
@@ -273,17 +303,6 @@ export async function applyRefactorPlan(
       path: w.path,
       content: contentOf(w.path, w.content),
     })),
-  };
-  // Rollback restores PRE-OP bytes (`plan.diff[].before` — what was actually on disk when
-  // the op started, dirty edits included), NOT HEAD. `restore` covers moved-from + edited
-  // files; `remove` drops what the op created (move targets + new files). Synthetic new
-  // files have before='' so they're in `remove`, not `restore`.
-  const newPaths = new Set(plan.newFiles.map((f) => String(f.path)));
-  const revertSpec: RevertSpec = {
-    restore: plan.diff
-      .filter((d) => !newPaths.has(String(d.to)))
-      .map((d) => ({ path: d.from, content: d.before })),
-    remove: [...plan.newFiles.map((f) => f.path), ...plan.moves.map((m) => m.to)],
   };
 
   const rollback = async (why: string, tc: JsonValue): Promise<Result<JsonValue>> => {
@@ -310,32 +329,33 @@ export async function applyRefactorPlan(
   const committed = await commitMove(root, commitPlan);
   if (!committed.ok) return rollback(`commit failed (${committed.failure.message})`, typecheck);
 
-  let postGate: { clean: boolean; field: JsonValue };
-  try {
-    await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    // Diff post-apply disk diagnostics (across the same affected programs) against the SAME pre-edit
-    // baseline — a pre-existing repo error must not roll back a sound refactor.
-    postGate = buildTypecheckField(
-      baselineDiag,
-      ts.diagnosticsAcross(gateScope, gateProgms, ctx.deadline),
-      remapBaselineFile,
-    );
-  } catch (thrown) {
-    return rollback(`post-apply typecheck threw (${String(thrown)})`, typecheck);
-  }
-  if (!postGate.clean) {
-    return rollback('post-apply typecheck failed', postGate.field);
-  }
+  const post = await verifyAfterWrite({
+    ts,
+    root,
+    written: [...contentMap].map(([p, ba]) => ({ path: p as RepoRelPath, content: ba.after })),
+    removed: plan.removed,
+    touched,
+    gateScope,
+    programs: gateProgms,
+    baseline: baselineDiag,
+    remap: remapBaselineFile,
+    claims,
+    ...(ctx.deadline !== undefined ? { deadline: ctx.deadline } : {}),
+  });
+  if (post.kind === 'introduced') return rollback('post-apply typecheck failed', post.field);
+  const appliedNotes = post.kind === 'incomplete' ? [...notes, INCOMPLETE_NOTE] : notes;
   return ok<JsonValue>(
     {
       mode: 'applied',
       applied: true,
-      // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
-      // error count rides along on success too — honest, and consistent with the dry-run field.
-      typecheck: postGate.field,
+      // The gate's verdict over its full scope: the post-write recheck covers only what the write
+      // could change, so its own preExisting count would not match the dry-run's.
+      typecheck,
       ...verdictTouched,
       rollback: { performed: false },
-      ...baseNotes,
+      ...incompleteFields(post),
+      ...(appliedNotes.length > 0 ? { notes: appliedNotes } : {}),
+      ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
       ...tail, // last — the cap can only ever truncate the diff/touched-stat, never the verdict (§3a).
     },
     handleExtra,
