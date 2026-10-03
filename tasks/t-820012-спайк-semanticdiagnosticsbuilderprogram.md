@@ -13,6 +13,7 @@ type: perf
 complexity: M
 evidence: measured
 author: fad2132f
+assignee: 8f13e902
 created: '2026-10-03T13:35:26.419Z'
 ---
 Контекст и замеры — эпик t-713045.

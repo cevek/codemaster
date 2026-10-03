@@ -13,6 +13,7 @@ type: bug
 complexity: M
 evidence: measured
 author: fad2132f
+assignee: 0da85b47
 created: '2026-10-03T13:35:11.681Z'
 ---
 Контекст и замеры — эпик t-713045.
