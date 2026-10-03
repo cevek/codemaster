@@ -114,6 +114,14 @@ export class VFSTree {
     }
   }
 
+  /** Does any node live somewhere other than where the tree was built? Compared by PATH, not
+   *  name: a dir moved under another parent carries its children without renaming them. */
+  hasMoves(): boolean {
+    for (const node of this.iterFiles()) if (node.currentPath() !== node.initialPath()) return true;
+    for (const node of this.iterDirs()) if (node.currentPath() !== node.initialPath()) return true;
+    return false;
+  }
+
   /** Every dir node (including the root), depth-first. */
   *iterDirs(): IterableIterator<FsNode> {
     const stack: FsNode[] = [this.root];

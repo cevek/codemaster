@@ -86,8 +86,8 @@ export interface PlanningHelpers {
    *  overlay, from git (the standalone path). */
   planTree(overlay: PlanningOverlay | undefined): Promise<{ tree: VFSTree } | { error: string }>;
   /** The shared prologue of every overlay-aware plan method (planMove / planExtract / planMoveSymbol
-   *  / planChangeSignature): warm the host, build the plan tree (overlay or disk), snapshot the
-   *  primary compiler options, then run `body` under the overlay shadow. Returns the tree-load error
+   *  / planChangeSignature): warm the host, build the plan tree (overlay or disk), then run `body`
+   *  under the overlay shadow with the primary compiler options. Returns the tree-load error
    *  verbatim; otherwise `body`'s result. Factored out so the four methods can't drift on the
    *  load/overlay handshake (and to keep plugin.ts under the line cap). */
   planUnderOverlay<T>(
@@ -129,11 +129,16 @@ export function createPlanningHelpers(warm: () => TsProjectHost, root: string): 
       const h = warm();
       const t = await planTree(overlay);
       if ('error' in t) return t.error;
-      const options = h.service.getProgram()?.getCompilerOptions() ?? {};
       // Wrap ONLY the synchronous plan body (the LS fan-out) in the deadline — the async
       // git tree-load above is already complete, so the cancellation predicate covers exactly
       // the cancellable work and is reset in `withDeadline`'s finally before the method returns.
-      const run = () => runWithOverlay(overlay, () => body(h, t.tree, options));
+      // Options are read under the overlay: it carries no tsconfig, so they are the disk ones, and
+      // reading them before `setOverlay` would rebuild the disk program on every transaction step
+      // ≥1 only for the overlay program to replace it (t-749107).
+      const run = () =>
+        runWithOverlay(overlay, () =>
+          body(h, t.tree, h.service.getProgram()?.getCompilerOptions() ?? {}),
+        );
       return deadline !== undefined ? h.withDeadline(deadline, run) : run();
     },
   };
