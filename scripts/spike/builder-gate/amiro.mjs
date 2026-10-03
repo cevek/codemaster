@@ -10,7 +10,16 @@
 
 import path from 'node:path';
 import ts from 'typescript';
-import { createHost, builderPass, fullPass, compare, applyEdits, heapMB, fmt, lsKeys } from './lib.mjs';
+import {
+  createHost,
+  builderPass,
+  fullPass,
+  compare,
+  applyEdits,
+  heapMB,
+  fmt,
+  lsKeys,
+} from './lib.mjs';
 import { presign } from './presign.mjs';
 
 const [root, scenario, ...flags] = process.argv.slice(2);
@@ -40,7 +49,8 @@ function reverseClosure(counts, file) {
   const rev = counts;
   const seen = new Set([file]);
   const q = [file];
-  while (q.length) for (const i of rev.get(q.pop()) ?? []) if (!seen.has(i)) (seen.add(i), q.push(i));
+  while (q.length)
+    for (const i of rev.get(q.pop()) ?? []) if (!seen.has(i)) (seen.add(i), q.push(i));
   return seen.size;
 }
 
@@ -55,7 +65,14 @@ function moveToNewFile(host, file, want) {
     if (!app.some((r) => r.name === 'Move to a new file')) continue;
     let ed;
     try {
-      ed = host.service.getEditsForRefactor(file, fmtOpts, range, 'Move to a new file', 'Move to a new file', prefs);
+      ed = host.service.getEditsForRefactor(
+        file,
+        fmtOpts,
+        range,
+        'Move to a new file',
+        'Move to a new file',
+        prefs,
+      );
     } catch {
       continue; // the stock-LS assertions codemaster rescues with the fork (§4) — just skip
     }
@@ -68,7 +85,10 @@ function moveToNewFile(host, file, want) {
 
 const isExported = (st) => ts.getCombinedModifierFlags(st) & ts.ModifierFlags.Export;
 const isDecl = (st) =>
-  ts.isFunctionDeclaration(st) || ts.isVariableStatement(st) || ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st);
+  ts.isFunctionDeclaration(st) ||
+  ts.isVariableStatement(st) ||
+  ts.isInterfaceDeclaration(st) ||
+  ts.isTypeAliasDeclaration(st);
 
 function pickEdit(host, counts, rootSet, kind) {
   const rel = (f) => path.relative(root, f);
@@ -80,15 +100,22 @@ function pickEdit(host, counts, rootSet, kind) {
   }
   if (kind === 'leaf') {
     for (const f of files) {
-      if (!f.endsWith('.tsx') || f.includes('.test.') || f.includes('.story.') || counts.has(f)) continue;
+      if (!f.endsWith('.tsx') || f.includes('.test.') || f.includes('.story.') || counts.has(f))
+        continue;
       const m = moveToNewFile(host, f, (st) => ts.isFunctionDeclaration(st) && !isExported(st));
       if (m) return { file: f, ...m, entries: applyEdits(host, m.edits), removed: [] };
     }
   }
   if (kind === 'hub') {
-    const ranked = [...counts].filter(([f]) => f.endsWith('.ts') && !f.endsWith('.d.ts')).sort((a, b) => b[1].size - a[1].size);
+    const ranked = [...counts]
+      .filter(([f]) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
+      .sort((a, b) => b[1].size - a[1].size);
     for (const [f] of ranked.slice(0, 15)) {
-      const m = moveToNewFile(host, f, (st) => (ts.isFunctionDeclaration(st) || ts.isVariableStatement(st)) && isExported(st));
+      const m = moveToNewFile(
+        host,
+        f,
+        (st) => (ts.isFunctionDeclaration(st) || ts.isVariableStatement(st)) && isExported(st),
+      );
       if (m) return { file: f, ...m, entries: applyEdits(host, m.edits), removed: [] };
     }
   }
@@ -97,10 +124,16 @@ function pickEdit(host, counts, rootSet, kind) {
     // (amiro is otherwise error-free, so a clean-vs-clean EQUAL proves nothing about soundness).
     const e = pickEdit(host, counts, rootSet, 'move-file');
     const victim = e.entries.find((x) => !x.abs.endsWith('-moved.ts'));
-    return { ...e, name: `${e.name} (missed ${path.relative(root, victim.abs)})`, entries: e.entries.filter((x) => x !== victim) };
+    return {
+      ...e,
+      name: `${e.name} (missed ${path.relative(root, victim.abs)})`,
+      entries: e.entries.filter((x) => x !== victim),
+    };
   }
   if (kind === 'move-file') {
-    const mid = [...counts].filter(([f, s]) => f.endsWith('.ts') && s.size >= 5 && s.size <= 15).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const mid = [...counts]
+      .filter(([f, s]) => f.endsWith('.ts') && s.size >= 5 && s.size <= 15)
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
     const [f] = mid[0];
     const to = f.replace(/\.ts$/, '-moved.ts');
     const edits = host.service.getEditsForFileRename(f, to, fmtOpts, prefs);
@@ -116,9 +149,14 @@ function report(label, b, full) {
   log(
     `${label.padEnd(10)} builder total=${fmt(b.ms.total)}s (program ${fmt(b.ms.program)} create ${fmt(b.ms.create)} drain ${fmt(b.ms.drain)} read ${fmt(b.ms.read)})` +
       ` drained=${b.drained} rechecked=${b.rechecked.length}/${b.files} diags=${b.keys.length} heap=${heapMB()}MB` +
-      (full ? ` | full=${fmt(full.ms.total)}s (program ${fmt(full.ms.program)} check ${fmt(full.ms.check)}) ${eq.equal ? 'EQUAL' : `DIFF builder-only=${eq.onlyA.length} full-only=${eq.onlyB.length}`}` : ''),
+      (full
+        ? ` | full=${fmt(full.ms.total)}s (program ${fmt(full.ms.program)} check ${fmt(full.ms.check)}) ${eq.equal ? 'EQUAL' : `DIFF builder-only=${eq.onlyA.length} full-only=${eq.onlyB.length}`}`
+        : ''),
   );
-  if (eq && !eq.equal) log(`   builder-only ${JSON.stringify(eq.onlyA.slice(0, 5))}\n   full-only ${JSON.stringify(eq.onlyB.slice(0, 5))}`);
+  if (eq && !eq.equal)
+    log(
+      `   builder-only ${JSON.stringify(eq.onlyA.slice(0, 5))}\n   full-only ${JSON.stringify(eq.onlyB.slice(0, 5))}`,
+    );
 }
 
 /** Changed files + the union reverse-import closure of every changed/removed file (an upper bound
@@ -128,8 +166,12 @@ function describe(e) {
   const seen = new Set();
   const q = changed.filter((f) => rootSet.has(f));
   for (const f of q) seen.add(f);
-  while (q.length) for (const i of counts.get(q.pop()) ?? []) if (!seen.has(i)) (seen.add(i), q.push(i));
-  const shown = e.entries.slice(0, 4).map((x) => path.relative(root, x.abs)).join(', ');
+  while (q.length)
+    for (const i of counts.get(q.pop()) ?? []) if (!seen.has(i)) (seen.add(i), q.push(i));
+  const shown = e.entries
+    .slice(0, 4)
+    .map((x) => path.relative(root, x.abs))
+    .join(', ');
   return `${path.relative(root, e.file)} ${e.name} overlayFiles=${e.entries.length} [${shown}${e.entries.length > 4 ? ', …' : ''}] removed=${e.removed.length} importersOfSource=${counts.get(e.file)?.size ?? 0} closureOfChanged=${seen.size}`;
 }
 
@@ -137,7 +179,9 @@ const host = createHost({ root });
 log(`root=${root} scenario=${scenario} ts=${ts.version} heap0=${heapMB()}MB`);
 let t = performance.now();
 const program0 = host.service.getProgram();
-log(`LS program build ${fmt(performance.now() - t)}s files=${program0.getSourceFiles().length} roots=${host.rootFiles().length} heap=${heapMB()}MB`);
+log(
+  `LS program build ${fmt(performance.now() - t)}s files=${program0.getSourceFiles().length} roots=${host.rootFiles().length} heap=${heapMB()}MB`,
+);
 const rootSet = new Set(host.rootFiles());
 const counts = importerCounts(program0, rootSet);
 
@@ -164,8 +208,22 @@ if (scenario === 'cancel') {
     let n = 0;
     const orig = program.getBindAndCheckDiagnostics.bind(program);
     program.getBindAndCheckDiagnostics = (sf, ct) => (n++, orig(sf, ct));
-    const token = { isCancellationRequested: () => n >= after, throwIfCancellationRequested() { if (n >= after) throw new ts.OperationCanceledException(); } };
-    globalThis.__b = globalThis.__b ? ts.createSemanticDiagnosticsBuilderProgram(program, { useCaseSensitiveFileNames: () => true, createHash: ts.sys.createHash }, globalThis.__b) : ts.createSemanticDiagnosticsBuilderProgram(program, { useCaseSensitiveFileNames: () => true, createHash: ts.sys.createHash });
+    const token = {
+      isCancellationRequested: () => n >= after,
+      throwIfCancellationRequested() {
+        if (n >= after) throw new ts.OperationCanceledException();
+      },
+    };
+    globalThis.__b = globalThis.__b
+      ? ts.createSemanticDiagnosticsBuilderProgram(
+          program,
+          { useCaseSensitiveFileNames: () => true, createHash: ts.sys.createHash },
+          globalThis.__b,
+        )
+      : ts.createSemanticDiagnosticsBuilderProgram(program, {
+          useCaseSensitiveFileNames: () => true,
+          createHash: ts.sys.createHash,
+        });
     let threw = 'no';
     try {
       while (globalThis.__b.getSemanticDiagnosticsOfNextAffectedFile(token));
@@ -178,7 +236,9 @@ if (scenario === 'cancel') {
     // "next gate call after a timeout" — plus the resumed state must equal the oracle.
     const full = fullPass(resumed.program, host);
     const eq = compare(resumed.keys, full.keys);
-    log(`${label} cancel after ${after}: threw=${threw} rechecked-before-cancel=${atCancel}; resumed rechecked=${resumed.rechecked.length} ${eq.equal ? 'EQUAL' : `DIFF ${eq.onlyA.length}/${eq.onlyB.length}`}`);
+    log(
+      `${label} cancel after ${after}: threw=${threw} rechecked-before-cancel=${atCancel}; resumed rechecked=${resumed.rechecked.length} ${eq.equal ? 'EQUAL' : `DIFF ${eq.onlyA.length}/${eq.onlyB.length}`}`,
+    );
     globalThis.__b = resumed.builder;
   }
   process.exit(0);
@@ -195,7 +255,9 @@ const lsMode = flags.includes('--mode=ls');
 function lsStep(label) {
   const t0 = performance.now();
   const keys = lsKeys(host);
-  log(`${label.padEnd(10)} LS-surface pass=${fmt(performance.now() - t0)}s diags=${keys.length} heap=${heapMB()}MB`);
+  log(
+    `${label.padEnd(10)} LS-surface pass=${fmt(performance.now() - t0)}s diags=${keys.length} heap=${heapMB()}MB`,
+  );
 }
 
 function step(label, prev) {
@@ -237,7 +299,11 @@ const releaseOn = flags.includes('--release');
 for (const [label, act, from] of passes) {
   if (presignOn && label.includes('overlay←B0')) {
     const t = performance.now();
-    const n = presign(b0, edit.entries.map((e) => e.abs), host.service.getProgram());
+    const n = presign(
+      b0,
+      edit.entries.map((e) => e.abs),
+      host.service.getProgram(),
+    );
     log(`           presign ${n} files ${fmt(performance.now() - t)}s`);
   }
   act();

@@ -31,7 +31,11 @@ const TRAPS = [
     },
     steps: [
       { name: 'benign', files: { 'a.ts': 'export type T = number; // c' } },
-      { name: 'TRAP', files: { 'a.ts': 'export type T = string;' }, expect: { file: 'c.ts', code: 2322 } },
+      {
+        name: 'TRAP',
+        files: { 'a.ts': 'export type T = string;' },
+        expect: { file: 'c.ts', code: 2322 },
+      },
     ],
   },
   {
@@ -44,7 +48,11 @@ const TRAPS = [
     },
     steps: [
       { name: 'benign', files: { 'a.ts': 'export interface T { v: number } // c' } },
-      { name: 'TRAP', files: { 'a.ts': 'export interface T { v: string }' }, expect: { file: 'c.ts', code: 2322 } },
+      {
+        name: 'TRAP',
+        files: { 'a.ts': 'export interface T { v: string }' },
+        expect: { file: 'c.ts', code: 2322 },
+      },
     ],
   },
   {
@@ -56,8 +64,16 @@ const TRAPS = [
     },
     steps: [
       { name: 'benign', files: { 'a.ts': 'export const v = 1; // c' } },
-      { name: 'TRAP retype', files: { 'a.ts': "export const v = 'x';" }, expect: { file: 'c.ts', code: 2322 } },
-      { name: 'TRAP remove', files: { 'a.ts': 'export const w = 1;' }, expect: { file: 'c.ts', code: 2305 } },
+      {
+        name: 'TRAP retype',
+        files: { 'a.ts': "export const v = 'x';" },
+        expect: { file: 'c.ts', code: 2322 },
+      },
+      {
+        name: 'TRAP remove',
+        files: { 'a.ts': 'export const w = 1;' },
+        expect: { file: 'c.ts', code: 2305 },
+      },
     ],
   },
   {
@@ -67,7 +83,10 @@ const TRAPS = [
       'u.ts': 'export const f = (): number => foo.length;',
     },
     steps: [
-      { name: 'benign', files: { 'g.ts': 'export const k = 1; // c\ndeclare global { var foo: string }' } },
+      {
+        name: 'benign',
+        files: { 'g.ts': 'export const k = 1; // c\ndeclare global { var foo: string }' },
+      },
       {
         name: 'TRAP',
         files: { 'g.ts': 'export const k = 1;', 'g2.ts': 'declare global { var foo: string }' },
@@ -86,7 +105,10 @@ const TRAPS = [
       { name: 'benign', files: { 'a.ts': 'export const v = 1; // c' } },
       {
         name: 'TRAP',
-        files: { 'a2.ts': 'export const v = 1;', 'b.ts': "import { v } from './a2';\nexport const b = v;" },
+        files: {
+          'a2.ts': 'export const v = 1;',
+          'b.ts': "import { v } from './a2';\nexport const b = v;",
+        },
         removed: ['a.ts'],
         expect: { file: 'c.ts', code: 2307 },
       },
@@ -100,7 +122,11 @@ const TRAPS = [
     },
     steps: [
       { name: 'benign', files: { 'a.ts': 'export const enum E { A = 1 } // c' } },
-      { name: 'TRAP', files: { 'a.ts': 'export const enum E { A = 2 }' }, expect: { file: 'b.ts', code: 2322 } },
+      {
+        name: 'TRAP',
+        files: { 'a.ts': 'export const enum E { A = 2 }' },
+        expect: { file: 'b.ts', code: 2322 },
+      },
     ],
   },
   {
@@ -111,7 +137,10 @@ const TRAPS = [
       'c.ts': "import type { I } from './a';\nexport const i: I = { x: 1, y: 's' };",
     },
     steps: [
-      { name: 'benign', files: { 'aug.ts': "export {}; // c\ndeclare module './a' { interface I { y: string } }" } },
+      {
+        name: 'benign',
+        files: { 'aug.ts': "export {}; // c\ndeclare module './a' { interface I { y: string } }" },
+      },
       {
         name: 'TRAP',
         files: { 'aug.ts': "export {};\ndeclare module './a' { interface I { y: number } }" },
@@ -127,7 +156,11 @@ const TRAPS = [
     },
     steps: [
       { name: 'benign', files: { 'glob.ts': 'declare var cfg: { n: number }; // c' } },
-      { name: 'TRAP', files: { 'glob.ts': 'declare var cfg: { n: string };' }, expect: { file: 'u.ts', code: 2322 } },
+      {
+        name: 'TRAP',
+        files: { 'glob.ts': 'declare var cfg: { n: string };' },
+        expect: { file: 'u.ts', code: 2322 },
+      },
     ],
   },
 ];
@@ -142,7 +175,13 @@ const DECOYS = {
 function runTrap(trap, options, label) {
   const host = createHost({ root: R, files: { ...trap.files, ...DECOYS }, options });
   const benign = trap.steps[0];
-  const states = [{ name: 'base' }, benign, { ...benign, name: 'benign-again' }, ...trap.steps.slice(1), { name: 'revert' }];
+  const states = [
+    { name: 'base' },
+    benign,
+    { ...benign, name: 'benign-again' },
+    ...trap.steps.slice(1),
+    { name: 'revert' },
+  ];
   let prev;
   const rows = [];
   for (const st of states) {
@@ -157,13 +196,18 @@ function runTrap(trap, options, label) {
     const cmp = compare(b.keys, f.keys);
     let control = '';
     if (st.expect) {
-      const hit = f.keys.some((k) => k.startsWith(`${R}/${st.expect.file}|`) && k.split('|')[3] === String(st.expect.code));
+      const hit = f.keys.some(
+        (k) =>
+          k.startsWith(`${R}/${st.expect.file}|`) && k.split('|')[3] === String(st.expect.code),
+      );
       control = hit ? ' control=ok' : ' control=MISSING(trap proves nothing)';
     }
     const rech = b.rechecked.map((x) => x.slice(R.length + 1)).join(',');
     rows.push(
       `  ${st.name.padEnd(13)} ${cmp.equal ? 'EQUAL' : 'DIFF '} drained=${b.drained} rechecked=[${rech}]${control}` +
-        (cmp.equal ? '' : `\n      builder-only=${JSON.stringify(cmp.onlyA)}\n      full-only=${JSON.stringify(cmp.onlyB)}`),
+        (cmp.equal
+          ? ''
+          : `\n      builder-only=${JSON.stringify(cmp.onlyA)}\n      full-only=${JSON.stringify(cmp.onlyB)}`),
     );
     prev = b.builder;
   }
@@ -175,7 +219,11 @@ for (const iso of [false, true]) {
 }
 // A user-settable compilerOption that switches the builder's transitive invalidation off — the
 // builder path must refuse a project that sets it (expected: DIFF on the passthrough trap).
-runTrap(TRAPS[0], { ...base, assumeChangesOnlyAffectDirectDependencies: true }, 'assumeChangesOnlyAffectDirectDependencies');
+runTrap(
+  TRAPS[0],
+  { ...base, assumeChangesOnlyAffectDirectDependencies: true },
+  'assumeChangesOnlyAffectDirectDependencies',
+);
 
 // BRANCHING: a gate keeps the disk-state builder B0 and derives EVERY overlay pass from it
 // (B1 = f(P_x, B0), later B2 = f(P_y, B0)) — valid only if deriving B1 does not mutate B0.
@@ -187,7 +235,9 @@ for (const iso of [false, true]) {
   const at = (label, b) => {
     const f = fullPass(b.program, host);
     const cmp = compare(b.keys, f.keys);
-    console.log(`  ${label.padEnd(26)} ${cmp.equal ? 'EQUAL' : `DIFF ${JSON.stringify(cmp)}`} rechecked=[${b.rechecked.map((x) => x.slice(R.length + 1))}] diags=${f.keys.length}`);
+    console.log(
+      `  ${label.padEnd(26)} ${cmp.equal ? 'EQUAL' : `DIFF ${JSON.stringify(cmp)}`} rechecked=[${b.rechecked.map((x) => x.slice(R.length + 1))}] diags=${f.keys.length}`,
+    );
   };
   console.log(`iso=${iso} — branching from a kept baseline builder`);
   const b0 = builderPass(host, undefined);

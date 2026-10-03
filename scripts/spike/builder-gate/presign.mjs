@@ -48,17 +48,20 @@ const options = {
   lib: ['lib.es2022.d.ts'],
 };
 const isMain = import.meta.url === new URL(`file://${process.argv[1]}`).href;
-if (isMain) for (const [label, content, sign] of [
-  ['shape-preserving edit, no presign', 'export type T = number; // c', false],
-  ['shape-preserving edit, presign', 'export type T = number; // c', true],
-  ['shape-CHANGING edit, presign', 'export type T = string;', true],
-]) {
-  const host = createHost({ root: R, files, options });
-  const b0 = builderPass(host, undefined);
-  if (sign) presign(b0.builder, [`${R}/a.ts`]);
-  host.setOverlay([{ abs: `${R}/a.ts`, content }]);
-  const b1 = builderPass(host, b0.builder);
-  const f = fullPass(b1.program, host);
-  const cmp = compare(b1.keys, f.keys);
-  console.log(`${label.padEnd(36)} ${cmp.equal ? 'EQUAL' : 'DIFF'} diags=${f.keys.length} rechecked=[${b1.rechecked.map((x) => x.slice(R.length + 1))}]`);
-}
+if (isMain)
+  for (const [label, content, sign] of [
+    ['shape-preserving edit, no presign', 'export type T = number; // c', false],
+    ['shape-preserving edit, presign', 'export type T = number; // c', true],
+    ['shape-CHANGING edit, presign', 'export type T = string;', true],
+  ]) {
+    const host = createHost({ root: R, files, options });
+    const b0 = builderPass(host, undefined);
+    if (sign) presign(b0.builder, [`${R}/a.ts`]);
+    host.setOverlay([{ abs: `${R}/a.ts`, content }]);
+    const b1 = builderPass(host, b0.builder);
+    const f = fullPass(b1.program, host);
+    const cmp = compare(b1.keys, f.keys);
+    console.log(
+      `${label.padEnd(36)} ${cmp.equal ? 'EQUAL' : 'DIFF'} diags=${f.keys.length} rechecked=[${b1.rechecked.map((x) => x.slice(R.length + 1))}]`,
+    );
+  }

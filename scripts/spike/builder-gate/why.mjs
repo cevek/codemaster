@@ -21,16 +21,32 @@ for (const rel of rels) {
     seen.add(p);
     for (const k of st.referencedMap.getKeys(p)?.keys() ?? []) q.push(k);
   }
-  const fwd = [...(st.referencedMap.getValues(keyOf(rel))?.keys() ?? [])].map((p) => path.relative(root, p));
-  const direct = [...(st.referencedMap.getKeys(keyOf(rel))?.keys() ?? [])].map((p) => path.relative(root, p));
-  console.log(`${rel}: referencedMap reverse closure=${seen.size}; direct referencers=${JSON.stringify(direct.slice(0, 12))}; forward refs=${fwd.length}`);
+  const fwd = [...(st.referencedMap.getValues(keyOf(rel))?.keys() ?? [])].map((p) =>
+    path.relative(root, p),
+  );
+  const direct = [...(st.referencedMap.getKeys(keyOf(rel))?.keys() ?? [])].map((p) =>
+    path.relative(root, p),
+  );
+  console.log(
+    `${rel}: referencedMap reverse closure=${seen.size}; direct referencers=${JSON.stringify(direct.slice(0, 12))}; forward refs=${fwd.length}`,
+  );
 }
 // Distribution over every root file: how much of the repo a d.ts-shape change of that file forces
 // the builder to recheck (its referencedMap reverse closure / non-lib files).
 if (rels.length === 0) {
-  const roots = b0.program.getSourceFiles().filter((sf) => !sf.fileName.includes('/node_modules/') && !b0.program.isSourceFileDefaultLibrary(sf));
+  const roots = b0.program
+    .getSourceFiles()
+    .filter(
+      (sf) => !sf.fileName.includes('/node_modules/') && !b0.program.isSourceFileDefaultLibrary(sf),
+    );
   const total = roots.length;
-  const buckets = new Map([[0.01, 0], [0.1, 0], [0.3, 0], [0.5, 0], [1, 0]]);
+  const buckets = new Map([
+    [0.01, 0],
+    [0.1, 0],
+    [0.3, 0],
+    [0.5, 0],
+    [1, 0],
+  ]);
   for (const sf of roots) {
     const seen = new Set();
     const q = [sf.resolvedPath];
@@ -41,9 +57,15 @@ if (rels.length === 0) {
       for (const k of st.referencedMap.getKeys(p)?.keys() ?? []) q.push(k);
     }
     const frac = seen.size / total;
-    for (const b of buckets.keys()) if (frac <= b) (buckets.set(b, buckets.get(b) + 1));
+    for (const b of buckets.keys()) if (frac <= b) buckets.set(b, buckets.get(b) + 1);
   }
-  console.log(`files=${total}; cumulative share of files whose closure ≤ X of repo: ${[...buckets].map(([b, n]) => `≤${b * 100}%: ${n} (${((100 * n) / total).toFixed(1)}%)`).join(', ')}`);
+  console.log(
+    `files=${total}; cumulative share of files whose closure ≤ X of repo: ${[...buckets].map(([b, n]) => `≤${b * 100}%: ${n} (${((100 * n) / total).toFixed(1)}%)`).join(', ')}`,
+  );
 }
-const g = [...st.fileInfos].filter(([, i]) => i.affectsGlobalScope).map(([p]) => path.relative(root, p));
-console.log(`affectsGlobalScope (non-node_modules): ${JSON.stringify(g.filter((p) => !p.includes('node_modules')))}`);
+const g = [...st.fileInfos]
+  .filter(([, i]) => i.affectsGlobalScope)
+  .map(([p]) => path.relative(root, p));
+console.log(
+  `affectsGlobalScope (non-node_modules): ${JSON.stringify(g.filter((p) => !p.includes('node_modules')))}`,
+);

@@ -41,12 +41,16 @@ export function createHost(cfg) {
     options = cfg.options;
     rootFiles = [...inline.keys()].filter((f) => /\.tsx?$/.test(f));
   } else {
-    const parsed = ts.getParsedCommandLineOfConfigFile(`${root}/tsconfig.json`, {}, {
-      ...ts.sys,
-      onUnRecoverableConfigFileDiagnostic: (d) => {
-        throw new Error(ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+    const parsed = ts.getParsedCommandLineOfConfigFile(
+      `${root}/tsconfig.json`,
+      {},
+      {
+        ...ts.sys,
+        onUnRecoverableConfigFileDiagnostic: (d) => {
+          throw new Error(ts.flattenDiagnosticMessageText(d.messageText, '\n'));
+        },
       },
-    });
+    );
     options = { ...parsed.options, ...cfg.options };
     rootFiles = parsed.fileNames.map(posix).filter((f) => !f.includes('/node_modules/'));
     for (const f of rootFiles) readSnap(f); // eager: the tree is frozen at start
@@ -92,7 +96,10 @@ export function createHost(cfg) {
     readDirectory: ts.sys.readDirectory,
     directoryExists: (d) => {
       const dir = posix(d);
-      if (inline !== undefined && (dir === root || [...inline.keys()].some((k) => k.startsWith(`${dir}/`))))
+      if (
+        inline !== undefined &&
+        (dir === root || [...inline.keys()].some((k) => k.startsWith(`${dir}/`)))
+      )
         return true;
       for (const k of overlay.keys()) if (k.startsWith(`${dir}/`)) return true;
       return ts.sys.directoryExists(d);
@@ -157,7 +164,8 @@ function instrument(program) {
 }
 
 const isLib = (program, sf) =>
-  sf.isDeclarationFile && (program.isSourceFileDefaultLibrary(sf) || sf.fileName.includes('/node_modules/'));
+  sf.isDeclarationFile &&
+  (program.isSourceFileDefaultLibrary(sf) || sf.fileName.includes('/node_modules/'));
 
 export function diagKey(d) {
   return [
