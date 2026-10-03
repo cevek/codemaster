@@ -10,7 +10,7 @@ tags:
 type: bug
 complexity: S
 area: ts-refactor
-evidence: reported
+evidence: repro
 author: c37d629d
 created: '2026-10-03T16:37:01.216Z'
 ---
