@@ -5,7 +5,9 @@
 // (one re-globs a path out and back), so one program's new version can equal another's old one for
 // a different body; and a path a program reaches only through an import (outside its `include`)
 // never had a counter at all. A host-wide counter per path, advanced once for every path a reindex
-// names and never reset, gives each body of a path one version everywhere.
+// names and never reset, gives each reindexed body of a path one version everywhere. A path no
+// reindex ever names (gitignored codegen, `node_modules`, outside the root) stays at 1 — stale for
+// the LS as a whole (t-710809 / t-024049).
 
 export interface FileVersions {
   /** The current disk version of `absPosix` (1 until a reindex first names it). */

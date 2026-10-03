@@ -71,7 +71,11 @@ test('a program that re-globs a path out and back never shares a stale body with
     writeFileSync(path.join(d, 'p.ts'), "export const v: string = 'x';");
     reindex(['p.ts']);
     const use = path.join(d, 'use.ts');
+    // B syncs first: under per-program counters its new version equals the one A left in the shared
+    // registry entry with the OLD body, and the registry hands that body over.
+    const seenByB = messages(b.service, use);
     assert.ok(messages(a.service, use).length > 0, 'A sees the new body');
+    assert.deepEqual(seenByB, messages(a.service, use), 'B, synced first, sees the same body');
     assert.deepEqual(messages(b.service, use), messages(a.service, use), 'B sees the same body');
   } finally {
     a.dispose();

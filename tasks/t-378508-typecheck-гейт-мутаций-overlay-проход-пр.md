@@ -121,3 +121,10 @@ Proof-скрипт `scripts/spike/builder-gate/decl.mjs`: Emit-builder даёт 
 - **[nit] arch 5 — `WrittenEdit.removed` дублирует `scope.removed`.** → dropped: `diagnosticsAcross` получает `scope` без `removed`, носитель один.
 - **[nit] arch 6 — инвариант уникальности версии закреплён у потребителя, а не у владельца.** → fixed: `file-versions.test.ts` проверяет его на `createSingleProgram`.
 - **Остаточное:** память удержанных состояний → t-743990. Отмена sibling-а как degraded — так было до трека, не трогал.
+
+
+## Ревью, круг 2 (bug на 5aad8ce)
+
+- **[BLOCK] тест F1 не дискриминировал.** Первой синхронизировалась A, поэтому коллизия реестра не возникала. Ревьювер проверил мутациями: тест был зелёным и на retired-map, и на сбросе в 1. → fixed: B синхронизируется первым, как в репро ревьювера — на retired-map это красный. Мутация «сброс в 1» этим тестом не ловится. Её ловит `program-gate-builder.test.ts` («a path that leaves the program and returns»).
+- **Остаточное.** Пути, которые не называет ни один reindex (gitignored codegen), навсегда остаются на версии 1 → t-024049. Так было до трека. Заголовок `file-versions.ts` уточнён. Файл-симлинк внутри root — тоже было до трека, не трогал.
+- **Круг 3 не запускал** — ⚑ менеджеру.
