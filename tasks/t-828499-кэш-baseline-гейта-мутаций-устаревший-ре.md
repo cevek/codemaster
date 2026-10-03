@@ -3,7 +3,6 @@ id: t-828499
 title: 'memo результата гейта мутаций: install в gitignored-области между dry-run и apply при том же diskVersion отдаёт вердикт dry-run'
 status: backlog
 priority: low
-parent: t-116306
 depends_on:
   - t-710809
 tags:

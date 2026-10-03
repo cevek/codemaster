@@ -3,7 +3,6 @@ id: t-132219
 title: 'move_symbol/extract_symbol: consumer с import X = require / const X = require(source) получает расходящиеся имя импорта и ссылок (тот же апстрим-баг updateNamespaceLikeImport)'
 status: backlog
 priority: low
-parent: t-116306
 tags:
   - mutation
   - namespace

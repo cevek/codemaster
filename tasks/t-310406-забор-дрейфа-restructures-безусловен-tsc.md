@@ -3,7 +3,6 @@ id: t-310406
 title: 'Забор дрейфа: restructures безусловен — tsconfig/package.json чужого пакета монорепо отказывает запись'
 status: backlog
 priority: low
-parent: t-116306
 tags:
   - gate
   - mutation

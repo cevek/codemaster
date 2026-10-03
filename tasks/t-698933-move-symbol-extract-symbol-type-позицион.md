@@ -3,7 +3,6 @@ id: t-698933
 title: 'move_symbol/extract_symbol: type-позиционные ссылки через namespace-импорт (M.Model, typeof M.fn) не переписываются — перенос отказывает'
 status: todo
 priority: high
-parent: t-116306
 tags:
   - mutation
   - namespace

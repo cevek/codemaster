@@ -3,7 +3,6 @@ id: t-433767
 title: Overlay гейта кладёт в roots ключи, не принадлежащие программе — overlay-программа расходится с дисковой по членству
 status: backlog
 priority: medium
-parent: t-116306
 tags:
   - gate
   - honesty

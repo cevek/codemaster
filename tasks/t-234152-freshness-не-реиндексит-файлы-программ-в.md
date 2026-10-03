@@ -3,7 +3,6 @@ id: t-234152
 title: Freshness не реиндексит файлы программ вне workspace root
 status: backlog
 priority: low
-parent: t-116306
 tags:
   - freshness
   - git
