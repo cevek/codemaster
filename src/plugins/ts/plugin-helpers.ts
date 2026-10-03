@@ -132,7 +132,8 @@ export function createPlanningHelpers(warm: () => TsProjectHost, root: string): 
       // Wrap ONLY the synchronous plan body (the LS fan-out) in the deadline — the async
       // git tree-load above is already complete, so the cancellation predicate covers exactly
       // the cancellable work and is reset in `withDeadline`'s finally before the method returns.
-      // Options are read under the overlay: it carries no tsconfig, so they are the disk ones, and
+      // Options are read under the overlay: it holds only TS files (`assemblePlan` filters
+      // `overlayFiles`/`removed` to TS), never a tsconfig, so they are the disk ones, and
       // reading them before `setOverlay` would rebuild the disk program on every transaction step
       // ≥1 only for the overlay program to replace it (t-749107).
       const run = () =>
