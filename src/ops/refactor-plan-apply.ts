@@ -343,7 +343,7 @@ export async function applyRefactorPlan(
     ...(ctx.deadline !== undefined ? { deadline: ctx.deadline } : {}),
   });
   if (post.kind === 'introduced') return rollback('post-apply typecheck failed', post.field);
-  if (post.kind === 'incomplete') notes.push(INCOMPLETE_NOTE);
+  const appliedNotes = post.kind === 'incomplete' ? [...notes, INCOMPLETE_NOTE] : notes;
   return ok<JsonValue>(
     {
       mode: 'applied',
@@ -354,7 +354,7 @@ export async function applyRefactorPlan(
       ...verdictTouched,
       rollback: { performed: false },
       ...incompleteFields(post),
-      ...(notes.length > 0 ? { notes } : {}),
+      ...(appliedNotes.length > 0 ? { notes: appliedNotes } : {}),
       ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),
       ...tail, // last — the cap can only ever truncate the diff/touched-stat, never the verdict (§3a).
     },

@@ -1,5 +1,5 @@
-// A mutation's drift fence (t-439159): the working tree's verdict-relevant state, captured when a
-// mutating op starts and again right before it writes. Any difference means the tree the §2.8 gate
+// A mutation's drift fence (t-439159): the working tree's verdict-relevant state, captured before
+// the §2.8 gate runs and again right before the write. Any difference means the tree the §2.8 gate
 // verified is not the tree about to receive the write — the write is refused, never landed on
 // unverified ground. Content-hashed rather than stat-compared: the set is bounded by the caller's
 // relevance filter, and a hash needs no clock and has no racy-mtime window.
@@ -42,6 +42,7 @@ export async function captureWorktree(
   const fp = await gitRepoFingerprint(root, git);
   if (!isOk(fp)) return fail(fp.failure);
   const relevant = new Map<string, string>();
+  // Repo-wide, not gate-scoped (t-500739); paths are git-toplevel-relative (t-835778).
   for (const rel of fp.data.dirtyPaths) {
     if (hasIgnoredDirSegment(rel) || !isRelevant(rel)) continue;
     relevant.set(rel, hashOf(root, rel));

@@ -30,11 +30,11 @@ import type { GateScope } from '../plugins/ts/program-gate.ts';
 import { affectsTypecheck } from '../plugins/ts/gate-membership.ts';
 import { absOf, buildTypecheckField, type BaselinePathRemap } from './mutation-support.ts';
 
-/** Disk text as the plan sees it: the LS reads through `ts.sys.readFile`, which drops a BOM. */
+/** Raw disk text — every plan producer reads with `readFileSync(…, 'utf8')` (BOM and CRLF kept)
+ *  and `writeFileAtomic` writes verbatim, so both comparisons are exact. */
 function diskText(root: string, rel: RepoRelPath): string | undefined {
   try {
-    const raw = readFileSync(absOf(root, rel), 'utf8');
-    return raw.startsWith('﻿') ? raw.slice(1) : raw;
+    return readFileSync(absOf(root, rel), 'utf8');
   } catch {
     return undefined;
   }
@@ -112,8 +112,7 @@ export type PostApplyVerdict =
 function readbackMismatch(input: PostApplyInput): RepoRelPath[] {
   const out: RepoRelPath[] = [];
   for (const w of input.written) {
-    const expected = w.content.startsWith('﻿') ? w.content.slice(1) : w.content;
-    if (diskText(input.root, w.path) !== expected) out.push(w.path);
+    if (diskText(input.root, w.path) !== w.content) out.push(w.path);
   }
   const written = new Set(input.written.map((w) => w.path));
   for (const r of input.removed) {

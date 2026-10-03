@@ -54,7 +54,8 @@ const expireAfterReindex: ProjectOptions = {
     const reindex = api.reindex.bind(api);
     api.reindex = async (paths) => {
       await reindex(paths);
-      clock.advance(120_000);
+      // Only the op's post-write reindex — never the engine's entry refresh.
+      if (paths.includes('src/def.ts' as RepoRelPath)) clock.advance(120_000);
     };
   },
 };
@@ -115,6 +116,25 @@ test('rename_symbol: a reindex throw after the write is incomplete, not a rollba
     assert.equal(data['applied'], true);
     assert.match(String((data['postApply'] as Data)['reason']), /reindex/);
     assert.match(read(p, 'src/def.ts'), /gadget/);
+  } finally {
+    await p.dispose();
+  }
+});
+
+// The pre-write before-bytes check compares raw disk text with the plan's `before`; a BOM or CRLF
+// file must still apply — and keep its BOM.
+test('rename_symbol: a BOM + CRLF file applies and keeps its BOM', async () => {
+  const p = await project({
+    ...RENAME,
+    'src/def.ts': '﻿export const widget = 1;\r\n',
+  });
+  try {
+    const data = await run(p, RENAME_REQ);
+    assert.equal(data['applied'], true, JSON.stringify(data));
+    assert.equal(data['postApply'], undefined);
+    const def = read(p, 'src/def.ts');
+    assert.ok(def.startsWith('﻿'), 'BOM kept');
+    assert.match(def, /gadget/);
   } finally {
     await p.dispose();
   }

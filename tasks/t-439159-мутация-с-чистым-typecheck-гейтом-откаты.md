@@ -77,3 +77,23 @@ plan-reviewer (1 круг); на код — bug-reviewer (обязательно
 - Окно планирования: гейт читает диск в момент гейта, т.е. не-touched импортёры видит; незакрытым оставалось только `before` vs диск для touched — закрыто 2(b). Таску на перенос снимка в движок НЕ завожу.
 - git status: 2 вызова на apply (вход + пре-запись) вместо 1 (`dirtyAmong`) — +сотни мс, пренебрежимо.
 - Сосед t-786607: `overlayClaims` использует приватные `affected`/`claimedBy` из `program-gate.ts`; если их кэш мемоизирует `affected`/меняет `programs` — claims должны идти в ногу. Сообщаю менеджеру.
+
+
+## Результат
+
+### Замер (эталон amiro, APFS-клон, CLI one-shot, `extract_symbol toOptions → choice-options-seed.ts`, 20 touched)
+- До (base 59d6791, amiro ec82d2be8, load 17–50): dry-run 84.4 c real / 80.7 user; apply 125.4 / 120.8 → **apply − dry-run = +41 c real / +40 c user**.
+- После (219523d, amiro 032b2b449 — HEAD уехал, load 47–127): dry-run 106.0 / 89.5; apply 78.5 / 76.6 → **apply − dry-run ≤ 0** (в шуме). Post-apply больше не содержит полного прохода. Абсолютные числа между прогонами несравнимы (нагрузка и HEAD разные) — сравнивается разность внутри пары.
+
+### Факты о системе, вскрытые по ходу
+- Отмена LS (`cancellation.ts`) срабатывает только внутри checker-узлов, которые опрашивают токен (тело функции — да, `export const x = 1` — нет). Recheck, запущенный на уже истёкшем бюджете, может досчитать до конца → в `verifyAfterWrite` явная проверка `deadline.expired()` до старта.
+- Снимок, оставленный pending до синхронного гейта, читал бы хэши после гейта (40+ с) — поэтому `captureEntry` awaited до гейта.
+- Все продюсеры `before` (rename `sourceFile.text`, codemod/assemble/transaction `readFileSync`) сохраняют BOM/CRLF; снапшоты LS — `readFileSync(…,'utf8')`, не `ts.sys.readFile`. Сравнение before/readback — только сырые байты (первая версия срезала BOM и ложно отказывала на любом BOM-файле — поймано ревью).
+
+### Опровергнуто/отвергнуто
+- Rollback на readback-mismatch: после атомарной записи расхождение = чужой писатель, rollback затёр бы его правку `before`-байтами → `incomplete`.
+- «Residual claimedBy покрыт overlay+readback»: неверно — overlay force-add'ит неowned dest в roots, на диске сирота вне `include` не в программе; `declare global` в нём ломает НЕ-записанные файлы. Закрыто детектором членства (`claimDivergence` → полный scope), класс целиком — t-433767.
+
+### Не покрыто
+- Окно между планированием и `captureEntry` для НЕ-touched файлов: гейт читает диск в момент гейта, т.е. видит их; для touched — проверка before-bytes.
+- Забор дрейфа шире scope гейта — t-500739; root-подкаталог git-репо — t-835778 (унаследовано от `dirtyAmong`).

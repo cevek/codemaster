@@ -20,12 +20,12 @@ export interface GateClaims {
   readonly structural: readonly RepoRelPath[];
 }
 
-const PROGRAM_SOURCE = /\.(ts|tsx|js|jsx|mts|cts)$/;
+const PROGRAM_SOURCE = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/;
 
 /** Can a change to this path move a typecheck verdict? Program sources, JSON (resolveJsonModule,
- *  tsconfig, package.json) and `.gitignore` (it reshapes the program file list). */
+ *  tsconfig, package.json) and the files that reshape program file lists. */
 export function affectsTypecheck(rel: string): boolean {
-  return PROGRAM_SOURCE.test(rel) || rel.endsWith('.json') || basename(rel) === '.gitignore';
+  return PROGRAM_SOURCE.test(rel) || rel.endsWith('.json') || restructures(rel);
 }
 
 function basename(rel: string): string {
@@ -34,7 +34,12 @@ function basename(rel: string): string {
 
 function restructures(rel: string): boolean {
   const base = basename(rel);
-  return isTsconfigBasename(base) || base === 'package.json' || base === '.gitignore';
+  return (
+    isTsconfigBasename(base) ||
+    base === 'package.json' ||
+    base === 'pnpm-workspace.yaml' ||
+    base === '.gitignore'
+  );
 }
 
 export function overlayClaims(
