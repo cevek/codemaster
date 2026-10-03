@@ -122,6 +122,8 @@ export interface TsProjectHost {
   /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
    *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
   diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
+  /** The write gate's program context (built programs only) — for the membership fidelity check. */
+  gateHostCtx(): GateHostCtx;
   /** READ-context fan-out set for a decl: the built programs (primary + siblings) PLUS any
    *  file-driven nested program already loaded, filtered to those containing `absPosix`. Run
    *  findReferences only where the declaration file actually lives. */
@@ -510,6 +512,7 @@ export function createTsProjectHost(
     loadPrograms: (paths) => explicit.load(paths),
     gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
     diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
+    gateHostCtx: gateCtx,
     programsContaining(absPosix) {
       // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested
       // program AND any `programs:`-loaded explicit program that contains this file. WRITE paths use

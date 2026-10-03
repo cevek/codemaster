@@ -5,13 +5,9 @@
 
 import * as path from 'node:path';
 import { diffLines } from 'diff';
-import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
-import { ok, fail } from '../common/result/construct.ts';
-import { isOk } from '../common/result/narrow.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import { gitStatus } from '../support/git/status.ts';
 import { resolvePrettier, type ResolvedPrettier } from '../support/prettier/resolve.ts';
 import { formatContent } from '../support/prettier/format.ts';
 import type { Capture, TsDiagnostic } from '../plugins/ts/plugin.ts';
@@ -210,16 +206,4 @@ export function capturesField(captures: readonly Capture[]): Record<string, Json
 export function captureRefusal(captures: readonly Capture[], action: string): string {
   const sites = captures.map((c) => `${c.file}:${c.line}:${c.col} ${c.detail}`).join('; ');
   return `this edit would CAPTURE an in-scope binding — refused (a type-compatible shadow is NOT proof the edit is correct): ${sites}. ${action}`;
-}
-
-/** Which of `touched` have uncommitted changes (the dirty-gate subset). Surfaces a git
- *  failure honestly rather than guessing the tree is clean. */
-export async function dirtyAmong(
-  root: string,
-  touched: readonly RepoRelPath[],
-): Promise<Result<RepoRelPath[]>> {
-  const status = await gitStatus(root);
-  if (!isOk(status)) return fail(status.failure);
-  const dirtySet = new Set(status.data.dirtyPaths);
-  return ok(touched.filter((p) => dirtySet.has(p)));
 }

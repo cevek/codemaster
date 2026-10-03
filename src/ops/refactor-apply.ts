@@ -8,9 +8,9 @@
 //      baseline over the same scope. An error the edit INTRODUCES → no write, ever (a mis-port
 //      surfaces as a diagnostic, never silent corruption); a repo's pre-existing errors don't
 //      block (reported as a preExisting count) — the gate judges the edit, not the repo's state.
-//   3. apply: dirty-gate the touched files → write → reindex → post-apply DISK typecheck →
-//      roll back byte-exact iff THAT typecheck shows newly-introduced errors (never on a
-//      prettier hiccup, never on a pre-existing error the edit didn't cause).
+//   3. apply: drift fence + dirty gate (`preWriteCheck`) → write → `verifyAfterWrite` → roll back
+//      byte-exact iff the post-write recheck shows newly-introduced errors (never on a recheck
+//      that could not finish, never on a pre-existing error the edit didn't cause).
 //
 // Any failure that leaves disk touched (a write that died mid-loop, a post-apply rollback)
 // reports the rollback outcome explicitly — a partially-mutated tree is never hidden behind
@@ -24,7 +24,7 @@ import type { RepoRelPath } from '../core/brands.ts';
 import { ok, fail, messageOfThrown } from '../common/result/construct.ts';
 import { failTimeout, failTimeoutOr } from './refactor-timeout.ts';
 import { writeFileAtomic } from '../support/text-edits/write.ts';
-import type { Capture, TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { Capture, GateClaims, TsDiagnostic, TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
 import {
   absOf,
@@ -35,8 +35,14 @@ import {
   formatOne,
   gateCoverageNotes,
   resolvePrettier,
-  dirtyAmong,
 } from './mutation-support.ts';
+import {
+  captureEntry,
+  preWriteCheck,
+  verifyAfterWrite,
+  incompleteFields,
+  INCOMPLETE_NOTE,
+} from './post-apply-verify.ts';
 
 /** One file's full before/after content (offsets already applied by the plugin). */
 export interface MutationChange {
@@ -120,6 +126,7 @@ export async function applyMutation(
     return fail({ tool: 'engine', message: 'no workspace root in op context' });
   const ts = ctx.plugins.get<TsPluginApi>('ts');
   const handleExtra = options.handle !== undefined ? { handle: options.handle } : undefined;
+  const atEntry = await captureEntry(root, ctx.flags.apply === true);
 
   const prettier = await resolvePrettier(root);
   const formatNotes: string[] = [];
@@ -185,7 +192,9 @@ export async function applyMutation(
   let overlayDiag: TsDiagnostic[];
   let gateProgms: string[];
   let gateDegraded: string[];
+  let claims: GateClaims;
   try {
+    claims = ts.overlayClaims(gateScope, touched);
     // Baseline (pre-edit disk) and overlay sampled over the SAME affected (program × file) set —
     // so a pre-existing repo error is told apart from one THIS edit introduced. The gate refuses on
     // the latter only; a repo's unrelated errors never make a sound rename/move inapplicable.
@@ -255,15 +264,15 @@ export async function applyMutation(
     return refused('this edit introduces new typecheck errors — apply refused (§2.8)');
   }
 
-  // Dirty gate — refuse if a TOUCHED file has uncommitted changes (rollback restores the
-  // pre-op content; an unrelated dirty file in the worktree is never our concern).
-  const dirtyResult = await dirtyAmong(root, touched);
-  if (!dirtyResult.ok) return fail(dirtyResult.failure);
-  if (dirtyResult.data.length > 0 && options.dirtyOk !== true) {
-    return refused(
-      `touched files have uncommitted changes (${dirtyResult.data.join(', ')}); commit/stash or pass dirtyOk`,
-    );
-  }
+  const pre = await preWriteCheck(
+    root,
+    atEntry,
+    touched,
+    changes.map((c) => ({ path: c.path, before: c.before })),
+    options.dirtyOk === true,
+  );
+  if (!pre.ok) return fail(pre.failure);
+  if (pre.data !== undefined) return refused(pre.data);
 
   // Applied envelope after disk was touched — always carries the rollback outcome.
   const appliedWithRollback = (
@@ -304,37 +313,34 @@ export async function applyMutation(
       return appliedWithRollback(typecheck, reverted, `write failed (${w.failure.message})`);
     }
   }
-  let postGate: { clean: boolean; field: JsonValue };
-  try {
-    await ts.reindex(touched); // structural reindex reads disk/tsconfig — can throw
-    // Diff post-apply disk diagnostics (across the same affected programs) against the SAME pre-edit
-    // baseline — a pre-existing repo error must not trigger a (byte-exact, but pointless) rollback.
-    postGate = buildTypecheckField(
-      baselineDiag,
-      ts.diagnosticsAcross(gateScope, gateProgms, ctx.deadline),
-    );
-  } catch (thrown) {
+  const post = await verifyAfterWrite({
+    ts,
+    root,
+    written: changes.map((c) => ({ path: c.path, content: c.after })),
+    removed: [],
+    touched,
+    gateScope,
+    programs: gateProgms,
+    baseline: baselineDiag,
+    claims,
+    ...(ctx.deadline !== undefined ? { deadline: ctx.deadline } : {}),
+  });
+  if (post.kind === 'introduced') {
     const reverted = await revertAll(root, changes, ts);
-    return appliedWithRollback(
-      typecheck,
-      reverted,
-      `post-apply typecheck threw (${messageOfThrown(thrown)})`,
-    );
+    return appliedWithRollback(post.field, reverted, 'post-apply typecheck failed');
   }
-  if (!postGate.clean) {
-    const reverted = await revertAll(root, changes, ts);
-    return appliedWithRollback(postGate.field, reverted, 'post-apply typecheck failed');
-  }
+  const appliedNotes = post.kind === 'incomplete' ? [...notes, INCOMPLETE_NOTE] : notes;
   return ok<JsonValue>(
     {
       mode: 'applied',
       applied: true,
-      // postGate is clean here; carry it (not a bare {clean:true}) so a repo's pre-existing
-      // error count rides along on success too — honest, and consistent with the dry-run field.
-      typecheck: postGate.field,
+      // The gate's verdict over its full scope: the post-write recheck covers only what the write
+      // could change, so its own preExisting count would not match the dry-run's.
+      typecheck,
       ...verdictTouched,
       rollback: { performed: false },
-      ...baseNotes,
+      ...incompleteFields(post),
+      ...(appliedNotes.length > 0 ? { notes: appliedNotes } : {}),
       // Proof spans valid only now that the post-edit content is on disk (§3.2).
       ...appliedFields,
       ...tail, // last — the cap can only ever truncate the diff/touched-stat, never the verdict (§3a).

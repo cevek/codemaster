@@ -67,7 +67,7 @@ function owns(program: SingleProgram, absPosix: string): boolean {
 }
 
 /** Programs (primary ALWAYS first) that own any anchor file. */
-function affected(ctx: GateHostCtx, anchor: readonly RepoRelPath[]): SingleProgram[] {
+export function affected(ctx: GateHostCtx, anchor: readonly RepoRelPath[]): SingleProgram[] {
   const anchorAbs = anchor.map((p) => ctx.absOf(p));
   const out: SingleProgram[] = [ctx.primary];
   for (const program of ctx.programs) {
@@ -84,7 +84,7 @@ function affected(ctx: GateHostCtx, anchor: readonly RepoRelPath[]): SingleProgr
  *  "Cannot find module" → a FALSE refusal of a sound move. This restores the prior primary-checks-
  *  everything behavior ONLY for genuinely-unowned paths, so siblings still never force-get a
  *  primary-owned file (the LOW symmetry fix holds) and an owned dest is still checked by its owner. */
-function claimedBy(
+export function claimedBy(
   ctx: GateHostCtx,
   program: SingleProgram,
   programs: readonly SingleProgram[],
@@ -133,15 +133,14 @@ function overlayCollect(
   }
 }
 
-/** Disk diagnostics across every affected program (no overlay) — the post-apply check. `restrictTo`
+/** Disk diagnostics across every affected program (no overlay) — the post-apply recheck. `restrictTo`
  *  (program labels) PINS the set to the one the pre-apply baseline sampled: a move changes program
  *  membership (a moved-in file enters a sibling's glob), so a post-apply re-`affected()` would sample
  *  a program the baseline never did → its PRE-EXISTING errors mis-count as introduced. Omit
- *  `restrictTo` for the baseline itself. PRIMARY throwing propagates (→ rollback); a SIBLING throwing
- *  post-apply is skipped — SAFE because apply only got here by passing a CLEAN pre-apply OVERLAY gate
- *  over the identical post-edit bytes (this disk pass is a redundant re-verification of bytes already
- *  verified), and a broken sibling already surfaced a degraded note pre-apply (the same throw fires on
- *  both passes). So the skip cannot turn a real error into a false clean. (§3.6) */
+ *  `restrictTo` for the baseline itself. PRIMARY throwing propagates (the caller reports the recheck
+ *  as incomplete); a SIBLING throwing post-apply is skipped — SAFE because apply only got here by
+ *  passing a CLEAN pre-apply OVERLAY gate over the identical post-edit bytes, and a broken sibling
+ *  already surfaced a degraded note pre-apply (the same throw fires on both passes). (§3.6) */
 export function diagnosticsAcross(
   ctx: GateHostCtx,
   scope: GateScope,

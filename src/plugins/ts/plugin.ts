@@ -23,6 +23,7 @@ import { membersNamedInFile } from './member-in-file.ts';
 import { firstParamTypeMembers } from './first-param-members.ts';
 import { collectWideningSinks } from './type-widening.ts';
 import { overlaySymbolType } from './overlay-type.ts';
+import { overlayClaims, claimDivergence } from './gate-membership.ts';
 import type { UnresolvedTarget, UsagesView } from './query-types.ts';
 import { searchSymbols, type SearchView } from './search.ts';
 import { searchSymbolsSyntactic } from './syntactic-search.ts';
@@ -64,6 +65,7 @@ import type { TsPluginApi } from './api.ts';
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
+export type { GateClaims } from './gate-membership.ts';
 export type {
   RefactorPlan,
   CssExtractCandidate,
@@ -553,9 +555,9 @@ export function createTsPlugin(
     },
 
     // Bound the §2.8 typecheck gate (each program's semantic diagnostics poll the cancellation
-    // token) by the op's budget (§1 never-hang). Both the pre-write gate and the post-apply disk
-    // check run BEFORE the atomic write completes / while a rollback is still possible, so an
-    // overrun degrades to an honest `timeout` (or triggers a byte-exact rollback) — never a spin.
+    // token) by the op's budget (§1 never-hang). The pre-write gate's overrun is an honest `timeout`
+    // with nothing written; the post-apply recheck's overrun leaves the verified write in place and
+    // reports the recheck incomplete — never a spin.
     gateAcross: (files, scope, deadline) => {
       const run = () => warm().gateAcross(files, scope);
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
@@ -565,6 +567,10 @@ export function createTsPlugin(
       const run = () => warm().diagnosticsAcross(scope, restrictTo);
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
+
+    overlayClaims: (scope, written) => overlayClaims(warm().gateHostCtx(), scope, written),
+    claimDivergence: (claims, restrictTo) =>
+      claimDivergence(warm().gateHostCtx(), claims, restrictTo),
 
     overlaySymbolType: (declFile, name, overlay) =>
       overlaySymbolType(warm(), declFile, name, overlay),

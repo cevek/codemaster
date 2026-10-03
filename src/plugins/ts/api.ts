@@ -52,6 +52,7 @@ import type { Capture } from './refactor/capture/types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan, PlanningOverlay } from './refactor/plan.ts';
 import type { GateScope } from './program-gate.ts';
+import type { GateClaims } from './gate-membership.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
  *  diagnostic `check` scope (defaults to the overlaid files). */
@@ -348,6 +349,11 @@ export interface TsPluginApi extends Plugin {
     restrictTo?: readonly string[],
     deadline?: Deadline,
   ): TsDiagnostic[];
+  /** Where the overlay gate puts each written source path — call BEFORE `gateAcross` (same scope). */
+  overlayClaims(scope: GateScope, written: readonly RepoRelPath[]): GateClaims;
+  /** After the write + `reindex`: written paths whose membership diverges from `claims` within the
+   *  checked programs (plus structural writes). Non-empty ⇒ a written-paths-only recheck is unsound. */
+  claimDivergence(claims: GateClaims, restrictTo: readonly string[]): RepoRelPath[];
   /** The resolved TYPE of the top-level symbol `name` in `declFile`, BEFORE and under the trial
    *  `overlay` — the FACT behind `impact_type_error`'s clean widen-to-`any` masking guard: a trial
    *  edit can collapse the edited symbol's own type to `any` with NO intra-file error, silencing
