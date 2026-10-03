@@ -158,14 +158,18 @@ test('a disk-version bump drops the cached baseline', () => {
 });
 
 test('a collection interrupted mid-file never stores that file', () => {
-  const p = stub('tsconfig.json', DISK);
+  // a.ts carries a disk error AND is the edited file: its overlay is clean, so nothing downstream
+  // would reveal an empty entry stored for it — only the store rule keeps the baseline right.
+  const disk = { [abs('a.ts')]: 'ERR:pre', [abs('b.ts')]: 'ok' };
+  const p = stub('tsconfig.json', disk);
   const ctx = ctxOf(createGateCache(), p);
-  p.throwOnce.add(abs('b.ts'));
+  p.throwOnce.add(abs('a.ts'));
   assert.throws(() => gateAcross(ctx, edit('clean'), SCOPE), /cancelled/);
   const g = gateAcross(ctx, edit('clean'), SCOPE);
-  assert.ok(
-    g.baseline.some((d) => d.message === 'pre'),
-    'b.ts recomputed, not cached empty',
+  assert.deepEqual(
+    g,
+    gateAcross(ctxOf(undefined, stub('tsconfig.json', disk)), edit('clean'), SCOPE),
+    'a.ts recomputed, not cached empty',
   );
 });
 
