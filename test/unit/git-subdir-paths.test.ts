@@ -99,7 +99,7 @@ test('captureWorktree in a subdirectory root: a re-edit of an already-dirty file
     p.write('../shared/x.ts', 'export const x = 3;\n');
     const after = await captureWorktree(p.root, () => true);
     assert.ok(before.ok && after.ok);
-    assert.deepEqual(worktreeDrift(before.data, after.data), [
+    assert.deepEqual(worktreeDrift(p.root, before.data, after.data), [
       { path: '../shared/x.ts', deleted: false },
     ]);
   } finally {

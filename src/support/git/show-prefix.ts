@@ -11,10 +11,15 @@ export async function gitShowPrefix(
   git: GitRunner = runGit,
 ): Promise<Result<string>> {
   const r = await git(root, ['rev-parse', '--show-prefix']);
-  return isOk(r) ? ok(r.data.trim()) : fail(r.failure);
+  return isOk(r) ? ok(lineOf(r.data)) : fail(r.failure);
 }
 
 export function gitShowPrefixSync(root: string, timeoutMs: number): Result<string> {
   const r = runGitSync(root, ['rev-parse', '--show-prefix'], { timeoutMs });
-  return isOk(r) ? ok(r.data.trim()) : fail(r.failure);
+  return isOk(r) ? ok(lineOf(r.data)) : fail(r.failure);
+}
+
+/** Only the line terminator — a directory name may start or end with a space. */
+function lineOf(out: string): string {
+  return out.replace(/\r?\n$/, '');
 }

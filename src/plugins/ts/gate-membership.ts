@@ -23,6 +23,8 @@ export interface GateClaims {
 }
 
 const PROGRAM_SOURCE = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/;
+const DECLARATION = /\.d\.(ts|mts|cts)$/;
+const LOCKFILES = new Set(['package-lock.json', 'npm-shrinkwrap.json']);
 
 /** Can a change to this path move a typecheck verdict? Program sources, JSON (resolveJsonModule,
  *  tsconfig, package.json) and the files that reshape program file lists. */
@@ -64,8 +66,8 @@ export function overlayClaims(
 }
 
 /** Can a working-tree change at `rel` (workspace-root-relative, `../…` outside the root) move the
- *  verdict of the gate that checked `restrictTo`? Only when it reshapes programs or one of those
- *  programs owns it — the drift fence's scope (t-500739). Ownership is `containsFile ∨ mayContain`
+ *  verdict of the gate that checked `restrictTo`? When it reshapes programs, may configure them, or
+ *  one of those programs owns it — the drift fence's scope (t-500739). Ownership is `containsFile ∨ mayContain`
  *  (program-gate.ts `owns`): a file appearing under a program's glob changes that program too. */
 export function gateRelevance(
   ctx: GateHostCtx,
@@ -75,6 +77,12 @@ export function gateRelevance(
   const programs = ctx.programs.filter((p) => restrictTo.includes(p.label));
   return (rel) => {
     if (restructures(rel)) return true; // any package's, not only the checked ones' (t-310406)
+    // A program also reads files it neither contains nor globs: an `extends` target with any JSON
+    // name, an auto-included `typeRoots` package. Without the program's config chain to ask, every
+    // JSON but the lockfile and every declaration file stay relevant (t-310406).
+    if (DECLARATION.test(rel) || (rel.endsWith('.json') && !LOCKFILES.has(basename(rel)))) {
+      return true;
+    }
     const abs = toPosix(path.join(root, rel));
     return programs.some((p) => p.containsFile(abs) || p.mayContain(abs));
   };

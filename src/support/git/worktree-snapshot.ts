@@ -5,7 +5,7 @@
 // caller's relevance filter, and a hash needs no clock and has no racy-mtime window.
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { Result } from '../../core/result.ts';
 import { fail, ok } from '../../common/result/construct.ts';
@@ -26,7 +26,7 @@ export interface WorktreeSnapshot {
 
 export interface DriftEntry {
   path: string;
-  /** Present (or clean) at the first capture, gone at the second. */
+  /** Not absent at the first capture (present, or clean and so not captured), gone at the second. */
   deleted: boolean;
 }
 
@@ -59,12 +59,21 @@ export async function captureWorktree(
 
 /** What changed between two captures: `HEAD` when the commit moved, else each relevant path whose
  *  dirtiness or content differs. Empty ⇒ no relevant drift. */
-export function worktreeDrift(before: WorktreeSnapshot, after: WorktreeSnapshot): DriftEntry[] {
+export function worktreeDrift(
+  root: string,
+  before: WorktreeSnapshot,
+  after: WorktreeSnapshot,
+): DriftEntry[] {
   const out: DriftEntry[] = before.head !== after.head ? [{ path: 'HEAD', deleted: false }] : [];
   for (const rel of new Set([...before.relevant.keys(), ...after.relevant.keys()])) {
     const was = before.relevant.get(rel);
     const now = after.relevant.get(rel);
-    if (was !== now) out.push({ path: rel, deleted: now === ABSENT && was !== ABSENT });
+    if (was === now) continue;
+    // A deleted UNTRACKED file leaves porcelain altogether (`now` undefined) — unlike a deleted
+    // tracked one (` D`, hashed `absent`); a dirty file reverted to clean leaves it too, but exists.
+    const gone =
+      now === ABSENT || (now === undefined && !existsSync(path.join(root, ...rel.split('/'))));
+    out.push({ path: rel, deleted: gone && was !== ABSENT });
   }
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }

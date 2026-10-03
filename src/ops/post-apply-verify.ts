@@ -68,7 +68,7 @@ export async function preWriteCheck(
   if (!isOk(now)) return fail(now.failure);
   if (atEntry !== undefined) {
     const touchedSet = new Set<string>(touched);
-    const drift = worktreeDrift(atEntry.data, now.data)
+    const drift = worktreeDrift(root, atEntry.data, now.data)
       .filter(
         (d) => d.path === 'HEAD' || d.deleted || touchedSet.has(d.path) || gateRelevant(d.path),
       )

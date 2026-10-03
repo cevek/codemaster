@@ -52,7 +52,7 @@ function duringGate(during: (root: string, write: (rel: string, c: string) => vo
 test('a file outside every program edited after the gate does not refuse the write', async () => {
   const h = duringGate((_root, write) => {
     write('scripts/tool.ts', 'export const tool: number = 1;\n');
-    write('notes.json', '{"edited":true}\n');
+    write('package-lock.json', '{"lockfileVersion":3}\n');
   });
   const p = await project(MOVE, h.options);
   h.setRoot(p.root);
@@ -82,15 +82,42 @@ test('a new file under a program glob created after the gate refuses the write',
 });
 
 // An import-only file (outside `include`) leaves every program once deleted, so membership cannot
-// vouch for it — the deletion alone must refuse.
-test('deleting an import-only file after the gate refuses the write', async () => {
-  const h = duringGate((root) => rmSync(path.join(root, 'lib/helper.ts')));
+// vouch for it — the deletion alone must refuse. A tracked file's deletion stays in porcelain (` D`);
+// an untracked one's leaves it entirely.
+for (const tracked of [true, false]) {
+  test(`deleting an import-only ${tracked ? 'tracked' : 'untracked'} file after the gate refuses the write`, async () => {
+    const h = duringGate((root) => rmSync(path.join(root, 'lib/helper.ts')));
+    const helper = { 'lib/helper.ts': 'export const helper = 1;\n' };
+    const p = await project(
+      {
+        ...MOVE,
+        ...(tracked ? helper : {}),
+        'src/use.ts':
+          "import { twice } from './util';\nimport { helper } from '../lib/helper';\nexport const four = twice(helper);\n",
+      },
+      h.options,
+    );
+    h.setRoot(p.root);
+    if (!tracked) p.write('lib/helper.ts', helper['lib/helper.ts']);
+    try {
+      const data = await run(p, MOVE_REQ);
+      assert.equal(data['mode'], 'dry-run', JSON.stringify(data));
+      assert.match(String(data['reason']), /working tree changed.*lib\/helper\.ts/);
+    } finally {
+      await p.dispose();
+    }
+  });
+}
+
+test('an extends target with a non-tsconfig name edited after the gate refuses the write', async () => {
+  const h = duringGate((_root, write) =>
+    write('configs/base.json', '{"compilerOptions":{"strict":true,"noUnusedLocals":true}}\n'),
+  );
   const p = await project(
     {
       ...MOVE,
-      'lib/helper.ts': 'export const helper = 1;\n',
-      'src/use.ts':
-        "import { twice } from './util';\nimport { helper } from '../lib/helper';\nexport const four = twice(helper);\n",
+      'configs/base.json': '{"compilerOptions":{"strict":true}}\n',
+      'tsconfig.json': '{"extends":"./configs/base.json","include":["src"]}',
     },
     h.options,
   );
@@ -98,7 +125,7 @@ test('deleting an import-only file after the gate refuses the write', async () =
   try {
     const data = await run(p, MOVE_REQ);
     assert.equal(data['mode'], 'dry-run', JSON.stringify(data));
-    assert.match(String(data['reason']), /working tree changed.*lib\/helper\.ts/);
+    assert.match(String(data['reason']), /working tree changed.*configs\/base\.json/);
   } finally {
     await p.dispose();
   }
