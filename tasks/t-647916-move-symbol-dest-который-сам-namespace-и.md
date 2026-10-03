@@ -3,6 +3,7 @@ id: t-647916
 title: 'move_symbol: dest, который сам namespace-импортирует source и зовёт перенесённый символ через M.x, остаётся с висящей ссылкой'
 status: backlog
 priority: low
+parent: t-116306
 tags:
   - mutation
   - namespace
