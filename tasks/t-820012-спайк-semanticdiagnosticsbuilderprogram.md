@@ -1,7 +1,7 @@
 ---
 id: t-820012
 title: 'Спайк: SemanticDiagnosticsBuilderProgram поверх Program LS для typecheck-гейта — замер на amiro, без прод-кода'
-status: backlog
+status: in-progress
 priority: medium
 parent: t-713045
 tags:
