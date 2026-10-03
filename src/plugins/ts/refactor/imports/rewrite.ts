@@ -43,6 +43,10 @@ export function rewriteImports(
   tree: VFSTree,
   options: ts.CompilerOptions,
 ): ImportRewrite {
+  // An edit is emitted only for a moved target or a moved importer, so a content-only tree
+  // (extract_symbol / move_symbol / change_signature) rewrites nothing — skip the whole-tree
+  // parse + uncached module resolution it would otherwise pay on every step (t-749107).
+  if (!tree.hasMoves()) return { changed: new Map(), rewrites: [] };
   const aliasPrefixes = deriveAliasPrefixes(host, options);
   const program = host.service.getProgram();
   const changed = new Map<string, { before: string; after: string }>();
