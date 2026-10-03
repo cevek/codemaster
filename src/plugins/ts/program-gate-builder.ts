@@ -47,7 +47,17 @@ function tooManyChanged(changed: number, files: number): boolean {
 const AFTER_GATE_SLOTS = 4;
 const AFTER_GATE_KEY_MAX_CHARS = 4_000_000;
 
+/** A narrow check scope (a rename's touched files, `impact_type_error`'s closure) is cheaper on the
+ *  LS: a builder pass pays a whole-program setup plus the changed files' d.ts work before it reads
+ *  anything. Measured with `scripts/spike/builder-gate/live.ts`, a one-file scope: 1.1 s vs 0.4 s on
+ *  a 3.8k-file repo, 1.7 s vs 0.2 s on a 456-file `declaration` repo. */
+export function scopeWantsBuilder(checked: number, files: number): boolean {
+  return checked * 2 >= files;
+}
+
 export interface GateBuilders {
+  /** Is an overlay state kept under `written` — i.e. did the gate of those bytes run on the builder? */
+  follows(program: SingleProgram, written: string): boolean;
   /** Disk diagnostics of `checkAbs`; the program must carry no overlay. `written` names the bytes
    *  just written (post-apply): the overlay state that gated exactly them is the cheapest parent. */
   disk(
@@ -106,6 +116,7 @@ export function createGateBuilders(): GateBuilders {
   };
 
   return {
+    follows: (program, written) => chains.get(program)?.afterGate.has(written) === true,
     disk(program, relOf, checkAbs, token, written) {
       const chain = chainOf(program);
       const viaGate = written !== undefined ? chain.afterGate.get(written) : undefined;

@@ -31,7 +31,12 @@ import type { SingleProgram } from './program/single.ts';
 import ts from 'typescript';
 import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
 import type { GateCache } from './program-gate-cache.ts';
-import { builderEligible, overlayKeyOf, type GateBuilders } from './program-gate-builder.ts';
+import {
+  builderEligible,
+  overlayKeyOf,
+  scopeWantsBuilder,
+  type GateBuilders,
+} from './program-gate-builder.ts';
 
 /** The host-side context the fan-out needs — the built programs + the host's path mappers. */
 export interface GateHostCtx {
@@ -169,11 +174,22 @@ function overlayCollect(
 }
 
 /** The builders when this program may use them: present, no overlay already applied (the "disk"
- *  pass would not be the disk), and compilerOptions the incremental model is sound under. */
-function buildersFor(ctx: GateHostCtx, program: SingleProgram): GateBuilders | undefined {
-  if (ctx.builders === undefined || program.overlayActive()) return undefined;
+ *  pass would not be the disk), compilerOptions the incremental model is sound under, and a check
+ *  scope wide enough to pay for a pass — or a post-apply recheck of bytes whose gate ran on them,
+ *  which advances the chain the next gate's baseline starts from. */
+function buildersFor(
+  ctx: GateHostCtx,
+  program: SingleProgram,
+  checkAbs: readonly string[],
+  writtenKey?: string,
+): GateBuilders | undefined {
+  const builders = ctx.builders;
+  if (builders === undefined || program.overlayActive()) return undefined;
   const options = program.getProgram()?.getCompilerOptions();
-  return options !== undefined && builderEligible(options) ? ctx.builders : undefined;
+  if (options === undefined || !builderEligible(options)) return undefined;
+  const wide = scopeWantsBuilder(checkAbs.length, program.fileNames().length);
+  const follows = writtenKey !== undefined && builders.follows(program, writtenKey);
+  return wide || follows ? builders : undefined;
 }
 
 function tokenOf(ctx: GateHostCtx): ts.CancellationToken {
@@ -214,7 +230,7 @@ export function diagnosticsAcross(
       : undefined;
   const token = tokenOf(ctx);
   const collect = (program: SingleProgram): TsDiagnostic[] => {
-    const builders = buildersFor(ctx, program);
+    const builders = buildersFor(ctx, program, checkAbs, writtenKey);
     return builders !== undefined
       ? builders.disk(program, ctx.relOf, checkAbs, token, writtenKey)
       : collectFromService(program.service, ctx.relOf, checkAbs);
@@ -274,7 +290,7 @@ export function gateAcross(
   // Both passes of one program go through the same mechanism, so baseline and overlay are never
   // compared across two sources of truth.
   const sample = (program: SingleProgram) => {
-    const builders = buildersFor(ctx, program);
+    const builders = buildersFor(ctx, program, checkAbs);
     if (builders === undefined) {
       const b = collectFromService(program.service, ctx.relOf, checkAbs);
       const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>

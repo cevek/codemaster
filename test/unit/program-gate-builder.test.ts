@@ -70,13 +70,29 @@ test('post-apply chains from the state that gated the written bytes, even past a
     gateAcross(ctx, edits(other), scopeOf(NAMES, other)); // a dry-run of a different edit between
     host.reindex(writeDisk(dir, apply));
     const work = spy(host, dir);
-    const scope = scopeOf(NAMES, apply);
+    // The narrow written-files scope `verifyAfterWrite` passes: on the builder only because the
+    // gate of these bytes ran there.
+    const scope = { anchor: [src('a.ts')], check: [src('a.ts')] };
     const after = diagnosticsAcross(host.gateHostCtx(), scope, undefined, {
       files: edits(apply),
       removed: [],
     });
     assert.deepEqual(work.checked, ['a.ts'], 'only the written file was rechecked');
     assert.deepEqual(sorted(after), sorted(oracleDisk(dir, scope)));
+  });
+});
+
+test('a narrow check scope stays on the LS path', () => {
+  withHost(CHAIN, (dir, host) => {
+    const edit: Files = { 'b.ts': "import { v } from './a';\nexport const b: string = v;" };
+    const scope = { anchor: [src('b.ts')], check: [src('b.ts')] };
+    const work = spy(host, dir);
+    const g = gateAcross(host.gateHostCtx(), edits(edit), scope);
+    // The LS reaches the checker through Program internals the spy does not see; a builder pass
+    // calls the patched method — so an empty log means no builder pass ran.
+    assert.deepEqual(work.checked, [], 'no builder pass');
+    assert.ok(g.overlay.length > 0);
+    assert.deepEqual(g, oracleGate(dir, edit, scope));
   });
 });
 
