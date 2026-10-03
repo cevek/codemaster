@@ -1,7 +1,7 @@
 ---
 id: t-786607
 title: typecheck-гейт мутаций пересчитывает baseline-диагностику всей программы на каждом вызове — кэшировать по дисковой версии программы
-status: review
+status: done
 priority: high
 parent: t-713045
 tags:
