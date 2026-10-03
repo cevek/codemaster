@@ -12,6 +12,7 @@ complexity: M
 area: ts-refactor
 evidence: repro
 author: c37d629d
+assignee: c0c4edfa
 created: '2026-10-03T16:26:41.811Z'
 ---
 Consumer `import * as M from '../model.ts'` использует перенесённый символ в TYPE-позиции: `M.Model` (тип) или `typeof M.setName`. LS «Move to file» (апстрим TS 6.0.3, `updateNamespaceLikeImport`) переписывает только рефы, чей родитель — PropertyAccessExpression; QualifiedName пропускается. Итог: `Namespace has no exported member 'Model'` / `Property 'setName' does not exist` — гейт честно отказывает, но перенос типа, которым пользуются через namespace, невыполним.
