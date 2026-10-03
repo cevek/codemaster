@@ -12,6 +12,7 @@ type: perf
 complexity: L
 evidence: measured
 author: fad2132f
+assignee: 0c78fe37
 created: '2026-10-03T14:54:55.822Z'
 ---
 Цифры, метод, эквивалентность, эскиз интеграции и риски — в отчёте спайка t-820012 (скрипты `scripts/spike/builder-gate/`). Кэш baseline (t-786607) и узкий post-apply (t-439159) уже убрали два из трёх полных проходов; остался overlay-проход гейта — полная проверка программы (~22–28 с на `/Users/cody/Dev/amiro`).
