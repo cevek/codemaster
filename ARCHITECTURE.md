@@ -1199,10 +1199,9 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > baseline, the overlay, the post-apply recheck — through one TS diagnostics builder per program
 > (§3.1); a narrower scope (rename's touched files, `impact_type_error`'s closure) is cheaper as a
 > plain LS pass and takes it, both passes alike. The builder chains from the previous state of that
-> program: an unchanged disk costs the
-> baseline no re-check at all, an overlay re-checks the edited files and the closure TS proves they
-> can affect, and the post-apply recheck chains from the state that gated the bytes it reads back,
-> so it re-checks the written files alone. A chain whose parent differs in more than a tenth of the
+> program: an unchanged disk costs the baseline no re-check at all, an overlay re-checks the edited
+> files and the closure TS proves they can affect, and the post-apply recheck chains from the state
+> that gated the bytes it reads back, so it re-checks the written files alone. A chain whose parent differs in more than a tenth of the
 > program's files restarts cold, which costs what a full pass costs. The builder never writes — its
 > host's `writeFile` throws — and under `declaration`/`composite` it carries the declaration
 > diagnostics the LS adds. Its `releaseProgram` is `@internal` and probed once; without it the gate
