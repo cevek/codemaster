@@ -1194,9 +1194,12 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
 > Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in the `task-manager` backlog.)
 
-> **The typecheck gate re-checks only what an edit can affect.** Every pass — the disk baseline, the
-> overlay, the post-apply recheck — reads its diagnostics through one TS diagnostics builder per
-> program (§3.1), chained from the previous state of that program: an unchanged disk costs the
+> **The typecheck gate re-checks only what an edit can affect.** A gate whose check scope covers at
+> least half of a program (move / extract / codemod / transaction) reads every pass — the disk
+> baseline, the overlay, the post-apply recheck — through one TS diagnostics builder per program
+> (§3.1); a narrower scope (rename's touched files, `impact_type_error`'s closure) is cheaper as a
+> plain LS pass and takes it, both passes alike. The builder chains from the previous state of that
+> program: an unchanged disk costs the
 > baseline no re-check at all, an overlay re-checks the edited files and the closure TS proves they
 > can affect, and the post-apply recheck chains from the state that gated the bytes it reads back,
 > so it re-checks the written files alone. A chain whose parent differs in more than a tenth of the
