@@ -182,8 +182,16 @@ This is the section that the rest of the design serves.
    untracked / member-only file the §10 scan surface includes — so it keys on a per-read repo-state
    fingerprint — in a git repo HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set;
    on a root git cannot list, a `path:size:mtime` rollup of the bounded §19 walk with the same
-   racy-window content hash — invalidated against current disk on every read either way. A future opt-in plugin-internal _semantic_ memo with sound
-   invalidation is a deferred wishlist item; not Phase 0.)
+   racy-window content hash — invalidated against current disk on every read either way. The one
+   _semantic_ memo is the mutation write gate's (`plugins/ts/program-gate-cache.ts`, §7): per-file
+   DISK diagnostics keyed on `SingleProgram.diskVersion()` — a third authority, bumped by every
+   reindex and never by an overlay, so it moves exactly when the LS's disk view of per-file versions
+   and compilerOptions does — plus the whole gate result keyed EXACTLY on its inputs. It is bypassed
+   while an overlay is applied, never stores an interrupted file or a degraded gate, and may only
+   speed up a CLEAN verdict: a cached baseline that does not cover the overlay's diagnostics is
+   re-derived from disk before anything is reported. Module resolution is not part of the key: TS
+   reuses an unchanged file's resolution, so an install under gitignored `node_modules` is stale
+   for the warm LS itself (t-710809), and the gap that history leaves in the memo is t-828499.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
@@ -1179,6 +1187,13 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
 > Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in the `task-manager` backlog.)
 
+> **The typecheck gate is cached against the disk, not the op.** Its pre-edit baseline is a pure
+> function of each program's disk view, so it is memoized per file under the program's disk version
+> (§3.1) and survives across ops until a reindex; and a gate whose inputs (programs + their disk
+> versions, overlay content, tombstones, check scope) are identical to a recent one returns that
+> verdict — an `apply` following the same dry-run does not typecheck twice. The post-apply disk
+> check is not cached: it reads the bytes just written.
+
 ---
 
 ## 8. Plugin lifecycle, watcher, freshness
@@ -1916,7 +1931,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage; program-gate.ts + program-gate-cache.ts: the cross-program §7 write typecheck gate and its disk-version-keyed baseline/result memo)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
