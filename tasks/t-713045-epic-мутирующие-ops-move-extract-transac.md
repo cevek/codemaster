@@ -1,7 +1,7 @@
 ---
 id: t-713045
 title: 'EPIC: мутирующие ops (move/extract/transaction) тратят 50–120 с на typecheck-гейт — сделать их юзабельными'
-status: backlog
+status: done
 priority: high
 tags:
   - epic
