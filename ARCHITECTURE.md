@@ -332,6 +332,14 @@ overlapping edits to one import statement), and a **self-import strip**
 _after_ into the dest. These stay within "reshape the LS's edit text" — no new oracle, the §2.8
 typecheck + capture gate is still the backstop — so a co-move now completes in any step order without a
 leaf-first reorder. The rescue fork still serves the residual overlap shapes these don't pre-empt.
+A third normalizer of the same kind, **namespace-import reconcile**
+(`refactor/imports/reconcile-namespace-import.ts`), reshapes the LS edits for a consumer that reaches
+the moved symbol through `import * as M from '<source>'`: the LS inserts its own namespace import of
+the dest under a preferred name while repointing the `M.` refs to a uniquified one, and never reuses a
+namespace import of the dest the consumer already has. Before the edits are applied, the refs are
+pointed at an existing value namespace import of the dest when the pre-edit checker resolves its alias
+at every ref site, else the inserted import takes the refs' name — so a chain of moves into one module
+converges on one import.
 
 **Not an exception — `@internal`-helper reuse on the same parser.** The no-program paths —
 `search_symbol { syntactic: true }`, `symbols_overview`, `source { syntactic: true }` (§5-L2 / t-515730 /
