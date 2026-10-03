@@ -33,12 +33,14 @@ import { brandGitPath } from '../../support/fs/canonicalize.ts';
 import { hashFileContent } from '../../support/fs/stat-fingerprint.ts';
 import { walkFiles, type WalkRunner } from '../../support/fs/walk.ts';
 import { runGitSync } from '../../support/git/run.ts';
+import { gitShowPrefixSync } from '../../support/git/show-prefix.ts';
+import { parsePorcelainPaths } from '../../support/git/status.ts';
+import { rebaseOnPrefix } from '../../common/git-path/rebase.ts';
 
 const GIT_TIMEOUT_MS = 15_000;
 /** Wall-clock budget for one surface walk — the value `daemon/freshness.ts` uses for the same walk on
  *  the same trees, so the two non-git paths degrade at the same point rather than at two. */
 const WALK_DEADLINE_MS = 5000;
-const NUL = String.fromCharCode(0);
 
 const SOURCE_EXT = /\.(?:ts|tsx|mts|cts)$/;
 const DECLARATION_EXT = /\.d\.(?:ts|mts|cts)$/; // navto excludeDtsFiles:true — .d.ts carry no user symbols in scope
@@ -158,11 +160,11 @@ export function computeSurfaceKey(root: string, seams?: SurfaceSeams): Result<Su
   // submodule is not enumerated here and its content is not re-hashed → a stale parse until the
   // submodule's porcelain status itself flips. daemon/freshness.ts re-stats the SAME dir-level dirty
   // path, so navto is stale in the identical case; tracked as platform-freshness follow-up t-948614.
+  const prefix = gitShowPrefixSync(root, GIT_TIMEOUT_MS);
+  if (!isOk(prefix)) return walkSurfaceKey(root, prefix.failure.message, seams);
   let content = '';
-  for (const entry of porcelain.split(NUL)) {
-    if (entry.length === 0) continue;
-    const rel = entry.slice(3); // strip the 2-char XY status + its trailing space
-    if (rel.length === 0) continue;
+  // Porcelain is toplevel-relative; the surface is the workspace root's (t-835778).
+  for (const rel of rebaseOnPrefix(parsePorcelainPaths(porcelain), prefix.data).inside) {
     // Hash ONLY the files the scan parses (§1 hot-path): a dirty non-source file's content cannot
     // change the result, so reading a multi-MB dirty lockfile/data-dump every query is pure waste.
     if (!isScannedSourcePath(rel)) continue;

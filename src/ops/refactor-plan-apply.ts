@@ -274,6 +274,7 @@ export async function applyRefactorPlan(
     touched,
     revertSpec.restore.map((r) => ({ path: r.path, before: r.content })),
     opts.dirtyOk === true,
+    ts.gateRelevance(gateProgms),
   );
   if (!pre.ok) return fail(pre.failure);
   if (pre.data !== undefined) {

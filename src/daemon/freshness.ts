@@ -50,6 +50,7 @@ interface GitState {
   fingerprint: string;
   head: string;
   dirtyPaths: readonly string[];
+  outsideRoot: readonly string[];
   /** Stat fingerprint of each dirty path at capture. `git status --porcelain` is
    *  content-INSENSITIVE for an already-dirty tracked file (` M path` both before and after a
    *  second edit), so the (head, porcelain) fingerprint alone misses a re-modification. This
@@ -124,8 +125,10 @@ export function createFreshnessGuard(
     if (!isOk(captured)) return undefined;
     const dirtyFps = statDirty(root, captured.data.dirtyPaths, clock.now());
     const next: GitState = { mode: 'git', ...captured.data, dirtyFps };
-    const cleanAtCommit =
-      next.dirtyPaths.length === 0 && next.head !== 'no-head' ? next.head : undefined;
+    // Repo-wide: a dirty file outside a subdirectory root may still be a program file (whose
+    // reindex is t-234152).
+    const clean = next.dirtyPaths.length === 0 && next.outsideRoot.length === 0;
+    const cleanAtCommit = clean && next.head !== 'no-head' ? next.head : undefined;
 
     const prev = state;
     if (prev === undefined) {

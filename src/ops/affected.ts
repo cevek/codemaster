@@ -114,6 +114,8 @@ interface ChangeSet {
   traced: RepoRelPath[];
   untraced: RepoRelPath[];
   deleted: RepoRelPath[];
+  /** Changed paths outside a subdirectory workspace root (`../…`) — never traced. */
+  outside: readonly string[];
 }
 
 /** Resolve the changed set + its mode label from the args (explicit / since-ref / dirty
@@ -126,6 +128,7 @@ async function changeSet(
   programFiles: ReadonlySet<string>,
 ): Promise<Result<ChangeSet>> {
   let raw: readonly string[];
+  let outside: readonly string[] = [];
   let mode: string;
   if (args.files !== undefined) {
     raw = args.files;
@@ -133,12 +136,12 @@ async function changeSet(
   } else if (args.since !== undefined) {
     const r = await gitDiffAgainst(root, args.since);
     if (!isOk(r)) return fail(r.failure);
-    raw = r.data;
+    ({ inside: raw, outside } = r.data);
     mode = `since ${args.since} (two-dot ref→working-tree, incl. uncommitted + untracked)`;
   } else {
     const r = await gitStatus(root);
     if (!isOk(r)) return fail(r.failure);
-    raw = r.data.dirtyPaths;
+    ({ dirtyPaths: raw, outsideRoot: outside } = r.data);
     mode = 'working tree vs HEAD (uncommitted + untracked)';
   }
   const files = raw.map(brandGitPath);
@@ -150,7 +153,7 @@ async function changeSet(
     else if (fileExists(root, f)) untraced.push(f);
     else deleted.push(f);
   }
-  return ok({ mode, files, traced, untraced, deleted });
+  return ok({ mode, files, traced, untraced, deleted, outside });
 }
 
 /** Build the bounded transitive-importer closure of the traced changed files, via one BFS
@@ -219,7 +222,7 @@ export const affectedOp = defineOp({
   notes: [
     'on an oversized IN-PROCESS repo (> `ts.searchWarmMaxFiles`, default 4000 source files) this op REFUSES to warm (its importer-graph fan-out builds every program and would OOM, killing the daemon) and says WHY it was not auto-escalated into a killable child (t-754922) plus the one remedy for that cause. `force:true` does NOT override it (forcing killed the daemon in production). No refusal in an escalated / configured process-mode child.',
     'changed set: `files` (explicit) > `since` ref (two-dot ref→working-tree, incl. uncommitted+untracked) > default (working tree vs HEAD). Affected = test files among the transitive importers of changed files, ∪ changed files that are themselves tests.',
-    'UNDER-report is fatal (a skipped test ships a bug): `complete:true` only when nothing blocked the trace — no node/depth cap, no fan-out truncation, no deleted/untraced/unqueryable changed file, no undiscovered nested-package tsconfig. Anything else → `complete:false` + a `!!` LOWER-BOUND note (run the full suite).',
+    'UNDER-report is fatal (a skipped test ships a bug): `complete:true` only when nothing blocked the trace — no node/depth cap, no fan-out truncation, no deleted/untraced/unqueryable/outside-root changed file, no undiscovered nested-package tsconfig. Anything else → `complete:false` + a `!!` LOWER-BOUND note (run the full suite).',
     '`complete` = TRACE-completeness, NOT glob-completeness: it attests the STATIC import graph over the LOADED programs within testGlobs. A test outside testGlobs is excluded even at `complete:true`; an undiscovered nested-package config forces `complete:false` and is named.',
     'STATIC trace only: a dynamic `import()` / `require()` of a changed module is NOT followed (inherited from importersOf) — a test that lazily imports it can be silently missed. `complete` does not cover runtime-dynamic loading.',
     'test heuristic = path globs (default *.test.* / *.spec.* / test|tests|__tests__/**), STATED never proven; override with testGlobs. Bounded: a depth cap + a node budget over BOTH the changed-file fan-out and the transitive walk — exceeding either caps the set (complete:false). importersOf is an un-memoized O(files) scan, so a very large change set is slow-but-terminating.',
@@ -246,7 +249,7 @@ export const affectedOp = defineOp({
       const programFiles = new Set<string>(ts.allProgramTsFiles());
       const cs = await changeSet(root, args, programFiles);
       if (!isOk(cs)) return fail(cs.failure);
-      const { mode, files, traced, untraced, deleted } = cs.data;
+      const { mode, files, traced, untraced, deleted, outside } = cs.data;
 
       const { closure, failed } = importerClosure(ts, traced, maxDepth, maxNodes);
       // §3.4 floor: a nested-package tsconfig codemaster did NOT load is invisible to
@@ -271,6 +274,7 @@ export const affectedOp = defineOp({
         !closure.hubTruncated &&
         deleted.length === 0 &&
         untraced.length === 0 &&
+        outside.length === 0 &&
         failed.length === 0 &&
         undiscovered.length === 0;
 
@@ -304,6 +308,11 @@ export const affectedOp = defineOp({
           `!! ${untraced.length} changed file(s) outside the TS import graph (non-TS asset / config) — tests reaching them via non-TS imports are NOT traced; set is a LOWER BOUND. (${untraced.join(', ')})`,
         );
       }
+      if (outside.length > 0) {
+        notes.push(
+          `!! ${outside.length} changed file(s) OUTSIDE the workspace root — not traced (a test under the root may import them); set is a LOWER BOUND — run the full suite. (${outside.join(', ')})`,
+        );
+      }
       if (failed.length > 0) {
         notes.push(
           `!! ${failed.length} module(s) could not be queried (importersOf failed) — their importers are NOT traced; affected-test set is a LOWER BOUND — run the full suite. (${failed.join(', ')})`,
@@ -321,6 +330,7 @@ export const affectedOp = defineOp({
           traced: traced.length,
           ...(untraced.length > 0 ? { untraced } : {}),
           ...(deleted.length > 0 ? { deleted } : {}),
+          ...(outside.length > 0 ? { outsideRoot: [...outside] } : {}),
           ...(undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {}),
         },
         tests: testList,
