@@ -1,7 +1,7 @@
 ---
 id: t-932492
 title: 'transaction: extract_symbol+move_symbol в один dest для потребителя с namespace-импортом (import * as M) плодит дубли namespace-импорта dest и ссылки <dest>_N'
-status: review
+status: done
 priority: high
 parent: t-116306
 tags:
