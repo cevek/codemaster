@@ -182,17 +182,23 @@ This is the section that the rest of the design serves.
    untracked / member-only file the §10 scan surface includes — so it keys on a per-read repo-state
    fingerprint — in a git repo HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set;
    on a root git cannot list, a `path:size:mtime` rollup of the bounded §19 walk with the same
-   racy-window content hash — invalidated against current disk on every read either way. The one
-   _semantic_ memo is the mutation write gate's (`plugins/ts/program-gate-cache.ts`, §7): per-file
-   DISK diagnostics keyed on `SingleProgram.diskVersion()` — a third authority, bumped by every
-   reindex and never by an overlay, so it moves exactly when the LS's disk view of per-file versions
-   and compilerOptions does — plus the whole gate result keyed EXACTLY on its inputs. It is bypassed
-   while an overlay is applied, never stores an interrupted file or a degraded gate, and may only
-   speed up a CLEAN verdict: every cached file holding an overlay diagnostic the cache does not
-   cover (and every moved-away file) is re-derived from disk before anything is reported. Module
-   resolution is not part of the key: TS reuses it across rebuilds unless a file or the root set
-   is reprocessed, so an install under gitignored `node_modules` is stale for the warm LS itself
-   (t-710809), and the gap that leaves in the memo is t-828499.)
+   racy-window content hash — invalidated against current disk on every read either way. The
+   _semantic_ reuse is the mutation write gate's (§7), in two layers with two authorities. Per-file
+   diagnostics come from a TS diagnostics builder chained per program over the LS's Programs
+   (`plugins/ts/program-gate-builder.ts`, the `tsc --incremental` model): TS itself decides what to
+   re-check — a file whose version, resolved references or compilerOptions changed, plus the reverse
+   closure of any file whose d.ts signature changed — and copies the rest from the parent state, so
+   it is invalidated against the Program the LS holds NOW, whichever parent it chains from. That
+   rests on `getScriptVersion` never repeating a version for a path with a different body
+   (`program/single.ts` retires a dropped path's version; overlay versions are monotonic). Options
+   under which the model is unsound or pointless (`assumeChangesOnlyAffectDirectDependencies`,
+   `outFile`, `noCheck`, `module: None`) take the full LS pass. On top, the whole gate result is
+   memoized keyed EXACTLY on its inputs incl. `SingleProgram.diskVersion()` — bumped by every reindex
+   and never by an overlay (`plugins/ts/program-gate-cache.ts`); it is bypassed while an overlay is
+   applied and never stores a throwing or degraded gate. Module resolution is not part of that key:
+   TS reuses it across rebuilds unless a file or the root set is reprocessed, so an install under
+   gitignored `node_modules` is stale for the warm LS itself (t-710809), and the gap that leaves in
+   the memo is t-828499.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify
@@ -1188,12 +1194,18 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > detection is conservative: a divergence is flagged only when positively proven, never fabricated.
 > Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in the `task-manager` backlog.)
 
-> **The typecheck gate is cached against the disk, not the op.** Its pre-edit baseline is a pure
-> function of each program's disk view, so it is memoized per file under the program's disk version
-> (§3.1) and survives across ops until a reindex; and a gate whose inputs (programs + their disk
-> versions, overlay content, tombstones, check scope) are identical to a recent one returns that
-> verdict — an `apply` following the same dry-run does not typecheck twice. The post-apply disk
-> check is not cached: it reads the bytes just written.
+> **The typecheck gate re-checks only what an edit can affect.** Every pass — the disk baseline, the
+> overlay, the post-apply recheck — reads its diagnostics through one TS diagnostics builder per
+> program (§3.1), chained from the previous state of that program: an unchanged disk costs the
+> baseline no re-check at all, an overlay re-checks the edited files and the closure TS proves they
+> can affect, and the post-apply recheck chains from the state that gated the bytes it reads back,
+> so it re-checks the written files alone. A chain whose parent differs in more than a tenth of the
+> program's files restarts cold, which costs what a full pass costs. The builder never writes — its
+> host's `writeFile` throws — and under `declaration`/`composite` it carries the declaration
+> diagnostics the LS adds. Its `releaseProgram` is `@internal` and probed once; without it the gate
+> takes the full LS pass. On top, a gate whose inputs (programs + their disk versions, overlay
+> content, tombstones, check scope) are identical to a recent one returns that verdict — an `apply`
+> following the same dry-run does not typecheck twice.
 
 ---
 
@@ -1932,7 +1944,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage; program-gate.ts + program-gate-cache.ts: the cross-program §7 write typecheck gate and its disk-version-keyed baseline/result memo)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage; program-gate.ts + program-gate-builder.ts + program-gate-cache.ts: the cross-program §7 write typecheck gate, its per-program chained diagnostics builder, and its disk-version-keyed result memo)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards
