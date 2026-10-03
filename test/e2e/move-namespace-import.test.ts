@@ -106,6 +106,26 @@ test('move_symbol reuses an existing namespace import of dest under a different 
   }
 });
 
+test('a type-only namespace import of dest is not reused for value refs', async () => {
+  const p = await project({
+    'tsconfig.json': TSCONFIG,
+    'src/model.ts': MODEL,
+    'src/i18n.ts': 'export type Lang = string;\n',
+    'src/ui/use.ts':
+      "import * as M from '../model';\nimport type * as I from '../i18n';\n" +
+      'export const run = (m: M.Model, l: I.Lang): M.Model => M.setName(m, l);\n',
+  });
+  try {
+    await applyOp(p, 'move_symbol', { name: 'setName', file: 'src/model.ts', dest: 'src/i18n.ts' });
+    assert.deepEqual(coldDiagnostics(p.root), []);
+    const view = nsView(p.root, 'src/ui/use.ts', 'src/i18n.ts', ['setName']);
+    assert.equal(view.destNsImports, 1, 'one VALUE namespace import of dest was added');
+    assertBoundToDest(view, 'src/i18n.ts', ['setName']);
+  } finally {
+    await p.dispose();
+  }
+});
+
 test('an existing dest alias shadowed at the ref site is not reused; import and refs agree', async () => {
   const p = await project({
     'tsconfig.json': TSCONFIG,

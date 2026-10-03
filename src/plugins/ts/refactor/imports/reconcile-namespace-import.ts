@@ -27,20 +27,19 @@ export function reconcileNamespaceImports(
   changes: readonly ts.FileTextChanges[],
   destAbs: string,
 ): ts.FileTextChanges[] {
-  const checker = program.getTypeChecker();
   const dest = toPosix(destAbs);
   return changes.map((fc) => {
     if (fc.isNewFile === true || toPosix(fc.fileName) === dest) return fc;
     const sf = program.getSourceFile(fc.fileName);
-    return sf === undefined ? fc : reconcileFile(fc, sf, checker, dest);
+    return sf === undefined ? fc : reconcileFile(fc, sf, program, destAbs);
   });
 }
 
 function reconcileFile(
   fc: ts.FileTextChanges,
   sf: ts.SourceFile,
-  checker: ts.TypeChecker,
-  dest: string,
+  program: ts.Program,
+  destAbs: string,
 ): ts.FileTextChanges {
   const insertions = fc.textChanges.flatMap((c) => {
     const ins = namespaceInsertion(c);
@@ -62,7 +61,7 @@ function reconcileFile(
   const [used] = refNames;
   if (used === undefined || refNames.size !== 1) return fc;
 
-  const reuse = reusableAlias(sf, checker, dest, [...refs.values()]);
+  const reuse = reusableAlias(sf, program, destAbs, [...refs.values()]);
   if (reuse !== undefined) {
     return {
       ...fc,
@@ -120,19 +119,22 @@ function namespaceQualifierAt(
  *  (not shadowed), else undefined. */
 function reusableAlias(
   sf: ts.SourceFile,
-  checker: ts.TypeChecker,
-  dest: string,
+  program: ts.Program,
+  destAbs: string,
   refs: readonly ts.Identifier[],
 ): string | undefined {
+  // An extract's dest is not in the program yet — nothing to reuse, and no checker to build.
+  const destSf = program.getSourceFile(destAbs);
+  if (destSf === undefined) return undefined;
+  const checker = program.getTypeChecker();
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
     const clause = stmt.importClause;
     const bindings = clause?.namedBindings;
     if (clause === undefined || clause.isTypeOnly) continue;
     if (bindings === undefined || !ts.isNamespaceImport(bindings)) continue;
-    const moduleDecl = checker.getSymbolAtLocation(stmt.moduleSpecifier)?.declarations?.[0];
-    if (moduleDecl === undefined || !ts.isSourceFile(moduleDecl)) continue;
-    if (toPosix(moduleDecl.fileName) !== dest) continue;
+    const decls = checker.getSymbolAtLocation(stmt.moduleSpecifier)?.declarations;
+    if (decls?.includes(destSf) !== true) continue;
     const alias = checker.getSymbolAtLocation(bindings.name);
     const name = bindings.name.text;
     if (alias === undefined) continue;
