@@ -1,7 +1,7 @@
 ---
 id: t-749107
 title: 'план мутации делает ненужную работу на каждом шаге: rewriteImports парсит и резолвит всё дерево без единого перемещения, planUnderOverlay пересобирает дисковую программу ради опций'
-status: in-progress
+status: review
 priority: medium
 parent: t-116306
 tags:
