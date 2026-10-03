@@ -42,6 +42,7 @@ import { gateAcross, diagnosticsAcross, type GateScope, type GateHostCtx } from 
 import type { TsDiagnostic } from './diagnostics.ts';
 import type { Deadline } from '../../common/async/deadline.ts';
 import { createCancellation } from './cancellation.ts';
+import { createGateCache } from './program-gate-cache.ts';
 
 export interface TsProjectHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
@@ -400,7 +401,8 @@ export function createTsProjectHost(
     return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
   };
   // The fan-out gate context — `built()` materializes the siblings (a write must verify them).
-  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf });
+  const cache = createGateCache();
+  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf, cache });
 
   // Shared by the `sourceFileAcross` method and `typeAuthorityFor`; the `extras` thunk keeps siblings
   // lazy for a primary-resident target (§5-L2).

@@ -52,6 +52,11 @@ export interface SingleProgram {
   /** This program's monotonic version (bumps on every reindex/overlay) — folds into the host's
    *  aggregate freshness fingerprint. */
   version(): number;
+  /** Bumps on every reindex / re-glob and NEVER on an overlay — so equal values mean the LS's disk
+   *  view (per-file versions + compilerOptions) is unchanged. Keys the write gate's baseline cache. */
+  diskVersion(): number;
+  /** Is a dry-run overlay (content or tombstone) currently applied — i.e. the LS is NOT on disk? */
+  overlayActive(): boolean;
   /** Best-effort patched-TS-fork LS (§4 rescue) over the SAME state, lazily built + cached. */
   rescueService(): ts.LanguageService | undefined;
   setOverlay(entries: readonly OverlayEntry[], removed?: readonly RepoRelPath[]): void;
@@ -95,6 +100,7 @@ export function createSingleProgram(
 ): SingleProgram {
   let files = new Map<string, { version: number }>(); // abs posix → version
   let version = 1;
+  let diskVersion = 1;
   const overlay = new Overlay();
 
   const configDir = configPath !== undefined ? path.dirname(configPath) : root;
@@ -134,6 +140,7 @@ export function createSingleProgram(
     }
     files = next;
     version++;
+    diskVersion++;
   };
   loadFileList();
 
@@ -239,10 +246,13 @@ export function createSingleProgram(
         else if (abs.slice(abs.lastIndexOf('/') + 1) === '.gitignore') structural = true;
       }
       version++;
+      diskVersion++;
       if (structural) loadFileList();
       return structural;
     },
     version: () => version,
+    diskVersion: () => diskVersion,
+    overlayActive: () => !overlay.isEmpty(),
     rescueService,
     setOverlay(entries, removed = []) {
       overlay.set(

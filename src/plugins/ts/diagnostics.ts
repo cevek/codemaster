@@ -31,24 +31,27 @@ export function collectFromService(
   absPaths: readonly string[],
 ): TsDiagnostic[] {
   const out: TsDiagnostic[] = [];
-  const program = service.getProgram();
-  for (const abs of absPaths) {
-    // getSemantic/SyntacticDiagnostics THROW on a path not in the program (a moved-away old
-    // path, a stray check path). Skip it honestly — an absent file has no diagnostics, and a
-    // dangling import to it surfaces on the IMPORTER (which IS in the program) instead.
-    if (program?.getSourceFile(abs) === undefined) continue;
-    const diags = [...service.getSyntacticDiagnostics(abs), ...service.getSemanticDiagnostics(abs)];
-    for (const d of diags) {
-      const line =
-        d.file !== undefined && d.start !== undefined
-          ? d.file.getLineAndCharacterOfPosition(d.start).line + 1
-          : 0;
-      out.push({
-        file: relOf(d.file?.fileName ?? abs),
-        line,
-        message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
-      });
-    }
-  }
+  for (const abs of absPaths) out.push(...(fileDiagnostics(service, relOf, abs) ?? []));
   return out;
+}
+
+/** One file's diagnostics, or `undefined` when the file is not in the program. getSemantic/
+ *  SyntacticDiagnostics THROW on such a path (a moved-away old path, a stray check path), so it is
+ *  skipped honestly — an absent file has no diagnostics, and a dangling import to it surfaces on
+ *  the IMPORTER (which IS in the program) instead. */
+export function fileDiagnostics(
+  service: ts.LanguageService,
+  relOf: (abs: string) => RepoRelPath,
+  abs: string,
+): TsDiagnostic[] | undefined {
+  if (service.getProgram()?.getSourceFile(abs) === undefined) return undefined;
+  const diags = [...service.getSyntacticDiagnostics(abs), ...service.getSemanticDiagnostics(abs)];
+  return diags.map((d) => ({
+    file: relOf(d.file?.fileName ?? abs),
+    line:
+      d.file !== undefined && d.start !== undefined
+        ? d.file.getLineAndCharacterOfPosition(d.start).line + 1
+        : 0,
+    message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
+  }));
 }
