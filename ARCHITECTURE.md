@@ -188,10 +188,11 @@ This is the section that the rest of the design serves.
    reindex and never by an overlay, so it moves exactly when the LS's disk view of per-file versions
    and compilerOptions does — plus the whole gate result keyed EXACTLY on its inputs. It is bypassed
    while an overlay is applied, never stores an interrupted file or a degraded gate, and may only
-   speed up a CLEAN verdict: a cached baseline that does not cover the overlay's diagnostics is
-   re-derived from disk before anything is reported. Module resolution is not part of the key: TS
-   reuses an unchanged file's resolution, so an install under gitignored `node_modules` is stale
-   for the warm LS itself (t-710809), and the gap that history leaves in the memo is t-828499.)
+   speed up a CLEAN verdict: every cached file holding an overlay diagnostic the cache does not
+   cover (and every moved-away file) is re-derived from disk before anything is reported. Module
+   resolution is not part of the key: TS reuses it across rebuilds unless a file or the root set
+   is reprocessed, so an install under gitignored `node_modules` is stale for the warm LS itself
+   (t-710809), and the gap that leaves in the memo is t-828499.)
 
 2. **Proof-carrying results.** Every fact carries `Span[]` (file, range, verbatim
    text). See [`src/core/result.ts`](src/core/result.ts). An agent that can verify

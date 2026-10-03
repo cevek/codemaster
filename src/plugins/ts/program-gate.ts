@@ -199,9 +199,12 @@ export function gateAcross(
           checkAbs,
         ])
       : undefined;
-  const hit = key !== undefined ? cache?.result(key) : undefined;
+  const hit = key !== undefined ? cache?.result(key, programs) : undefined;
   if (hit !== undefined) return hit;
 
+  // Moved-away paths: the ops re-key their baseline errors onto the dest, so a stale entry there
+  // would surface under a path `uncoveredFiles` never names.
+  const removedAbs = (scope.removed ?? []).map((r) => ctx.absOf(r));
   const sample = (program: SingleProgram) => {
     const base = (): { diags: TsDiagnostic[]; fromCache: boolean } =>
       cache !== undefined
@@ -209,10 +212,13 @@ export function gateAcross(
         : { diags: collectFromService(program.service, ctx.relOf, checkAbs), fromCache: false };
     const b = base();
     const o = overlayCollect(ctx, program, programs, entries, scope.removed, checkAbs);
-    // A cached baseline may only ever speed up a CLEAN verdict: if the overlay holds anything it
-    // does not cover, re-derive it from disk now, so a stale cache can never cause a refusal.
-    if (!b.fromCache || covers(b.diags, o)) return { b: b.diags, o };
-    cache?.forget(program);
+    // A cached baseline may only ever speed up a CLEAN verdict: every file holding an overlay
+    // diagnostic it does not cover is re-derived from disk now, so a stale entry cannot cause a
+    // refusal. A diagnostic lives in its own file, so the other files' entries cannot matter.
+    const stale = b.fromCache ? uncoveredFiles(b.diags, o) : [];
+    if (stale.length === 0) return { b: b.diags, o };
+    const moved = checkAbs.filter((a) => removedAbs.some((r) => a === r || a.startsWith(`${r}/`)));
+    cache?.refresh(program, ctx.relOf, [...stale.map((f) => ctx.absOf(f)), ...moved]);
     return { b: base().diags, o };
   };
 
@@ -244,20 +250,24 @@ export function gateAcross(
   }
   const result = { baseline, overlay, programs: checked, degraded };
   // A degraded sibling may be transient (a deadline cancel inside it is caught as degraded).
-  if (key !== undefined && degraded.length === 0) cache?.storeResult(key, result);
+  if (key !== undefined && degraded.length === 0) cache?.storeResult(key, programs, result);
   return result;
 }
 
-/** Does `baseline` absorb every `overlay` diagnostic (multiset over file|line|message — the key
- *  the ops' introduced-diff uses)? */
-function covers(baseline: readonly TsDiagnostic[], overlay: readonly TsDiagnostic[]): boolean {
+/** Files of the `overlay` diagnostics `baseline` does not absorb (multiset over file|line|message —
+ *  the key the ops' introduced-diff uses). */
+function uncoveredFiles(
+  baseline: readonly TsDiagnostic[],
+  overlay: readonly TsDiagnostic[],
+): RepoRelPath[] {
   const left = new Map<string, number>();
   const keyOf = (d: TsDiagnostic) => `${d.file}\u0000${d.line}\u0000${d.message}`;
   for (const d of baseline) left.set(keyOf(d), (left.get(keyOf(d)) ?? 0) + 1);
+  const out = new Set<RepoRelPath>();
   for (const d of overlay) {
     const n = left.get(keyOf(d)) ?? 0;
-    if (n === 0) return false;
-    left.set(keyOf(d), n - 1);
+    if (n === 0) out.add(d.file);
+    else left.set(keyOf(d), n - 1);
   }
-  return true;
+  return [...out];
 }

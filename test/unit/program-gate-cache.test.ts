@@ -25,6 +25,7 @@ interface Stub {
 function stub(label: string, disk: Record<string, string>, opts: { throws?: boolean } = {}): Stub {
   const files = new Map(Object.entries(disk));
   let overlay: Map<string, string> | undefined;
+  let tombstones = new Set<string>();
   let diskVersion = 1;
   const calls = { disk: 0, overlay: 0 };
   const throwOnce = new Set<string>();
@@ -33,7 +34,8 @@ function stub(label: string, disk: Record<string, string>, opts: { throws?: bool
   const service = {
     getProgram: () =>
       ({
-        getSourceFile: (abs: string) => (overlay?.has(abs) || files.has(abs) ? {} : undefined),
+        getSourceFile: (abs: string) =>
+          !tombstones.has(abs) && (overlay?.has(abs) || files.has(abs)) ? {} : undefined,
       }) as unknown as ts.Program,
     getSyntacticDiagnostics: () => [],
     getSemanticDiagnostics: (abs: string) => {
@@ -57,11 +59,13 @@ function stub(label: string, disk: Record<string, string>, opts: { throws?: bool
     mayContain: () => false,
     diskVersion: () => diskVersion,
     overlayActive: () => outerOverlay.on || overlay !== undefined,
-    setOverlay: (entries: readonly OverlayEntry[]) => {
+    setOverlay: (entries: readonly OverlayEntry[], removed: readonly RepoRelPath[] = []) => {
       overlay = new Map(entries.map((e) => [e.abs, e.content]));
+      tombstones = new Set(removed.map((r) => `${ROOT}/${r}`));
     },
     clearOverlay: () => {
       overlay = undefined;
+      tombstones = new Set();
     },
   } as unknown as SingleProgram;
   return {
@@ -199,12 +203,34 @@ test('a stale cached baseline is re-derived before it can cause a refusal', () =
   const p = stub('tsconfig.json', DISK);
   const ctx = ctxOf(createGateCache(), p);
   gateAcross(ctx, edit('clean'), SCOPE);
-  // The disk view changes with no disk-version bump (a resolution re-run for a file reverted from
-  // an overlay, t-828499): the overlay pass sees it, the cached baseline does not.
-  p.disk.set(abs('b.ts'), 'ERR:pre,unseen');
+  // The disk view changes with no disk-version bump (a resolution re-run after a rebuild,
+  // t-828499): the overlay pass sees it, the cached baseline does not. Same message twice — a
+  // set-based cover check would call the one cached occurrence enough.
+  p.disk.set(abs('b.ts'), 'ERR:pre,pre');
+  reset(p);
   const g = gateAcross(ctx, edit('ok'), SCOPE);
+  assert.equal(
+    g.baseline.filter((d) => d.message === 'pre').length,
+    2,
+    'baseline re-derived from disk, so the second occurrence is not reported as introduced',
+  );
+  assert.equal(p.calls.disk, 1, 'only the file holding the uncovered diagnostic was recomputed');
+});
+
+test('a stale baseline of a moved-away file is re-derived with the uncovered dest', () => {
+  const p = stub('tsconfig.json', DISK);
+  const ctx = ctxOf(createGateCache(), p);
+  const scope: GateScope = { ...SCOPE, check: [rel('a.ts'), rel('b.ts'), rel('c.ts')] };
+  gateAcross(ctx, edit('clean'), scope);
+  // b.ts gains an error the cache missed, then moves to c.ts: the op re-keys b's baseline onto c,
+  // so the stale b entry would surface as an error "introduced" under c.
+  p.disk.set(abs('b.ts'), 'ERR:pre,extra');
+  const g = gateAcross(ctx, [{ path: rel('c.ts'), content: 'ERR:pre,extra' }], {
+    ...scope,
+    removed: [rel('b.ts')],
+  });
   assert.ok(
-    g.baseline.some((d) => d.message === 'unseen'),
-    'baseline re-derived from disk, so the unseen error is not reported as introduced',
+    g.baseline.some((d) => d.message === 'extra'),
+    'the moved-away file was re-derived',
   );
 });
