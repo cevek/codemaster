@@ -80,3 +80,25 @@ Proof-скрипт `scripts/spike/builder-gate/decl.mjs`: Emit-builder даёт 
 - **[should-fix] второй источник.** Пересчёт-перед-отказом через LS `fileDiagnostics` (`uncoveredFiles`) на builder-пути убран: при builder-авторитете он спрашивает тот же LS с тем же резолвом и оставлял бы второй источник истины. На LS-пути (отказ по опциям) кэша нет — пересчитывать нечего. Нормализация: builder-диагностика проходит `ts.sortAndDeduplicateDiagnostics` (LS делает это в `getDiagnosticsHelper`) — одна форма в общем маппере.
 - **[should-fix] матрица доказательств дополнена:** родитель = чужой overlay-builder == оракул; порог форсирован (холодный путь) == оракул; ловушка BLOCK; declaration-parity под `noEmit+declaration` и `composite`; Emit-builder ничего не пишет — шпион `writeFile` + пустой `outDir`.
 - **[nit]** `module: None` (нет `referencedMap` ⇒ любое изменение = все файлы) — отказ «нет выигрыша». В коде названы: патч `getBuildInfo` на LS-Program, рост `affectedFilesPendingEmit` в Semantic-варианте, удержание overlay-SourceFile в `semanticDiagnosticsPerFile` до следующего гейта — всё ограничено числом файлов.
+
+
+## Результат и разбор
+
+### Сделано иначе, чем в плане
+- **Порог по ширине check-scope** (довесок менеджера №2). Замер `scripts/spike/builder-gate/live.ts`, scope из одного файла: builder медленнее LS — amiro 1.1 с против 0.4 с, codemaster (`declaration:true`) 1.7 с против 0.2 с. Причина: проход builder платит построение состояния по всей программе плюс d.ts-работу изменённых файлов (под declaration — dts-ошибки всего замыкания), ещё до первого чтения. Поэтому builder используется, только когда check-scope ≥ половины файлов программы (move/extract/codemod/transaction). rename и `impact_type_error` остаются на LS-пути. Исключение: post-apply-перепроверка байтов, чей гейт шёл через builder, идёт через builder на любом scope — она продвигает цепочку, с которой стартует baseline следующего гейта. После правки: rename 0.5 с против 0.4 с (amiro) и 0.2 против 0.2 (codemaster).
+- **`releaseProgram` и `SourceFile.version` оказались `@internal`**, хотя отчёт спайка называл их публичными. Оба читаются через один типизированный блок в `program-gate-builder.ts`. `releaseProgram` проверяется пробой: без него builder-путь выключается.
+- **Проба internals** обязана ставить `sf.version`: TS assert'ит «Program intended to be used with Builder should have source files with versions set». Первая версия пробы падала молча, и весь builder-путь был выключен. Тесты на равенство с оракулом при этом проходили — оба пути были LS. Поймали это только тесты на счётчик работы.
+
+### Факты о системе
+- **Штраф первого перехода — навсегда для файлов, которые не меняются на диске.** Холодное состояние хранит версии вместо d.ts-сигнатур, а дисковая цепочка не пересчитывает сигнатуру файла, пока он не изменился на диске. Поэтому каждая overlay-правка такого файла инвалидирует всё его замыкание даже при правке комментария. Замер amiro, `form-model.ts`: 2191 перепроверка и при повторе. Реальная сигнатура появляется только после записи через post-apply. Ловушка `assumeChangesOnlyAffectDirectDependencies` в тесте поэтому сначала записывает benign-правку на диск — иначе она проходила бы по чужой причине.
+- **Чекер опрашивает токен отмены только на function-like узлах** — тест отмены обязан содержать функцию.
+- **LS проверяет файлы через внутренности Program (`getBindAndCheckDiagnosticsForFile`), а не через метод-свойство.** Шпион на `getBindAndCheckDiagnostics` видит только проходы builder. Отсюда тест «узкий scope → LS» читает пустой лог как «builder не запускался».
+
+### Живые замеры (CPU шумный, работа — счётчиком перепроверенных файлов)
+- amiro, 3796 файлов, overlay в памяти: холодный гейт 27–28 с (baseline 3800, overlay 1); повтор leaf 0.7 с (0 / 1); правка в ядре 13–17 с (0 / 2191); полный LS-гейт 51 с. Вердикт builder == LS (baseline и overlay).
+- codemaster, 456 файлов, `declaration:true`: холодный 7.9 с; leaf 2.4 с (0 / 180); ядро 3.0 с (0 / 326); полный LS 5.8 с. Вердикт совпал.
+- Apply на APFS-клоне amiro, batch `[move_symbol blankToNull→src/lib/form-field.ts dry-run, тот же apply]`: dry-run 49.9 с, apply 5.5 с (memo + post-apply через builder), `typecheck=clean`, отката нет. Клон удалён.
+
+### Что не покрыто / осталось
+- Транзакции и частичный прогресс после отмены не замерены. Прерванный проход выбрасывается целиком, родитель остаётся — по построению, без отдельного теста.
+- Хаб-правка на amiro (сотни изменённых файлов) вживую не прогонялась. Холодный рестарт цепочки покрыт тестом с 60 файлами.
