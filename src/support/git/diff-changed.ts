@@ -21,7 +21,9 @@ export async function gitDiffNames(
     // unborn capture, so `git status --untracked-files=all` already lists them).
     return ok([]);
   }
-  const result = await git(root, ['diff', '--name-only', '-z', fromHead, toHead]);
+  // --relative: workspace-root-relative, paths outside a subdirectory root dropped — the dirty
+  // union it joins carries only in-root paths too.
+  const result = await git(root, ['diff', '--name-only', '--relative', '-z', fromHead, toHead]);
   if (!isOk(result)) return fail(result.failure);
   return ok(result.data.split('\u0000').filter((p) => p.length > 0));
 }

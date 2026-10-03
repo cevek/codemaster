@@ -354,6 +354,9 @@ export interface TsPluginApi extends Plugin {
   /** After the write + `reindex`: written paths whose membership diverges from `claims` within the
    *  checked programs (plus structural writes). Non-empty ⇒ a written-paths-only recheck is unsound. */
   claimDivergence(claims: GateClaims, restrictTo: readonly string[]): RepoRelPath[];
+  /** Whether a working-tree change at a path (workspace-root-relative, `../…` outside the root) can
+   *  move the verdict of the gate that checked `restrictTo` (`gateAcross().programs`). */
+  gateRelevance(restrictTo: readonly string[]): (rel: string) => boolean;
   /** The resolved TYPE of the top-level symbol `name` in `declFile`, BEFORE and under the trial
    *  `overlay` — the FACT behind `impact_type_error`'s clean widen-to-`any` masking guard: a trial
    *  edit can collapse the edited symbol's own type to `any` with NO intra-file error, silencing

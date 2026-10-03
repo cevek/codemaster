@@ -74,9 +74,11 @@ export function toPosix(p: string): string {
 }
 
 /** Brand a path that came out of git (`status --porcelain`, `diff --name-only`,
- *  `ls-files`). Git already reports repo-relative, forward-slash, on-disk-spelled
- *  paths — exactly the canonical form — so re-minting through `realpath` would only
- *  cost a syscall (and fail for deleted files, which git legitimately reports). */
+ *  `ls-files`) and is relative to the workspace root (`ls-files` is cwd-relative; the
+ *  toplevel-relative `status`/`diff` output is re-based first — `rebaseOnPrefix`). Git
+ *  reports forward-slash, on-disk-spelled paths — exactly the canonical form — so
+ *  re-minting through `realpath` would only cost a syscall (and fail for deleted files,
+ *  which git legitimately reports). */
 export function brandGitPath(gitPath: string): RepoRelPath {
   return gitPath as RepoRelPath;
 }

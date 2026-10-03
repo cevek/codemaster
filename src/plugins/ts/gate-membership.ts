@@ -8,7 +8,9 @@
 // written tsconfig/package.json/.gitignore changes options or file lists the overlay never modelled.
 // Any of these → the caller widens the recheck to the gate's full scope.
 
+import * as path from 'node:path';
 import type { RepoRelPath } from '../../core/brands.ts';
+import { toPosix } from '../../support/fs/canonicalize.ts';
 import { affected, claimedBy, type GateHostCtx, type GateScope } from './program-gate.ts';
 import { isTsconfigBasename } from './program/discover.ts';
 
@@ -59,6 +61,23 @@ export function overlayClaims(
   }
   const structural = [...written, ...(scope.removed ?? [])].filter(restructures);
   return { byPath, structural };
+}
+
+/** Can a working-tree change at `rel` (workspace-root-relative, `../…` outside the root) move the
+ *  verdict of the gate that checked `restrictTo`? Only when it reshapes programs or one of those
+ *  programs owns it — the drift fence's scope (t-500739). Ownership is `containsFile ∨ mayContain`
+ *  (program-gate.ts `owns`): a file appearing under a program's glob changes that program too. */
+export function gateRelevance(
+  ctx: GateHostCtx,
+  root: string,
+  restrictTo: readonly string[],
+): (rel: string) => boolean {
+  const programs = ctx.programs.filter((p) => restrictTo.includes(p.label));
+  return (rel) => {
+    if (restructures(rel)) return true; // any package's, not only the checked ones' (t-310406)
+    const abs = toPosix(path.join(root, rel));
+    return programs.some((p) => p.containsFile(abs) || p.mayContain(abs));
+  };
 }
 
 /** Written paths whose post-write membership (`containsFile`, after reindex) differs from the

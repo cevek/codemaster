@@ -87,6 +87,9 @@ export interface ProjectOptions {
    *  the frozen manual clock. Omitted → the generous production default (never trips in a fast
    *  test → behaviour byte-identical). */
   opDeadlineMs?: number;
+  /** Make the workspace root a SUBDIRECTORY (`<repo>/<subdir>`) of the git repository (the
+   *  explicit `root:<pkg>` shape). `files` stay root-relative; a `../x` key lands outside it. */
+  subdir?: string;
 }
 
 /** Replace one method on the `ts` plugin object with a throwing stub (§3.6 fault injection
@@ -135,7 +138,9 @@ export async function project(
   // apply (§19): on macOS `os.tmpdir()` is `/var/folders/…`, a symlink to `/private/var/…`,
   // so the un-canonicalized mkdtemp path would not match the realpath'd root every answer
   // reports — breaking path scrubs and golden snapshots across platforms.
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'codemaster-fixture-')));
+  const repo = realpathSync(mkdtempSync(path.join(tmpdir(), 'codemaster-fixture-')));
+  const root = options?.subdir !== undefined ? path.join(repo, options.subdir) : repo;
+  mkdirSync(root, { recursive: true });
   const git = (...args: string[]): string =>
     execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 
@@ -149,7 +154,7 @@ export async function project(
     git('commit', '-qm', message);
   };
   for (const [rel, content] of Object.entries(files)) write(rel, content);
-  git('init', '-q');
+  execFileSync('git', ['init', '-q'], { cwd: repo });
   // Configure the test identity ONCE so bare `git commit` works everywhere — no per-call
   // `-c user.email/-c user.name` incantation in test bodies or here. Disable signing so a
   // developer's global `commit.gpgsign=true` can't hang/fail the fixture commits in CI.
@@ -245,7 +250,7 @@ export async function project(
     async dispose() {
       await orchestrator.dispose();
       debug.dispose();
-      rmSync(root, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
     },
   };
 }
