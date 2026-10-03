@@ -22,6 +22,7 @@ import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
 import { isTsconfigBasename } from './discover.ts';
+import type { FileVersions } from './file-versions.ts';
 
 /** One queryable TS program (an LS over a single tsconfig) plus the bookkeeping the host needs
  *  to keep it fresh. Public methods only; the LS host internals stay private. */
@@ -83,6 +84,9 @@ export function createSingleProgram(
    *  they keep a loose tsconfig `include` from indexing build output / nested VCS checkouts as
    *  project symbols (the never-lie file-set fix). */
   ignored: () => ReadonlySet<string>,
+  /** The host's per-path disk versions, shared by every program it builds; the host advances them
+   *  before calling `reindex` (file-versions.ts). */
+  versions: FileVersions,
   /** Extra SEARCH-surface files to compile in THIS program beyond its tsconfig glob (absolute posix):
    *  git-tracked source physically under a workspace MEMBER's dir that the member's `include` omits
    *  (e.g. `packages/x/scripts/smoke.ts` under `include:['src']`). Injected so they compile under the
@@ -98,19 +102,7 @@ export function createSingleProgram(
    *  spinning. Default `() => false` — an unbounded program never cancels. */
   cancel: () => boolean = () => false,
 ): SingleProgram {
-  let files = new Map<string, { version: number }>(); // abs posix → version
-  // A path that leaves the file set and comes back must not reuse a version it already held: the
-  // write gate's diagnostics builder (program-gate-builder.ts) and the DocumentRegistry both treat
-  // an equal version as an unchanged body. Fresh paths still start at 1, so programs that saw the
-  // same history stay aligned in the shared registry.
-  const retired = new Map<string, number>();
-  const entryFor = (abs: string): { version: number } => {
-    const kept = files.get(abs);
-    if (kept !== undefined) return kept;
-    const last = retired.get(abs);
-    retired.delete(abs);
-    return { version: (last ?? 0) + 1 };
-  };
+  let files = new Set<string>(); // abs posix
   let version = 1;
   let diskVersion = 1;
   const overlay = new Overlay();
@@ -123,7 +115,7 @@ export function createSingleProgram(
     membership = buildMembership(parsed, configDir, root); // glob predicate, rebuilt on re-glob
     const ignoredJunk = ignored(); // host-memoized: one git call per structural reindex (§19)
     const rootPrefix = `${toPosix(root)}/`;
-    const next = new Map<string, { version: number }>();
+    const next = new Set<string>();
     for (const abs of parsed.fileNames.map(toPosix)) {
       if (abs.includes('/node_modules/')) continue;
       // §10 file-set honesty: exclude build output / nested VCS checkouts / agent state (the
@@ -141,16 +133,12 @@ export function createSingleProgram(
         const rel = abs.slice(rootPrefix.length);
         if (isJunkRelPath(rel, ignoredJunk)) continue;
       }
-      next.set(abs, entryFor(abs));
+      next.add(abs);
     }
     // Injected search-surface strays (t-232769): already §10-filtered + existence-checked by the
     // host's coverage pass, so they are added verbatim (a glob re-run never drops them the way it
-    // would a file outside `include`). Keyed like a globbed file so reindex versioning is uniform.
-    for (const inj of injectedFiles) {
-      const abs = toPosix(inj);
-      if (!next.has(abs)) next.set(abs, entryFor(abs));
-    }
-    for (const [abs, entry] of files) if (!next.has(abs)) retired.set(abs, entry.version);
+    // would a file outside `include`).
+    for (const inj of injectedFiles) next.add(toPosix(inj));
     files = next;
     version++;
     diskVersion++;
@@ -164,7 +152,7 @@ export function createSingleProgram(
       const posix = toPosix(fileName);
       const over = overlay.get(posix);
       if (over !== undefined) return `o${over.version}`;
-      return String(files.get(posix)?.version ?? 1);
+      return String(versions.of(posix));
     },
     getScriptSnapshot: (fileName) => {
       const posix = toPosix(fileName);
@@ -238,9 +226,8 @@ export function createSingleProgram(
       let structural = false;
       for (const rel of changed) {
         const abs = toPosix(path.join(root, rel));
-        const entry = files.get(abs);
-        if (entry !== undefined) entry.version++;
-        else if (isTsLike(abs))
+        if (files.has(abs)) continue; // its version was advanced by the host (`versions`)
+        if (isTsLike(abs))
           structural = true; // a new/renamed source file (maybe ours)
         // A tsconfig change re-globs the file list AND re-reads compilerOptions: an edited
         // `include`/`exclude` changes which files this program owns, and an edited `strict`/`paths`/…

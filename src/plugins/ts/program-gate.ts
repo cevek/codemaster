@@ -28,7 +28,7 @@ import type { RepoRelPath } from '../../core/brands.ts';
 import { messageOfThrown } from '../../common/result/construct.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import type { SingleProgram } from './program/single.ts';
-import ts from 'typescript';
+import type ts from 'typescript';
 import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
 import type { GateCache } from './program-gate-cache.ts';
 import {
@@ -51,8 +51,8 @@ export interface GateHostCtx {
   /** Host-lifetime diagnostics builders (program-gate-builder.ts); absent → every pass is a full
    *  LS pass. */
   builders?: GateBuilders;
-  /** The host's shared cancellation predicate — the builder calls take a token, not the LS's. */
-  cancel?: () => boolean;
+  /** The host's cancellation as a token (cancellation.ts) — builder calls take one directly. */
+  token?: ts.CancellationToken;
 }
 
 /** The edit a post-apply recheck follows — the bytes just written and the paths removed. */
@@ -177,7 +177,8 @@ function overlayCollect(
 /** The builders when this program may use them: present, no overlay already applied (the "disk"
  *  pass would not be the disk), compilerOptions the incremental model is sound under, and a check
  *  scope wide enough to pay for a pass — or a post-apply recheck of bytes whose gate ran on them,
- *  which advances the chain the next gate's baseline starts from. */
+ *  which advances the chain the next gate's baseline starts from. Re-derived per call rather than
+ *  carried with the gate's verdict (t-787784). */
 function buildersFor(
   ctx: GateHostCtx,
   program: SingleProgram,
@@ -193,15 +194,11 @@ function buildersFor(
   return wide || follows ? builders : undefined;
 }
 
-function tokenOf(ctx: GateHostCtx): ts.CancellationToken {
-  const cancel = ctx.cancel ?? (() => false);
-  return {
-    isCancellationRequested: cancel,
-    throwIfCancellationRequested: () => {
-      if (cancel()) throw new ts.OperationCanceledException();
-    },
-  };
-}
+const NEVER: ts.CancellationToken = {
+  isCancellationRequested: () => false,
+  throwIfCancellationRequested: () => undefined,
+};
+const tokenOf = (ctx: GateHostCtx): ts.CancellationToken => ctx.token ?? NEVER;
 
 /** Disk diagnostics across every affected program (no overlay) — the post-apply recheck. `restrictTo`
  *  (program labels) PINS the set to the one the pre-apply baseline sampled: a move changes program

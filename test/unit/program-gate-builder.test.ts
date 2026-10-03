@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
-import ts from 'typescript';
+import { DeadlineExceededError } from '../../src/common/async/deadline.ts';
 import { createTsProjectHost } from '../../src/plugins/ts/ls-host.ts';
 import { diagnosticsAcross, gateAcross } from '../../src/plugins/ts/program-gate.ts';
 import {
@@ -159,12 +159,15 @@ test('an edit touching most of the program restarts the chain cold and stays exa
 
 test('the builder passes poll the host cancellation predicate', () => {
   withHost(CHAIN, (dir, host) => {
-    const ctx = { ...host.gateHostCtx(), cancel: () => true };
+    const spent = { expired: () => true, remainingMs: () => 0 };
     // The checker polls the token only at function-like nodes — the edit must contain one.
     const edit: Files = { 'b.ts': 'export function b() { return 2; }' };
     assert.throws(
-      () => gateAcross(ctx, edits(edit), scopeOf(NAMES, edit)),
-      (e: unknown) => e instanceof ts.OperationCanceledException,
+      () =>
+        host.withDeadline(spent, () =>
+          gateAcross(host.gateHostCtx(), edits(edit), scopeOf(NAMES, edit)),
+        ),
+      (e: unknown) => e instanceof DeadlineExceededError,
     );
     const ok = gateAcross(host.gateHostCtx(), [], scopeOf(NAMES, {}));
     assert.deepEqual(ok, oracleGate(dir, {}, scopeOf(NAMES, {})));

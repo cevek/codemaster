@@ -10,20 +10,7 @@
 // verdict (t-710809 / t-828499).
 
 import type { SingleProgram } from './program/single.ts';
-import type { GateHostCtx, GateResult } from './program-gate.ts';
-import { createGateBuilders } from './program-gate-builder.ts';
-
-/** The gate context factory a host holds for its lifetime: the memo and the builders are created
- *  once here, the program list is re-read per gate (`built()` materializes the siblings). */
-export function gateContext(
-  base: Omit<GateHostCtx, 'programs' | 'cache' | 'builders'> & {
-    programs: () => readonly SingleProgram[];
-  },
-): () => GateHostCtx {
-  const cache = createGateCache();
-  const builders = createGateBuilders();
-  return () => ({ ...base, programs: base.programs(), cache, builders });
-}
+import type { GateResult } from './program-gate.ts';
 
 export interface GateCache {
   /** Stable per-object id: a re-created sibling program is a different program. */

@@ -7,8 +7,10 @@
 // Correctness does not depend on WHICH parent a pass chains from (TS accepts any old state, and the
 // spike t-820012 verified branching): parent choice is cost only. That rests on one precondition —
 // `getScriptVersion` never returns a version a path already held with a different body. Disk
-// versions guarantee it via `single.ts`'s retired-version map, overlay versions via the monotonic
-// `Overlay` counter.
+// versions guarantee it by being one host-wide counter per path, advanced by every reindex that names
+// the path and never reset (program/file-versions.ts) — including a path reached only through an
+// import; overlay versions by the monotonic `Overlay` counter. A body that changes on disk without a
+// reindex is stale for the LS itself (§3.5), not only here.
 //
 // Each pass: create → drain `getSemanticDiagnosticsOfNextAffectedFile` → read `checkAbs` →
 // `releaseProgram` (a retained builder otherwise pins its Program + checker, ~0.7 GB on a 3.8k-file
@@ -44,7 +46,7 @@ function tooManyChanged(changed: number, files: number): boolean {
   return changed > Math.max(50, files * 0.1);
 }
 
-const AFTER_GATE_SLOTS = 4;
+const AFTER_GATE_SLOTS = 4; // retained-state memory unmeasured on error-heavy repos: t-743990
 
 /** A narrow check scope (a rename's touched files, `impact_type_error`'s closure) is cheaper on the
  *  LS: a builder pass pays a whole-program setup plus the changed files' d.ts work before it reads
@@ -219,12 +221,11 @@ function changedCount(
 }
 
 const BUILDER_HOST: ts.BuilderProgramHost = {
-  useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
   ...(ts.sys.createHash !== undefined ? { createHash: ts.sys.createHash } : {}),
   writeFile: (fileName) => {
     throw new Error(`the typecheck gate's diagnostics builder attempted to write ${fileName}`);
   },
-} as ts.BuilderProgramHost;
+};
 
 // `releaseProgram` and `SourceFile.version` are @internal (absent from the public d.ts) and are read
 // through this one typed block. `releaseProgram` is probed once: without it the builder path is off

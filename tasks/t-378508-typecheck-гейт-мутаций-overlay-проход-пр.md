@@ -106,3 +106,18 @@ Proof-скрипт `scripts/spike/builder-gate/decl.mjs`: Emit-builder даёт 
 
 
 - **Родитель post-apply выбирается по вложению, а не по точному ключу.** Overlay гейта — это только исходники (`plan.overlayFiles`), а op пишет ещё и то, что ни одна программа не проверяет (co-extract стилей). Поэтому post-apply берёт последний сохранённый overlay-state, чьи записи и tombstone ⊆ записанного. e2e `gate-builder-follows` закрепляет это на move_file / move_symbol / extract_symbol: записанные байты == байтам гейта.
+
+
+## Ревью, круг 1 (bug + architecture на f2f43ab)
+
+- **[BLOCK] F1 — общий `DocumentRegistry` отдавал другой программе старое тело.** Retired-map делала версию уникальной внутри одной программы, но разводила программы между собой. В итоге новая версия программы B совпадала со старой версией программы A, а тело у них было разное. → fixed: одна версия на путь на весь хост (`program/file-versions.ts`), общая для всех программ. Её поднимает каждый reindex, в котором путь назван, и она никогда не сбрасывается. Retired-map удалена. Тест: `test/unit/file-versions.test.ts`.
+- **[BLOCK] F2 — import-only файл (вне `include`) всегда имел версию `"1"`.** Builder копировал диагностику старого тела, получался ложный baseline и ложный отказ. → fixed тем же механизмом: версию получает любой путь. Попутно закрыт **существующий дефект LS**: тёплый LS не видел правку файла, достижимого только через import, хотя reindex его называл. Тест там же.
+- **[BLOCK] F3 — ловушки не доказывали, что builder вообще работал.** Проверялось только отсутствие декоя в логе. → fixed: положительный ассерт «builder перепроверил файл ловушки». В declaration-ловушки добавлен файл с исходной ошибкой TS4094, которая обязана пережить цепочку без перепроверки. Мутация «builder выключен для declaration» теперь красит 3 ловушки.
+- **[should-fix] F4 — доки.** → fixed: §3.1, §7 и шапка builder описывают общую версию на путь. Для post-apply честно указан LS-путь, если состояние гейта вытеснено.
+- **[should-fix] arch 1 — `gateContext` жил в модуле memo.** → fixed: вынесен в `program-gate-context.ts`.
+- **[should-fix] arch 2 — второй конструктор `CancellationToken`.** → fixed: `Cancellation.token` в `cancellation.ts`, гейт берёт его, value-import `typescript` из `program-gate.ts` убран. Тест отмены идёт через настоящий `host.withDeadline`.
+- **[should-fix] arch 3 — мёртвый `useCaseSensitiveFileNames` и каст в `BUILDER_HOST`.** → fixed: убраны.
+- **[should-fix] arch 4 — механизм прохода не едет с вердиктом.** → backlog t-787784. Builder и LS читают один Program, паритет закреплён тестом.
+- **[nit] arch 5 — `WrittenEdit.removed` дублирует `scope.removed`.** → dropped: `diagnosticsAcross` получает `scope` без `removed`, носитель один.
+- **[nit] arch 6 — инвариант уникальности версии закреплён у потребителя, а не у владельца.** → fixed: `file-versions.test.ts` проверяет его на `createSingleProgram`.
+- **Остаточное:** память удержанных состояний → t-743990. Отмена sibling-а как degraded — так было до трека, не трогал.

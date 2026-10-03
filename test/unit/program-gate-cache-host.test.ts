@@ -10,6 +10,7 @@ import type { RepoRelPath } from '../../src/core/brands.ts';
 import ts from 'typescript';
 import { createTsProjectHost } from '../../src/plugins/ts/ls-host.ts';
 import { createSingleProgram } from '../../src/plugins/ts/program/single.ts';
+import { createFileVersions } from '../../src/plugins/ts/program/file-versions.ts';
 
 const rel = (s: string) => s as RepoRelPath;
 const FILES = [{ path: rel('src/b.ts'), content: 'export const z: number = 1;\n' }];
@@ -45,6 +46,7 @@ test('the disk version moves on every reindex and never on an overlay', () => {
     'tsconfig.json',
     ts.createDocumentRegistry(),
     () => new Set(),
+    createFileVersions(),
   );
   try {
     const v0 = p.diskVersion();

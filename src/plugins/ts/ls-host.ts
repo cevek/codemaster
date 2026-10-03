@@ -17,6 +17,7 @@ import { mintRepoRelPath, toPosix } from '../../support/fs/canonicalize.ts';
 import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
+import { createFileVersions } from './program/file-versions.ts';
 import type { TsProgram } from './program/queryable-program.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
@@ -41,7 +42,7 @@ import {
 import { gateAcross, diagnosticsAcross, type GateHost } from './program-gate.ts';
 import type { Deadline } from '../../common/async/deadline.ts';
 import { createCancellation } from './cancellation.ts';
-import { gateContext } from './program-gate-cache.ts';
+import { gateContext } from './program-gate-context.ts';
 
 export interface TsProjectHost extends GateHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
@@ -171,8 +172,10 @@ export function createTsProjectHost(
 ): TsProjectHost {
   // One DocumentRegistry shared across every stock-TS program: files common to two configs
   // (src/** in both the app and the test config) parse once. The §4 rescue fork keeps its own
-  // registry inside each SingleProgram — the two TS namespaces must never cross-feed.
+  // registry inside each SingleProgram — the two TS namespaces must never cross-feed. The registry
+  // reuses a SourceFile on a version match, so the versions are host-wide too (file-versions.ts).
   const registry = ts.createDocumentRegistry();
+  const versions = createFileVersions();
   const configPath = resolveConfigPath(root, tsconfigOverride);
 
   // The `.gitignore`-aware junk set (t-019044) — computed once per structural reindex, shared by
@@ -186,16 +189,11 @@ export function createTsProjectHost(
   // instead of spinning. Engine in ./cancellation (keeps ts's OperationCanceledException there).
   const cancellation = createCancellation();
   const cancel = cancellation.cancel;
+  /** Every program of this host shares the registry, junk set, versions and cancellation. */
+  const programFor = (config: string | undefined, label: string, strays: readonly string[] = []) =>
+    createSingleProgram(root, config, label, registry, ignored, versions, strays, cancel);
 
-  const primary = createSingleProgram(
-    root,
-    configPath,
-    primaryLabel(root, configPath),
-    registry,
-    ignored,
-    [],
-    cancel,
-  );
+  const primary = programFor(configPath, primaryLabel(root, configPath));
 
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
   // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
@@ -306,10 +304,7 @@ export function createTsProjectHost(
     if (fileDriven.has(config)) return; // already loaded
     if (discover().some((c) => toPosix(c.path) === config)) return; // an already-discovered sibling
     if (explicit.configs().has(config)) return; // already loaded as a `programs:` explicit program
-    fileDriven.set(
-      config,
-      createSingleProgram(root, config, relLabel(root, config), registry, ignored, [], cancel),
-    );
+    fileDriven.set(config, programFor(config, relLabel(root, config)));
     undiscoveredMemo = undefined; // the loaded config drops out of the undiscovered set
   };
 
@@ -331,8 +326,7 @@ export function createTsProjectHost(
       undiscoveredBase = undefined;
       undiscoveredMemo = undefined;
     },
-    buildProgram: (config, strays) =>
-      createSingleProgram(root, config, relLabel(root, config), registry, ignored, strays, cancel),
+    buildProgram: (config, strays) => programFor(config, relLabel(root, config), strays),
   });
   const explicitPrograms = (): readonly SingleProgram[] => explicit.programs();
 
@@ -343,15 +337,7 @@ export function createTsProjectHost(
       // under the member's own compilerOptions → correct alias resolution. A non-member sibling gets [].
       const strays = coverage().memberStrays;
       siblings = discover().map((c) =>
-        createSingleProgram(
-          root,
-          c.path,
-          c.label,
-          registry,
-          ignored,
-          strays.get(toPosix(c.path)) ?? [],
-          cancel,
-        ),
+        programFor(c.path, c.label, strays.get(toPosix(c.path)) ?? []),
       );
     }
     return [primary, ...siblings];
@@ -393,7 +379,7 @@ export function createTsProjectHost(
     programs: built,
     relOf,
     absOf,
-    cancel: cancellation.cancel,
+    token: cancellation.token,
   });
 
   // Shared by the `sourceFileAcross` method and `typeAuthorityFor`; the `extras` thunk keeps siblings
@@ -475,6 +461,7 @@ export function createTsProjectHost(
       // new test file is structural for the test program, not the primary). Unbuilt siblings are
       // untouched; they read the current tree when first warmed. File-driven programs reindex too,
       // so a loaded nested program stays fresh (cold == warm across the read-path-loaded state).
+      versions.advance(changed.map((rel) => toPosix(path.join(root, rel))));
       for (const program of builtSoFar()) program.reindex(changed);
       for (const program of fileDriven.values()) program.reindex(changed);
       explicit.reindex(changed);

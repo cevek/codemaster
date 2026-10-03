@@ -189,8 +189,10 @@ This is the section that the rest of the design serves.
    re-check — a file whose version, resolved references or compilerOptions changed, plus the reverse
    closure of any file whose d.ts signature changed — and copies the rest from the parent state, so
    it is invalidated against the Program the LS holds NOW, whichever parent it chains from. That
-   rests on `getScriptVersion` never repeating a version for a path with a different body
-   (`program/single.ts` retires a dropped path's version; overlay versions are monotonic). Options
+   rests on `getScriptVersion` never repeating a version for a path with a different body: a disk
+   version is one host-wide counter per path, shared by every program and advanced by each reindex
+   that names the path (`program/file-versions.ts` — the shared `DocumentRegistry` relies on the same
+   property), and overlay versions are monotonic. Options
    under which the model is unsound or pointless (`assumeChangesOnlyAffectDirectDependencies`,
    `outFile`, `noCheck`, `module: None`) take the full LS pass. On top, the whole gate result is
    memoized keyed EXACTLY on its inputs incl. `SingleProgram.diskVersion()` — bumped by every reindex
@@ -1195,14 +1197,17 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
 > Shared helper: `plugins/ts/refactor/capture/`. (Residual gaps tracked in the `task-manager` backlog.)
 
 > **The typecheck gate re-checks only what an edit can affect.** A gate whose check scope covers at
-> least half of a program (move / extract / codemod / transaction) reads every pass — the disk
-> baseline, the overlay, the post-apply recheck — through one TS diagnostics builder per program
-> (§3.1); a narrower scope (rename's touched files, `impact_type_error`'s closure) is cheaper as a
-> plain LS pass and takes it, both passes alike. The builder chains from the previous state of that
-> program: an unchanged disk costs the baseline no re-check at all, an overlay re-checks the edited
-> files and the closure TS proves they can affect, and the post-apply recheck chains from the state
-> that gated the bytes it reads back, so it re-checks the written files alone. A chain whose parent differs in more than a tenth of the
-> program's files restarts cold, which costs what a full pass costs. The builder never writes — its
+> least half of a program (move / extract / codemod / transaction) reads its disk baseline and its
+> overlay through one TS diagnostics builder per program (§3.1); a narrower scope (rename's touched
+> files, `impact_type_error`'s closure) is cheaper as a plain LS pass and takes it, both passes
+> alike. The builder chains from the previous state of that program: an unchanged disk costs the
+> baseline no re-check at all, and an overlay re-checks the edited files and the closure TS proves
+> they can affect. The post-apply recheck reads the written files; while the state of the gate that
+> verified those bytes is still kept (the last four per program) it chains from it on the builder and
+> re-checks the written files alone, otherwise it is a plain LS pass. Builder and LS read the same
+> Program, so a verdict compared across the two is compared like for like. A chain whose parent
+> differs in more than a tenth of the program's files restarts cold, which costs what a full pass
+> costs. The builder never writes — its
 > host's `writeFile` throws — and under `declaration`/`composite` it carries the declaration
 > diagnostics the LS adds. Its `releaseProgram` is `@internal` and probed once; without it the gate
 > takes the full LS pass. On top, a gate whose inputs (programs + their disk versions, overlay
@@ -1946,7 +1951,7 @@ codemaster/
       framework-detect/      # per-package manifest deps (find_phantom_deps)
       pidfile/               # the daemon's kill-target-hint pidfile beside its socket (§2)
     plugins/                 # L2 — the only domain layer
-      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage; program-gate.ts + program-gate-builder.ts + program-gate-cache.ts: the cross-program §7 write typecheck gate, its per-program chained diagnostics builder, and its disk-version-keyed result memo)
+      ts/                    # TypeScript plugin: VFS, LS, module-resolve, all TS facts (+ syntactic-{surface,nodes,search,catalogue,decl,decl-index,decl-miss,matcher,cache,internal,scope}.ts: the no-program scans behind search_symbol {syntactic:true} / symbols_overview / source {syntactic:true}, matcher = the shared navto createPatternMatcher, internal = the ONE @internal getNamedDeclarations boundary, decl-index = the declaration index + the pinned-file candidate-collapse policy, scope = the shared honest-scope claim + the per-answer surface-mode line, surface/cache = the git-or-walk listing and its provenance; program/config-membership.ts: symbols_overview per-tsconfig grouping; ambiguity.ts: the bare-name candidate list, collapsed by definition (cross-program unanimous re-ask for an alias its own program cannot resolve) + declaration-first; program/resolution-programs.ts: which programs may answer that re-ask (build-free selection + nearest-config authority); disclose-resolution.ts: the resolve-time §3.4 envelope disclosure; program/scan-fanout.ts + scan-coverage-view.ts: the per-program-typed cross-program fan the construction_sites / discrimination_sites scans share, and the op-facing coverage view it produces; type-widening.ts + type-widening-{sink,view}.ts: trace_type_widening's forward-flow step — the same fan SELECTION over a reference-denominated candidate set, its per-reference classifier, and its public view + coverage; program-gate.ts + program-gate-builder.ts + program-gate-cache.ts + program-gate-context.ts: the cross-program §7 write typecheck gate, its per-program chained diagnostics builder, its disk-version-keyed result memo, and the host-lifetime context holding both; program/file-versions.ts: the host-wide per-path disk version every program reads)
       scss/                  # SCSS classes & usages (postcss-scss CST)
       i18n/                  # locale-JSON keys + t('…') usages
       schema/                # openapi-typescript openapi.d.ts → endpoint cards

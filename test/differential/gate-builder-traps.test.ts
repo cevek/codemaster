@@ -35,6 +35,8 @@ interface Trap {
   options?: Record<string, unknown>;
   /** A global-scope change invalidates every file by TS's own rule — no decoy claim there. */
   global?: boolean;
+  /** An untouched file whose error every baseline of the chain must still carry. */
+  preExisting?: string;
 }
 
 const DECLARATION_OPTIONS = [
@@ -131,7 +133,11 @@ const TRAPS: Trap[] = [
       files: {
         'a.ts': 'export const make = () => class { x = 1; };',
         'b.ts': "import { make } from './a';\nexport const K = make();",
+        // A declaration error that pre-exists in a file no step touches: the emit builder must
+        // carry it across the chain, or every baseline after the first loses it.
+        'dd.ts': 'export const C = class { private y = 1; };',
       },
+      preExisting: 'dd.ts',
       benign: { 'a.ts': 'export const make = () => class { x = 1; }; // c' },
       trap: { 'a.ts': 'export const make = () => class { private x = 1; };' },
       expect: 'b.ts',
@@ -182,6 +188,20 @@ for (const t of TRAPS) {
         trapped.overlay.some((d) => d.file === src(t.expect)),
         'positive control: the trap introduces an error',
       );
+      // The equivalence above is builder vs LS only if the builder ran: it rechecked the file the
+      // trap breaks (the spy sees builder checks alone — the LS reaches the checker internally).
+      assert.ok(
+        work.checked.includes(t.expect),
+        `the builder checked ${t.expect} (${work.checked})`,
+      );
+      if (t.preExisting !== undefined) {
+        const kept = src(t.preExisting);
+        assert.ok(
+          trapped.baseline.some((d) => d.file === kept),
+          'the untouched error survives',
+        );
+        assert.ok(!work.checked.includes(t.preExisting), 'carried by the chain, not rechecked');
+      }
       if (t.global !== true) {
         assert.ok(!work.checked.includes('z.ts'), `the decoy was not rechecked (${work.checked})`);
       }
