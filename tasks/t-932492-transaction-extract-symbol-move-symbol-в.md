@@ -12,6 +12,7 @@ complexity: M
 area: transaction
 evidence: repro
 author: f0182919
+assignee: c37d629d
 created: '2026-10-03T15:44:48.549Z'
 ---
 ## Repro (эталон /Users/cody/Dev/amiro @ d89515259, dry-run, codemaster 41f6c70)

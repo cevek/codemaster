@@ -14,6 +14,8 @@ export interface GitRepoFingerprint {
   head: string;
   /** Working-tree-dirty paths at capture time (see status.ts). */
   dirtyPaths: readonly string[];
+  /** Dirty paths of the repository outside the workspace root (see status.ts). */
+  outsideRoot: readonly string[];
   /** Equality-comparable capture of (HEAD, porcelain). */
   fingerprint: string;
 }
@@ -30,6 +32,6 @@ export async function gitRepoFingerprint(
   const head = isOk(headResult) ? headResult.data.trim() : 'no-head';
   if (!isOk(statusResult)) return fail(statusResult.failure);
 
-  const { dirtyPaths, porcelain } = statusResult.data;
-  return ok({ head, dirtyPaths, fingerprint: `${head}\n${porcelain}` });
+  const { dirtyPaths, outsideRoot, porcelain } = statusResult.data;
+  return ok({ head, dirtyPaths, outsideRoot, fingerprint: `${head}\n${porcelain}` });
 }
