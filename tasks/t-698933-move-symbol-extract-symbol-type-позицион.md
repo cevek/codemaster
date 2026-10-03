@@ -1,7 +1,7 @@
 ---
 id: t-698933
 title: 'move_symbol/extract_symbol: type-позиционные ссылки через namespace-импорт (M.Model, typeof M.fn) не переписываются — перенос отказывает'
-status: in-progress
+status: todo
 priority: high
 parent: t-116306
 tags:
@@ -12,7 +12,6 @@ complexity: M
 area: ts-refactor
 evidence: repro
 author: c37d629d
-assignee: c0c4edfa
 created: '2026-10-03T16:26:41.811Z'
 ---
 Consumer `import * as M from '../model.ts'` использует перенесённый символ в TYPE-позиции: `M.Model` (тип) или `typeof M.setName`. LS «Move to file» (апстрим TS 6.0.3, `updateNamespaceLikeImport`) переписывает только рефы, чей родитель — PropertyAccessExpression; QualifiedName пропускается. Итог: `Namespace has no exported member 'Model'` / `Property 'setName' does not exist` — гейт честно отказывает, но перенос типа, которым пользуются через namespace, невыполним.
@@ -69,3 +68,8 @@ Repro (разбор t-932492, фикстуры S14/S15): move_symbol Model из 
 **Ревьюверы на код:** bug-reviewer (до двух кругов по правилу брифа).
 
 **Закрытие:** t-647916, t-132219 → закрываются ссылкой на t-698933 (t-132219 сжат до ImportEquals-формы; JS `const = require` — в t-995202).
+
+
+
+## Пауза
+Трек остановлен до начала кода при закруглении эпика t-116306. План на 3c4fcae — plan-ревью при возобновлении гнать заново. Capture-гейт ns-вставки не проверяет (`declImportsName` в `capture/move-symbol.ts` пропускает ns намеренно) — и LS-вставки, и сгенерированную ловит только typecheck-гейт.
