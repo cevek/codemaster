@@ -99,6 +99,18 @@ export function createSingleProgram(
   cancel: () => boolean = () => false,
 ): SingleProgram {
   let files = new Map<string, { version: number }>(); // abs posix → version
+  // A path that leaves the file set and comes back must not reuse a version it already held: the
+  // write gate's diagnostics builder (program-gate-builder.ts) and the DocumentRegistry both treat
+  // an equal version as an unchanged body. Fresh paths still start at 1, so programs that saw the
+  // same history stay aligned in the shared registry.
+  const retired = new Map<string, number>();
+  const entryFor = (abs: string): { version: number } => {
+    const kept = files.get(abs);
+    if (kept !== undefined) return kept;
+    const last = retired.get(abs);
+    retired.delete(abs);
+    return { version: (last ?? 0) + 1 };
+  };
   let version = 1;
   let diskVersion = 1;
   const overlay = new Overlay();
@@ -129,15 +141,16 @@ export function createSingleProgram(
         const rel = abs.slice(rootPrefix.length);
         if (isJunkRelPath(rel, ignoredJunk)) continue;
       }
-      next.set(abs, files.get(abs) ?? { version: 1 });
+      next.set(abs, entryFor(abs));
     }
     // Injected search-surface strays (t-232769): already §10-filtered + existence-checked by the
     // host's coverage pass, so they are added verbatim (a glob re-run never drops them the way it
     // would a file outside `include`). Keyed like a globbed file so reindex versioning is uniform.
     for (const inj of injectedFiles) {
       const abs = toPosix(inj);
-      if (!next.has(abs)) next.set(abs, files.get(abs) ?? { version: 1 });
+      if (!next.has(abs)) next.set(abs, entryFor(abs));
     }
+    for (const [abs, entry] of files) if (!next.has(abs)) retired.set(abs, entry.version);
     files = next;
     version++;
     diskVersion++;

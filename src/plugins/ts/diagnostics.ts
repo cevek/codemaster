@@ -46,12 +46,21 @@ export function fileDiagnostics(
 ): TsDiagnostic[] | undefined {
   if (service.getProgram()?.getSourceFile(abs) === undefined) return undefined;
   const diags = [...service.getSyntacticDiagnostics(abs), ...service.getSemanticDiagnostics(abs)];
-  return diags.map((d) => ({
+  return diags.map((d) => toTsDiagnostic(d, abs, relOf));
+}
+
+/** The one flattening every gate path uses, so the LS and builder paths are compared like for like. */
+export function toTsDiagnostic(
+  d: ts.Diagnostic,
+  abs: string,
+  relOf: (abs: string) => RepoRelPath,
+): TsDiagnostic {
+  return {
     file: relOf(d.file?.fileName ?? abs),
     line:
       d.file !== undefined && d.start !== undefined
         ? d.file.getLineAndCharacterOfPosition(d.start).line + 1
         : 0,
     message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
-  }));
+  };
 }

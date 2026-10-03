@@ -38,10 +38,10 @@ import {
   type ExplicitPrograms,
   type ProgramsLoadReport,
 } from './program/explicit-load.ts';
-import { gateAcross, diagnosticsAcross, type GateHost, type GateHostCtx } from './program-gate.ts';
+import { gateAcross, diagnosticsAcross, type GateHost } from './program-gate.ts';
 import type { Deadline } from '../../common/async/deadline.ts';
 import { createCancellation } from './cancellation.ts';
-import { createGateCache } from './program-gate-cache.ts';
+import { gateContext } from './program-gate-cache.ts';
 
 export interface TsProjectHost extends GateHost {
   /** The PRIMARY program's LanguageService — the mutation/typecheck/refactor oracle. */
@@ -388,8 +388,13 @@ export function createTsProjectHost(
     return (posix.startsWith(prefix) ? posix.slice(prefix.length) : posix) as RepoRelPath;
   };
   // The fan-out gate context — `built()` materializes the siblings (a write must verify them).
-  const cache = createGateCache();
-  const gateCtx = (): GateHostCtx => ({ primary, programs: built(), relOf, absOf, cache });
+  const gateCtx = gateContext({
+    primary,
+    programs: built,
+    relOf,
+    absOf,
+    cancel: cancellation.cancel,
+  });
 
   // Shared by the `sourceFileAcross` method and `typeAuthorityFor`; the `extras` thunk keeps siblings
   // lazy for a primary-resident target (§5-L2).
@@ -500,7 +505,8 @@ export function createTsProjectHost(
     ensureProgramFor,
     loadPrograms: (paths) => explicit.load(paths),
     gateAcross: (files, scope) => gateAcross(gateCtx(), files, scope),
-    diagnosticsAcross: (scope, restrictTo) => diagnosticsAcross(gateCtx(), scope, restrictTo),
+    diagnosticsAcross: (scope, restrictTo, written) =>
+      diagnosticsAcross(gateCtx(), scope, restrictTo, written),
     gateHostCtx: gateCtx,
     programsContaining(absPosix) {
       // Read-path fan-out: the built programs (primary + siblings) PLUS any file-driven nested

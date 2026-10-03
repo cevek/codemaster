@@ -1,5 +1,5 @@
-// The write gate's caches (program-gate-cache.ts): a cached baseline / reused gate result must be
-// indistinguishable from computing it now. Stub programs make the LS a counted, scriptable oracle:
+// The write gate's result memo (program-gate-cache.ts): a reused gate result must be
+// indistinguishable from computing it now. No builders here — every computed pass is the LS path. Stub programs make the LS a counted, scriptable oracle:
 // each file's content is `ERR:<msg>,…` (or anything else = clean), read from the overlay when one
 // is set, else from the stub "disk". The oracle for every verdict is the SAME gate run uncached.
 
@@ -103,7 +103,7 @@ const reset = (s: Stub) => {
 };
 const DISK = { [abs('a.ts')]: 'ok', [abs('b.ts')]: 'ERR:pre' };
 
-test('an identical second gate is served whole; a different edit reuses only the baseline', () => {
+test('an identical second gate is served whole; a different edit is computed', () => {
   const p = stub('tsconfig.json', DISK);
   const ctx = ctxOf(createGateCache(), p);
   const first = gateAcross(ctx, edit('ERR:new'), SCOPE);
@@ -117,7 +117,6 @@ test('an identical second gate is served whole; a different edit reuses only the
 
   reset(p);
   const second = gateAcross(ctx, edit('clean'), SCOPE);
-  assert.equal(p.calls.disk, 0, 'baseline came from the cache');
   assert.ok(p.calls.overlay > 0, 'the new edit was typechecked');
   assert.deepEqual(second, cold(edit('clean')));
 });
@@ -150,20 +149,7 @@ test('every component of the gate-result key forces a recompute when it changes'
   }
 });
 
-test('a disk-version bump drops the cached baseline', () => {
-  const p = stub('tsconfig.json', DISK);
-  const ctx = ctxOf(createGateCache(), p);
-  gateAcross(ctx, edit('clean'), SCOPE);
-  // The disk LOSES an error: a stale baseline would still hold it and could absorb an introduced one.
-  p.disk.set(abs('b.ts'), 'clean');
-  p.bumpDisk();
-  const g = gateAcross(ctx, edit('ok'), SCOPE);
-  assert.deepEqual(g.baseline, [], 'baseline reflects the reindexed disk');
-});
-
-test('a collection interrupted mid-file never stores that file', () => {
-  // a.ts carries a disk error AND is the edited file: its overlay is clean, so nothing downstream
-  // would reveal an empty entry stored for it — only the store rule keeps the baseline right.
+test('a gate that throws stores no result', () => {
   const disk = { [abs('a.ts')]: 'ERR:pre', [abs('b.ts')]: 'ok' };
   const p = stub('tsconfig.json', disk);
   const ctx = ctxOf(createGateCache(), p);
@@ -173,7 +159,7 @@ test('a collection interrupted mid-file never stores that file', () => {
   assert.deepEqual(
     g,
     gateAcross(ctxOf(undefined, stub('tsconfig.json', disk)), edit('clean'), SCOPE),
-    'a.ts recomputed, not cached empty',
+    'recomputed, not served from an interrupted gate',
   );
 });
 
@@ -185,7 +171,7 @@ test('a gate entered under an already-applied overlay neither reads nor writes t
   p.outerOverlay.on = false;
   reset(p);
   gateAcross(ctx, edit('clean'), SCOPE);
-  assert.ok(p.calls.disk > 0, 'the overlay-time baseline was not reused as a disk baseline');
+  assert.ok(p.calls.disk > 0, 'the overlay-time verdict was not reused as a disk verdict');
 });
 
 test('a gate with a degraded sibling is not reused', () => {
@@ -197,40 +183,4 @@ test('a gate with a degraded sibling is not reused', () => {
   const g = gateAcross(ctx, edit('clean'), SCOPE);
   assert.ok(p.calls.overlay > 0, 'recomputed rather than served');
   assert.equal(g.degraded.length, 1);
-});
-
-test('a stale cached baseline is re-derived before it can cause a refusal', () => {
-  const p = stub('tsconfig.json', DISK);
-  const ctx = ctxOf(createGateCache(), p);
-  gateAcross(ctx, edit('clean'), SCOPE);
-  // The disk view changes with no disk-version bump (a resolution re-run after a rebuild,
-  // t-828499): the overlay pass sees it, the cached baseline does not. Same message twice — a
-  // set-based cover check would call the one cached occurrence enough.
-  p.disk.set(abs('b.ts'), 'ERR:pre,pre');
-  reset(p);
-  const g = gateAcross(ctx, edit('ok'), SCOPE);
-  assert.equal(
-    g.baseline.filter((d) => d.message === 'pre').length,
-    2,
-    'baseline re-derived from disk, so the second occurrence is not reported as introduced',
-  );
-  assert.equal(p.calls.disk, 1, 'only the file holding the uncovered diagnostic was recomputed');
-});
-
-test('a stale baseline of a moved-away file is re-derived with the uncovered dest', () => {
-  const p = stub('tsconfig.json', DISK);
-  const ctx = ctxOf(createGateCache(), p);
-  const scope: GateScope = { ...SCOPE, check: [rel('a.ts'), rel('b.ts'), rel('c.ts')] };
-  gateAcross(ctx, edit('clean'), scope);
-  // b.ts gains an error the cache missed, then moves to c.ts: the op re-keys b's baseline onto c,
-  // so the stale b entry would surface as an error "introduced" under c.
-  p.disk.set(abs('b.ts'), 'ERR:pre,extra');
-  const g = gateAcross(ctx, [{ path: rel('c.ts'), content: 'ERR:pre,extra' }], {
-    ...scope,
-    removed: [rel('b.ts')],
-  });
-  assert.ok(
-    g.baseline.some((d) => d.message === 'extra'),
-    'the moved-away file was re-derived',
-  );
 });

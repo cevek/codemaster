@@ -563,8 +563,8 @@ export function createTsPlugin(
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 
-    diagnosticsAcross: (scope, restrictTo, deadline) => {
-      const run = () => warm().diagnosticsAcross(scope, restrictTo);
+    diagnosticsAcross: (scope, restrictTo, deadline, written) => {
+      const run = () => warm().diagnosticsAcross(scope, restrictTo, written);
       return deadline !== undefined ? warm().withDeadline(deadline, run) : run();
     },
 

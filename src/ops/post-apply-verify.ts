@@ -159,6 +159,7 @@ export async function verifyAfterWrite(input: PostApplyInput): Promise<PostApply
       { anchor: input.gateScope.anchor, check },
       input.programs,
       input.deadline,
+      { files: input.written, removed: input.removed },
     );
     const gate = buildTypecheckField(input.baseline, after, input.remap);
     return gate.clean ? { kind: 'verified' } : { kind: 'introduced', field: gate.field };

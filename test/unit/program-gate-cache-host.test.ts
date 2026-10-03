@@ -64,18 +64,12 @@ test('the disk version moves on every reindex and never on an overlay', () => {
   }
 });
 
-test('a warm gate reuses the baseline and still equals a cold host after a disk edit', () => {
+test('a warm gate equals a cold host after a disk edit', () => {
   const dir = project('export const a = 1;\n');
   const host = createTsProjectHost(dir);
   try {
-    const service = host.service;
     host.gateAcross(FILES, SCOPE);
-    const orig = service.getSemanticDiagnostics.bind(service);
-    let calls = 0;
-    service.getSemanticDiagnostics = (f) => (calls++, orig(f));
     host.gateAcross([{ path: rel('src/b.ts'), content: 'export const z = 2;\n' }], SCOPE);
-    assert.equal(calls, 2, 'only the overlay pass (2 files) ran; the baseline came from the cache');
-
     writeFileSync(path.join(dir, 'src/a.ts'), 'export const a: string = 1;\n');
     host.reindex([rel('src/a.ts')]);
     const warm = host.gateAcross(FILES, SCOPE);
