@@ -65,3 +65,9 @@ bug-reviewer (до 3 кругов по правилу брифа): острие 
 t-710809 (инвалидация резолва): builder её не блокирует — смена `referencedMap` (unresolved→resolved) сама кладёт файл в change-set; бамп всех версий = один полный recheck. t-433767 (без force-add в roots): меньше смен root-set → builder-overlay только дешевле, конфликта нет.
 
 Proof-скрипт `scripts/spike/builder-gate/decl.mjs`: Emit-builder даёт LS-parity declaration-диагностики (TS4094) при declaration on/noEmit/composite, инкрементально (codemaster: cold 775 checked, overlay leaf 179, disk←B0 0).
+
+
+### Довески к DoD (менеджер)
+1. Emit-вариант builder не пишет на диск ни байта — writeFile no-op, тест.
+2. rename (check=touched) не регрессирует против LS-пути на amiro и на codemaster (declaration:true); регрессирует — rename остаётся на LS-пути.
+3. Дифференциальный тест: builder-путь == полный проход на ловушках спайка (+ declaration-вариант) в цепочке disk→overlay→post-apply→disk; негативный контроль assumeChangesOnlyAffectDirectDependencies → путь выключается.
