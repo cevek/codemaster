@@ -29,6 +29,7 @@ import { messageOfThrown } from '../../common/result/construct.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import type { SingleProgram } from './program/single.ts';
 import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
+import type { GateCache } from './program-gate-cache.ts';
 
 /** The host-side context the fan-out needs — the built programs + the host's path mappers. */
 export interface GateHostCtx {
@@ -37,6 +38,8 @@ export interface GateHostCtx {
   programs: readonly SingleProgram[];
   relOf: (abs: string) => RepoRelPath;
   absOf: (rel: RepoRelPath) => string;
+  /** Host-lifetime caches (program-gate-cache.ts); absent → every pass is computed. */
+  cache?: GateCache;
 }
 
 export interface GateScope {
@@ -184,6 +187,40 @@ export function gateAcross(
     abs: ctx.absOf(f.path),
     content: f.content,
   }));
+  // An overlay already applied means the "baseline" below is not the disk → never cache it.
+  const cache =
+    ctx.cache !== undefined && !programs.some((p) => p.overlayActive()) ? ctx.cache : undefined;
+  const key =
+    cache !== undefined
+      ? JSON.stringify([
+          programs.map((p) => [cache.idOf(p), p.diskVersion()]),
+          entries.map((e) => [e.abs, e.content]),
+          scope.removed ?? null,
+          checkAbs,
+        ])
+      : undefined;
+  const hit = key !== undefined ? cache?.result(key, programs) : undefined;
+  if (hit !== undefined) return hit;
+
+  // Moved-away paths: the ops re-key their baseline errors onto the dest, so a stale entry there
+  // would surface under a path `uncoveredFiles` never names.
+  const removedAbs = (scope.removed ?? []).map((r) => ctx.absOf(r));
+  const sample = (program: SingleProgram) => {
+    const base = (): { diags: TsDiagnostic[]; fromCache: boolean } =>
+      cache !== undefined
+        ? cache.baseline(program, ctx.relOf, checkAbs)
+        : { diags: collectFromService(program.service, ctx.relOf, checkAbs), fromCache: false };
+    const b = base();
+    const o = overlayCollect(ctx, program, programs, entries, scope.removed, checkAbs);
+    // A cached baseline may only ever speed up a CLEAN verdict: every file holding an overlay
+    // diagnostic it does not cover is re-derived from disk now, so a stale entry cannot cause a
+    // refusal. A diagnostic lives in its own file, so the other files' entries cannot matter.
+    const stale = b.fromCache ? uncoveredFiles(b.diags, o) : [];
+    if (stale.length === 0) return { b: b.diags, o };
+    const moved = checkAbs.filter((a) => removedAbs.some((r) => a === r || a.startsWith(`${r}/`)));
+    cache?.refresh(program, ctx.relOf, [...stale.map((f) => ctx.absOf(f)), ...moved]);
+    return { b: base().diags, o };
+  };
 
   const baseline: TsDiagnostic[] = [];
   const overlay: TsDiagnostic[] = [];
@@ -192,16 +229,16 @@ export function gateAcross(
   for (const program of programs) {
     if (program === ctx.primary) {
       // NEVER degraded: a throw here means nothing was verified → propagate (honest ts-ls failure).
-      baseline.push(...collectFromService(program.service, ctx.relOf, checkAbs));
-      overlay.push(...overlayCollect(ctx, program, programs, entries, scope.removed, checkAbs));
+      const { b, o } = sample(program);
+      baseline.push(...b);
+      overlay.push(...o);
       checked.push(program.label);
       continue;
     }
     try {
       // Collect BOTH passes before committing either (symmetry): if the overlay pass throws after a
       // clean baseline, neither is kept — the sibling degrades wholesale, never half-counted.
-      const b = collectFromService(program.service, ctx.relOf, checkAbs);
-      const o = overlayCollect(ctx, program, programs, entries, scope.removed, checkAbs);
+      const { b, o } = sample(program);
       baseline.push(...b);
       overlay.push(...o);
       checked.push(program.label);
@@ -211,5 +248,26 @@ export function gateAcross(
       degraded.push(`${program.label} (${messageOfThrown(thrown).replace(/\s+/g, ' ').trim()})`);
     }
   }
-  return { baseline, overlay, programs: checked, degraded };
+  const result = { baseline, overlay, programs: checked, degraded };
+  // A degraded sibling may be transient (a deadline cancel inside it is caught as degraded).
+  if (key !== undefined && degraded.length === 0) cache?.storeResult(key, programs, result);
+  return result;
+}
+
+/** Files of the `overlay` diagnostics `baseline` does not absorb (multiset over file|line|message —
+ *  the key the ops' introduced-diff uses). */
+function uncoveredFiles(
+  baseline: readonly TsDiagnostic[],
+  overlay: readonly TsDiagnostic[],
+): RepoRelPath[] {
+  const left = new Map<string, number>();
+  const keyOf = (d: TsDiagnostic) => `${d.file}\u0000${d.line}\u0000${d.message}`;
+  for (const d of baseline) left.set(keyOf(d), (left.get(keyOf(d)) ?? 0) + 1);
+  const out = new Set<RepoRelPath>();
+  for (const d of overlay) {
+    const n = left.get(keyOf(d)) ?? 0;
+    if (n === 0) out.add(d.file);
+    else left.set(keyOf(d), n - 1);
+  }
+  return [...out];
 }
