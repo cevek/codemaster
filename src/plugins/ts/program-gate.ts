@@ -64,6 +64,21 @@ export interface GateResult {
   degraded: string[];
 }
 
+/** The project host's write-gate surface (implemented in ls-host.ts over its built programs). */
+export interface GateHost {
+  /** §2.8 write gate, fanned across every program the edit touches (Task G for WRITES): the
+   *  overlay typecheck on EACH affected program + the disk baseline over the same set, so a
+   *  sibling-program dangle is caught. Builds the sibling programs (a write must verify them). */
+  gateAcross(
+    files: readonly { path: RepoRelPath; content: string }[],
+    scope: GateScope,
+  ): GateResult;
+  /** Disk diagnostics across every affected program — the post-apply half of the fan-out gate.
+   *  `restrictTo` pins the program set to the pre-apply baseline's (the `gateAcross` `programs`). */
+  diagnosticsAcross(scope: GateScope, restrictTo?: readonly string[]): TsDiagnostic[];
+  gateHostCtx(): GateHostCtx;
+}
+
 /** A program OWNS a file when it contains it today OR its glob would after the edit (`mayContain`). */
 function owns(program: SingleProgram, absPosix: string): boolean {
   return program.containsFile(absPosix) || program.mayContain(absPosix);
