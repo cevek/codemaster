@@ -1,7 +1,7 @@
 ---
 id: t-255583
 title: transaction из N move_file планирует каждый шаг заново (~2.5 с/шаг) — склеить подряд идущие переносы в один план; показывать время ожидания в очереди; CLI one-shot ждёт закрытия watcher 7–9 с
-status: review
+status: done
 priority: high
 parent: t-906818
 tags:
