@@ -15,7 +15,6 @@ author: aecc37d1
 created: '2026-10-06T13:28:51.144Z'
 ---
 Тот же класс, что t-833715 (wall-clock дедлайн считает сон машины на darwin), там закрыт только request-таймаут `createProcessHost` + `suspendedMs` в usage-логе. Остальные потребители:
-- `createRemoteOrchestrator` `wedgeMessage`: после сна reply-deadline сработает на пробуждении и скажет «daemon is busy/slow» — ложная причина;
 - кооперативный `createDeadline` (`common/async/deadline.ts`, движок `runOne`): op вернёт `timeout`/partial на пробуждении, хотя работы почти не было;
 - startup-handshake `createProcessHost` (`startupDeadlineMs`): «engine child did not start in 60000ms».
 Минимальный исход: те же формулировки сна из seam t-833715 в этих причинах.
