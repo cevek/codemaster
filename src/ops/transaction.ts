@@ -22,8 +22,9 @@ import type { RefactorPlan, TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { applyRefactorPlan } from './refactor-plan-apply.ts';
 import { TxnCompose } from './transaction-compose.ts';
-import { STEP_PLANNERS, SUPPORTED_STEP_KINDS } from './refactor-steps.ts';
+import { moveRunFrom, parseStep, SUPPORTED_STEP_KINDS } from './refactor-steps.ts';
 import { extractSymbolOp } from './extract-symbol.ts';
+import { moveFileOp } from './move-file.ts';
 
 const txnArgsSchema = z.strictObject({
   steps: z.array(z.strictObject({ name: z.string().min(1), args: jsonValue.default({}) })).min(1),
@@ -49,7 +50,7 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
     },
   },
   notes: [
-    `steps are applied IN ORDER: step i+1 plans against step i's post-edit overlay (use the post-rename/move NAMES and PATHS in later steps). Supported step kinds: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are not yet transaction steps).`,
+    `steps are applied IN ORDER: step i+1 plans against step i's post-edit overlay (use the post-rename/move NAMES and PATHS in later steps). CONSECUTIVE move_file steps are planned as ONE layout change (one import-rewrite pass) — keep a batch of moves adjacent, and send it as ONE transaction rather than several in parallel. Supported step kinds: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are not yet transaction steps).`,
     'ONE typecheck gates the cumulative result and the union of touched files is dirty-gated ONCE. dry-run (default) previews the cumulative diff + final verdict without writing; diff(dry-run) == diff(apply).',
     'all-or-nothing: if a step cannot be planned the op refuses naming the step index and writes NOTHING; if the final gate is unclean or ANY step CAPTURES (a type-compatible silent re-bind), the WHOLE sequence rolls back byte-exact (apply) or is refused (dry-run).',
     'cross-program LIMIT: a step’s WRITE-site fan-out is restricted to the PRIMARY program (a planning overlay is active, so a sibling LS would read stale disk) — a step rewrites primary-program reference/call sites only. The CUMULATIVE gate STILL fans across every affected program (including the program that owns a move/extract DEST), so a cross-program dangle a step left un-rewritten is caught and rolls the whole transaction back; only a type-COMPATIBLE cross-program re-bind (capture) is missed, as for the standalone ops.',
@@ -66,7 +67,10 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
     if (!isOk(ls)) return fail(ls.failure);
     const compose = new TxnCompose(root, ls.data.map(brandGitPath));
 
-    for (const [i, step] of args.steps.entries()) {
+    let i = 0;
+    while (i < args.steps.length) {
+      const step = args.steps[i];
+      if (step === undefined) break;
       // §1 never-hang — a loop-boundary poll between steps: a long chain degrades to an honest
       // `timeout` (naming the step reached) BEFORE the final gate/commit, so NOTHING is written.
       // Each step's own plan/gate is separately deadline-bounded (refactor-steps → plugin plan
@@ -77,48 +81,61 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
           message: `transaction exceeded its wall-clock budget at step ${i} '${step.name}' — nothing written; split the chain or fall back`,
         });
       }
-      const planner = STEP_PLANNERS[step.name];
-      if (planner === undefined) {
-        return fail({
-          tool: 'transaction',
-          message: `step ${i} '${step.name}' is not a supported transaction step — supported: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are follow-ups). Nothing written.`,
-        });
-      }
-      const parsed = planner.schema.safeParse(step.args);
-      if (!parsed.success) {
-        const issues = parsed.error.issues
-          .map((x) => `${x.path.join('.') || '<args>'}: ${x.message}`)
-          .join('; ');
-        return fail({
-          tool: 'transaction',
-          message: `step ${i} '${step.name}' has invalid args: ${issues}. Nothing written.`,
-        });
-      }
       // First step plans against disk (overlay undefined → identical to the direct op); later
       // steps plan against the accumulated overlay.
       const overlay = i === 0 ? undefined : compose.overlay();
+      // Consecutive `move_file` steps are ONE run on one tree: the whole-tree import rewrite and
+      // the capture pass are paid once for the run instead of once per step.
+      const run = step.name === moveFileOp.name ? moveRunFrom(args.steps, i) : undefined;
+      const span = run?.pairs.length ?? 1;
+      const label =
+        span > 1 ? `steps ${i}..${i + span - 1} 'move_file'` : `step ${i} '${step.name}'`;
       let plan: RefactorPlan | string;
-      try {
-        plan = await planner.plan(ctx, parsed.data, overlay);
-      } catch (thrown) {
-        return fail({
-          tool: 'ts-ls',
-          message: `step ${i} '${step.name}' threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
-        });
+      if (run !== undefined) {
+        if (run.invalid !== undefined) return fail(run.invalid);
+        let planned: Awaited<ReturnType<TsPluginApi['planMoves']>>;
+        try {
+          planned = await ts.planMoves(run.pairs, overlay, ctx.deadline);
+        } catch (thrown) {
+          return fail({
+            tool: 'ts-ls',
+            message: `${label} threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
+          });
+        }
+        if (typeof planned !== 'string' && !('moves' in planned)) {
+          const at = planned.index === undefined ? label : `step ${i + planned.index} 'move_file'`;
+          return fail({
+            tool: 'transaction',
+            message: `${at} could not be planned: ${planned.message}. Nothing written (no prefix applied).`,
+          });
+        }
+        plan = planned;
+      } else {
+        const parsed = parseStep(step, i);
+        if ('failure' in parsed) return fail(parsed.failure);
+        try {
+          plan = await parsed.planner.plan(ctx, parsed.args, overlay);
+        } catch (thrown) {
+          return fail({
+            tool: 'ts-ls',
+            message: `${label} threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
+          });
+        }
       }
       if (typeof plan === 'string') {
         return fail({
           tool: 'transaction',
-          message: `step ${i} '${step.name}' could not be planned: ${plan}. Nothing written (no prefix applied).`,
+          message: `${label} could not be planned: ${plan}. Nothing written (no prefix applied).`,
         });
       }
-      const composeError = compose.applyStep(plan, `step ${i} '${step.name}'`);
+      const composeError = compose.applyStep(plan, label);
       if (composeError !== undefined) {
         return fail({
           tool: 'transaction',
-          message: `step ${i} '${step.name}' ${composeError}. Nothing written.`,
+          message: `${label} ${composeError}. Nothing written.`,
         });
       }
+      i += span;
     }
 
     if (compose.isEmpty()) {

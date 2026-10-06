@@ -51,6 +51,7 @@ import type { CodemodEdit } from './refactor/capture/codemod.ts';
 import type { Capture } from './refactor/capture/types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan, PlanningOverlay } from './refactor/plan.ts';
+import type { MovePair, MoveRunRefusal } from './refactor/imports/plan-move.ts';
 import type { GateScope, WrittenEdit } from './program-gate.ts';
 import type { GateClaims } from './gate-membership.ts';
 
@@ -383,6 +384,15 @@ export interface TsPluginApi extends Plugin {
     overlay?: PlanningOverlay,
     deadline?: Deadline,
   ): Promise<RefactorPlan | string>;
+  /** Plan an ordered RUN of moves on one tree with ONE import-rewrite + capture pass (a
+   *  `transaction`'s consecutive `move_file` steps). Each move sees the layout the earlier ones
+   *  left. A refusal names the run position at fault (`index`), or the whole run (`undefined`); a
+   *  bare string is a failure to load the tree. */
+  planMoves(
+    moves: readonly MovePair[],
+    overlay?: PlanningOverlay,
+    deadline?: Deadline,
+  ): Promise<RefactorPlan | MoveRunRefusal | string>;
   /** Plan extracting the top-level symbol at `target` to a NEW file `dest` via the LS
    *  "Move to file" refactor (dest as the not-yet-existing `targetFile`). A message on a bad
    *  target; a structured failure (with the `ts-ls-failures` category) when the LS refuses —

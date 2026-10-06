@@ -45,7 +45,7 @@ import { nodeModuleImports } from './phantom-imports.ts';
 import { findUnusedExports } from './unused-exports.ts';
 import { computeRename } from './refactor/rename/rename-sites.ts';
 import { collectDiagnostics } from './diagnostics.ts';
-import { planMove } from './refactor/imports/plan-move.ts';
+import { planMoves } from './refactor/imports/plan-move.ts';
 import { planExtractTo } from './refactor/extract/move-to-file.ts';
 import { planMoveSymbolTo } from './refactor/extract/move-to-existing.ts';
 import { rewriteExtractedCss } from './refactor/extract/css-usage.ts';
@@ -75,6 +75,7 @@ export type {
 export type { ImportRewrite } from './refactor/extract/css-usage.ts';
 // Capture-safety types (§ capture-safety). Envelope formatting lives in the ops layer.
 export type { Capture } from './refactor/capture/types.ts';
+export type { MovePair, MoveRunRefusal } from './refactor/imports/plan-move.ts';
 export type { CodemodEdit, CodemodRegion } from './refactor/capture/codemod.ts';
 export type { UnusedExportView } from './unused-exports.ts';
 // Cross-tier call-scan shapes the i18n plugin consumes — through this surface, never the scan
@@ -502,10 +503,19 @@ export function createTsPlugin(
       }
     },
 
-    planMove(source, dest, overlay, deadline) {
+    async planMove(source, dest, overlay, deadline) {
+      const plan = await planUnderOverlay(
+        overlay,
+        (h, tree, options) => planMoves(h, tree, options, [{ source, dest }], overlay),
+        deadline,
+      );
+      return typeof plan === 'string' || 'moves' in plan ? plan : plan.message;
+    },
+
+    planMoves(moves, overlay, deadline) {
       return planUnderOverlay(
         overlay,
-        (h, tree, options) => planMove(h, tree, options, source, dest, overlay),
+        (h, tree, options) => planMoves(h, tree, options, moves, overlay),
         deadline,
       );
     },

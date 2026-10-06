@@ -13,6 +13,7 @@ import { systemClock } from './common/async/clock.ts';
 import { createDebugSystem } from './support/debug/system.ts';
 import { createStderrSink } from './support/debug/stderr-sink.ts';
 import { createChokidarWatcher } from './support/watch/chokidar.ts';
+import { nullWatcher } from './support/watch/seam.ts';
 import { Orchestrator, DEFAULT_IDLE_EVICTION_MIN } from './daemon/orchestrator.ts';
 import { loadConfig } from './support/config-load/load.ts';
 import { isOk } from './common/result/narrow.ts';
@@ -55,7 +56,10 @@ const BRIDGE_REPLY_DEADLINE_MS = 150_000;
 
 const VERSION = '0.1.0';
 
-function buildOrchestrator(): Orchestrator {
+/** `long-lived` (mcp / daemon serve) watches the tree; a `one-shot` CLI process answers one request
+ *  and exits, so a watcher buys it nothing (§3.5 keeps the answer fresh) while chokidar's initial
+ *  walk and its `close()` on dispose cost seconds on a large repo. */
+function buildOrchestrator(lifetime: 'long-lived' | 'one-shot'): Orchestrator {
   const debug = createDebugSystem(systemClock, process.env['CODEMASTER_DEBUG'] ?? '');
   if (process.env['CODEMASTER_DEBUG'] !== undefined) debug.addSink(createStderrSink());
   // The child bin for `process`-mode isolation (§2) — this same entry, re-invoked as
@@ -65,7 +69,7 @@ function buildOrchestrator(): Orchestrator {
   return new Orchestrator({
     clock: systemClock,
     debug,
-    watcher: createChokidarWatcher(systemClock),
+    watcher: lifetime === 'long-lived' ? createChokidarWatcher(systemClock) : nullWatcher,
     version: VERSION,
     pluginsFor: builtinPlugins,
     opsFor: () => builtinOps(),
@@ -151,7 +155,7 @@ async function main(): Promise<number> {
         // Wedge watchdog only (t-095661): the daemon is DETACHED by design (parent → init), so
         // orphan-exit is off here; its production hard-guarantee is §9 kill-on-deadline.
         installWatchdog({ clock: systemClock, orphanAware: false, log: watchdogLog });
-        const orchestrator = buildOrchestrator();
+        const orchestrator = buildOrchestrator('long-lived');
         const socket = socketPath(VERSION, process.env['CODEMASTER_SOCK_DIR']);
         const transport = createUnixSocketTransport(socket);
         try {
@@ -230,7 +234,7 @@ async function main(): Promise<number> {
         // watchdog (worker thread) + orphan poll self-reap. Best-effort — a failed install is a
         // no-op, never a broken serve path.
         installWatchdog({ clock: systemClock, orphanAware: true, log: watchdogLog });
-        await serveMcp(buildOrchestrator(), VERSION, {
+        await serveMcp(buildOrchestrator('long-lived'), VERSION, {
           // No daemon in this topology — the self-staleness banner must not offer `codemaster
           // daemon restart` here, which would be a no-op on THIS process (§3.6).
           serving: 'in-process',
@@ -257,7 +261,7 @@ async function main(): Promise<number> {
         // (Stage-1 behavior). Worst case is "no amortization", never a hang or a hard failure (D1).
         // Serving is genuinely daemon-LESS here, so the banner's remedy follows the topology, not
         // the invocation the user typed.
-        await serveMcp(buildOrchestrator(), VERSION, {
+        await serveMcp(buildOrchestrator('long-lived'), VERSION, {
           serving: 'in-process',
           idle: { clock: systemClock, idleMs },
           usage,
@@ -297,7 +301,7 @@ async function main(): Promise<number> {
         );
         return 2;
       }
-      const orchestrator = buildOrchestrator();
+      const orchestrator = buildOrchestrator('one-shot');
       const view = await orchestrator.status(process.cwd(), root);
       out(renderStatus(view, { full, brief, op, serving: 'in-process' }));
       await orchestrator.dispose();
@@ -310,7 +314,7 @@ async function main(): Promise<number> {
         return 2;
       }
       const { request, sql, returnMode } = parsed;
-      const orchestrator = buildOrchestrator();
+      const orchestrator = buildOrchestrator('one-shot');
       // One render wiring for every dispatch path (`cli/compose.ts`): a dispatch error renders as a
       // valid JSON envelope under json / the dense `DISPATCH` line otherwise, and flips the exit
       // code non-zero (§3, t-337633) — the CLI mirror of the MCP `isError:true` — while a
@@ -332,7 +336,7 @@ async function main(): Promise<number> {
         process.stderr.write(`${parsed.message}\n${BATCH_USAGE}`);
         return 2;
       }
-      const orchestrator = buildOrchestrator();
+      const orchestrator = buildOrchestrator('one-shot');
       return await emit(await runCompose(orchestrator, process.cwd(), parsed.plan), orchestrator);
     }
     case undefined:

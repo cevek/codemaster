@@ -12,7 +12,14 @@
 import type { z } from 'zod';
 import type { RepoRelPath } from '../core/brands.ts';
 import type { HandleRebind } from '../core/ids.ts';
-import type { Capture, RefactorPlan, PlanningOverlay, TsPluginApi } from '../plugins/ts/plugin.ts';
+import type { ToolFailure } from '../core/result.ts';
+import type {
+  Capture,
+  MovePair,
+  RefactorPlan,
+  PlanningOverlay,
+  TsPluginApi,
+} from '../plugins/ts/plugin.ts';
 import type { OpContext } from './registry.ts';
 import { targetOf } from './ts-target.ts';
 import { renameSymbolOp } from './rename-symbol.ts';
@@ -154,3 +161,55 @@ export const STEP_PLANNERS: Readonly<Record<string, StepPlanner>> = {
 };
 
 export const SUPPORTED_STEP_KINDS: readonly string[] = Object.keys(STEP_PLANNERS);
+
+interface TxnStep {
+  name: string;
+  args: unknown;
+}
+
+/** Resolve step `i`'s planner and validate its args with the standalone op's own schema. */
+export function parseStep(
+  step: TxnStep,
+  i: number,
+): { planner: StepPlanner; args: unknown } | { failure: ToolFailure } {
+  const planner = STEP_PLANNERS[step.name];
+  if (planner === undefined) {
+    return {
+      failure: {
+        tool: 'transaction',
+        message: `step ${i} '${step.name}' is not a supported transaction step — supported: ${SUPPORTED_STEP_KINDS.join(', ')} (codemod / css co-extract are follow-ups). Nothing written.`,
+      },
+    };
+  }
+  const parsed = planner.schema.safeParse(step.args);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((x) => `${x.path.join('.') || '<args>'}: ${x.message}`)
+      .join('; ');
+    return {
+      failure: {
+        tool: 'transaction',
+        message: `step ${i} '${step.name}' has invalid args: ${issues}. Nothing written.`,
+      },
+    };
+  }
+  return { planner, args: parsed.data };
+}
+
+/** The maximal run of consecutive `move_file` steps starting at `start`, each validated with the
+ *  standalone op's schema; `invalid` names the first step whose args do not parse. */
+export function moveRunFrom(
+  steps: readonly TxnStep[],
+  start: number,
+): { pairs: MovePair[]; invalid?: ToolFailure } {
+  const pairs: MovePair[] = [];
+  for (let i = start; i < steps.length; i++) {
+    const step = steps[i];
+    if (step === undefined || step.name !== moveFileOp.name) break;
+    const parsed = parseStep(step, i);
+    if ('failure' in parsed) return { pairs, invalid: parsed.failure };
+    const a = parsed.args as { source: string; dest: string };
+    pairs.push({ source: a.source as RepoRelPath, dest: a.dest as RepoRelPath });
+  }
+  return { pairs };
+}
