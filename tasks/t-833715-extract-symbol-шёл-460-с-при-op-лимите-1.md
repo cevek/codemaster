@@ -12,6 +12,7 @@ type: bug
 complexity: M
 evidence: measured
 author: fad2132f
+assignee: aecc37d1
 created: '2026-10-06T13:16:52.831Z'
 ---
 ## Наблюдение
