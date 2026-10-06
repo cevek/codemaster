@@ -25,6 +25,19 @@ import { TxnCompose } from './transaction-compose.ts';
 import { moveRunFrom, parseStep, SUPPORTED_STEP_KINDS } from './refactor-steps.ts';
 import { extractSymbolOp } from './extract-symbol.ts';
 import { moveFileOp } from './move-file.ts';
+import { failTimeoutOr } from './refactor-timeout.ts';
+import { DeadlineExceededError } from '../common/async/deadline.ts';
+
+/** A step's planner threw: a cancelled budget is the honest `timeout` (as for the standalone op),
+ *  anything else a tool fault naming the step. */
+function planningThrew(label: string, thrown: unknown): Result<JsonValue> {
+  if (thrown instanceof DeadlineExceededError)
+    return failTimeoutOr(`transaction ${label}`, 'ts-ls', thrown);
+  return fail({
+    tool: 'ts-ls',
+    message: `${label} threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
+  });
+}
 
 const txnArgsSchema = z.strictObject({
   steps: z.array(z.strictObject({ name: z.string().min(1), args: jsonValue.default({}) })).min(1),
@@ -97,10 +110,7 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
         try {
           planned = await ts.planMoves(run.pairs, overlay, ctx.deadline);
         } catch (thrown) {
-          return fail({
-            tool: 'ts-ls',
-            message: `${label} threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
-          });
+          return planningThrew(label, thrown);
         }
         if (typeof planned !== 'string' && !('moves' in planned)) {
           const at = planned.index === undefined ? label : `step ${i + planned.index} 'move_file'`;
@@ -116,10 +126,7 @@ export const transactionOp = defineOp<TxnArgs, JsonValue>({
         try {
           plan = await parsed.planner.plan(ctx, parsed.args, overlay);
         } catch (thrown) {
-          return fail({
-            tool: 'ts-ls',
-            message: `${label} threw while planning: ${messageOfThrown(thrown)}. Nothing written.`,
-          });
+          return planningThrew(label, thrown);
         }
       }
       if (typeof plan === 'string') {

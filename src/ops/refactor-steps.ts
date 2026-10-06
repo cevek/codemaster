@@ -197,7 +197,10 @@ export function parseStep(
 }
 
 /** The maximal run of consecutive `move_file` steps starting at `start`, each validated with the
- *  standalone op's schema; `invalid` names the first step whose args do not parse. */
+ *  standalone op's schema; `invalid` names the first step whose args do not parse. The run ends
+ *  BEFORE a move into a path an earlier move of the run vacated (a directory swap, a move back):
+ *  one tree cannot commit a path that is both a source and a destination, while the next run,
+ *  planned over the composed overlay, handles it exactly as separate steps do. */
 export function moveRunFrom(
   steps: readonly TxnStep[],
   start: number,
@@ -209,6 +212,7 @@ export function moveRunFrom(
     const parsed = parseStep(step, i);
     if ('failure' in parsed) return { pairs, invalid: parsed.failure };
     const a = parsed.args as { source: string; dest: string };
+    if (pairs.some((p) => p.source === a.dest)) break;
     pairs.push({ source: a.source as RepoRelPath, dest: a.dest as RepoRelPath });
   }
   return { pairs };

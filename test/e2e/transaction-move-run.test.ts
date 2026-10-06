@@ -50,16 +50,21 @@ function snapshot(p: TestProject): Map<string, string> {
   return new Map(files.map((f) => [f, readFileSync(path.join(p.root, f), 'utf8')]));
 }
 
-test('transaction: a run of move_file steps equals the same moves applied one by one', async () => {
-  const run = await project(FILES);
-  const oneByOne = await project(FILES);
+/** Apply `moves` as one transaction and, on a twin fixture, as standalone `move_file` ops committed
+ *  one by one; returns the transaction's tree after asserting the two trees are byte-identical. */
+async function equalsOneByOne(
+  files: Record<string, string>,
+  moves: readonly { source: string; dest: string }[],
+): Promise<{ tree: Map<string, string>; diagnostics: readonly unknown[] }> {
+  const run = await project(files);
+  const oneByOne = await project(files);
   try {
-    const applied = await txn(run, moveSteps(MOVES), true);
+    const applied = await txn(run, moveSteps(moves), true);
     assert.ok(applied.ok, `transaction failed: ${JSON.stringify(applied)}`);
     assert.equal(applied.data['applied'], true, JSON.stringify(applied.data));
     run.commit('txn');
 
-    for (const m of MOVES) {
+    for (const m of moves) {
       const [r] = await oneByOne.request([
         { name: 'move_file', args: { source: m.source, dest: m.dest }, apply: true },
       ]);
@@ -68,13 +73,40 @@ test('transaction: a run of move_file steps equals the same moves applied one by
       oneByOne.commit(`move ${m.source}`);
     }
 
-    assert.deepEqual(snapshot(run), snapshot(oneByOne));
-    assert.ok(snapshot(run).has('src/c/Btn.module.scss'), 'scss sibling followed BOTH moves');
-    assert.deepEqual(coldDiagnostics(run.root), []);
+    const tree = snapshot(run);
+    assert.deepEqual(tree, snapshot(oneByOne));
+    return { tree, diagnostics: coldDiagnostics(run.root) };
   } finally {
     await run.dispose();
     await oneByOne.dispose();
   }
+}
+
+test('transaction: a run of move_file steps equals the same moves applied one by one', async () => {
+  const { tree, diagnostics } = await equalsOneByOne(FILES, MOVES);
+  assert.ok(tree.has('src/c/Btn.module.scss'), 'scss sibling followed BOTH moves');
+  assert.deepEqual(diagnostics, []);
+});
+
+test('transaction: moving a directory aside and another into its place applies like separate steps', async () => {
+  // `src/b → src/a` refills a path the run vacated: one tree cannot commit it, so the run must end
+  // before it and the move must plan over the composed overlay — never a refusal.
+  const { tree, diagnostics } = await equalsOneByOne(
+    {
+      'tsconfig.json': FILES['tsconfig.json'] ?? '',
+      'src/a/f.ts': 'export const f = 1;\n',
+      'src/a/inner/h.ts': 'export const h = 2;\n',
+      'src/b/g.ts': 'export const g = 3;\n',
+      'src/use.ts':
+        "import { f } from './a/f';\nimport { h } from './a/inner/h';\nimport { g } from './b/g';\nexport const u = f + h + g;\n",
+    },
+    [
+      { source: 'src/a', dest: 'src/z' },
+      { source: 'src/b', dest: 'src/a' },
+    ],
+  );
+  assert.ok(tree.has('src/a/g.ts') && tree.has('src/z/inner/h.ts'));
+  assert.deepEqual(diagnostics, []);
 });
 
 test('transaction: move run, rename, move run — the rename splits the run and the chain applies clean', async () => {
@@ -116,17 +148,6 @@ test('transaction: a refusal inside a move run names the step at fault and write
       occupied.message,
       /^step 1 'move_file' could not be planned: destination already exists/,
     );
-
-    const refill = await txn(
-      p,
-      moveSteps([
-        { source: 'src/util.ts', dest: 'src/lib/util.ts' },
-        { source: 'src/app.ts', dest: 'src/util.ts' },
-      ]),
-      true,
-    );
-    assert.ok(!refill.ok);
-    assert.match(refill.message, /^step 1 'move_file' could not be planned: .*vacated/);
     assert.equal(p.git('status', '--porcelain'), '');
   } finally {
     await p.dispose();
