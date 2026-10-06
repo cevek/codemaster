@@ -41,3 +41,22 @@ usage-лог (`~/.codemaster/usage/success.jsonl`, ts 1791272402468, 2026-10-06 
 **Смежные факты (не этот инцидент):**
 - `transaction` (extract+move, apply) 10:39:03→10:41:34 = 150.9 с и `find_usages personDisplayName` 11:16:16→11:18:34 = 136.8 с — машина бодрствовала (pmset чист). Это реальные экземпляры «работа не уложилась в кооперативные 120 с»; find_usages шёл сразу после kill'а transaction, т.е. включает холодный спавн дочки + прогрев, которые op-дедлайн не покрывает. Артефактов нет: `~/.codemaster/pv2-kz-final-*` не существует (debug.log не писался), stalls/ за 6 окт пуст. Установить причину можно только репро на копии с `CODEMASTER_DEBUG`.
 - Класс «wall-clock дедлайн считает сон» (все через `Clock.schedule`/`Date.now`): `createProcessHost` request/startup/dispose/belt; `createRemoteOrchestrator` reply-deadline (после сна скажет «daemon busy/slow»); кооперативный `createDeadline` движка (op вернёт `timeout` на пробуждении); watchdog-воркер (`support/watchdog/worker.ts`, порог 5 мин по `Date.now`) — сон >5 мин с проставленным beacon даёт на пробуждении SIGKILL + stall-record `wedge`, которого не было. На Linux libuv берёт CLOCK_MONOTONIC (сон не считается) — класс darwin-специфичен.
+
+
+## План
+**Решённый минимальный исход — честность, не перевзвод.** Когда wall-clock таймаут пересёк сон машины, ответ и usage-запись говорят об этом числом; поведение kill'а не меняется.
+
+1. `src/common/suspension/overlap.ts` (новая папка): тип `Suspension {sleptAtMs, wokeAtMs}` + чистая `suspendedWithin(startMs, endMs, s)` → мс пересечения окна вызова со сном (0, если wake < start). Floor: видна только ПОСЛЕДНЯЯ пара sleep/wake, более ранние циклы внутри окна не видны → потребители пишут `≥`.
+2. `src/support/suspend/last-suspension.ts`: `readLastSuspension()` — только darwin, `execFileSync('sysctl', ['-n','kern.sleeptime','kern.waketime'], {timeout})`, разбор `{ sec = N, usec = M }`; любой сбой/не-darwin → `undefined` («неизвестно», никогда не 0-как-факт). На Linux libuv-таймеры сон не считают — класса там нет.
+3. `createProcessHost` (`daemon/process-host.ts`): необязательный seam `lastSuspension` в `ProcessHostDeps`; pending хранит старт запроса; на срабатывании kill-таймера окно `[start, now]` сверяется со сном, `failAll` timeout-причина дописывает «the machine slept ≥Ns of that window (→ wake HH:MM:SS); the engine ran ≤Ms — a retry is not expected to time out for this reason». `outOfReach`/вердикт не меняются. Seam проводится в `makeProcessHostFactory`.
+4. usage-лог: `UsageLogEntry.suspendedMs?: number` (аддитивно, только при >0); `withCallTelemetry` получает seam и опрашивает его лишь при `durationMs ≥ 10 с` (sysctl ~мс, не на каждом вызове). Провод — в `bin.ts` на обоих agent-facing путях. Строка в ARCHITECTURE §13 рядом с `outcome`/`origin`.
+
+**Развилки:** (b) перевзвод kill'а на измеренный сон — отвергнут: харнесс клиента всё равно обрывает вызов на пробуждении (его idle-таймер тоже считает сон), выигрыш — только тёплый ребёнок, цена — мутирующий `apply` дорабатывает после того, как клиент его бросил. Детектор по разрыву heartbeat-интервала — отвергнут: в in-process режиме тяжёлый синхронный op блокирует loop так же, сон от блокировки не отличить; `kern.sleeptime/waketime` — прямой факт ядра.
+
+**Потребители того же шва (wall-clock дедлайн считает сон):** чиню `createProcessHost` request-таймаут + usage-лог. Остальные — таски: reply-deadline `createRemoteOrchestrator` (`wedgeMessage` после сна скажет «busy/slow»), кооперативный `createDeadline` движка, watchdog-воркер (ложный `wedge`-reap + stall-record после сна >5 мин), startup-deadline процесс-хоста.
+
+**Вне скоупа, развилка менеджеру:** почему transaction (150.9 с) и find_usages (136.8 с) в бодрствовании не уложились в кооперативные 120 с — нужна репро на копии amiro с `CODEMASTER_DEBUG` (тяжёлый прогон). Предлагаю отдельной таской.
+
+**Проверка поведения:** unit — `suspendedWithin` (пересечение/непересечение/частичное) и парсер на выводе sysctl, снятом с этой машины; `createProcessHost` на фейковом clock + фейковом seam: таймаут со сном в окне → причина несёт сон, без сна/сон до старта → текст прежний (мутация проверки — красный); `withCallTelemetry` — `suspendedMs` есть/нет. Живьём: `readLastSuspension()` на реальной машине возвращает пару 12:40:13/12:47:42 (или более позднюю); реплей инцидента — таймстемпы инцидента через фейк-seam. Усыплять общую машину нельзя — живого сна не будет, скажу прямо.
+
+**Ревью кода:** bug-reviewer (≤2 круга).
