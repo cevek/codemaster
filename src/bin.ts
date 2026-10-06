@@ -30,6 +30,7 @@ import { createUnixSocketTransport } from './support/transport/unix-socket.ts';
 import { socketPath } from './support/transport/socket-path.ts';
 import { pidfilePathFor } from './support/pidfile/write.ts';
 import { installWatchdog } from './support/watchdog/install.ts';
+import { readLastSuspension } from './support/suspension/last-suspension.ts';
 import { installFatalHandlers } from './support/watchdog/fatal-handlers.ts';
 import { makeProcessHostFactory } from './daemon/process-host-factory.ts';
 import { serveEngineChild } from './daemon/engine-child.ts';
@@ -269,6 +270,7 @@ async function main(): Promise<number> {
         clock: systemClock,
         replyDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
         version: VERSION,
+        lastSuspension: readLastSuspension,
       });
       await serveMcp(remote, VERSION, { serving: 'daemon', usage });
       return -1; // stays alive serving stdio until the client closes stdin

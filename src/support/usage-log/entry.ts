@@ -50,6 +50,12 @@ export interface UsageLogEntry {
    *  agent-facing record does not carry, so join on the prefix. Additive like `outcome` — absent on
    *  every ordinary record, so an existing consumer's key-set is unchanged. */
   origin?: 'daemon';
+  /** Floor on how much of `durationMs` the machine spent asleep (darwin; the kernel shows only the
+   *  last sleep/wake cycle). `durationMs` is wall-clock and counts sleep, so without this a call
+   *  spanning a laptop sleep reads as minutes of work (t-833715). Absent does NOT mean "no sleep":
+   *  only calls of at least `SUSPENSION_PROBE_MIN_MS` (`mcp/call-telemetry.ts`) are checked, and off
+   *  darwin nothing is known. */
+  suspendedMs?: number;
 }
 
 /** The pre-dispatch breadcrumb: what a call was, stamped to disk BEFORE it runs so a fatal
