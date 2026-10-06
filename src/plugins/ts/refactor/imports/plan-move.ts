@@ -88,6 +88,7 @@ export function planMoves(
   for (const [index, m] of moves.entries()) {
     // The commit applies `git mv` in path order with no temp file, so a path one move vacates and
     // a later move fills (or a swap) would clobber bytes; refuse it at the move that asks for it.
+    // `transaction` never reaches this: `moveRunFrom` ends the run before such a move.
     const vacated = moves.slice(0, index).find((prior) => prior.source === m.dest);
     if (vacated !== undefined) {
       return {

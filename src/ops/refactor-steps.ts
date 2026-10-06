@@ -200,7 +200,8 @@ export function parseStep(
  *  standalone op's schema; `invalid` names the first step whose args do not parse. The run ends
  *  BEFORE a move into a path an earlier move of the run vacated (a directory swap, a move back):
  *  one tree cannot commit a path that is both a source and a destination, while the next run,
- *  planned over the composed overlay, handles it exactly as separate steps do. */
+ *  planned over the composed overlay, handles it exactly as separate steps do (for a refilled
+ *  FILE path that is still a false gate error, t-191591). */
 export function moveRunFrom(
   steps: readonly TxnStep[],
   start: number,

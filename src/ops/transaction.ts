@@ -1,5 +1,6 @@
 // `transaction` — apply an ORDERED chain of mutating ops atomically: each step plans against the
-// previous step's post-edit overlay, ONE §2.8 typecheck gates the cumulative result, and the WHOLE
+// previous step's post-edit overlay (a run of consecutive move_file steps plans as one layout
+// change on one tree), ONE §2.8 typecheck gates the cumulative result, and the WHOLE
 // sequence rolls back byte-exact if any step can't plan, the final gate is unclean, or any step
 // CAPTURES (spec-transactional-mutation). It is itself an op (not a new protocol primitive — §11): the chain
 // is `args.steps`. Dry-run (default) previews the cumulative diff + final verdict without writing.
