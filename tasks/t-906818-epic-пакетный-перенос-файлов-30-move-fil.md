@@ -1,7 +1,7 @@
 ---
 id: t-906818
 title: 'EPIC: пакетный перенос файлов — 30 move_file в transaction шли 8 минут'
-status: backlog
+status: done
 priority: high
 tags:
   - epic
