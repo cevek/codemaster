@@ -31,6 +31,8 @@ export interface CommitPlan {
   contentWrites: PlannedWrite[];
 }
 
+export const UNSAFE_MOVE_PLAN = 'unsafe move plan:';
+
 export function computeCommitPlan(tree: VFSTree): CommitPlan {
   const movers: FsNode[] = [];
   const newFiles: PlannedWrite[] = [];
@@ -96,16 +98,16 @@ export function computeCommitPlan(tree: VFSTree): CommitPlan {
     moved.add(node);
   }
 
-  // Defensive (today-unreachable) guard: a single move_file emits one relocation, but a future
-  // shared-batch tree (§3.10) could stage a chain/cycle where a path is BOTH a move source and
-  // a destination (a→b, b→c, or a swap a↔b). The commit applies moves in path-length order, NOT
-  // topologically, and synthesizes no temp file — so the first git-mv would clobber bytes a
-  // later move needs. Refuse honestly (caught at the op boundary → ToolFailure) over corrupting.
+  // A run of moves on one tree (`planMoves`) can stage a path that is BOTH a move source and a
+  // destination (refilling a vacated path, or a swap a↔b). The commit applies moves in path-length
+  // order, NOT topologically, and synthesizes no temp file — so the first git-mv would clobber
+  // bytes a later move needs. `planMoves` refuses the exact-path shapes per move; this catches the
+  // rest (e.g. a vacated DIRECTORY refilled) — refuse honestly over corrupting.
   const fromPaths = new Set(moves.map((m) => String(m.from)));
   const clobber = moves.find((m) => fromPaths.has(String(m.to)));
   if (clobber !== undefined) {
     throw new Error(
-      `unsafe move plan: ${clobber.to} is both a source and a destination (chain/cycle needs temp-file ordering, not implemented)`,
+      `${UNSAFE_MOVE_PLAN} ${clobber.to} is both a source and a destination (chain/cycle needs temp-file ordering, not implemented)`,
     );
   }
 

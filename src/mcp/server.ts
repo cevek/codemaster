@@ -21,6 +21,7 @@ import type { AnyOpDefinition } from '../ops/registry.ts';
 import { builtinOps } from '../ops/builtins.ts';
 import { noopUsageLogger } from '../support/usage-log/create.ts';
 import type { UsageLogger } from '../support/usage-log/entry.ts';
+import { readLastSuspension, type LastSuspension } from '../support/suspension/last-suspension.ts';
 import {
   renderStatus,
   sourceStaleBanner,
@@ -81,6 +82,9 @@ export interface ServeMcpOptions {
   usage?: UsageLogger;
   /** Clock for telemetry timestamps/duration (§16 determinism). Defaults to the system clock. */
   clock?: Clock;
+  /** The machine's last sleep/wake cycle for the usage record's `suspendedMs`. Defaults to the
+   *  kernel's (darwin `sysctl`, read only for calls of ≥10 s); tests inject a fake. */
+  lastSuspension?: LastSuspension;
   /** The op catalogue the per-op tools are generated from (§11). Defaults to `builtinOps()` — the
    *  same static union the engine registers, so the tool-list matches what dispatch can route.
    *  Injectable so tests can advertise synthetic ops (the union is per-connection static; ops
@@ -302,6 +306,7 @@ export async function serveMcp(
       tool: request.params.name,
       args: request.params.arguments,
       cwd,
+      lastSuspension: options.lastSuspension ?? readLastSuspension,
       run: async () => {
         // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
         // is in `finally` so a throwing path still releases the in-flight count (else inFlight would

@@ -10,6 +10,7 @@ import { forkEngineChild, type EngineChildHandle, type ForkEngineOpts } from './
 import { boxMemoryBytes, describeCeiling, resolveChildHeapMB } from './heap-ceiling.ts';
 import type { OrchestratorDeps } from './orchestrator-deps.ts';
 import type { Debugger } from '../core/debug.ts';
+import { readLastSuspension } from '../support/suspension/last-suspension.ts';
 
 /** Child build+ready handshake bound (§1); LS warm is lazy so this is short. */
 const STARTUP_DEADLINE_MS = 60_000;
@@ -70,6 +71,7 @@ export function makeProcessHostFactory(
           maxOldSpaceMB: ceiling.maxOldSpaceMB,
           sockDir: opts.sockDir,
         }),
+      lastSuspension: readLastSuspension,
       startupDeadlineMs: STARTUP_DEADLINE_MS,
       requestDeadlineMs: opts.requestDeadlineMs,
       disposeDeadlineMs: DISPOSE_DEADLINE_MS,

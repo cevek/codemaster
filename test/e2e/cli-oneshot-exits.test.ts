@@ -28,6 +28,9 @@ test('CLI `status` one-shot exits on its own (no leaked idle timer)', async () =
       timeout: 60_000,
     });
     assert.match(out, /codemaster/i, 'status rendered a manifest');
+    // A one-shot answers one request and exits — a file watcher buys it nothing but its initial
+    // walk and a multi-second close() on a large repo, so it runs without one.
+    assert.match(out, /watcher=off/, 'one-shot CLI must not start a file watcher');
   } finally {
     await p.dispose();
   }
