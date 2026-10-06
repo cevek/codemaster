@@ -18,3 +18,6 @@ created: '2026-10-06T13:28:51.144Z'
 - кооперативный `createDeadline` (`common/async/deadline.ts`, движок `runOne`): op вернёт `timeout`/partial на пробуждении, хотя работы почти не было;
 - startup-handshake `createProcessHost` (`startupDeadlineMs`): «engine child did not start in 60000ms».
 Минимальный исход: те же формулировки сна из seam t-833715 в этих причинах.
+
+
+- `createProcessHost` `status()`: таймаут `sendAndAwait` бросает «timeout (…)» без оговорки о сне.

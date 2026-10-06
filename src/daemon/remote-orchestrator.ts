@@ -146,7 +146,9 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
     const slept = suspensionNote(
       startMs,
       deps.clock.now(),
-      await deps.lastSuspension?.().catch(() => undefined),
+      await Promise.resolve()
+        .then(() => deps.lastSuspension?.())
+        .catch(() => undefined),
       deps.replyDeadlineMs,
     );
     const base = `daemon did not reply in ${deps.replyDeadlineMs}ms${slept !== undefined ? ` (${slept})` : ''}`;

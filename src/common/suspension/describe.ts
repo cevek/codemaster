@@ -3,11 +3,11 @@
 
 import { suspendedWithin, type Suspension } from './overlap.ts';
 
-const secs = (ms: number): string => `${Math.round(ms / 1000)}s`;
-
 /** `undefined` when the window did not overlap the last sleep. `deadlineMs` names the budget that
- *  ran out: only when the awake time is provably under it is the sleep the explanation — the overlap
- *  is a floor, so above it the sleep is stated but no conclusion is drawn from it. */
+ *  ran out: the sleep is blamed only when the moment it ran out (`startMs + deadlineMs`) lies inside
+ *  the sleep — a short sleep earlier in the window leaves a deadline that ran out awake, and the
+ *  overlap alone cannot tell the two apart. Rounding keeps both bounds true: the sleep down, the
+ *  awake time up. */
 export function suspensionNote(
   startMs: number,
   endMs: number,
@@ -18,9 +18,10 @@ export function suspensionNote(
   const slept = suspendedWithin(startMs, endMs, s);
   if (slept <= 0) return undefined;
   const awake = endMs - startMs - slept;
-  const woke = new Date(s.wokeAtMs).toISOString().slice(11, 19);
-  const head = `the machine slept ≥${secs(slept)} of this ${secs(endMs - startMs)} window (woke ${woke}Z), so the work was awake ≤${secs(awake)}`;
-  return deadlineMs !== undefined && awake < deadlineMs
+  const woke = new Date(s.wokeAtMs).toISOString().replace(/\.\d+Z$/, 'Z');
+  const head = `the machine slept ≥${Math.floor(slept / 1000)}s of this ${Math.round((endMs - startMs) / 1000)}s window (woke ${woke}), so the work was awake ≤${Math.ceil(awake / 1000)}s`;
+  const expiredAt = deadlineMs === undefined ? undefined : startMs + deadlineMs;
+  return expiredAt !== undefined && expiredAt >= s.sleptAtMs && expiredAt <= s.wokeAtMs
     ? `${head} — the deadline ran out during sleep; a retry is not expected to time out for this reason`
     : head;
 }

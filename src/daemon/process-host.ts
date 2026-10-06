@@ -165,7 +165,9 @@ export async function createProcessHost(
     const slept = suspensionNote(
       startMs,
       deps.clock.now(),
-      await deps.lastSuspension?.().catch(() => undefined),
+      await Promise.resolve()
+        .then(() => deps.lastSuspension?.())
+        .catch(() => undefined),
       s.reason === 'timeout' ? deps.requestDeadlineMs : undefined,
     );
     const tool = s.reason === 'timeout' ? 'timeout' : s.reason === 'oom' ? 'oom' : 'engine-process';

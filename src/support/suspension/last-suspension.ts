@@ -6,10 +6,12 @@
 import { execFile } from 'node:child_process';
 import process from 'node:process';
 import type { Suspension } from '../../common/suspension/overlap.ts';
+import { systemClock } from '../../common/async/clock.ts';
+import { withTimeout } from '../../common/async/with-timeout.ts';
 
 export type LastSuspension = () => Promise<Suspension | undefined>;
 
-const SYSCTL_TIMEOUT_MS = 2_000;
+const SYSCTL_TIMEOUT_MS = 1_000;
 
 /** `sysctl -n kern.sleeptime kern.waketime` prints one `{ sec = N, usec = M } <date>` line each. */
 export function parseSleepWake(stdout: string): Suspension | undefined {
@@ -24,8 +26,16 @@ export function parseSleepWake(stdout: string): Suspension | undefined {
   return { sleptAtMs, wokeAtMs };
 }
 
-export const readLastSuspension: LastSuspension = () => {
-  if (process.platform !== 'darwin') return Promise.resolve(undefined);
+/** Bounded on its own clock, not only by `execFile`'s timeout: that one only SIGTERMs, and the
+ *  callback waits for the child to close — a `sysctl` that never dies would otherwise hang the very
+ *  failure path that reads it. */
+export const readLastSuspension: LastSuspension = async () => {
+  if (process.platform !== 'darwin') return undefined;
+  const out = await withTimeout(systemClock, SYSCTL_TIMEOUT_MS, runSysctl());
+  return out.timedOut ? undefined : out.value;
+};
+
+function runSysctl(): Promise<Suspension | undefined> {
   return new Promise((resolve) => {
     try {
       execFile(
@@ -38,4 +48,4 @@ export const readLastSuspension: LastSuspension = () => {
       resolve(undefined);
     }
   });
-};
+}

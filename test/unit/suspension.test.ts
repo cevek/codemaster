@@ -40,12 +40,19 @@ test('suspensionNote: the incident window explains the overrun; a long awake win
   const start = 1791272402468;
   const end = 1791272862966;
   const note = suspensionNote(start, end, INCIDENT, 150_000);
-  assert.ok(note !== undefined && /slept ≥449s of this 460s window/.test(note), note);
+  assert.ok(
+    note !== undefined &&
+      /slept ≥448s of this 460s window \(woke 2026-10-06T07:47:42Z\)/.test(note),
+    note,
+  );
   assert.match(note, /awake ≤12s/);
   assert.match(note, /retry is not expected to time out/);
   // Same sleep, but 200 s awake around it — over the 150 s budget: the sleep is stated, not blamed.
   const stated = suspensionNote(start - 200_000, end, INCIDENT, 150_000);
   assert.ok(stated !== undefined && !/retry/.test(stated), stated);
+  // A one-second sleep early in a full 150 s window: the deadline ran out awake — no blame.
+  const brief = suspensionNote(0, 150_000, { sleptAtMs: 30_000, wokeAtMs: 31_000 }, 150_000);
+  assert.ok(brief !== undefined && /slept ≥1s/.test(brief) && !/retry/.test(brief), brief);
   assert.equal(suspensionNote(end + 1, end + 2, INCIDENT, 150_000), undefined);
   assert.equal(suspensionNote(start, end, undefined, 150_000), undefined);
 });

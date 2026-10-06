@@ -1807,7 +1807,7 @@ it and every timer keep running through a system sleep, so a call spanning a lap
 `suspendedMs` — a floor read from the kernel's last sleep/wake cycle (`support/suspension/`) for
 calls of ≥10 s; its absence does not prove there was no sleep. The same reading qualifies a timeout
 whose window spans a sleep (the process-host kill and the bridge's reply deadline): the cause states
-the sleep, and blames it only when the awake time is provably under the budget.
+the sleep, and blames it only when the deadline expired inside that sleep.
 
 **A fatal call is recorded, not lost.** A record written only after dispatch returns would leave a
 call that never returns — the in-process OOM that kills the serving process — with zero trace, so
