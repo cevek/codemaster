@@ -1802,7 +1802,12 @@ is actually used**, not for live debugging. Classification is from the **structu
 result, never `isError`: a `Result` with `ok:false` (a `ToolFailure`) renders through a
 plain text response with no `isError`, so an isError-only check would mis-file it as
 success; a batch is a success only when every constituent op succeeded. Every write is wrapped so a
-disk/serialize error never touches the request path.
+disk/serialize error never touches the request path. `durationMs` is wall-clock, and on darwin both
+it and every timer keep running through a system sleep, so a call spanning a laptop sleep carries
+`suspendedMs` — a floor read from the kernel's last sleep/wake cycle (`support/suspension/`) for
+calls of ≥10 s; its absence does not prove there was no sleep. The same reading qualifies a timeout
+whose window spans a sleep (the process-host kill and the bridge's reply deadline): the cause states
+the sleep, and blames it only when the awake time is provably under the budget.
 
 **A fatal call is recorded, not lost.** A record written only after dispatch returns would leave a
 call that never returns — the in-process OOM that kills the serving process — with zero trace, so

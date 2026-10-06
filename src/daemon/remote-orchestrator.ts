@@ -24,6 +24,8 @@ import type { TransportConnection } from '../support/transport/seam.ts';
 import type { OrchestratorApi } from './orchestrator-api.ts';
 import { daemonInfoEnvelope } from './manage-io.ts';
 import { parseWireReply, type WireReply } from './protocol.ts';
+import type { LastSuspension } from '../support/suspension/last-suspension.ts';
+import { suspensionNote } from '../common/suspension/describe.ts';
 
 type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
 
@@ -36,6 +38,9 @@ export interface RemoteOrchestratorDeps {
   probeDeadlineMs?: number;
   /** The bridge's version — used to synthesize a degraded `status` view on a daemon failure. */
   version: string;
+  /** The machine's last sleep/wake cycle: a reply deadline that ran out while the machine slept
+   *  says so instead of calling the daemon busy (t-833715). Absent — no such claim is made. */
+  lastSuspension?: LastSuspension;
 }
 
 /** STABLE MACHINE SENTINEL for a locally-synthesized "the link is gone" reply. `probeLiveness`
@@ -137,8 +142,14 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
   }
 
   /** The honest failure message for a reply-timeout, enriched by the liveness probe. */
-  async function wedgeMessage(): Promise<string> {
-    const base = `daemon did not reply in ${deps.replyDeadlineMs}ms`;
+  async function wedgeMessage(startMs: number): Promise<string> {
+    const slept = suspensionNote(
+      startMs,
+      deps.clock.now(),
+      await deps.lastSuspension?.().catch(() => undefined),
+      deps.replyDeadlineMs,
+    );
+    const base = `daemon did not reply in ${deps.replyDeadlineMs}ms${slept !== undefined ? ` (${slept})` : ''}`;
     return (await probeLiveness()) === 'alive'
       ? `${base} — daemon is busy/slow (still responsive); falling back — retry shortly`
       : `${base} and its front door is UNRESPONSIVE — run \`codemaster daemon restart\` then reconnect; falling back`;
@@ -147,12 +158,13 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
   return {
     async request(cwd, root, reqs, batch) {
       const id = nextId++;
+      const startMs = deps.clock.now();
       const out = await sendAndAwait(
         wireRequest(id, cwd, root, reqs, batch),
         id,
         deps.replyDeadlineMs,
       );
-      if (out.kind === 'timeout') return { ok: false, message: await wedgeMessage() };
+      if (out.kind === 'timeout') return { ok: false, message: await wedgeMessage(startMs) };
       const reply = out.reply;
       if (reply.kind === 'error') return { ok: false, message: reply.message };
       if (reply.kind === 'request') return reply.outcome as RequestOutcome;
@@ -160,11 +172,12 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
     },
     async status(cwd, root) {
       const id = nextId++;
+      const startMs = deps.clock.now();
       const out = await sendAndAwait(statusRequest(id, cwd, root), id, deps.replyDeadlineMs);
       if (out.kind === 'reply' && out.reply.kind === 'status') return out.reply.view;
       const message =
         out.kind === 'timeout'
-          ? await wedgeMessage()
+          ? await wedgeMessage(startMs)
           : out.reply.kind === 'error'
             ? out.reply.message
             : 'unexpected reply kind for status';

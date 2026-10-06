@@ -18,6 +18,8 @@ import type { EngineChildHandle } from './fork-engine.ts';
 import { parseEngineFrame, type EngineReply, type EngineRequest } from './engine-protocol.ts';
 import { wireRefusal } from '../ops/guard/refusal.ts';
 import type { OutOfReach } from '../core/result.ts';
+import type { LastSuspension } from '../support/suspension/last-suspension.ts';
+import { suspensionNote } from '../common/suspension/describe.ts';
 
 export interface ProcessHostDeps {
   repoId: RepoId;
@@ -39,6 +41,10 @@ export interface ProcessHostDeps {
    *  machine" from "too big for the number we picked", and only the latter has a remedy (§3.6).
    *  Optional so a fake-child test need not state one — absent, the cause reads as it did. */
   heapCeiling?: string;
+  /** The machine's last sleep/wake cycle. A failed request whose window spans a sleep says so: the
+   *  kill timer counts sleep (t-833715), and on wake the child's own watchdog may beat it to a
+   *  SIGKILL, so any reason can be the sleep's doing. Absent — no such claim is made. */
+  lastSuspension?: LastSuspension;
 }
 
 type DeadReason = 'crash' | 'oom' | 'timeout';
@@ -151,7 +157,17 @@ export async function createProcessHost(
   // not work. The op cannot annotate this itself (it died with the child), so the redirect is
   // rendered here, from the shared table (`ops/guard/navigate.ts`) every other refusal uses — L4
   // importing L3 is downward, and the table stays the single home of the claim.
-  function failAll(reqs: readonly OpRequest[], s: Extract<Settled, { ok: false }>): OpResult[] {
+  async function failAll(
+    reqs: readonly OpRequest[],
+    s: Extract<Settled, { ok: false }>,
+    startMs: number,
+  ): Promise<OpResult[]> {
+    const slept = suspensionNote(
+      startMs,
+      deps.clock.now(),
+      await deps.lastSuspension?.().catch(() => undefined),
+      s.reason === 'timeout' ? deps.requestDeadlineMs : undefined,
+    );
     const tool = s.reason === 'timeout' ? 'timeout' : s.reason === 'oom' ? 'oom' : 'engine-process';
     // On an OOM the ceiling is part of the CAUSE, not decoration: the same `code=134` means one thing
     // at a box-derived ceiling (this repo needs more than this machine gives one child) and another
@@ -202,7 +218,7 @@ export async function createProcessHost(
           outOfReach,
           args: r.args,
           head: `${verdict(r.name)}.`,
-          tail: `Cause: ${cause}.`,
+          tail: `Cause: ${cause}${slept !== undefined ? `; ${slept}` : ''}.`,
         }),
       ),
     }));
@@ -212,13 +228,14 @@ export async function createProcessHost(
     repoId: deps.repoId,
     isolation: 'process',
     async request(reqs, batch) {
+      const startMs = deps.clock.now();
       const out = await sendAndAwait({
         id: nextId++,
         kind: 'request',
         reqs,
         ...(batch !== undefined ? { batch } : {}),
       });
-      if (!out.ok) return failAll(reqs, out);
+      if (!out.ok) return failAll(reqs, out, startMs);
       if (out.reply.kind === 'request') return out.reply.results;
       const message = out.reply.kind === 'error' ? out.reply.message : 'unexpected reply kind';
       return reqs.map((r) => ({
@@ -227,6 +244,7 @@ export async function createProcessHost(
       }));
     },
     async produceSql(reqs) {
+      const startMs = deps.clock.now();
       const out = await sendAndAwait({ id: nextId++, kind: 'produceSql', reqs });
       if (out.ok && out.reply.kind === 'produceSql')
         return { results: out.reply.results, freshness: out.reply.freshness };
@@ -237,7 +255,7 @@ export async function createProcessHost(
       });
       const results = out.ok
         ? reqs.map((r) => ({ name: r.name, result: bad }))
-        : failAll(reqs, out);
+        : await failAll(reqs, out, startMs);
       return { results, freshness: undefined };
     },
     async status() {

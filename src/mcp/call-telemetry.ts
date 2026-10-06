@@ -17,6 +17,12 @@ import type { Clock } from '../common/async/clock.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { InflightHandle, UsageLogger } from '../support/usage-log/entry.ts';
 import { inflightOps } from './inflight-ops.ts';
+import type { LastSuspension } from '../support/suspension/last-suspension.ts';
+import { suspendedWithin } from '../common/suspension/overlap.ts';
+
+/** Below this a call is not checked for a sleep: the probe spawns `sysctl`, and a short call's
+ *  duration is not what anyone misreads. */
+export const SUSPENSION_PROBE_MIN_MS = 10_000;
 
 const NOOP_INFLIGHT: InflightHandle = { clear: () => undefined };
 
@@ -26,6 +32,8 @@ export interface TelemetrySpanOptions<T> {
   tool: string;
   args: unknown;
   cwd: string;
+  /** The machine's last sleep/wake cycle — fills `UsageLogEntry.suspendedMs`. */
+  lastSuspension?: LastSuspension;
   /** Run the call; returns the response plus its telemetry classification. */
   run: () => Promise<{ ok: boolean; ops: string[]; response: string; isError: boolean; value: T }>;
 }
@@ -42,10 +50,12 @@ export async function withCallTelemetry<T>(options: TelemetrySpanOptions<T>): Pr
   }
   try {
     const outcome = await options.run();
+    const endMs = clock.now();
+    const suspendedMs = await probeSuspended(options.lastSuspension, startMs, endMs);
     try {
       usage.record({
         ts: startMs,
-        durationMs: clock.now() - startMs,
+        durationMs: endMs - startMs,
         tool,
         ops: outcome.ops,
         ok: outcome.ok,
@@ -53,6 +63,7 @@ export async function withCallTelemetry<T>(options: TelemetrySpanOptions<T>): Pr
         args: rawArgs,
         response: outcome.response,
         isError: outcome.isError,
+        ...(suspendedMs > 0 ? { suspendedMs } : {}),
       });
     } catch {
       /* telemetry must never crash the daemon */
@@ -64,5 +75,19 @@ export async function withCallTelemetry<T>(options: TelemetrySpanOptions<T>): Pr
     } catch {
       /* nothing more we can do; a stale breadcrumb is reconciled at the next start */
     }
+  }
+}
+
+async function probeSuspended(
+  probe: LastSuspension | undefined,
+  startMs: number,
+  endMs: number,
+): Promise<number> {
+  if (probe === undefined || endMs - startMs < SUSPENSION_PROBE_MIN_MS) return 0;
+  try {
+    const s = await probe();
+    return s === undefined ? 0 : suspendedWithin(startMs, endMs, s);
+  } catch {
+    return 0;
   }
 }

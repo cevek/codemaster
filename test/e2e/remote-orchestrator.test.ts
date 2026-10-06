@@ -15,6 +15,7 @@ import type { OrchestratorApi, ServingOrchestrator } from '../../src/daemon/orch
 import { createUnixSocketTransport } from '../../src/support/transport/unix-socket.ts';
 import { socketPath } from '../../src/support/transport/socket-path.ts';
 import { systemClock, type Clock } from '../../src/common/async/clock.ts';
+import type { LastSuspension } from '../../src/support/suspension/last-suspension.ts';
 
 process.setMaxListeners(50);
 
@@ -70,6 +71,7 @@ function stubOrch(over: Partial<ServingOrchestrator> = {}): ServingOrchestrator 
 async function withDaemonAndRemote(
   orch: ServingOrchestrator,
   run: (remote: OrchestratorApi, clock: Clock & { advance(ms: number): void }) => Promise<void>,
+  lastSuspension?: LastSuspension,
 ): Promise<void> {
   const dir = mkdtempSync(path.join(tmpdir(), 'cm-rem-'));
   const transport = createUnixSocketTransport(socketPath('test', dir));
@@ -87,6 +89,7 @@ async function withDaemonAndRemote(
     clock,
     replyDeadlineMs: 1000,
     version: 'bridge',
+    ...(lastSuspension !== undefined ? { lastSuspension } : {}),
   });
   try {
     await run(remote, clock);
@@ -134,6 +137,26 @@ test('remote: a non-replying daemon yields an honest timeout (never an unbounded
       assert.equal(outcome.ok, false);
       assert.ok(!outcome.ok && /did not reply/.test(outcome.message));
     },
+  );
+});
+
+test('remote: a reply deadline that ran out while the machine slept says so (t-833715)', async () => {
+  await withDaemonAndRemote(
+    stubOrch({ request: () => new Promise(() => undefined) }),
+    async (remote, clock) => {
+      const p = remote.request('/cwd', undefined, [{ name: 'x', args: {} }]);
+      await flush();
+      clock.advance(30_000); // woke 30 s after the call began, ~29 s of it asleep
+      const outcome = await p;
+      assert.ok(
+        !outcome.ok &&
+          /did not reply in 1000ms \(the machine slept ≥29s of this 30s window/.test(
+            outcome.message,
+          ),
+        JSON.stringify(outcome),
+      );
+    },
+    () => Promise.resolve({ sleptAtMs: 1_000_500, wokeAtMs: 1_029_900 }),
   );
 });
 
