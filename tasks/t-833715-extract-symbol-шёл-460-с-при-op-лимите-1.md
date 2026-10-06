@@ -53,7 +53,7 @@ usage-лог (`~/.codemaster/usage/success.jsonl`, ts 1791272402468, 2026-10-06 
 
 **Развилки:** (b) перевзвод kill'а на измеренный сон — отвергнут: харнесс клиента всё равно обрывает вызов на пробуждении (его idle-таймер тоже считает сон), выигрыш — только тёплый ребёнок, цена — мутирующий `apply` дорабатывает после того, как клиент его бросил. Детектор по разрыву heartbeat-интервала — отвергнут: в in-process режиме тяжёлый синхронный op блокирует loop так же, сон от блокировки не отличить; `kern.sleeptime/waketime` — прямой факт ядра.
 
-**Потребители того же шва (wall-clock дедлайн считает сон):** чиню `createProcessHost` request-таймаут + usage-лог. Остальные — таски: reply-deadline `createRemoteOrchestrator` (`wedgeMessage` после сна скажет «busy/slow»), кооперативный `createDeadline` движка, watchdog-воркер (ложный `wedge`-reap + stall-record после сна >5 мин), startup-deadline процесс-хоста.
+**Потребители того же шва (wall-clock дедлайн считает сон):** чиню `createProcessHost` request-таймаут + usage-лог. Остальные — таски t-607895 (watchdog), t-649791 (reply-deadline моста, кооперативный Deadline, startup); репро 150.9/136.8 с — t-835316. Перечень: reply-deadline `createRemoteOrchestrator` (`wedgeMessage` после сна скажет «busy/slow»), кооперативный `createDeadline` движка, watchdog-воркер (ложный `wedge`-reap + stall-record после сна >5 мин), startup-deadline процесс-хоста.
 
 **Вне скоупа, развилка менеджеру:** почему transaction (150.9 с) и find_usages (136.8 с) в бодрствовании не уложились в кооперативные 120 с — нужна репро на копии amiro с `CODEMASTER_DEBUG` (тяжёлый прогон). Предлагаю отдельной таской.
 
