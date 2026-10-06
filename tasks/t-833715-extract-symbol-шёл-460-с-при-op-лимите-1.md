@@ -1,7 +1,7 @@
 ---
 id: t-833715
 title: extract_symbol шёл 460 с при op-лимите 120 с и kill изолированного движка на 150 с — найти, где время уходит мимо дедлайна
-status: in-progress
+status: review
 priority: high
 parent: t-906818
 tags:
