@@ -35,6 +35,7 @@ export type {
   UnusedPropsOptions,
 } from './unused-props.ts';
 export type { DeclClassification, DeclKind } from './classify.ts';
+export { COMPONENTS_LESSON } from './detect.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
 

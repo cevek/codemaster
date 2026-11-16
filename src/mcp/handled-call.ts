@@ -41,6 +41,12 @@ export function responseText(result: CallToolResult): string {
   return first !== undefined && first.type === 'text' ? first.text : '';
 }
 
+export function mapText(result: CallToolResult, f: (text: string) => string): CallToolResult {
+  const first = result.content[0];
+  if (first === undefined || first.type !== 'text') return result;
+  return { ...result, content: [{ type: 'text', text: f(first.text) }] };
+}
+
 export function text(body: string): CallToolResult {
   return { content: [{ type: 'text', text: body }] };
 }

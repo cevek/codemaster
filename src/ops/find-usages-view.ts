@@ -7,7 +7,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
 import { searchCapFloor } from './no-symbol-hint.ts';
-import { lowerBoundNote } from './lower-bound-note.ts';
+import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
 import { defineLesson } from '../common/lesson/lesson.ts';
 
@@ -159,7 +159,7 @@ export function usagesFloor(view: UsagesView): {
   if (u === undefined || u.length === 0) return { fields: {} };
   return {
     fields: { complete: false, undiscoveredPrograms: u },
-    note: lowerBoundNote(u, { subject: 'usages', noun: 'usage', negation: 'of deadness' }),
+    note: lowerBoundNote(u, FLOOR_NOUNS.usages),
   };
 }
 

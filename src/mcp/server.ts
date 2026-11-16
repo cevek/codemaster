@@ -45,6 +45,7 @@ import {
   classify,
   errorText,
   fail,
+  mapText,
   ok,
   responseText,
   text,
@@ -370,7 +371,10 @@ export async function serveMcp(
         // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
         // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
         // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
-        const result = capResponse(handled.result, handled.bareJson);
+        const result = capResponse(
+          handled.bareJson ? handled.result : mapText(handled.result, scope.repair),
+          handled.bareJson,
+        );
         scope.commit(responseText(result));
         return {
           ok: handled.ok,

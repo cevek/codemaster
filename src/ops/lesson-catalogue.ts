@@ -6,11 +6,13 @@ import type { Lesson } from '../common/lesson/lesson.ts';
 import { CONCEPT_LESSONS } from '../format/render/concepts.ts';
 import { RENDER_LESSONS } from '../format/render/render-lessons.ts';
 import { PRE_EDIT_LESSONS } from '../format/render/render-status.ts';
-import { COMPONENTS_LESSON } from '../plugins/react/detect.ts';
-import { CONSTRUCTION_NOTES } from '../plugins/ts/construction-confidence.ts';
-import { DISCLOSURE_LESSONS } from '../plugins/ts/disclose-resolution.ts';
-import { SYNTACTIC_LESSONS } from '../plugins/ts/syntactic-scope.ts';
-import { UNUSED_DEMOTE } from '../plugins/ts/unused-exports-classify.ts';
+import { COMPONENTS_LESSON } from '../plugins/react/plugin.ts';
+import {
+  CONSTRUCTION_NOTES,
+  DISCLOSURE_LESSONS,
+  SYNTACTIC_LESSONS,
+  UNUSED_DEMOTE,
+} from '../plugins/ts/plugin.ts';
 import { GROUPBY_LESSONS } from './find-usages-flat-only.ts';
 import { PROPS_TEXT_LESSON } from './find-usages-props.ts';
 import {

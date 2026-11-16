@@ -4,7 +4,11 @@
 
 import { CONCEPT_LESSONS } from '../format/render/concepts.ts';
 import type { ProseFold } from '../format/render/fold-prose.ts';
-import { catalogueLines, type StatusRecall } from '../format/render/render-status-recall.ts';
+import {
+  catalogueLines,
+  renderCatalogue,
+  type StatusRecall,
+} from '../format/render/render-status-recall.ts';
 import type { StatusView } from '../format/render/render-status.ts';
 import { LESSONS } from './lessons.ts';
 import { createSessionMemory, noFolding, type ResponseFolder } from './session-memory.ts';
@@ -40,19 +44,23 @@ export function createFacadeSession(): FacadeSession {
   return {
     begin() {
       const folder = memory.beginResponse();
-      let pendingStatus: { root: string; lines: readonly string[] } | undefined;
+      let pendingStatus: { root: string; lines: readonly string[]; rendered: string } | undefined;
+      const statusRecall = (): StatusRecall => ({
+        catalogue: (root) => {
+          const lines = catalogues.get(root);
+          return lines !== undefined ? { root, lines } : latest;
+        },
+        conceptsShown: CONCEPT_LESSONS.every((c) => memory.isShown(c)),
+      });
       return {
         foldFor: (root): ProseFold => folder.foldFor(root),
+        repair: (text) => folder.repair(text),
         commit(finalText) {
           folder.commit(finalText);
-          // Listed in full, or stated as a diff against what was listed before — either way the
-          // reader now knows this catalogue.
+          // The catalogue block as rendered (full list, or the diff against what was shown) must
+          // have survived whole — a diff cut after its header would otherwise hide its changes.
           const p = pendingStatus;
-          if (
-            p !== undefined &&
-            (finalText.includes(p.lines.join('\n')) ||
-              finalText.includes('shown earlier this session for '))
-          ) {
+          if (p !== undefined && finalText.includes(p.rendered)) {
             catalogues.set(p.root, p.lines);
             latest = p;
           }
@@ -62,16 +70,12 @@ export function createFacadeSession(): FacadeSession {
           stampedBuild = build;
           return `codemaster v${build}\n`;
         },
-        statusRecall: () => ({
-          catalogue: (root) => {
-            const lines = catalogues.get(root);
-            return lines !== undefined ? { root, lines } : latest;
-          },
-          conceptsShown: CONCEPT_LESSONS.every((c) => memory.isShown(c)),
-        }),
+        statusRecall,
         noteStatus(view) {
           const ws = view.workspace;
-          if (ws !== undefined) pendingStatus = { root: ws.root, lines: catalogueLines(ws) };
+          if (ws === undefined || ws.ops.length === 0) return;
+          const rendered = renderCatalogue(ws, statusRecall()).join('\n');
+          pendingStatus = { root: ws.root, lines: catalogueLines(ws), rendered };
         },
       };
     },

@@ -119,6 +119,35 @@ test('a full text cut by the render cap does not count as shown', async () => {
   assert.ok(second.includes(ALL_PROGRAM_LESSON.full), 'never delivered → shown in full now');
 });
 
+test('data equal to a lesson by coincidence (a type text) is never folded; only prose keys fold', async () => {
+  const client = await connect(
+    stub({ data: () => ({ type: ALL_PROGRAM_LESSON.full, notes: [NOTE] }) }),
+  );
+  await call(client, 'find_usages', { name: 'a' });
+  const second = await call(client, 'find_usages', { name: 'b' });
+  assert.ok(second.includes(ALL_PROGRAM_LESSON.full), 'the type value stays verbatim');
+  assert.ok(second.includes(REF), 'the note still folds');
+});
+
+test('a batch whose first copy was cut by the cap re-expands the next copy in the same answer', async () => {
+  const big = Array.from({ length: 3000 }, (_, i) => `src/file-${i}.ts:1:1`);
+  const client = await connect(
+    stub({
+      data: (args) => (args['name'] === 'big' ? { items: big, note: NOTE } : { note: NOTE }),
+    }),
+  );
+  const text = await call(client, 'batch', {
+    requests: [
+      { name: 'find_usages', args: { name: 'big' } },
+      { name: 'find_usages', args: { name: 'small' } },
+    ],
+  });
+  const [s0, s1] = text.split('\n\n[1] ');
+  assert.match(s0 ?? '', /!! OUTPUT CAPPED/, 'the first section reaches the cap');
+  assert.ok(!(s0 ?? '').includes(ALL_PROGRAM_LESSON.full), 'its copy was cut');
+  assert.ok((s1 ?? '').includes(ALL_PROGRAM_LESSON.full), 'the reader still gets it in full once');
+});
+
 test('a root-scoped explanation folds per root', async () => {
   const note = `!! SURFACE = FILESYSTEM WALK, not the git listing${SURFACE_WALK_LESSON.full}`;
   const client = await connect(stub({ data: () => ({ surface: note }) }));

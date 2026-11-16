@@ -9,6 +9,8 @@ import { identityFold, type ProseFold } from '../format/render/fold-prose.ts';
 export interface ResponseFolder {
   /** The fold for one section answered against `root` (request root ?? tool root ?? cwd, raw). */
   foldFor(root: string): ProseFold;
+  /** Re-expand the first fold of a lesson whose kept full copy did not survive the render caps. */
+  repair(renderedText: string): string;
   /** Record what the final, capped response text actually delivered. */
   commit(finalText: string): void;
 }
@@ -20,7 +22,11 @@ export interface SessionMemory {
   isShown(lesson: Lesson): boolean;
 }
 
-export const noFolding: ResponseFolder = { foldFor: () => identityFold, commit: () => undefined };
+export const noFolding: ResponseFolder = {
+  foldFor: () => identityFold,
+  repair: (text) => text,
+  commit: () => undefined,
+};
 
 export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
   const shown = new Set<string>();
@@ -59,6 +65,17 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
       };
       return {
         foldFor: (root) => (s) => fold(s, root),
+        repair(text) {
+          // A cap may have cut the one full copy this response kept; a later fold of it (later in
+          // the section, or in a later section) would then point at text the reader never got.
+          let out = text;
+          for (const lesson of kept.keys()) {
+            const ref = lessonRef(lesson);
+            if (out.includes(lesson.full) || !out.includes(ref)) continue;
+            out = out.replace(ref, lesson.full);
+          }
+          return out;
+        },
         commit(finalText) {
           shownIn(finalText);
           for (const [lesson, keys] of kept) {

@@ -24,6 +24,7 @@ import {
   scanTableNotes,
   type ScanSubject,
 } from './scan-coverage.ts';
+import { FLOOR_NOUNS } from './lower-bound-note.ts';
 
 const argsSchema = z
   .strictObject({
@@ -38,12 +39,7 @@ const argsSchema = z
 
 /** What a `construction_sites` floor is a floor OF — the nouns the shared coverage vocabulary needs
  *  (`scan-coverage.ts`) so five distinct causes read in this op's own terms. */
-const SUBJECT: ScanSubject = {
-  subject: 'construction sites',
-  noun: 'construction site',
-  negation: 'that nothing builds it',
-  candidate: 'object literal',
-};
+const SUBJECT: ScanSubject = { ...FLOOR_NOUNS.construction, candidate: 'object literal' };
 
 type ConstructionData = {
   /** `complete:false` + the per-program scope lead the object (verdict-first, §12). */

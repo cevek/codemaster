@@ -100,7 +100,16 @@ export { isBareNameTarget } from './disclose-resolution.ts';
 // `syntactic-surface.ts` scans, so it belongs beside that function — but the ops that state it to the
 // agent must reach it the same way they reach everything else here (§5-L3), not by importing a plugin
 // internal.
-export { SURFACE_SCOPE_CLAUSE, SYNTACTIC_SCOPE, surfaceModeNote } from './syntactic-scope.ts';
+export {
+  SURFACE_SCOPE_CLAUSE,
+  SYNTACTIC_LESSONS,
+  SYNTACTIC_SCOPE,
+  surfaceModeNote,
+} from './syntactic-scope.ts';
+// The plugin's repeated explanations (§12 session folding), for the lesson registry in ops/.
+export { DISCLOSURE_LESSONS } from './disclose-resolution.ts';
+export { UNUSED_DEMOTE } from './unused-exports-classify.ts';
+export { CONSTRUCTION_NOTES } from './construction-confidence.ts';
 export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };

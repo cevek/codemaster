@@ -19,17 +19,13 @@
 import type { JsonValue } from '../core/json.ts';
 import type { WideningScanCoverage } from '../plugins/ts/plugin.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
-import { lowerBoundNote } from './lower-bound-note.ts';
+import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
 import { defineLesson } from '../common/lesson/lesson.ts';
 
 const MAX_NAMED = 3;
 
 /** What a `trace_type_widening` floor is a floor OF, in the op's own nouns. */
-const SUBJECT = {
-  subject: 'flow-sinks',
-  noun: 'flow-sink',
-  negation: "that the value's precision is preserved everywhere",
-} as const;
+const SUBJECT = FLOOR_NOUNS.widening;
 
 /** Only `complete` licenses reading `0 hops` as a claim about the VALUE ("it never flows onward").
  *
