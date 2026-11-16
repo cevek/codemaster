@@ -34,7 +34,7 @@ const STOPWORDS = new Set(
 
 function tmList(query) {
   try {
-    const raw = execFileSync('tm', ['--json', 'list', query], {
+    const raw = execFileSync('tm', ['--json', 'list', '--all', query], {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });

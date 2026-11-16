@@ -52,7 +52,7 @@ const HELP = `usage: node scripts/queue.mjs [-n N] [--all] [--json] [--legacy-ax
 function loadTasks() {
   let raw;
   try {
-    raw = execFileSync('tm', ['--json', 'list', '-status:done -status:rejected'], {
+    raw = execFileSync('tm', ['--json', 'list', '--all', '-status:done -status:rejected'], {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
