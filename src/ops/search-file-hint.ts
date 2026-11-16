@@ -19,11 +19,11 @@ export function fileModuleHint(
   if (files.length === 0) return '';
   const more = total > files.length ? ` (+${total - files.length} more with this name)` : '';
   const named = `${files.join(', ')}${more}`;
-  return ` — but a source file named '${query}' exists (${named})${FILE_HINT_LESSON.full}${files[0]}'}.`;
+  return ` — but a source file named '${query}' exists (${named})${FILE_HINT_LESSON.full} try find_definition {file:'${files[0]}'}.`;
 }
 
 export const FILE_HINT_LESSON = defineLesson({
   id: 'file-not-symbol',
-  full: '; if you meant the FILE/module rather than a symbol, try find_definition {file:',
-  short: '; for the file: find_definition {file:',
+  full: '; if you meant the FILE/module rather than a symbol,',
+  short: '; for the file/module,',
 });

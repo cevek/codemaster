@@ -1741,11 +1741,13 @@ one-line legend + sectioned summary). Rules:
   order and rewrites only strings under the explanation keys (`note(s)`, `surface`, `scope`, `hint`,
   `reason`, `notAVerdict`, the failure message, the truncation hint) — a type, a prop value, a span,
   an sql cell or a trace hop's note (it quotes walked source) stays verbatim even when it spells a
-  lesson; disclosures fold as rendered lines so their per-claim grouping holds. A fold is a
-  ref-length placeholder until every render cap has run, then resolves to `short [id]` — or, when
-  the cap cut the one full copy this response kept, its first surviving fold becomes the full text.
-  A lesson counts as delivered only if its full text is in the FINAL response (after the seam cap)
-  and the call was not cancelled, so the reader never holds folds of text it never received. A
+  lesson; disclosures fold as rendered lines so their per-claim grouping holds. When a cap cut the
+  one full copy a response kept, the response is rendered again from the same op results keeping a
+  LATER occurrence in full (or, with none left, leaving that lesson unfolded) — bounded, and never a
+  textual patch of rendered output, which could touch data. A lesson counts as delivered only when
+  the transport has actually sent the answer that carries its full text (`mcp/delivery.ts`): a
+  cancelled call or a failed send counts nothing, so the reader never holds folds of text it never
+  received. A
   `scope:'root'` lesson (a fact about one repo's surface) folds per root, keyed on the raw
   request/tool root or cwd: a key mismatch can only show it again, never hide it. Facts (`!!`
   markers, counts, config names, targets) are never part of a lesson. The guard is behavioural:

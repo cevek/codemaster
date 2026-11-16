@@ -42,17 +42,18 @@ import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
 import { withCallTelemetry } from './call-telemetry.ts';
 import {
-  classify,
   errorText,
   fail,
-  mapText,
+  cappedWithRefolds,
   ok,
+  rendered,
   responseText,
   text,
   type HandledCall,
 } from './handled-call.ts';
 import { createFacadeSession, noSession, type ResponseScope } from './facade-session.ts';
 import { conceptText } from './lessons.ts';
+import { trackDelivery } from './delivery.ts';
 import { identityFold, type ProseFold } from '../format/render/fold-prose.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
@@ -128,6 +129,8 @@ export async function serveMcp(
   // the per-result Result envelope. `suppressed` is the json guard — a prefix would corrupt a
   // single bare-JSON payload (§12); json consumers read the structured `sourceStale` from `status`.
   const session = options.session === true ? createFacadeSession() : noSession;
+  const transport = options.transport ?? new StdioServerTransport();
+  const delivery = trackDelivery(transport);
   // The prefix of a TEXT response: the stale banner (an alarm — present on every stale response,
   // folded to its short form after the first full showing) and, once per session, the build stamp.
   const prefix = (suppressed: boolean, scope: ResponseScope, cwd: string): string =>
@@ -252,16 +255,17 @@ export async function serveMcp(
         if (!outcome.ok) return fail(errorText(banner(false) + outcome.message), ops);
         const requests = parsed.data.requests;
         const toolRoot = parsed.data.root;
-        return classify(
-          text(
-            banner(false) +
-              renderBatch(
-                outcome.results,
-                requests,
-                { sqlPresent: sql !== undefined, format, verbosity },
-                (i) => scope.foldFor(requests[i]?.root ?? toolRoot ?? cwd),
-              ),
-          ),
+        return rendered(
+          () =>
+            text(
+              banner(false) +
+                renderBatch(
+                  outcome.results,
+                  requests,
+                  { sqlPresent: sql !== undefined, format, verbosity },
+                  (i) => scope.foldFor(requests[i]?.root ?? toolRoot ?? cwd),
+                ),
+            ),
           outcome.results,
           ops,
         );
@@ -316,11 +320,12 @@ export async function serveMcp(
         ...(returnMode !== undefined ? { return: returnMode } : {}),
       });
       if (!outcome.ok) return fail(errorText(banner(suppress) + outcome.message), ops);
-      return classify(
-        text(
-          banner(suppress) +
-            renderResults(outcome.results, request.format, request.verbosity, fold),
-        ),
+      return rendered(
+        () =>
+          text(
+            banner(suppress) +
+              renderResults(outcome.results, request.format, request.verbosity, fold),
+          ),
         outcome.results,
         ops,
         bareJson && outcome.results.length === 1,
@@ -330,8 +335,8 @@ export async function serveMcp(
     if (!outcome.ok) return fail(errorText(banner(suppress) + outcome.message), ops);
     const result = outcome.results[0];
     if (result === undefined) return fail(errorText('no result (codemaster bug)'), ops);
-    return classify(
-      opResultText(result, request.format, request.verbosity, () => banner(suppress), fold),
+    return rendered(
+      () => opResultText(result, request.format, request.verbosity, () => banner(suppress), fold),
       [result],
       ops,
       bareJson,
@@ -373,10 +378,7 @@ export async function serveMcp(
           // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
           // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
           // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
-          const result = capResponse(
-            handled.bareJson ? handled.result : mapText(handled.result, scope.repair),
-            handled.bareJson,
-          );
+          const result = cappedWithRefolds(handled, scope, (r) => capResponse(r, handled.bareJson));
           return {
             ok: handled.ok,
             ops: handled.ops,
@@ -386,14 +388,12 @@ export async function serveMcp(
           };
         },
       });
-      // Counted as delivered only now, as the SDK sends it — never for a cancelled call, whose answer
-      // the client never receives.
-      if (!extra.signal.aborted) scope.commit(responseText(sent));
+      // Counted as delivered only once the transport has SENT this answer.
+      delivery.onSent(extra.requestId, extra.signal, () => scope.commit(responseText(sent)));
       return sent;
     },
   );
 
-  const transport = options.transport ?? new StdioServerTransport();
   await server.connect(transport);
   // Arm the initial deadline only after connect — a server that never receives a request still
   // self-exits after the TTL.

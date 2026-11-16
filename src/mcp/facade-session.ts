@@ -44,6 +44,7 @@ export function createFacadeSession(): FacadeSession {
   return {
     begin() {
       const folder = memory.beginResponse();
+      let stamp: string | undefined;
       let pendingStatus: { root: string; lines: readonly string[]; rendered: string } | undefined;
       const statusRecall = (): StatusRecall => ({
         catalogue: (root) => {
@@ -54,9 +55,13 @@ export function createFacadeSession(): FacadeSession {
       });
       return {
         foldFor: (root): ProseFold => folder.foldFor(root),
-        repair: (text) => folder.repair(text),
+        startAttempt: () => folder.startAttempt(),
+        retryFor: (text) => folder.retryFor(text),
         commit(finalText) {
           folder.commit(finalText);
+          if (stamp !== undefined && stamp !== '' && finalText.includes(`codemaster v${stamp}\n`)) {
+            stampedBuild = stamp;
+          }
           // The catalogue block as rendered (full list, or the diff against what was shown) must
           // have survived whole — a diff cut after its header would otherwise hide its changes.
           const p = pendingStatus;
@@ -66,9 +71,9 @@ export function createFacadeSession(): FacadeSession {
           }
         },
         buildLine(build) {
-          if (build === undefined || build === stampedBuild) return '';
-          stampedBuild = build;
-          return `codemaster v${build}\n`;
+          // Decided once per response (a re-render repeats it); latched only when sent (commit).
+          stamp ??= build === undefined || build === stampedBuild ? '' : build;
+          return stamp === '' ? '' : `codemaster v${stamp}\n`;
         },
         statusRecall,
         noteStatus(view) {

@@ -166,6 +166,27 @@ test('repair touches only folds it wrote: a json section spelling the ref stays 
   assert.equal((JSON.parse(json) as { data: { text: string } }).data.text, `quoted: ${REF}`);
 });
 
+test('an answer whose send failed never counts as delivered', async () => {
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  const send = serverT.send.bind(serverT);
+  let failNextResult = true;
+  serverT.send = async (message, options) => {
+    if (failNextResult && 'result' in message && 'content' in (message.result as object)) {
+      failNextResult = false;
+      throw new Error('send failed');
+    }
+    return send(message, options);
+  };
+  await serveMcp(stub(), 'test', { serving: 'daemon', transport: serverT, session: true });
+  const client = new Client({ name: 'test-client', version: '0' });
+  await client.connect(clientT);
+  void client
+    .callTool({ name: 'find_usages', arguments: { name: 'a' } }, undefined, { timeout: 200 })
+    .catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok((await call(client, 'find_usages', { name: 'b' })).includes(ALL_PROGRAM_LESSON.full));
+});
+
 test('a cancelled call never counts as delivered', async () => {
   let release: () => void = () => undefined;
   let slow = true;
