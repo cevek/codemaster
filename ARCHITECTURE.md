@@ -770,7 +770,16 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   tsconfig's _own_ compilerOptions (a divergent `lib`/`strict`) is refused, not only a dangling
   import; each program is overlaid with only the files it owns (baseline/overlay stay symmetric), and
   a SIBLING program whose LS throws degrades to a note (the PRIMARY's throw is never swallowed — it
-  fails honestly). (Inside a `transaction` the
+  fails honestly). A move DEST also goes to every program holding its SOURCE, since such a program
+  reaches the dest through the rewritten import. A file a program holds only through an import is
+  overlaid as content, never as a root: a root stops being external, so a workspace package's file
+  would trip `rootDir` (TS6059) in the overlay pass alone. An **extends-only base config** is not
+  gated, and the skip is a note: a non-primary config with no `files`/`include` in its `extends`
+  chain, that another loaded config extends, not named `tsconfig.json`, not a `references` target,
+  and not named by its package's scripts. Its default `**/*` glob owns every file, yet nothing
+  typechecks the repo under it; its extenders do (t-401540). The import rewrite keeps a package
+  specifier TS resolved through `node_modules` (a pnpm workspace package) as written when only the
+  importer moved. (Inside a `transaction` the
   write-site fan-out is gated off — a step's `PlanningOverlay` lives on the primary, so a sibling
   would read stale disk; the fanned gate still refuses a resulting dangle — backlog.) (The full
   monorepo project-reference _redirect_ graph stays roadmap; this is the

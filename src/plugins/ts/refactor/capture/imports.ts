@@ -59,7 +59,8 @@ function mergedFileSet(
   return { afterContent, removedAbs };
 }
 
-/** One import specifier the rewrite changed, with the target it was meant to land on. */
+/** One import specifier the rewrite changed — or, in a moved importer, kept non-relative — with
+ *  the target it was meant to land on. */
 export interface RewrittenImport {
   /** Importer's CURRENT (post-move) absolute path — the `containingFile` resolution runs from. */
   importerCurrentAbs: string;

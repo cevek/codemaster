@@ -112,19 +112,29 @@ export function buildTypecheckField(
   };
 }
 
+/** What the gate reports about the programs its verdict rests on (`GateResult`'s coverage half). */
+export interface GateCoverage {
+  readonly programs: readonly string[];
+  readonly degraded: readonly string[];
+  readonly skipped: readonly string[];
+}
+
 /** The §2.8 cross-program gate's coverage, as envelope notes: how many programs the verdict rests
  *  on (so a 1-program check is never mistaken for a repo-wide one), and any SIBLING program whose LS
  *  threw and was skipped — a dangle only that program would catch is honestly reported as not gated
  *  (§3.6). Surfaced on every envelope (dry-run / refused / applied). */
-export function gateCoverageNotes(
-  programs: readonly string[],
-  degraded: readonly string[],
-): string[] {
+export function gateCoverageNotes(gate: GateCoverage): string[] {
+  const { programs, degraded, skipped } = gate;
   const out: string[] = [];
   // Only when the gate ACTUALLY fanned across >1 program — in a single-tsconfig repo (the common
   // case) "checked 1 program" is pure noise (§12 token-thrift). A degraded sibling is always shown.
   if (programs.length > 1) {
     out.push(`§2.8 gate checked ${programs.length} programs: ${programs.join(', ')}`);
+  }
+  if (skipped.length > 0) {
+    out.push(
+      `§2.8 gate skipped ${skipped.length} extends-only base config(s) — no files/include of their own, typechecked through the configs that extend them: ${skipped.join(', ')}`,
+    );
   }
   if (degraded.length > 0) {
     out.push(

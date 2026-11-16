@@ -12,6 +12,10 @@ export interface OverlayEntry {
   /** Posix absolute path (the key the LS host uses internally). */
   abs: string;
   content: string;
+  /** `false`: shadow the file's content without making it a root of the program — for a file the
+   *  program reaches only through an import. A root is not external to the program, so rooting such
+   *  a file changes its verdict (a workspace package's file then trips `rootDir`, TS6059). */
+  root?: boolean;
 }
 
 /** A point-in-time copy of the overlay's state — enough to RESTORE it exactly (via `set`). Lets a
@@ -24,7 +28,7 @@ export interface OverlaySnapshot {
 }
 
 export class Overlay {
-  private readonly files = new Map<string, { content: string; version: number }>();
+  private readonly files = new Map<string, { content: string; version: number; root: boolean }>();
   /** Paths TOMBSTONED for this overlay: a moved file's OLD location, hidden from the LS so
    *  an importer we failed to rewrite dangles and the dry-run typecheck catches it (§2.7).
    *  Threaded through `fileExists`/`readFile` too — not just the file list — or the old file
@@ -50,6 +54,11 @@ export class Overlay {
     return this.files.keys();
   }
 
+  /** The overlaid paths the program takes as roots (every entry not marked `root: false`). */
+  rootKeys(): string[] {
+    return [...this.files].filter(([, v]) => v.root).map(([abs]) => abs);
+  }
+
   /** True when some overlaid file lives under `dirPosix` — so module resolution into a
    *  not-yet-on-disk destination directory (a move target) succeeds during the dry-run. */
   hasDirectory(dirPosix: string): boolean {
@@ -72,7 +81,13 @@ export class Overlay {
     this.counter++;
     this.files.clear();
     this.removed.clear();
-    for (const e of entries) this.files.set(e.abs, { content: e.content, version: this.counter });
+    this.add(entries, removed);
+  }
+
+  private add(entries: readonly OverlayEntry[], removed: readonly string[]): void {
+    for (const e of entries) {
+      this.files.set(e.abs, { content: e.content, version: this.counter, root: e.root !== false });
+    }
     for (const r of removed) this.removed.add(r);
   }
 
@@ -81,15 +96,14 @@ export class Overlay {
    *  Bumps the version so the LS re-reads. */
   merge(entries: readonly OverlayEntry[], removed: readonly string[] = []): void {
     this.counter++;
-    for (const e of entries) this.files.set(e.abs, { content: e.content, version: this.counter });
-    for (const r of removed) this.removed.add(r);
+    this.add(entries, removed);
   }
 
   /** Capture the current state so `set(snap.entries, snap.removed)` restores it exactly (with a
    *  fresh version, so the LS re-reads) — the revert half of a nested overlay. */
   snapshot(): OverlaySnapshot {
     return {
-      entries: [...this.files].map(([abs, v]) => ({ abs, content: v.content })),
+      entries: [...this.files].map(([abs, v]) => ({ abs, content: v.content, root: v.root })),
       removed: [...this.removed],
     };
   }

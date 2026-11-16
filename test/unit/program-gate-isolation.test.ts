@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import type ts from 'typescript';
 import type { RepoRelPath } from '../../src/core/brands.ts';
 import type { SingleProgram } from '../../src/plugins/ts/program/single.ts';
+import { NO_CONFIG_SHAPE } from '../../src/plugins/ts/program/config-shape.ts';
 import {
   gateAcross,
   diagnosticsAcross,
@@ -34,7 +35,9 @@ function stubProgram(label: string, opts: { throws?: boolean } = {}): SingleProg
     service,
     label,
     containsFile: () => true, // every stub owns the anchor → all are affected
+    isTracked: () => true,
     mayContain: () => false,
+    configShape: () => NO_CONFIG_SHAPE,
     setOverlay: () => undefined,
     clearOverlay: () => undefined,
   } as unknown as SingleProgram;

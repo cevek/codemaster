@@ -78,5 +78,6 @@ function copyResult(r: GateResult): GateResult {
     overlay: [...r.overlay],
     programs: [...r.programs],
     degraded: [...r.degraded],
+    skipped: [...r.skipped],
   };
 }

@@ -52,7 +52,7 @@ import type { Capture } from './refactor/capture/types.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 import type { RefactorPlan, PlanningOverlay } from './refactor/plan.ts';
 import type { MovePair, MoveRunRefusal } from './refactor/imports/plan-move.ts';
-import type { GateScope, WrittenEdit } from './program-gate.ts';
+import type { GateResult, GateScope, WrittenEdit } from './program-gate.ts';
 import type { GateClaims } from './gate-membership.ts';
 
 /** Options bag for the overlay typecheck — tombstoned `removed` paths and an explicit
@@ -335,12 +335,13 @@ export interface TsPluginApi extends Plugin {
    *  `scope.check` is the diagnostic scope, passed identically to each (every program diagnoses only
    *  the files it contains). Returns both diagnostic sets sampled symmetrically (→
    *  `buildTypecheckField`), the `programs` actually checked, and any `degraded` sibling labels whose
-   *  LS threw (skipped with a reason; the primary's throw is never swallowed — it fails honestly). */
+   *  LS threw (skipped with a reason; the primary's throw is never swallowed — it fails honestly),
+   *  and the extends-only base configs left out (`skipped`). */
   gateAcross(
     files: readonly { path: RepoRelPath; content: string }[],
     scope: GateScope,
     deadline?: Deadline,
-  ): { baseline: TsDiagnostic[]; overlay: TsDiagnostic[]; programs: string[]; degraded: string[] };
+  ): GateResult;
   /** Disk diagnostics across every affected program — the post-apply half of `gateAcross`
    *  (call `reindex` first so each program's LS sees the freshly written files). `restrictTo` pins
    *  the program set to the pre-apply baseline's (`gateAcross().programs`), so a move that shifts

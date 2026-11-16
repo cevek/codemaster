@@ -48,9 +48,39 @@ export function resolveSpecifierToNode(
   importerInitialAbs: string,
   spec: string,
 ): FsNode | null {
-  const resolved = ts.resolveModuleName(spec, importerInitialAbs, options, ts.sys).resolvedModule
-    ?.resolvedFileName;
-  if (resolved !== undefined) return tree.findByInitialPath(host.relOf(resolved));
+  return resolveSpecifier(host, tree, options, aliasPrefixes, importerInitialAbs, spec).node;
+}
+
+/** `resolveSpecifierToNode` plus whether TS found the target through `node_modules` (a package —
+ *  a pnpm workspace package resolves through its symlink to a node of the tree). */
+export function resolveSpecifier(
+  host: TsProjectHost,
+  tree: VFSTree,
+  options: ts.CompilerOptions,
+  aliasPrefixes: readonly AliasPrefix[],
+  importerInitialAbs: string,
+  spec: string,
+): { node: FsNode | null; viaPackage: boolean } {
+  const module = ts.resolveModuleName(spec, importerInitialAbs, options, ts.sys).resolvedModule;
+  if (module !== undefined) {
+    return {
+      node: tree.findByInitialPath(host.relOf(module.resolvedFileName)),
+      viaPackage: module.isExternalLibraryImport === true,
+    };
+  }
+  return {
+    node: declinedNode(host, tree, aliasPrefixes, importerInitialAbs, spec),
+    viaPackage: false,
+  };
+}
+
+function declinedNode(
+  host: TsProjectHost,
+  tree: VFSTree,
+  aliasPrefixes: readonly AliasPrefix[],
+  importerInitialAbs: string,
+  spec: string,
+): FsNode | null {
   // The TS resolver declined (a CSS-module import, or an unmapped specifier). Probe the tree
   // for the relative- OR alias-mapped base; a bare package is never ours to move.
   const baseAbs = declinedSpecifierBase(host, aliasPrefixes, importerInitialAbs, spec);

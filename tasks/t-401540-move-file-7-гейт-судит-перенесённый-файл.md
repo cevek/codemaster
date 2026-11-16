@@ -75,3 +75,18 @@ Inbox: «move_file typecheck gate judges a moved .tsx by tsconfig.base.json…»
 Ревьюверы на код: bug-reviewer (до 2 кругов) + architecture-reviewer (1 круг: экспортный контракт `GateScope` между ops и plugins, вынос модуля из `program-gate.ts`).
 
 Потребители шва B: у `extract_symbol`/`move_symbol` в новый файл та же транзитивная асимметрия (у нового файла нет source-пары в `moves`) → t-959725. Primary, который сам pure-base (корневой `tsconfig.json` без include, его extends пакеты) → t-041300. Подписи программ в introduced → t-057191.
+
+
+### Поправка к плану (по plan-ревью 442f0fd и e2e-фикстуре)
+- **B шире, чем «dest в overlay».** `getScriptFileNames` делал КАЖДЫЙ ключ overlay корнем программы. Транзитивно держимый файл (переписанный импортёр, dest по source-паре) становился root, переставал быть внешним и под `rootDir` давал TS6059 (видно на фикстуре `@w/core` + `rootDir: "."`). Эта асимметрия существовала и до фикса. Решение: `OverlayEntry.root?: false`. `claimOf` (program-ownership.ts) отдаёт `root`, когда глоб программы трекает или затрекал бы путь, и primary-фолбэк ничейного пути; `reached`, когда программа держит путь или source только по импорту. В baseline такой файл тоже не root, так что baseline и overlay совпадают.
+- **A, [BLOCK] ревьювера:** три ноги не отличают base от самостоятельного default-glob конфига (`packages/lib/tsconfig.json` без include, который кто-то extends). Добавлены ноги: имя не `tsconfig.json` (его берёт `tsc` в своей папке), не цель `references` (`tsc -b`), не назван скриптом `package.json` рядом с ним. Цепочка `extends` берётся из свежего `extendedConfigCache` (8-й аргумент `parseJsonConfigFileContent`) и пересчитывается на каждом `loadFileList`.
+- **C, [BLOCK] ревьювера:** «любой не-относительный» менял поведение для `baseUrl`/`paths`-алиасов, у которых цель зависит от опций dest-программы. Сужено: спецификатор остаётся как есть, только если TS разрешил его через `node_modules` (`isExternalLibraryImport`), то есть это пакет, в том числе workspace-пакет через симлинк. Алиасы идут прежним путём emit.
+- **Кэш, [BLOCK] ревьювера:** `scope.moves` входит в ключ результата гейта.
+- t-037355 (трек t-403708: перенос внутри workspace-пакета, который потребляют через `@scope/pkg`) — та же форма B, покрыта e2e-тестом `move_file inside a workspace package`.
+
+
+## Проверка
+- Оракул краснеет: старый дифф C руками в копии claude-ui даёт `pnpm --filter ./apps/server typecheck` exit 1, 31× TS6059, столько же, сколько насчитал гейт.
+- На исправленном дереве `move_file --apply` обоих переносов (HostName.tsx → sidebar/, countBackfill.ts → sessions/api/) проходит в свежей копии с нотой «skipped tsconfig.base.json». После этого `pnpm --filter ./apps/server typecheck`, `pnpm --filter ./apps/web typecheck` и корневой `tsc -p tsconfig.json` (TS 7.0.2 проекта) дают exit 0. Bare-спецификатор `@claude-ui/protocol` сохранён.
+- Каждый e2e в `test/e2e/move-workspace-gate.test.ts` краснеет на откате своего фикса: C, source-пара B, root-ness B, предикат A. Ключ кэша с `moves` краснеет в `program-gate-cache.test.ts`.
+- Последствие root-ness: unimported `declare global`, перенесённый вне всех glob, больше не рутуется primary-фолбэком. Гейт отказывает ДО записи, а не откатом после. Прежний e2e на расширенный рекчек переписан на отказ; e2e-покрытие пути `claimDivergence` → откат потеряно → t-147277.

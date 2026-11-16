@@ -13,7 +13,7 @@ import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.
 import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { emitQuoted } from '../../../../support/text-edits/quote.ts';
 import type { RewrittenImport } from '../capture/imports.ts';
-import { resolveSpecifierToNode } from './resolve.ts';
+import { resolveSpecifier } from './resolve.ts';
 import { deriveAliasPrefixes } from '../../alias-paths.ts';
 import { emitSpecifier } from './emit.ts';
 import { moduleSpecifierOf } from '../ast/specifier.ts';
@@ -88,7 +88,7 @@ export function rewriteImports(
     const visit = (n: ts.Node): void => {
       const spec = moduleSpecifierOf(n);
       if (spec !== undefined) {
-        const target = resolveSpecifierToNode(
+        const { node: target, viaPackage } = resolveSpecifier(
           host,
           tree,
           options,
@@ -99,10 +99,20 @@ export function rewriteImports(
         if (target !== null) {
           const targetMoved = target.currentPath() !== target.initialPath();
           if (targetMoved || importerMoved) {
-            const newSpec = emitSpecifier(spec.text, importerCurrentDir, target, aliasPrefixes);
-            if (newSpec !== spec.text) {
+            // A package specifier TS resolved through `node_modules` (a pnpm workspace package,
+            // whose symlink realpaths to a tree node) stays as written when only the importer
+            // moved: a relative path into the package would make its sources part of the
+            // importer's program (TS6059 under `rootDir`). Still recorded below: the capture gate
+            // re-resolves it from the new location. `paths`/`baseUrl` aliases keep the emit path —
+            // their target depends on the options of the program the importer lands in.
+            const keep = !targetMoved && viaPackage;
+            const newSpec = keep
+              ? spec.text
+              : emitSpecifier(spec.text, importerCurrentDir, target, aliasPrefixes);
+            if (newSpec !== spec.text || keep) {
               const start = spec.getStart(sf);
-              edits.push({ start, end: spec.getEnd(), text: emitQuoted(before, start, newSpec) });
+              if (!keep)
+                edits.push({ start, end: spec.getEnd(), text: emitQuoted(before, start, newSpec) });
               // Record the rewrite so the move/extract gate can confirm the EMITTED specifier
               // still resolves to `target` post-move (a path-capture the typecheck can't see).
               // Line/col read off the BEFORE text — a specifier rewrite never adds/removes lines.

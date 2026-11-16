@@ -46,7 +46,7 @@ import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './
 import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 import { outcomeFromView } from './impact-expand.ts';
-import { buildTypecheckField, gateCoverageNotes } from './mutation-support.ts';
+import { buildTypecheckField, gateCoverageNotes, type GateCoverage } from './mutation-support.ts';
 
 const DEFAULT_DEPTH = 3;
 const MAX_DEPTH = 12;
@@ -101,8 +101,7 @@ function spliceDecl(content: string, decl: Span, replacement: string): string | 
  *  distinguished from the downstream blast radius. */
 function notesFor(
   closure: ClosureResult,
-  programs: readonly string[],
-  degraded: readonly string[],
+  coverage: GateCoverage,
   declFile: RepoRelPath,
   symbolName: string,
   editSiteDirty: boolean,
@@ -153,7 +152,7 @@ function notesFor(
       `!! ${declFile}: ${symbolName} is declared OUTSIDE the primary program (a sibling / isolated-package tsconfig). The cross-program typecheck ran, but the widen-to-\`any\` masking probe is PRIMARY-only and could not run against this target — a clean any-widen would be MASKED. So downstreamTrusted:false and brokenFiles is a LOWER BOUND (brokenFiles=0 is NOT a proven-clean downstream). Re-run with root:<pkg-dir> where this program is primary for the full masking check.`,
     );
   }
-  notes.push(...gateCoverageNotes(programs, degraded));
+  notes.push(...gateCoverageNotes(coverage));
   return notes;
 }
 
@@ -301,8 +300,7 @@ export const impactTypeErrorOp = defineOp({
 
       const notes = notesFor(
         closure,
-        gate.programs,
-        gate.degraded,
+        gate,
         declFile,
         def.name,
         editSiteDirty,

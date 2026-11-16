@@ -31,6 +31,7 @@ import type { SingleProgram } from './program/single.ts';
 import type ts from 'typescript';
 import { collectFromService, type TsDiagnostic } from './diagnostics.ts';
 import type { GateCache } from './program-gate-cache.ts';
+import { affected, claimedBy, claimOf, skippedBases, type GateMove } from './program-ownership.ts';
 import {
   builderEligible,
   editViewOf,
@@ -71,6 +72,8 @@ export interface GateScope {
   check: readonly RepoRelPath[];
   /** Tombstoned (moved-away) paths for the overlay pass. */
   removed?: readonly RepoRelPath[];
+  /** The edit's moves — a dest is overlaid into every program containing its source. */
+  moves?: readonly GateMove[];
 }
 
 /** The aggregated baseline + overlay diagnostics plus provenance: `programs` are the labels actually
@@ -81,6 +84,8 @@ export interface GateResult {
   overlay: TsDiagnostic[];
   programs: string[];
   degraded: string[];
+  /** Extends-only base configs left out of the gate (program-ownership.ts). */
+  skipped: string[];
 }
 
 /** The project host's write-gate surface (implemented in ls-host.ts over its built programs). */
@@ -102,47 +107,20 @@ export interface GateHost {
   gateHostCtx(): GateHostCtx;
 }
 
-/** A program OWNS a file when it contains it today OR its glob would after the edit (`mayContain`). */
-function owns(program: SingleProgram, absPosix: string): boolean {
-  return program.containsFile(absPosix) || program.mayContain(absPosix);
-}
-
-/** Programs (primary ALWAYS first) that own any anchor file. */
-export function affected(ctx: GateHostCtx, anchor: readonly RepoRelPath[]): SingleProgram[] {
-  const anchorAbs = anchor.map((p) => ctx.absOf(p));
-  const out: SingleProgram[] = [ctx.primary];
-  for (const program of ctx.programs) {
-    if (program === ctx.primary) continue;
-    if (anchorAbs.some((a) => owns(program, a))) out.push(program);
-  }
-  return out;
-}
-
-/** Does `program` get `absPosix` in the overlay? It does if it OWNS the path; additionally the
- *  PRIMARY claims any path owned by NO program at all — a move/extract DEST in a dir outside every
- *  tsconfig glob (an unindexed `out/`/`scripts/` dir). Without this fallback the rewritten importer
- *  (owned by primary) would resolve the moved-to specifier against an un-overlaid dest → a spurious
- *  "Cannot find module" → a FALSE refusal of a sound move. This restores the prior primary-checks-
- *  everything behavior ONLY for genuinely-unowned paths, so siblings still never force-get a
- *  primary-owned file (the LOW symmetry fix holds) and an owned dest is still checked by its owner. */
-export function claimedBy(
-  ctx: GateHostCtx,
-  program: SingleProgram,
-  programs: readonly SingleProgram[],
-  absPosix: string,
-): boolean {
-  if (owns(program, absPosix)) return true;
-  return program === ctx.primary && !programs.some((p) => owns(p, absPosix));
-}
-
 /** The overlay entries (and tombstones) THIS program claims — the symmetry filter (rule 2 above). */
 function entriesFor(
   ctx: GateHostCtx,
   program: SingleProgram,
   programs: readonly SingleProgram[],
   entries: readonly OverlayEntry[],
+  moves: readonly GateMove[] | undefined,
 ): OverlayEntry[] {
-  return entries.filter((e) => claimedBy(ctx, program, programs, e.abs));
+  const out: OverlayEntry[] = [];
+  for (const e of entries) {
+    const claim = claimOf(ctx, program, programs, e.abs, moves);
+    if (claim !== undefined) out.push({ ...e, root: claim === 'root' });
+  }
+  return out;
 }
 function removedFor(
   ctx: GateHostCtx,
@@ -160,13 +138,13 @@ function overlayCollect(
   program: SingleProgram,
   programs: readonly SingleProgram[],
   entries: readonly OverlayEntry[],
-  removed: readonly RepoRelPath[] | undefined,
+  scope: GateScope,
   collect: () => TsDiagnostic[],
 ): TsDiagnostic[] {
   try {
     program.setOverlay(
-      entriesFor(ctx, program, programs, entries),
-      removedFor(ctx, program, programs, removed),
+      entriesFor(ctx, program, programs, entries, scope.moves),
+      removedFor(ctx, program, programs, scope.removed),
     );
     return collect();
   } finally {
@@ -274,6 +252,7 @@ export function gateAcross(
           programs.map((p) => [cache.idOf(p), p.diskVersion()]),
           entries.map((e) => [e.abs, e.content]),
           scope.removed ?? null,
+          scope.moves ?? null,
           checkAbs,
         ])
       : undefined;
@@ -291,13 +270,13 @@ export function gateAcross(
     const builders = buildersFor(ctx, program, checkAbs);
     if (builders === undefined) {
       const b = collectFromService(program.service, ctx.relOf, checkAbs);
-      const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>
+      const o = overlayCollect(ctx, program, programs, entries, scope, () =>
         collectFromService(program.service, ctx.relOf, checkAbs),
       );
       return { b, o };
     }
     const b = builders.disk(program, ctx.relOf, checkAbs, token);
-    const o = overlayCollect(ctx, program, programs, entries, scope.removed, () =>
+    const o = overlayCollect(ctx, program, programs, entries, scope, () =>
       builders.overlay(program, ctx.relOf, checkAbs, token, edit),
     );
     return { b, o };
@@ -329,7 +308,8 @@ export function gateAcross(
       degraded.push(`${program.label} (${messageOfThrown(thrown).replace(/\s+/g, ' ').trim()})`);
     }
   }
-  const result = { baseline, overlay, programs: checked, degraded };
+  const skipped = skippedBases(ctx, scope.anchor).map((p) => p.label);
+  const result = { baseline, overlay, programs: checked, degraded, skipped };
   // A degraded sibling may be transient (a deadline cancel inside it is caught as degraded).
   if (key !== undefined && degraded.length === 0) cache?.storeResult(key, programs, result);
   return result;
