@@ -20,6 +20,7 @@
 // causes with two different levers, and telling them apart must not require reading prose (§3.4/§3.6).
 
 import { NO_CONFIG_LABEL } from '../plugins/ts/program/discover.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
 import { EMPTY_SCAN_DOCTRINE, NOT_A_VERDICT_MARKER } from './scan-coverage.ts';
 
 /** The walk's shape — the fields of the ts plugin's view this module reads, and only those. */
@@ -84,6 +85,12 @@ export function unusedExportsScope(walk: UnusedExportsWalk): string[] {
     // post-filter set everywhere else in this op (the `inScope` predicate, `scannedFiles`' own doc).
     // Calling the denominator in-scope would ask the reader why files that ARE in scope went unwalked.
     `${walk.walkedProgram}: walked ${walk.scannedFiles} of the ${walk.eligibleFiles} source file(s) it holds; examined ${walk.scannedExports} of ${walk.candidateExports} export(s)`,
-    'enumeration is single-program — an export declared only in ANOTHER program is never a candidate here; usage for each candidate dead here is re-searched in every loaded program containing its declaration file (a `test/**`-only use IS seen).',
+    UNUSED_ENUMERATION_LESSON.full,
   ];
 }
+
+export const UNUSED_ENUMERATION_LESSON = defineLesson({
+  id: 'unused-enumeration',
+  full: 'enumeration is single-program — an export declared only in ANOTHER program is never a candidate here; usage for each candidate dead here is re-searched in every loaded program containing its declaration file (a `test/**`-only use IS seen).',
+  short: 'enumeration is single-program; usage is re-searched in every loaded program',
+});

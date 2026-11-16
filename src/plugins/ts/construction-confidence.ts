@@ -11,6 +11,7 @@
 
 import ts from 'typescript';
 import type { Confidence } from '../../core/span.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
 
 const ANY = ts.TypeFlags.Any;
 
@@ -36,14 +37,14 @@ export function classifyConstructionSite(
   if ((literalType.flags & ANY) !== 0) {
     return {
       confidence: 'dynamic',
-      note: 'the literal’s type is `any` — assignable to any type vacuously, not a proven construction of T',
+      note: CONSTRUCTION_NOTES.anyLiteral.full,
     };
   }
   if (!checker.isTypeAssignableTo(literalType, targetType)) return undefined;
   if (targetGeneric) {
     return {
       confidence: 'partial',
-      note: 'target type is generic — assignability to the bare generic is not concretely proven',
+      note: CONSTRUCTION_NOTES.generic.full,
     };
   }
   // Excess-checking already rejected stray fields, so a surviving any-member is a field OF T
@@ -51,11 +52,30 @@ export function classifyConstructionSite(
   if (hasAnyMember(checker, literal, literalType)) {
     return {
       confidence: 'partial',
-      note: 'a member’s type is `any` — a field of T is satisfied by an any-value; not concretely proven',
+      note: CONSTRUCTION_NOTES.anyMember.full,
     };
   }
   return { confidence: 'certain' };
 }
+
+/** Per-site notes — repeated verbatim on every site they apply to. */
+export const CONSTRUCTION_NOTES = {
+  anyLiteral: defineLesson({
+    id: 'construction-any-literal',
+    full: 'the literal’s type is `any` — assignable to any type vacuously, not a proven construction of T',
+    short: 'literal is `any`: not a proven construction',
+  }),
+  generic: defineLesson({
+    id: 'construction-generic',
+    full: 'target type is generic — assignability to the bare generic is not concretely proven',
+    short: 'generic target: not concretely proven',
+  }),
+  anyMember: defineLesson({
+    id: 'construction-any-member',
+    full: 'a member’s type is `any` — a field of T is satisfied by an any-value; not concretely proven',
+    short: 'an `any` member: not concretely proven',
+  }),
+} as const;
 
 /** Shallow (top-level only — bounded, no recursion) check: any own property of the literal
  *  resolving to `any`/error. Member types resolved AT the literal node. */

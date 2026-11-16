@@ -1,4 +1,4 @@
-codemaster vtest pid=<PID> isolation=in-process engines=1
+codemaster vtest @unknown pid=<PID> isolation=in-process engines=1
 warm roots: <ROOT>
 workspace: <ROOT>
   freshness=git watcher=off config=defaults (no codemaster.config.*)

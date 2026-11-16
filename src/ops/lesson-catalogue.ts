@@ -6,9 +6,55 @@ import type { Lesson } from '../common/lesson/lesson.ts';
 import { CONCEPT_LESSONS } from '../format/render/concepts.ts';
 import { RENDER_LESSONS } from '../format/render/render-lessons.ts';
 import { PRE_EDIT_LESSONS } from '../format/render/render-status.ts';
+import { COMPONENTS_LESSON } from '../plugins/react/detect.ts';
+import { CONSTRUCTION_NOTES } from '../plugins/ts/construction-confidence.ts';
+import { DISCLOSURE_LESSONS } from '../plugins/ts/disclose-resolution.ts';
+import { SYNTACTIC_LESSONS } from '../plugins/ts/syntactic-scope.ts';
+import { UNUSED_DEMOTE } from '../plugins/ts/unused-exports-classify.ts';
+import { GROUPBY_LESSONS } from './find-usages-flat-only.ts';
+import { PROPS_TEXT_LESSON } from './find-usages-props.ts';
+import {
+  ALL_PROGRAM_LESSON,
+  IMPORTS_COLLAPSED_LESSON,
+  MERGE_DECLS_LESSON,
+} from './find-usages-view.ts';
+import { SYNTACTIC_SOURCE_GIVES_LESSON } from './guard/navigate.ts';
+import { LOWER_BOUND_LESSONS } from './lower-bound-note.ts';
+import { UNINDEXED_ABSENCE_LESSON } from './no-symbol-hint.ts';
+import { POST_APPLY_INCOMPLETE_LESSON } from './post-apply-verify.ts';
+import { SCAN_COVERAGE_LESSONS } from './scan-coverage.ts';
+import { SYNTACTIC_EXPORTED_ONLY_LESSON, SYNTACTIC_SEARCH_LESSON } from './search-symbol.ts';
+import { SYNTACTIC_SOURCE_LESSON } from './source-syntactic.ts';
+import { OVERVIEW_DUP_LESSON, OVERVIEW_HISTOGRAM_LESSON } from './symbols-overview.ts';
+import { RENDERED_BY_FLOOR_LESSON } from './trace-field-to-render.ts';
+import { WIDENING_LESSONS } from './trace-type-widening-scope.ts';
+import { UNUSED_ENUMERATION_LESSON } from './unused-exports-scope.ts';
 
 export const OP_LESSONS: readonly Lesson[] = [
   ...PRE_EDIT_LESSONS,
   ...RENDER_LESSONS,
   ...CONCEPT_LESSONS,
+  ...SYNTACTIC_LESSONS,
+  SYNTACTIC_SEARCH_LESSON,
+  SYNTACTIC_EXPORTED_ONLY_LESSON,
+  SYNTACTIC_SOURCE_LESSON,
+  SYNTACTIC_SOURCE_GIVES_LESSON,
+  OVERVIEW_HISTOGRAM_LESSON,
+  OVERVIEW_DUP_LESSON,
+  ...DISCLOSURE_LESSONS,
+  ...LOWER_BOUND_LESSONS,
+  UNINDEXED_ABSENCE_LESSON,
+  ALL_PROGRAM_LESSON,
+  IMPORTS_COLLAPSED_LESSON,
+  MERGE_DECLS_LESSON,
+  ...GROUPBY_LESSONS,
+  PROPS_TEXT_LESSON,
+  ...SCAN_COVERAGE_LESSONS,
+  ...Object.values(WIDENING_LESSONS),
+  UNUSED_ENUMERATION_LESSON,
+  ...Object.values(UNUSED_DEMOTE),
+  ...Object.values(CONSTRUCTION_NOTES),
+  COMPONENTS_LESSON,
+  RENDERED_BY_FLOOR_LESSON,
+  POST_APPLY_INCOMPLETE_LESSON,
 ];

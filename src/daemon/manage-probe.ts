@@ -79,7 +79,7 @@ export async function awaitRelease(deps: ProbeDeps): Promise<Probe> {
 }
 
 export type InfoOutcome =
-  | { kind: 'ok'; info: DaemonInfo; sourceStale: boolean }
+  | { kind: 'ok'; info: DaemonInfo; sourceStale: boolean; build: string | undefined }
   | { kind: 'timeout' }
   | { kind: 'closed' }
   | { kind: 'shutting-down' }
@@ -99,7 +99,7 @@ export async function fetchInfo(conn: TransportConnection, deps: ProbeDeps): Pro
   if (outcome.kind === 'closed') return { kind: 'closed' };
   const reply = outcome.reply;
   if (reply.kind === 'daemon-info')
-    return { kind: 'ok', info: reply.info, sourceStale: reply.sourceStale };
+    return { kind: 'ok', info: reply.info, sourceStale: reply.sourceStale, build: reply.build };
   if (reply.kind === 'error') {
     if (reply.message.startsWith(SHUTTING_DOWN_CODE)) return { kind: 'shutting-down' };
     return { kind: 'unsupported', message: reply.message };

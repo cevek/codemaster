@@ -9,6 +9,26 @@ import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.
 import { searchCapFloor } from './no-symbol-hint.ts';
 import { lowerBoundNote } from './lower-bound-note.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
+
+export const ALL_PROGRAM_LESSON = defineLesson({
+  id: 'all-program',
+  full: 'a row without a `prog …` tag was surfaced by it; a tagged row by the named program. A sibling label (e.g. tsconfig.test.json) means present ONLY there; the primary (tsconfig.json) means present there, POSSIBLY elsewhere.',
+  short: 'untagged rows came from it, a `prog` tag names the other program',
+});
+
+/** Appended to find_usages' ambiguous bare-name FAIL. */
+export const MERGE_DECLS_LESSON = defineLesson({
+  id: 'merge-declarations',
+  full: ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)',
+  short: ' — or mergeDeclarations:true',
+});
+
+export const IMPORTS_COLLAPSED_LESSON = defineLesson({
+  id: 'imports-collapsed',
+  full: " (their files appear via real usages) — collapseImports:false or role:'import' to list",
+  short: ' (their files appear via real usages)',
+});
 
 /** Classify a `symbols[]` element into the canonical target it denotes — a `ts:` SymbolId, a
  *  `file:line[:col]` position, or a bare name — so a held SymbolId in the array resolves exactly
@@ -117,7 +137,7 @@ export function hoistView(view: UsagesView, role: string | undefined, sqlMode: b
     if (groups !== undefined)
       groups = groups.map((g) => (g.programs === dominant ? omitKey(g, 'programs') : g));
     out.allProgram = dominant;
-    out.progNote = `allProgram=${dominant}: a row without a \`prog …\` tag was surfaced by it; a tagged row by the named program. A sibling label (e.g. tsconfig.test.json) means present ONLY there; the primary (tsconfig.json) means present there, POSSIBLY elsewhere.`;
+    out.progNote = `allProgram=${dominant}: ${ALL_PROGRAM_LESSON.full}`;
   }
   out.usages = usages;
   out.groups = groups;
@@ -180,9 +200,7 @@ export function usageNotes(
 ): string[] {
   const notes: string[] = [];
   if (view.importsCollapsed !== undefined && view.importsCollapsed > 0) {
-    notes.push(
-      `imports: ${view.importsCollapsed} collapsed (their files appear via real usages) — collapseImports:false or role:'import' to list`,
-    );
+    notes.push(`imports: ${view.importsCollapsed} collapsed${IMPORTS_COLLAPSED_LESSON.full}`);
   }
   if (role !== undefined && view.roleBreakdown !== undefined) {
     const byCount = Object.entries(view.roleBreakdown).sort((a, b) => b[1] - a[1]);

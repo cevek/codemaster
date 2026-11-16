@@ -39,6 +39,7 @@ import {
   histogramLine,
 } from './symbols-overview-facets.ts';
 import { defineOp } from './registry.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
 
 const DEFAULT_PER_GROUP = 300;
 const NO_CONFIG = '(no tsconfig)';
@@ -53,10 +54,18 @@ const COLLISIONS = '(collisions)';
 const SYNTACTIC_NOTE = `syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: ${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
 const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
 const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
-const HISTOGRAM_NOTE =
-  ' Histogram: a name counts in each of its kind buckets (a value+type merge → both), so buckets may sum above the name-total.';
-const DUP_NOTE =
-  ' duplicatesOnly: names with a real decl in ≥2 files (a find_usages ambiguity); a barrel re-export is not a collision.';
+export const OVERVIEW_HISTOGRAM_LESSON = defineLesson({
+  id: 'overview-histogram',
+  full: ' Histogram: a name counts in each of its kind buckets (a value+type merge → both), so buckets may sum above the name-total.',
+  short: ' Buckets may sum above the name-total.',
+});
+export const OVERVIEW_DUP_LESSON = defineLesson({
+  id: 'overview-duplicates',
+  full: ' duplicatesOnly: names with a real decl in ≥2 files (a find_usages ambiguity); a barrel re-export is not a collision.',
+  short: ' duplicatesOnly: a real decl in ≥2 files.',
+});
+const HISTOGRAM_NOTE = OVERVIEW_HISTOGRAM_LESSON.full;
+const DUP_NOTE = OVERVIEW_DUP_LESSON.full;
 
 const argsSchema = z.strictObject({
   /** Keep only this TOP-LEVEL syntactic kind (function / class / interface / type / const / let / var /

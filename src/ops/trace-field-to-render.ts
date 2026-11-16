@@ -11,6 +11,7 @@
 //    member-level references and are flagged / floored, never counted as a proven render.
 
 import { z } from 'zod';
+import { defineLesson } from '../common/lesson/lesson.ts';
 import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import { failFromThrown, fail, ok } from '../common/result/construct.ts';
@@ -26,8 +27,12 @@ import { buildFieldRenderTrace } from './trace-field-to-render-walk.ts';
 
 // The standing floor — `renderedBy` can only ever be a lower bound, so it is stated on EVERY answer
 // (rider): the reads member-level references cannot follow are named with the onward path.
-const FLOOR_NOTE =
-  'renderedBy is a LOWER BOUND: destructured reads (`const {email}=u`) and dynamic reads (`u[k]`, spread `{...u}`) are not traced to a render — for destructure-forwarded renders use trace_prop_through_tree or address the local. Never a render claimed where the access is dynamic.';
+export const RENDERED_BY_FLOOR_LESSON = defineLesson({
+  id: 'rendered-by-floor',
+  full: 'renderedBy is a LOWER BOUND: destructured reads (`const {email}=u`) and dynamic reads (`u[k]`, spread `{...u}`) are not traced to a render — for destructure-forwarded renders use trace_prop_through_tree or address the local. Never a render claimed where the access is dynamic.',
+  short: 'renderedBy is a LOWER BOUND (destructured/dynamic reads untraced)',
+});
+const FLOOR_NOTE = RENDERED_BY_FLOOR_LESSON.full;
 
 const argsSchema = z.strictObject({
   field: z.string(),

@@ -109,7 +109,7 @@ async function daemonStatus(deps: DaemonManageDeps): Promise<ManageResult> {
       };
     const i = info.info;
     const lines = [
-      `daemon running pid=${i.pid} uptime=${fmtUptime(i.uptimeMs)} engines=${i.engines}`,
+      `daemon running pid=${i.pid} uptime=${fmtUptime(i.uptimeMs)} engines=${i.engines} build=${info.build ?? 'unknown (predates build ids)'}`,
       `socket: ${deps.socketPath}`,
     ];
     if (i.engineRoots.length > 0) lines.push(`warm roots: ${i.engineRoots.join(' · ')}`);

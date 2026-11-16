@@ -14,6 +14,7 @@ import { classifyRole } from './usage-roles.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { programFileGroups } from './program/project-files.ts';
 import type { Candidate, UnusedExportView } from './unused-exports.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
 
 /** Decide a candidate's verdict, or `undefined` when it is USED (any real reference anywhere).
  *  Demotion order is most-specific-first; every demotion is `partial` with a stated reason. */
@@ -106,25 +107,25 @@ function demote(
   if (barrelReexport) {
     return {
       confidence: 'partial',
-      note: 're-exported by a barrel (export … from) — consumers may reach it through the barrel; could not prove dead',
+      note: UNUSED_DEMOTE.barrel.full,
     };
   }
   if (edges.dynamicTargets.has(abs)) {
     return {
       confidence: 'partial',
-      note: 'module is dynamically imported (import()) — its exports may be accessed via the namespace; could not prove dead',
+      note: UNUSED_DEMOTE.dynamicImport.full,
     };
   }
   if (edges.starReexportTargets.has(abs)) {
     return {
       confidence: 'partial',
-      note: 're-exported via `export *` — findReferences may not trace star re-exports; could not prove dead',
+      note: UNUSED_DEMOTE.starReexport.full,
     };
   }
   if (edges.computedDynamicImport) {
     return {
       confidence: 'partial',
-      note: 'a computed import(expr) exists in the repo — it could load any module; could not prove dead',
+      note: UNUSED_DEMOTE.computedImport.full,
     };
   }
   // Repo has a tsconfig codemaster did NOT load as a program (a nested package, neither adjacent to
@@ -133,11 +134,40 @@ function demote(
   if (undiscovered.length > 0) {
     return {
       confidence: 'partial',
-      note: `repo has TS program(s) codemaster did not load (${nameWithMore(undiscovered, 3)}) — a nested-package tsconfig may reference this export; could not prove dead`,
+      note: `repo has TS program(s) codemaster did not load (${nameWithMore(undiscovered, 3)})${UNUSED_DEMOTE.unloaded.full}`,
     };
   }
   return { confidence: 'certain' };
 }
+
+/** Per-row demotion reasons — one row each, so a long dead-export list repeats them verbatim. */
+export const UNUSED_DEMOTE = {
+  barrel: defineLesson({
+    id: 'unused-barrel',
+    full: 're-exported by a barrel (export … from) — consumers may reach it through the barrel; could not prove dead',
+    short: 'barrel re-export; could not prove dead',
+  }),
+  dynamicImport: defineLesson({
+    id: 'unused-dynamic-import',
+    full: 'module is dynamically imported (import()) — its exports may be accessed via the namespace; could not prove dead',
+    short: 'module is dynamically imported; could not prove dead',
+  }),
+  starReexport: defineLesson({
+    id: 'unused-star-reexport',
+    full: 're-exported via `export *` — findReferences may not trace star re-exports; could not prove dead',
+    short: 're-exported via `export *`; could not prove dead',
+  }),
+  computedImport: defineLesson({
+    id: 'unused-computed-import',
+    full: 'a computed import(expr) exists in the repo — it could load any module; could not prove dead',
+    short: 'a computed import(expr) exists; could not prove dead',
+  }),
+  unloaded: defineLesson({
+    id: 'unused-unloaded-program',
+    full: ' — a nested-package tsconfig may reference this export; could not prove dead',
+    short: '; could not prove dead',
+  }),
+} as const;
 
 export interface ModuleEdges {
   /** Abs paths reached by a literal `import('./x')`. */

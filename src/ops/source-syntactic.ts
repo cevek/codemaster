@@ -15,6 +15,7 @@ import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import { SYNTACTIC_SCOPE, surfaceModeNote } from '../plugins/ts/plugin.ts';
 import { describeTsTarget } from './ts-target.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
 
 /** The scope + provenance statement every syntactic-`source` answer leads with (verdict-first, §12).
  *  Always on: the one thing an agent must not have to infer is whether the bytes it is reading were
@@ -22,7 +23,12 @@ import { describeTsTarget } from './ts-target.ts';
  *  as a capability boundary rather than as an absence — and its one completeness limit: with no binder
  *  TS's declaration index collapses an overload set, so the implementation is what gets printed and the
  *  body-less signatures are not listed. */
-export const SYNTACTIC_SOURCE_NOTE = `syntactic (AST-only, no program built, no type-check): ${SYNTACTIC_SCOPE} Bodies are read at the address given — this path does not follow a reference to its definition and resolves no module specifier; both come back as an explicit miss. An overload set prints its implementation and does not list the signatures. Drop syntactic:true for the type-verified path.`;
+export const SYNTACTIC_SOURCE_LESSON = defineLesson({
+  id: 'syntactic-source',
+  full: ' Bodies are read at the address given — this path does not follow a reference to its definition and resolves no module specifier; both come back as an explicit miss. An overload set prints its implementation and does not list the signatures. Drop syntactic:true for the type-verified path.',
+  short: ' Bodies read at the address given; no reference or module is followed.',
+});
+export const SYNTACTIC_SOURCE_NOTE = `syntactic (AST-only, no program built, no type-check): ${SYNTACTIC_SCOPE}${SYNTACTIC_SOURCE_LESSON.full}`;
 
 /** Read N declaration bodies off the syntactic surface. The plugin resolves the surface ONCE for the
  *  whole call, so every target is answered against one state (§8). A `ToolFailure` from the plugin (git,

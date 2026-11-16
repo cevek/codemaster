@@ -1,39 +1,35 @@
 // Prose folding over a `Result` COPY (§12): every prose string the text renderer will print passes
-// through one `ProseFold`, walked in render order (failure → data → disclosures → truncation) so the
+// through one `ProseFold`, walked in render order (failure → data → truncation) so the
 // first occurrence a reader meets is the one left in full. Data that merely LOOKS like prose is never
 // folded: span text (verbatim source — `source` over codemaster's own tree carries lesson literals),
 // sql cells, and diff/body payloads.
 
 import type { Result } from '../../core/result.ts';
 import type { JsonValue } from '../../core/json.ts';
-import { isSqlTableData } from './render-table.ts';
 
 export type ProseFold = (s: string) => string;
 
 export const identityFold: ProseFold = (s) => s;
 
+/** `rows` = sql table cells (data, whatever they look like); `diff`/`body` = source text. */
 const VERBATIM_KEYS: ReadonlySet<string> = new Set(['diff', 'body', 'rows']);
 
+/** Folds the failure message, the data and the truncation hint. Disclosures are folded as RENDERED
+ *  lines instead (render-result): entries sharing one note collapse to a single line there, and
+ *  folding them entry by entry first would split that group. */
 export function foldResult(result: Result<JsonValue>, fold: ProseFold): Result<JsonValue> {
   if (fold === identityFold) return result;
   if (!result.ok) {
     const failure = { ...result.failure, message: fold(result.failure.message) };
     const data = result.data === undefined ? undefined : foldData(result.data, fold);
-    return { ...withEnvelope(result, fold), failure, ...(data !== undefined ? { data } : {}) };
+    return { ...result, failure, ...(data !== undefined ? { data } : {}) };
   }
-  const data = isSqlTableData(result.data) ? result.data : foldData(result.data, fold);
-  const folded = { ...result, data };
-  return {
-    ...withEnvelope(folded, fold),
-    ...(result.truncated !== undefined
-      ? { truncated: { ...result.truncated, hint: fold(result.truncated.hint) } }
-      : {}),
-  };
-}
-
-function withEnvelope<R extends Result<JsonValue>>(result: R, fold: ProseFold): R {
-  if (result.disclosures === undefined) return result;
-  return { ...result, disclosures: result.disclosures.map((d) => ({ ...d, note: fold(d.note) })) };
+  const data = foldData(result.data, fold);
+  const truncated =
+    result.truncated === undefined
+      ? {}
+      : { truncated: { ...result.truncated, hint: fold(result.truncated.hint) } };
+  return { ...result, data, ...truncated };
 }
 
 function foldData(value: JsonValue, fold: ProseFold): JsonValue {

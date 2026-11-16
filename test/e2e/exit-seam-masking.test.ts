@@ -43,6 +43,7 @@ import { serveMcp } from ${JSON.stringify(join(here, '..', '..', 'src', 'mcp', '
 const MASK = process.env.MASK === '1';
 const stub = {
   sourceStale: () => false,
+  buildId: () => undefined,
   dispose: async () => undefined,
   request: async (_cwd, _root, reqs) => ({
     ok: true,

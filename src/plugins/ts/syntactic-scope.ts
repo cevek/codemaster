@@ -32,13 +32,26 @@ import type { SurfaceProvenance } from './syntactic-cache.ts';
  *  false — and a sentence that asserts a mechanism and then hedges it in the same breath leaves the
  *  reader to pick which half to believe, beside a `surface` field that already says which. Assert
  *  only what holds in every mode; let the mode line carry the specifics (§3.6). */
-export const SURFACE_SCOPE_CLAUSE =
-  'the source surface under the workspace root — git-listed by default (tracked plus untracked-not-ignored), a bounded filesystem walk where git cannot list the workspace; an answer scanned by anything but the default says so on its `surface` line. An outside-root tsconfig include is covered by neither';
+import { defineLesson } from '../../common/lesson/lesson.ts';
+
+export const SURFACE_SCOPE_LESSON = defineLesson({
+  id: 'syntactic-surface',
+  full: 'the source surface under the workspace root — git-listed by default (tracked plus untracked-not-ignored), a bounded filesystem walk where git cannot list the workspace; an answer scanned by anything but the default says so on its `surface` line. An outside-root tsconfig include is covered by neither',
+  short: 'the source surface under the workspace root (an outside-root include is not covered)',
+});
+
+export const SURFACE_SCOPE_CLAUSE = SURFACE_SCOPE_LESSON.full;
+
+export const SYNTACTIC_SCOPE_LESSON = defineLesson({
+  id: 'syntactic-scope',
+  full: ' — complete there for declarations carrying a plain-identifier name, and WIDER than the type-verified path on two axes: a file no tsconfig includes is scanned, and a nested/member/destructured declaration is addressable. Not type-verified. Use the default path for an outside-root include/reference.',
+  short: ' — complete for plain-identifier declarations; not type-verified',
+});
 
 /** What the scan covered, what it did not, and the axes on which it beats the checker path. Written
  *  to hold in EVERY mode (see `SURFACE_SCOPE_CLAUSE`): it ships in static op notes / arg schemas,
  *  where no provenance exists to qualify it. */
-export const SYNTACTIC_SCOPE = `scans ${SURFACE_SCOPE_CLAUSE} — complete there for declarations carrying a plain-identifier name, and WIDER than the type-verified path on two axes: a file no tsconfig includes is scanned, and a nested/member/destructured declaration is addressable. Not type-verified. Use the default path for an outside-root include/reference.`;
+export const SYNTACTIC_SCOPE = `scans ${SURFACE_SCOPE_CLAUSE}${SYNTACTIC_SCOPE_LESSON.full}`;
 
 /** git's refusal as ONE bounded line: the raw failure is the wrapped command echo plus git's own
  *  stderr on its own line, and this note rides every answer from a non-git workspace. Newlines are
@@ -55,7 +68,7 @@ const CAUSE_CAP = 160;
  *  surface (whose coverage differs in both directions) and an origin that was never established. */
 export function surfaceModeNote(provenance: SurfaceProvenance | undefined): string | undefined {
   if (provenance === undefined) {
-    return '!! SURFACE ORIGIN NOT ESTABLISHED — this answer does not record whether its scan was listed by git or by the filesystem walk, so neither scope is claimed for it.';
+    return `!! SURFACE ORIGIN NOT ESTABLISHED${SURFACE_UNKNOWN_LESSON.full}`;
   }
   if (provenance.origin === 'git') return undefined;
   const why =
@@ -66,11 +79,33 @@ export function surfaceModeNote(provenance: SurfaceProvenance | undefined): stri
     provenance.incomplete === undefined
       ? ''
       : ` !! INCOMPLETE SCAN — the walk did not reach everything: ${provenance.incomplete}`;
-  return (
-    `!! SURFACE = FILESYSTEM WALK, not the git listing${why}. Coverage differs BOTH ways: .gitignore is NOT ` +
+  return `!! SURFACE = FILESYSTEM WALK, not the git listing${why}${SURFACE_WALK_LESSON.full}${bound}`;
+}
+
+/** Root-scoped: whether a root is walked or git-listed is a fact about that root. */
+export const SURFACE_WALK_LESSON = defineLesson({
+  id: 'surface-walk',
+  full:
+    '. Coverage differs BOTH ways: .gitignore is NOT ' +
     'evaluated, so build output under a non-standard directory name is catalogued as source; and the walk ' +
     'skips the name-ignored dirs (node_modules/dist/build/.next/…) plus files over 1 MB, which the git ' +
     'listing does NOT skip — so a real source file under one of those names is MISSING here while it would ' +
-    `be present in a git workspace.${bound}`
-  );
-}
+    'be present in a git workspace.',
+  short:
+    '. Coverage differs BOTH ways from a git listing (.gitignore unread; ignored dirs, >1 MB skipped).',
+  scope: 'root',
+});
+
+export const SURFACE_UNKNOWN_LESSON = defineLesson({
+  id: 'surface-unknown',
+  full: ' — this answer does not record whether its scan was listed by git or by the filesystem walk, so neither scope is claimed for it.',
+  short: ' — neither git nor walk scope is claimed',
+  scope: 'root',
+});
+
+export const SYNTACTIC_LESSONS = [
+  SURFACE_SCOPE_LESSON,
+  SYNTACTIC_SCOPE_LESSON,
+  SURFACE_WALK_LESSON,
+  SURFACE_UNKNOWN_LESSON,
+] as const;

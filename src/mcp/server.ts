@@ -421,7 +421,6 @@ export function staleBanner(sourceStale: boolean, serving: ServingMode): string 
   return sourceStale ? `${sourceStaleBanner(serving)}\n` : '';
 }
 
-
 /** A validation rejection that also teaches the fix: the zod message plus a minimal
  *  valid arguments object for the tool (§1.2, §7 "agents author blind; pointed errors").
  *  The example alone is enough to author the corrected call. Exported so the

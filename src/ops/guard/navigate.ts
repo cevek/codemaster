@@ -32,6 +32,7 @@
 
 import type { OutOfReach } from '../../core/result.ts';
 import { classifyTargetString } from '../intake/smart-string.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
 
 /** One paste-able call plus what it actually returns. `gives` states the answer's real extent,
  *  including what it is NOT, so a redirect can never read as an equivalent of the refused op. */
@@ -275,8 +276,12 @@ function droppedTargets(bag: Record<string, unknown>): number {
 /** What `source {syntactic:true}` actually returns — stated as a difference, not as an equivalence:
  *  it prints the declaration AT the address, so a caller who addressed a REFERENCE gets an explicit
  *  miss there rather than a body. Naming that up front is what keeps this a redirect and not a claim. */
-const SYNTACTIC_SOURCE_GIVES =
-  'the same bodies read off the AST — no program build, no LS warm; it prints the declaration AT the address (it does not follow a reference to its definition) and is not type-verified';
+export const SYNTACTIC_SOURCE_GIVES_LESSON = defineLesson({
+  id: 'redirect-syntactic-source',
+  full: 'the same bodies read off the AST — no program build, no LS warm; it prints the declaration AT the address (it does not follow a reference to its definition) and is not type-verified',
+  short: 'the same bodies off the AST (declaration at the address, not type-verified)',
+});
+const SYNTACTIC_SOURCE_GIVES = SYNTACTIC_SOURCE_GIVES_LESSON.full;
 
 /** Per-op cheap paths. An op absent from this map, or one whose entry yields nothing for the args
  *  at hand, falls through to the honest no-substitute arm — never a fabricated near-equivalent.

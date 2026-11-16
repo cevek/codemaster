@@ -101,7 +101,8 @@ export function renderResult(
   // Disclosures lead: they qualify what the WHOLE answer may be read as asserting (its target may
   // not be the symbol the agent meant), where truncation only qualifies the listed set. Then
   // truncation (it qualifies the bulk it follows), then handle, then freshness.
-  if (result.disclosures !== undefined) tail.push(...renderDisclosures(result.disclosures));
+  if (result.disclosures !== undefined)
+    tail.push(...renderDisclosures(result.disclosures).map(fold));
   if (result.ok && result.truncated !== undefined) tail.push(renderTruncation(result.truncated));
   if (result.handle !== undefined) tail.push(renderRebind(result.handle));
   if (result.freshness !== undefined) {

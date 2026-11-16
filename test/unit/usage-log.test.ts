@@ -49,6 +49,7 @@ function stubOrchestrator(): Orchestrator {
   };
   return {
     sourceStale: () => false,
+    buildId: () => undefined,
     dispose: async () => undefined,
     request,
     status: async () => ({}) as never,

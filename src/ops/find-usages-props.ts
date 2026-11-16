@@ -4,6 +4,7 @@
 // (`jsx-prop-filter.ts`), which is where the AST facts are.
 
 import { z } from 'zod';
+import { defineLesson } from '../common/lesson/lesson.ts';
 import type { UsagesView } from '../plugins/ts/query-types.ts';
 
 /** The op's `props` arg (spread into `find_usages`'s strictObject): keep only `<X …/>` sites
@@ -62,8 +63,12 @@ type PropArg = true | string | false | number | (string | boolean | number)[];
 /** The text overlay is NAME-based (a scanner, not the LS), so a `props` filter cannot apply to it:
  *  its section lists occurrences that never passed the filter. Disclosed per call rather than left
  *  for the agent to infer from a suspiciously long text section (§3.6). */
-const PROPS_TEXT_NOTE =
-  'text:true overlay is NAME-based and is NOT prop-filtered — the text-only section lists occurrences that did not pass your props filter';
+export const PROPS_TEXT_LESSON = defineLesson({
+  id: 'props-text',
+  full: 'text:true overlay is NAME-based and is NOT prop-filtered — the text-only section lists occurrences that did not pass your props filter',
+  short: 'text:true overlay is NOT prop-filtered',
+});
+const PROPS_TEXT_NOTE = PROPS_TEXT_LESSON.full;
 
 /** Every props-filter disclosure for one answer: the two `!!` uncertainty lines, plus the
  *  text-overlay caveat when `text:true` rode along. Empty when no filter ran. */

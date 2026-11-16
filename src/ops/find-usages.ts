@@ -41,6 +41,7 @@ import {
   hoistView,
   usageNotes,
   usagesFloors,
+  MERGE_DECLS_LESSON,
 } from './find-usages-view.ts';
 import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './ts-target.ts';
 import { TS_TARGET_ONE_OF } from './ts-target.ts';
@@ -50,8 +51,7 @@ const ROW_CAP_HINT = 'raise limit (or in sql-mode the per-call row bound was hit
 
 /** Appended to the ambiguous bare-name hard-FAIL to surface the opt-in union (t-262491). Kept as a
  *  constant so the discoverability test pins the exact hint the op advertises. */
-const MERGE_DECLS_HINT =
-  ' — or pass mergeDeclarations:true to union usages across all same-named declarations (per-site provenance kept)';
+const MERGE_DECLS_HINT = MERGE_DECLS_LESSON.full;
 
 /** `destructures` / `conditions` / `props` are per-SITE (flat-mode) annotations; groupBy rolls
  *  sites into enclosers, so the annotation cannot apply — disclosed per flag, never silently

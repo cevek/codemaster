@@ -127,6 +127,18 @@ test('remote: sourceStale rides the daemon reply (banner reflects daemon code ag
   });
 });
 
+test("remote: the build id is the DAEMON's — relayed from its replies; a daemon without one is @unknown, never the bridge's", async () => {
+  await withDaemonAndRemote(stubOrch({ buildId: () => '0.1.0 @abc123def' }), async (remote) => {
+    assert.equal(remote.buildId(), undefined, 'no reply seen yet → not known');
+    await remote.request('/cwd', undefined, [{ name: 'x', args: {} }]);
+    assert.equal(remote.buildId(), '0.1.0 @abc123def');
+  });
+  await withDaemonAndRemote(stubOrch(), async (remote) => {
+    await remote.request('/cwd', undefined, [{ name: 'x', args: {} }]);
+    assert.equal(remote.buildId(), 'bridge @unknown (daemon predates build ids)');
+  });
+});
+
 test('remote: a non-replying daemon yields an honest timeout (never an unbounded wait)', async () => {
   await withDaemonAndRemote(
     stubOrch({ request: () => new Promise(() => undefined) }), // never resolves

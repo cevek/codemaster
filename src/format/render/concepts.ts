@@ -42,7 +42,8 @@ const CONCEPT_SHORT: Readonly<Record<string, string>> = {
   freshness: 'freshness: reindexed / PENDING / current',
   'mutating-gate': 'mutating-gate: dry-run default, apply refused on new type errors',
   'cross-program-read': 'cross-program-read: refs counted across all loaded programs',
-  'cross-program-limits': 'cross-program-limits: capture check primary-only; transaction fan-out off',
+  'cross-program-limits':
+    'cross-program-limits: capture check primary-only; transaction fan-out off',
   'cross-repo': 'cross-repo: top-level root on any call',
 };
 
