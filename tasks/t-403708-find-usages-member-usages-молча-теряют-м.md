@@ -1,7 +1,7 @@
 ---
 id: t-403708
 title: find_usages / member_usages молча теряют межпакетных потребителей, импортирующих символ через workspace-пакет (снапшот без node_modules)
-status: backlog
+status: in-progress
 priority: high
 parent: t-982648
 tags:
@@ -34,3 +34,45 @@ f-yryfwts6foiq, f-ydob65mx2la6, f-73no7yqc753m, f-5f4bg2yo464s, f-6mlodylvorjt, 
 Inbox: «find_usages omits known re-exported workspace consumers» (2026-11-16T06:26), «find_usages в snapshot не связывает exported declaration с workspace consumer» (2026-11-16T08:16), «member_usages(RoleInfo.family) возвращает 0» (2026-11-16T08:45).
 
 Источник — журнал фрикшенов claude-ui и/или inbox `~/.codemaster/feedback/inbox.md`, ноябрь 2026. Репро на текущем main не снято (тег UNVERIFIED): первым шагом — воспроизвести.
+
+
+## План
+
+**Диагноз подтверждён** (снапшот claude-ui `e4f930a2`, CLI one-shot): `find_usages systemText` → 1 место (decl). `ts.resolveModuleName('@claude-ui/agent-core', packages/agent-grok/src/query.ts)` без `node_modules` → `null`; в живом чекауте → `packages/agent-core/src/index.ts` через pnpm-симлинк `packages/agent-grok/node_modules/@claude-ui/agent-core`. Программа потребителя не содержит файл декларации, а `findReferencesAcross(loadNearest:true)` (его зовут и `usages.ts`, и `member-refs.ts`) берёт программы через `programsContaining`, то есть через containment построенной программы, — поэтому потребитель выпадает из fan-out. `complete=false` в ответе — из-за 5 несвязанных undiscovered-конфигов, причина неполноты названа неверно.
+Оракул: копия снапшота с руками сделанными pnpm-ссылками (185 ссылок на `workspace:*`-зависимости) → 6 мест (+4 импорта); цена +1 с wall, RSS 821→868 МБ.
+
+### Честная половина (минимум)
+- Новое поле `unresolvedWorkspaceImports` в data `find_usages` и `member_usages`: `{package, sites, examples[file:line ≤3], total}` по каждому workspace-пакету, плюс `complete:false` и `!! LOWER BOUND`-нота. Нота называет спецификаторы и честно говорит, что инструментального пути нет («grep these specifiers»), — `install` на read-only снапшоте не вызвать.
+- Отдельное поле, НЕ в `undiscoveredPrograms`: иначе повторится та же мисатрибуция. Это floor полноты поиска того же рода, что `undiscoveredPrograms`, и живёт в data op'а, а не в `Result.disclosures`: сомнение касается полноты обхода, а не идентичности цели.
+- Триггер: любой статический импорт/реэкспорт, чьё имя bare-пакета = имя любого workspace-члена, если ни программа импортёра, ни ссылки его не резолвят. Срабатывает по всем программам, а не только по пакету цели: потребитель может прийти через реэкспорт другого члена (protocol → agent-core).
+- Считается по `host.programs()`, которые fan-out этих двух op'ов уже построил (новых сборок нет — правило admission §5-L2); мемо на дисковую версию хоста. Резолв — `resolveSpecifier` (resolve-module.ts) с per-(dir|spec) мемо, как в `phantom-imports.ts`.
+- Скоуп назван явно: только `find_usages` и `member_usages`. Остальные потребители floor (`importers_of`, bare-name `find_definition`, `find_unused_exports`, scan-fanout) — отдельная таска с `--created-by-session s-207994`.
+
+### Полная половина — рекомендую: эмуляция workspace-ссылок в LS-хосте
+- Новый модуль `src/plugins/ts/program/workspace-links.ts`:
+  (a) `buildWorkspaceLinks(root)` — карта `<consumerPkgDir>/node_modules/<N>` → `<memberDir>` из кэшированного обхода репо (без нового repo-walk, §19);
+  (b) обёртка хост-функций `fileExists`/`directoryExists`/`readFile`/`realpath`/`getDirectories` в `single.ts`: синтетический путь под ссылкой транслируется в реальный путь члена, а `realpath` отдаёт реальный путь члена — иначе файл грузится второй SourceFile под синтетическим путём и мерж не работает. `getScriptSnapshot` получает уже realpath'нутое имя.
+  В `single.ts` — только проводка: файл уже ~330 строк.
+- Резолвером остаётся TS (exports/conditions/types/main — его алгоритм). Хост лишь показывает ту раскладку ФС, которую создал бы пакетный менеджер. Второго оракула резолва нет (§4), риск лжи — в политике ссылок, а не в резолве.
+- **Политика** (консервативная, недорезолв уходит в честную половину):
+  - ссылка ставится, только если N — член workspace (globs из `pnpm-workspace.yaml` / `package.json workspaces`), N ≠ сам потребитель и N объявлен в `dependencies`/`devDependencies`/`peerDependencies`/`optionalDependencies` package.json потребителя;
+  - существующий на диске путь никогда не затеняется;
+  - npm-хойстинг необъявленных (root `node_modules/N`) НЕ эмулируется;
+  - программа с `preserveSymlinks:true` не эмулируется: TS оставил бы синтетический путь и получился бы дубль-SourceFile.
+- Провенанс: строка в `status` «workspace links emulated: N (no node_modules)» — факт уровня репо.
+- Свежесть: карта перестраивается на структурном reindex (изменился `package.json`). Тёплый TS переиспользует старые резолвы — это класс t-710809, ссылаюсь на него и тёплую корректность не заявляю; cold one-shot корректен.
+- **Развилка: write path.** Хост общий, поэтому `rename_symbol`/`change_signature` и гейт §2.8 тоже видят эмулированный резолв. Выбор — включить: так мутация и чтение согласованы, а переименование в пакете переписывает потребителей так же, как на реальной установке. Альтернатива (эмуляция только для чтения) дала бы второй набор программ и расхождение read/write.
+- Отвергнуто: синтезировать `compilerOptions.paths`. Это мутирует отображаемые options (ложь в `expand_type`/статусе) и обходит семантику `exports`/conditions.
+- Цена/риск: размер программ становится как у реальной установки (замер выше: +6% RSS, +1 с), нового класса heap не появляется. Риск — неверная политика ссылки: менеджер слинковал бы иначе (версия из реестра вместо workspace) → резолв в source вместо реестрового пакета. Это смягчено требованием объявленной зависимости на члена и тем, что реальный путь, если он есть, побеждает.
+
+### Скоуп-файлы
+`src/plugins/ts/program/workspace-links.ts` (новый), `program/single.ts` + `ls-host.ts` (проводка), новый `src/plugins/ts/unresolved-workspace-imports.ts`, `api.ts`/`plugin.ts` (метод), `ops/find-usages.ts`, `ops/member-usages.ts` (+рендер нот), ARCHITECTURE §5-L2 (абзац multi-program), тесты.
+
+### Проверка
+- Герметичная фикстура (tmp-дир, реальная ФС), 4 случая:
+  - объявленная `workspace:*`-зависимость → потребитель найден; оракул — та же фикстура с настоящим симлинком, множество мест должно совпасть;
+  - необъявленный импорт → не слинкован, поле `unresolvedWorkspaceImports` есть;
+  - настоящий симлинк → без override, поле молчит (негативный случай, без которого тест честной половины не может упасть);
+  - `preserveSymlinks:true` → эмуляции нет, поле есть.
+- Живой прогон: снапшот claude-ui (эмуляция) против `cui-linked` (настоящие ссылки) — выходы `find_usages systemText` и `member_usages RoleInfo.family` должны совпасть; time/RSS до и после — в файл, по одному прогону.
+- Ревью кода: bug-reviewer (≤2 круга) + architecture-reviewer (1 круг).
