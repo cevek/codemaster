@@ -220,3 +220,33 @@ test('a `paths` entry of the advisory base does not decide whether a package spe
     await p.dispose();
   }
 });
+
+test('transaction: a chained move inside a workspace package still hands the dest to its consumer', async () => {
+  const p = await mount();
+  try {
+    const steps = [
+      {
+        name: 'move_file',
+        args: { source: 'packages/core/src/greet.ts', dest: 'packages/core/src/lib/greet.ts' },
+      },
+      {
+        name: 'move_file',
+        args: { source: 'packages/core/src/lib/greet.ts', dest: 'packages/core/src/util/greet.ts' },
+      },
+    ];
+    const run = async (apply: boolean): Promise<Envelope> => {
+      const [r] = await p.request([
+        { name: 'transaction', args: { steps }, ...(apply ? { apply: true } : {}) },
+      ]);
+      if (r === undefined || 'error' in r) assert.fail(`dispatch error: ${JSON.stringify(r)}`);
+      assert.ok(r.result.ok, JSON.stringify(r));
+      return r.result.data as unknown as Envelope;
+    };
+    const dry = await run(false);
+    assert.equal(dry.typecheck.clean, true, JSON.stringify(dry.typecheck));
+    assert.equal((await run(true)).applied, true);
+    assertPackagesClean(p.root);
+  } finally {
+    await p.dispose();
+  }
+});

@@ -1,7 +1,7 @@
 ---
 id: t-401540
 title: 'move_file: §7-гейт судит перенесённый файл чужой программой (tsconfig.base.json / корневой) → ложные introduced-ошибки, apply отклонён'
-status: review
+status: in-progress
 priority: high
 parent: t-982648
 tags:
