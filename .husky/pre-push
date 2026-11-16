@@ -1,1 +1,3 @@
+# Hooks inherit GIT_DIR & co.; fixture tests that run git in temp dirs would write into this repo.
+unset $(git rev-parse --local-env-vars)
 npm test
