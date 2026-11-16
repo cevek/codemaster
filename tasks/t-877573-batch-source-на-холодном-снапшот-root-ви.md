@@ -1,7 +1,7 @@
 ---
 id: t-877573
 title: batch / source на холодном снапшот-root висят минутами без ответа
-status: backlog
+status: in-progress
 priority: high
 parent: t-982648
 tags:
@@ -30,3 +30,9 @@ created: '2026-11-16T09:41:53.744Z'
 f-6bgv4lsmp245, f-qvq7psl2qxp3
 
 Источник — журнал фрикшенов claude-ui и/или inbox `~/.codemaster/feedback/inbox.md`, ноябрь 2026. Репро на текущем main не снято (тег UNVERIFIED): первым шагом — воспроизвести.
+
+
+## Разбор
+Локально не воспроизведён: на клоне claude-ui с node_modules batch 4× find_usages идёт 9 с, на archive-копии без node_modules — 4 с. Посылка «снапшоты без node_modules» неверна: claude-ui `createSnapshot` зеркалит node_modules родителя.
+
+Гипотеза под проверкой: побочный эффект синхронного многоминутного вызова на ДРУГОМ root в общем in-process демоне на mac. Класс t-006194: `affected` 249 с синхронно держит event loop. Обе записи (21:07/21:08 UTC 15.11) — разные снапшот-root, минута между ними. Логи mac запрошены. Кода в треке t-006194 под эту таску нет; исход — по логам.
