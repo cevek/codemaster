@@ -13,7 +13,7 @@ import { applyEdits, type TextEdit } from '../../../../support/text-edits/apply.
 import { readTextFile } from '../../../../support/fs/read-file.ts';
 import { emitQuoted } from '../../../../support/text-edits/quote.ts';
 import type { RewrittenImport } from '../capture/imports.ts';
-import { resolveSpecifier } from './resolve.ts';
+import { resolveSpecifier, resolvesSameUnderOwners } from './resolve.ts';
 import { deriveAliasPrefixes } from '../../alias-paths.ts';
 import { emitSpecifier } from './emit.ts';
 import { moduleSpecifierOf } from '../ast/specifier.ts';
@@ -103,9 +103,18 @@ export function rewriteImports(
             // whose symlink realpaths to a tree node) stays as written when only the importer
             // moved: a relative path into the package would make its sources part of the
             // importer's program (TS6059 under `rootDir`). Still recorded below: the capture gate
-            // re-resolves it from the new location. `paths`/`baseUrl` aliases keep the emit path —
-            // their target depends on the options of the program the importer lands in.
-            const keep = !targetMoved && viaPackage;
+            // re-resolves it from the new location. Kept only while every program owning the new
+            // path resolves it to the same file (its `paths` may map the name elsewhere);
+            // `paths`/`baseUrl` aliases keep the emit path.
+            const keep =
+              !targetMoved &&
+              viaPackage &&
+              resolvesSameUnderOwners(
+                host,
+                spec.text,
+                host.absOf(node.currentPath()),
+                host.absOf(target.initialPath()),
+              );
             const newSpec = keep
               ? spec.text
               : emitSpecifier(spec.text, importerCurrentDir, target, aliasPrefixes);

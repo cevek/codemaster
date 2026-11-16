@@ -13,6 +13,7 @@ import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { FsNode } from '../tree/node.ts';
 import { aliasMappedRel, type AliasPrefix } from '../../alias-paths.ts';
+import { toPosix } from '../../../../support/fs/canonicalize.ts';
 
 const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'] as const;
 
@@ -90,4 +91,27 @@ function declinedNode(
     if (node !== null) return node;
   }
   return tree.findByInitialPath(host.relOf(baseAbs));
+}
+
+/** Does `spec`, written in a file at `importerAbs`, still land on `targetAbs` under the options of
+ *  every program whose glob owns that path (the primary when none does)? A package specifier kept
+ *  across a move is judged by the program the importer lands in, and its `paths` may map the same
+ *  name elsewhere. */
+export function resolvesSameUnderOwners(
+  host: TsProjectHost,
+  spec: string,
+  importerAbs: string,
+  targetAbs: string,
+): boolean {
+  const ctx = host.gateHostCtx();
+  const owners = ctx.programs.filter((p) => p.mayContain(importerAbs));
+  for (const program of owners.length > 0 ? owners : [ctx.primary]) {
+    const options = program.getProgram()?.getCompilerOptions();
+    if (options === undefined) return false;
+    const resolved = ts.resolveModuleName(spec, importerAbs, options, ts.sys).resolvedModule;
+    if (resolved === undefined || toPosix(resolved.resolvedFileName) !== toPosix(targetAbs)) {
+      return false;
+    }
+  }
+  return true;
 }

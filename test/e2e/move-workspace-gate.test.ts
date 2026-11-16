@@ -134,3 +134,59 @@ test('move_file of an importer keeps its bare workspace-package specifier', asyn
     await p.dispose();
   }
 });
+
+test('a package script naming the base config, added after warm-up, puts it back in the gate', async () => {
+  const p = await mount();
+  try {
+    const src = 'packages/app/src/Hello.tsx';
+    const dest = 'packages/app/src/ui/Hello.tsx';
+    const skipped = (e: Envelope): boolean =>
+      (e.notes ?? []).some((n) => /skipped 1 extends-only/.test(n));
+    assert.equal(skipped(await move(p, src, dest)), true, 'warm: the base is skipped');
+    p.write('package.json', '{"scripts":{"check":"tsc -p tsconfig.base.json"}}');
+    p.commit('run the base');
+    const after = await move(p, src, dest);
+    assert.equal(
+      skipped(after),
+      false,
+      `a run config is gated again: ${JSON.stringify(after.notes)}`,
+    );
+    assert.equal(after.typecheck.clean, false, 'and its missing jsx judges the moved .tsx');
+  } finally {
+    await p.dispose();
+  }
+});
+
+test("a package specifier the dest program's `paths` maps elsewhere is not kept", async () => {
+  const p = await project({
+    '.gitignore': 'node_modules\n',
+    'tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler","noEmit":true},"include":["scripts"]}',
+    'scripts/use.ts': "import { greet } from '@w/core';\nexport const s = greet('x');\n",
+    'packages/core/package.json': '{"name":"@w/core","types":"src/index.ts"}',
+    'packages/core/src/index.ts': 'export const greet = (n: string): string => `hi ${n}`;\n',
+    'packages/app/package.json': '{"name":"app"}',
+    'packages/app/tsconfig.json':
+      '{"compilerOptions":{"strict":true,"module":"esnext","moduleResolution":"bundler","noEmit":true,"paths":{"@w/core":["./src/shadow.ts"]}},"include":["src"]}',
+    'packages/app/src/shadow.ts': 'export const greet = (n: string): string => `shadow ${n}`;\n',
+  });
+  try {
+    mkdirSync(path.join(p.root, 'node_modules/@w'), { recursive: true });
+    symlinkSync(
+      path.join(p.root, 'packages/core'),
+      path.join(p.root, 'node_modules/@w/core'),
+      'dir',
+    );
+    const dest = 'packages/app/src/use.ts';
+    await move(p, 'scripts/use.ts', dest, true);
+    const moved = readFileSync(path.join(p.root, dest), 'utf8');
+    assert.doesNotMatch(
+      moved,
+      /from '@w\/core'/,
+      `the shadowing alias must not capture it: ${moved}`,
+    );
+    assert.match(moved, /packages\/core\/src\/index|\.\.\/\.\.\/core/, moved);
+  } finally {
+    await p.dispose();
+  }
+});

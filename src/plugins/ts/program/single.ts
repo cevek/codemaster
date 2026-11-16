@@ -21,7 +21,13 @@ import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
-import { NO_CONFIG_SHAPE, parseConfigFile, type ConfigShape } from './config-shape.ts';
+import {
+  NO_CONFIG_SHAPE,
+  namedByScript,
+  parseConfigFile,
+  scriptManifests,
+  type ConfigShape,
+} from './config-shape.ts';
 import { isTsconfigBasename } from './discover.ts';
 import type { FileVersions } from './file-versions.ts';
 
@@ -229,6 +235,7 @@ export function createSingleProgram(
     configShape: () => shape,
     reindex(changed) {
       let structural = false;
+      let scriptsChanged = false;
       for (const rel of changed) {
         const abs = toPosix(path.join(root, rel));
         if (files.has(abs)) continue; // its version was advanced by the host (`versions`)
@@ -249,10 +256,16 @@ export function createSingleProgram(
         // `.gitignore` in the changed set as structural (else the un-ignored files stay dropped until
         // an unrelated source add/remove — a silent completeness gap, §3.4).
         else if (abs.slice(abs.lastIndexOf('/') + 1) === '.gitignore') structural = true;
+        // The `package.json` files from the config's dir up to the root decide `runByScript`; no
+        // re-glob needed for them.
+        else if (configPath !== undefined && scriptManifests(configPath, root).includes(abs))
+          scriptsChanged = true;
       }
       version++;
       diskVersion++;
       if (structural) loadFileList();
+      else if (scriptsChanged && configPath !== undefined)
+        shape = { ...shape, runByScript: namedByScript(configPath, root) };
       return structural;
     },
     version: () => version,
@@ -323,7 +336,7 @@ function parseConfig(
     };
     return { parsed, shape: NO_CONFIG_SHAPE };
   }
-  return parseConfigFile(configPath);
+  return parseConfigFile(configPath, root);
 }
 
 function isTsLike(p: string): boolean {

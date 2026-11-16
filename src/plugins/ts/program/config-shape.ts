@@ -16,7 +16,8 @@ export interface ConfigShape {
   readonly references: readonly string[];
   /** No `files` / `include` anywhere in the chain → TS globs every file under the config's dir. */
   readonly defaultFileSet: boolean;
-  /** A script of the `package.json` beside it names its basename (`tsc -p tsconfig.base.json`). */
+  /** A script of a `package.json` in its dir or any dir above it up to the workspace root names its
+   *  basename (`tsc -p tsconfig.base.json`, `tsc -p packages/lib/tsconfig.build.json`). */
   readonly runByScript: boolean;
 }
 
@@ -28,22 +29,39 @@ export const NO_CONFIG_SHAPE: ConfigShape = {
   runByScript: false,
 };
 
-function namedByScript(configPath: string): boolean {
-  const manifest = ts.readConfigFile(
-    path.join(path.dirname(configPath), 'package.json'),
-    ts.sys.readFile,
-  );
-  const scripts: unknown = (manifest.config as { scripts?: unknown } | undefined)?.scripts;
-  if (typeof scripts !== 'object' || scripts === null) return false;
+/** The `package.json` paths whose scripts decide `runByScript`: the config's dir and each dir above
+ *  it up to `root` (a config outside `root` looks at its own dir only). */
+export function scriptManifests(configPath: string, root: string): string[] {
+  const top = toPosix(root);
+  const out: string[] = [];
+  let dir = toPosix(path.dirname(configPath));
+  for (;;) {
+    out.push(`${dir}/package.json`);
+    if (dir === top || !dir.startsWith(`${top}/`)) return out;
+    dir = path.posix.dirname(dir);
+  }
+}
+
+/** Re-read on a reindex naming one of `scriptManifests` (single.ts), without re-parsing the config.
+ *  A basename match is the conservative reading: a false hit only keeps a config in the gate. */
+export function namedByScript(configPath: string, root: string): boolean {
   const base = path.basename(configPath);
-  return Object.values(scripts).some((s) => typeof s === 'string' && s.includes(base));
+  return scriptManifests(configPath, root).some((manifest) => {
+    const read = ts.readConfigFile(manifest, ts.sys.readFile);
+    const scripts: unknown = (read.config as { scripts?: unknown } | undefined)?.scripts;
+    if (typeof scripts !== 'object' || scripts === null) return false;
+    return Object.values(scripts).some((s) => typeof s === 'string' && s.includes(base));
+  });
 }
 
 function declaresFileSet(raw: unknown): boolean {
   return typeof raw === 'object' && raw !== null && ('files' in raw || 'include' in raw);
 }
 
-export function parseConfigFile(configPath: string): {
+export function parseConfigFile(
+  configPath: string,
+  root: string,
+): {
   parsed: ts.ParsedCommandLine;
   shape: ConfigShape;
 } {
@@ -71,7 +89,7 @@ export function parseConfigFile(configPath: string): {
       defaultFileSet:
         !declaresFileSet(text.config) &&
         !entries.some((e) => declaresFileSet(e.extendedConfig?.raw)),
-      runByScript: namedByScript(configPath),
+      runByScript: namedByScript(configPath, root),
     },
   };
 }

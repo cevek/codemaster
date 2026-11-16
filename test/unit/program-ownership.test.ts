@@ -211,14 +211,26 @@ test('parseConfigFile: the extends chain is the one TS resolves; include anywher
     return (configFile?.extendedSourceFiles ?? []).map((f) => f.split(path.sep).join('/'));
   };
 
-  const b = parseConfigFile(base).shape;
+  const b = parseConfigFile(base, dir).shape;
   assert.deepEqual([...b.extends].sort(), oracle(base).sort());
   assert.equal(b.defaultFileSet, true);
   assert.equal(b.runByScript, false);
 
-  const l = parseConfigFile(inherits).shape;
+  const l = parseConfigFile(inherits, dir).shape;
   assert.deepEqual([...l.extends].sort(), oracle(inherits).sort());
   assert.equal(l.extends.length, 3, 'array extends and the nested chain');
   assert.equal(l.defaultFileSet, false, 'include inherited from an extended config');
   assert.equal(l.runByScript, true);
+
+  // A nested config run from the workspace root's scripts, its own package.json script-less.
+  const nested = write('packages/lib/tsconfig.build.json', { compilerOptions: {} });
+  write('packages/lib/package.json', { name: 'lib' });
+  assert.equal(parseConfigFile(nested, dir).shape.runByScript, false);
+  write('package.json', { scripts: { build: 'tsc -p packages/lib/tsconfig.build.json' } });
+  assert.equal(parseConfigFile(nested, dir).shape.runByScript, true, 'root manifest names it');
+  assert.equal(
+    parseConfigFile(nested, path.join(dir, 'packages/lib')).shape.runByScript,
+    false,
+    'manifests above the workspace root are not read',
+  );
 });

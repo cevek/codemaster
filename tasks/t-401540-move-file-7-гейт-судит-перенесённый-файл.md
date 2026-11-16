@@ -90,3 +90,10 @@ Inbox: «move_file typecheck gate judges a moved .tsx by tsconfig.base.json…»
 - На исправленном дереве `move_file --apply` обоих переносов (HostName.tsx → sidebar/, countBackfill.ts → sessions/api/) проходит в свежей копии с нотой «skipped tsconfig.base.json». После этого `pnpm --filter ./apps/server typecheck`, `pnpm --filter ./apps/web typecheck` и корневой `tsc -p tsconfig.json` (TS 7.0.2 проекта) дают exit 0. Bare-спецификатор `@claude-ui/protocol` сохранён.
 - Каждый e2e в `test/e2e/move-workspace-gate.test.ts` краснеет на откате своего фикса: C, source-пара B, root-ness B, предикат A. Ключ кэша с `moves` краснеет в `program-gate-cache.test.ts`.
 - Последствие root-ness: unimported `declare global`, перенесённый вне всех glob, больше не рутуется primary-фолбэком. Гейт отказывает ДО записи, а не откатом после. Прежний e2e на расширенный рекчек переписан на отказ; e2e-покрытие пути `claimDivergence` → откат потеряно → t-147277.
+
+
+## Ревью кода, круг 1 (cc9aec7)
+- architecture и bug, [BLOCK] — `runByScript` не инвалидировался при правке `package.json`. Теперь `reindex` с любым из `scriptManifests` пересчитывает флаг без re-glob; e2e warm→правка scripts→гейт.
+- bug, [BLOCK] — скрипт корневого `package.json` (`tsc -p packages/lib/tsconfig.build.json`) не учитывался. Теперь читаются manifests от папки конфига до корня воркспейса; совпадение по basename консервативно: ложное совпадение только оставляет конфиг в гейте.
+- bug, [BLOCK] — оставленный bare-спецификатор capture проверял под опциями primary, и `paths` dest-программы мог тихо перенаправить имя. Теперь спецификатор остаётся, только если КАЖДАЯ программа, чей glob владеет новым путём, разрешает его в тот же файл (`resolvesSameUnderOwners`); иначе работает прежний emit. e2e с shadow-`paths`.
+- Живая проверка повторена на свежей копии claude-ui: оба переноса применяются, typecheck server/web/root даёт exit 0.
