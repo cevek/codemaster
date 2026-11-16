@@ -7,6 +7,7 @@ import { offsetOfLoc } from './spans.ts';
 import { searchSymbols } from './search.ts';
 import { declarationsOnLine, topLevelDeclarationsNamed } from './declarations-on-line.ts';
 import { LINE_DECL_PREVIEW, lineMissMessage } from './resolve-line-message.ts';
+import { nameInFileMissMessage } from './name-in-file-miss.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { ambiguityMessage, distinctDeclarations } from './ambiguity.ts';
 import { resolveSymbolId } from './rebind-symbol-id.ts';
@@ -92,19 +93,10 @@ function resolveNameInFile(h: TsProjectHost, name: string, file: string): Resolv
   const decls = topLevelDeclarationsNamed(sourceFile, name);
   const sole = decls[0];
   if (sole === undefined) {
-    // NOT "the file declares no such symbol": this walk anchors bare-identifier declarations, so
-    // a top-level BINDING PATTERN (`export const { alpha } = …`), a namespace import/export
-    // (`import * as X` / `export * as X`) and an object-literal property are invisible to it while
-    // the file plainly declares them. Report that capability limit and nothing wider (§3.6): a
-    // workspace `name` search DOES find some of these (an import alias, a binding pattern) and
-    // misses others (`export * as ns`), and where it finds one it may be a same-named twin in
-    // another file — so it is offered as a maybe, never as the thing that settles the question.
-    // A POSITION always settles it. The blind spot itself, and its second consumer (the §6
-    // rebind), is t-561552.
-    return {
-      ok: false,
-      message: `could not anchor a top-level declaration named '${name}' in ${file} — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a destructured binding / namespace import-export / object-literal property is declared yet missed by THIS lookup. A bare '${name}' (no file) may find it, though it can land a same-named symbol elsewhere; to check without a name, address by position (file:line:col)`,
-    };
+    // NOT "the file declares no such symbol": this walk anchors bare-identifier declarations, so a
+    // top-level binding pattern, a namespace import/export and every below-top-level declaration are
+    // invisible to it (t-561552). The message names what the file does declare under the name.
+    return { ok: false, message: nameInFileMissMessage(h, sourceFile, abs, name, file) };
   }
   if (decls.length > 1) {
     return {

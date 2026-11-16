@@ -64,3 +64,9 @@ f-ajg3iohediep, f-fd373j7hibxu, f-sq3fl6ilt6y6, f-o4uunnlsux2e, f-34x43v6etdjd, 
 
 Ревью кода: bug-reviewer, 1 круг. Раскладка блоков не меняется (новый файл внутри plugins/ts, поле в source-данных) — architecture не нужен.
 Пересечение с t-720126: она сворачивает прозу на L5 (включая navigate `gives:`) при рендере; мой redirect — новая точка эмиссии той же прозы, файлов её плана (mcp/, format/render/fold-prose.ts, source-syntactic.ts) не трогаю; `render-source.ts` — аддитивное поле.
+
+
+## Разбор (по ходу)
+- Факт: TS `getNamedDeclarations` (индекс syntactic-пути) НЕ содержит property assignment объектного литерала (`a: 1`, `load: async () => …`) — только method-синтаксис `load() {}`. Сообщение промаха добирает их отдельным обходом файла, иначе счёт «declares N» был ложным (поймано `resolve-line-miss.test.ts` «a destructuring line»). Следствие: `source {syntactic:true}` по name+file такие свойства тоже не адресует — отдельная дыра syntactic-пути (не чинил).
+- Факт: go-to-definition по позиции destructured binding / import / контекстно-типизированного члена литерала уходит в другую декларацию, но find_usages/expand_type по той же позиции работают с символом на месте (`resolve-line-miss` col 16). Поэтому line-only в сообщении сформулирован как «go-to-definition там печатает другое», а не «позиция недостижима».
+- Проверка self-resolving — LS `getDefinitionAtPosition` на каждый показанный кандидат (≤8), только на пути промаха; брошенный вызов → кандидат по строке, не догадка.
