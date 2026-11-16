@@ -1,161 +1,51 @@
-Базовая ветка репо — та, куда вливаются готовые фичи (по умолчанию дефолтная ветка; если проект
-держит рабочую и релизную порознь, его хвост называет обе) — СТРОГО ВСЕГДА ПРЯМАЯ: фича заходит
-rebase/squash/ff, merge-коммитов в неё не льём. Ограничение — про НЕЁ: внутри фичеветки обычные
-merge-коммиты нормальны, её история всё равно схлопывается сквошем на входе в базовую.
+# codemaster
 
-## Task backlog — use `task-manager` (MCP), don't keep your own
+A stateful, always-on codebase inspector for TS/React repos, built for AI agents: a warm TypeScript
+LanguageService plus domain plugins answer structural / semantic / refactor queries densely and
+proof-carryingly. Its output is read by agents, not humans.
 
-Work is tracked as **plain `.md` files in `tasks/`**, one per file, git-native — this is your
-backlog. **Before starting anything, ask it "what's next?"** (`ready_tasks` / `list_tasks`)
-instead of guessing or holding a mental TODO. MCP tools (preferred) or the `tm` CLI.
+## Invariants (non-negotiable)
 
-**The loop:**
+Required-vs-backlog triage (plan gate, review severity, follow-up tasks) measures against these.
 
-**Slice it any way — `--json | jq`.** Every CLI command takes a global `--json` flag emitting
-raw objects (`[{hash, task:{…}}]`) — pipe to `jq` for shaping the DSL can't express (custom
-columns, aggregates, bare-id scripting). Note the `.task` nesting:
+- **Never lie.** Truth beats speed (an answer in 5–60 s is fine, a wrong one is fatal). Every fact
+  carries a `file:line` proof, uncertainty is explicit (`unresolved` / `partial` / `dynamic`), no
+  silent truncation, what we could not do we say outright. ARCHITECTURE §1, §3.
+- **Never hang.** A hang is worse than a wrong answer: it stops the agent entirely. No unbounded loop,
+  no per-call work that scales with repo size (cache it), long work under a deadline → an honest
+  `ToolFailure{timeout}`, never a spin. ARCHITECTURE §1, §19.
+- **Every external call is wrapped** (TS LS, git, ast-grep, prettier, fs) → `ToolFailure`, never an
+  escaped exception, never a guessed result.
+- **Strict layering.** Imports flow down only: `ops/` → `plugins/` / `support/` / `common/` /
+  `format/` / `core/`; `plugins/` is a strict DAG; `common/` → `core/` only; `core/` → nothing
+  internal. Map and import table: `src/README.md`.
+- **Boundaries are zod-validated** (config, MCP args, IPC). **≤ 300 lines** of code per file — split,
+  never raise the cap.
+- **Tests are an independent oracle**; a fixture is only input. **Tokens are expensive** — dense,
+  coded output.
 
-```
-tm --json list "tag:auth -status:done" | jq -r '.[].task | "\(.id) \(.priority) \(.title)"'
-tm --json list "priority:>=high is:ready" | jq -r '.[].task.id'        # bare ids → feed back into tm
-tm --json list "-status:done" | jq -r 'group_by(.task.fields.area)[] | "\(.[0].task.fields.area//"—"): \(length)"'
-```
+Stack: Node ≥ 22, ESM, strict TS over the raw compiler API (no ts-morph), `node:test`.
 
-- Pick up work → `set_status <id> in-progress`. Pass `expected_hash` from your read to catch a
-  stale view. **Closing is role-dependent.** Solo, you set `done` yourself. Under a manager you
-  stop at `review` and the manager sets `done` after the merge — a track you cannot see merged is
-  a track you cannot close.
-- Uncover new work — incl. an out-of-scope bug/debt, **file it, never drop it** →
-  `create_task "<title>" [parent, depends_on, priority, tags, field=…]`. A subtask is just a
-  task with a `parent`.
-  **In a filed task, address code by SYMBOL — never by line number.** A backlog entry waits weeks
-  before anyone opens it, and by then `foo.ts:214` points at unrelated code — worse than no pointer
-  at all, because it still reads like an exact address and gets trusted as one. Name the function /
-  type / constant plus its file: that survives edits above it, and survives the symbol moving to
-  another file, because the name still finds it and a number never will. Nothing nameable there (a
-  config value, a data row) → anchor on stable content: the key, the section heading, the literal
-  string. Must pin an exact spot → pin it against an immutable revision (`file:line@<sha>`), not
-  against a branch that moves. (A task you open and close the same day is free to cite lines — the
-  rule is about the ones that wait.)
-- Find things → `list_tasks "<query>"` / `search`, GitHub-style DSL (`status:todo
-priority:>=high tag:auth is:ready -is:blocked sort:-priority`); `ready_tasks` /
-  `blocked_tasks` / `tree` for shape; `get_task <id>` for detail; `update_task` /
-  `add_dependency` to wire.
+## Before you act — read
 
-**Trust it:** the files ARE the source of truth — no DB/cache (a `git reset`/branch-switch
-re-actualizes), writes are deterministic & byte-identical (clean merges), a malformed file is
-quarantined not a crash. Each `create_task`/`set_status` edits a tracked file in your working
-tree — **commit those `.md`s with your work.**
+- Changing anything under `src/` or `test/` → `CONTRIBUTING.md` in full (gates, hygiene, done
+  definition) and `ARCHITECTURE.md` §1 + §3; then the § of the subsystem you touch.
+- Adding, moving or importing across modules → `src/README.md`.
+- Writing or moving a test → `test/README.md` and ARCHITECTURE §16.
+- Editing a doc → `ARCHITECTURE.md` is the source of truth; cross-reference it by `§`, never copy it.
+- Filing, triaging or closing a task → CONTRIBUTING "Backlog discipline" in full.
+- Choosing what to work on next → `npm run queue`, not the `ready_tasks` order (it sorts by
+  `priority`, which here only breaks ties — CONTRIBUTING "What to work on next").
 
-Fields: core (`status priority parent depends_on tags`) + project custom fields — run `help` /
-`explain_config` for the live schema. Not set up? `init` then update generated `tasks/config.yml` for this project needs.
+## Gate
 
-Don't forget `git commit` after create/update tasks or set `autocommit` flag.
+`npm run fix-and-check` green before "done". It strips mechanical dead code itself (unused imports via
+eslint, truly-dead exports via knip) — never delete that by hand. Running the full suite →
+`node scripts/with-test-lock.mjs -- npm test`, never bare (CONTRIBUTING "The gate").
 
-**In a git worktree, use the `tm` CLI from THAT worktree, not a shared MCP server.** The server
-resolves the project by walking up from ITS OWN cwd, fixed when it started — so an agent in a
-worktree reads the checkout the server was launched in. Tasks created since your branch was cut
-are simply absent, which is indistinguishable from "no such task", and a write would land in the
-other checkout's file and still answer with a success envelope. Responses do not name the root
-they answered from, so there is nothing to compare.
+## Dogfooding — codemaster runs on this repo
 
-## codemaster
-
-**codemaster** — a stateful, always-on **codebase inspector** for TS/React repos, built for
-AI agents. It indexes a project, keeps a live TypeScript Language Service warm, and answers
-structural / semantic / refactor queries densely and **proof-carryingly** — so agents stop
-grepping. Output is for agents, not humans.
-
-**Orienting in this unfamiliar repo?** Start with `symbols_overview` — one call dumps the repo's
-declared symbol names (fuzzy-narrowable, grouped by tsconfig + kind) so you see what's there
-and match your hunches to REAL names instead of guessing.
-
-## Комментарии в коде — минимум, и адресат у них ИИ
-
-Код этого проекта читают агенты, а не люди (не так — блок исключается целиком:
-`exclude: [claude-md/code-comments]`). Значит комментарий не обучает, не размечает файл на разделы и не
-пересказывает сигнатуру: типы, соседний код и весь файл целиком читатель и так видит.
-
-**Комментарий покупается ровно там, где причину НЕЛЬЗЯ достать из кода:** внешнее ограничение
-(особенность протокола, баг в апстриме, требование формата), неочевидная связь с другим модулем
-(порядок важен из-за того, что делает X), решение, у которого была правдоподобная альтернатива — почему
-выбрана эта. Такое код не выражает в принципе, поэтому оно и не протухает вместе с ним.
-
-**Тест перед тем, как писать: может ли этот комментарий разойтись с реализацией?** Может — значит он
-пересказывает код и писать его не надо. Пересказ гниёт молча: правка кода его не тронет, ревью не
-заметит, а следующий читатель примет за утверждение. Врущий комментарий дороже отсутствующего —
-отсутствующий отправляет читать код, врущий отправляет мимо.
-
-**Инвариант не комментируй — делай невыразимым.** «Сюда нельзя писать», «только положительные»,
-«вызывать после init» — это тип, схема, приватность или порядок в сигнатуре, а не строчка сверху. То,
-что нельзя, должно быть невозможно, а не отговорено.
-
-Не пишем: баннеры-разделители, закомментированный код (его хранит git), docstring-церемонию над
-очевидной сигнатурой, комментарий-заголовок над каждым блоком функции.
-
-**`TODO` работой не считается — вообще.** Незакрытое живёт в бэклоге отдельной таской, и только там:
-комментарий никто не перечитывает, он не ищется запросом, не имеет приоритета и уезжает вместе с
-файлом. Нашёл незакрытое — заводи таску, а не строчку в коде.
-
-Исключение одно: публичный API пакета, который читают СНАРУЖИ — люди или генератор доков. Там
-doc-комментарий сам является продуктом и живёт по своим правилам.
-
-## Чужое рабочее дерево не мутируй
-
-Параллельно с тобой в соседних worktree того же репозитория работают другие агенты, и их деревья
-живые. Читать их можно, менять — нет: ни `git checkout` (включая `git checkout <sha> -- .`), ни
-`restore`, ни `clean`, ни `reset`, ни `stash`.
-
-«Я работаю только на чтение» этого не покрывает: такой checkout не меняет ни строчки в том, что ты
-делаешь, и при этом стирает незакоммиченную работу владельца дерева. HEAD не двигается, в reflog и
-stash пусто, `git status` чист — следов нет нигде, и потеря обнаружится тем, что чужая правка
-перестала действовать.
-
-Нужен файл на каком-то коммите — читай его (`git show <sha>:<path>`), а не выкладывай в дерево.
-
-То же правило записано в промптах воркера и всех ревьюверов. Дублирование здесь намеренное: оно
-стоит нескольких строк, а пропущенная копия стоит чужого рабочего дня, который не восстановить.
-
-## Догфудинг — codemaster жив на этом репозитории
-
-Любой вопрос об идентичности / типе / графе ссылок символа веди через **codemaster MCP**, не grep
-(grep молча пропускает алиасы и ре-экспорты). Каждую шероховатость — как пользователь — сразу кидай
-в его `feedback`: нам нужен догфудинг.
-
-Находишь по пути вне-скоуп баги / архитектурные изъяны — обязательно занеси их в backlog
-(task-manager, см. выше) со всеми нужными тегами. Главное — ЧТОБЫ НАЙДЕННЫЕ ПРОБЛЕМЫ НЕ ПРОПАЛИ.
-
-## Docs — где что лежит (читай, не дублируй)
-
-- **ARCHITECTURE.md** — source of truth: north star (§1), trust contract (§3), layers (§5),
-  debug (§13), tests (§16), roadmap (§17). Читай §1 + §3 перед любой правкой.
-- **src/README.md** — карта модулей + import/layering-контракт.
-- **CONTRIBUTING.md** — рабочие правила: гигиена, тесты, definition of done.
-- **test/README.md** — раскладка тестов.
-
-Кросс-референсь их по `§`; держи этот файл указателем, не копией.
-
-## Принципы (non-negotiable)
-
-- **Never lie.** Trust — весь продукт: правда > скорость (ответ за 5–60 с ок, неверный — фатален).
-  Каждый факт несёт `file:line`-пруф, неопределённость явная, о том, чего не смог, — говоришь прямо.
-- **Never hang.** Вис хуже неверного ответа — он останавливает агента целиком. Каждая операция
-  ограничена: без unbounded-циклов, без per-call работы, масштабирующейся с размером репо (кэшируй),
-  долгое — под дедлайном → честный `ToolFailure{timeout}`, никогда не спин.
-- **Built for the long run.** Поддерживаемость > шорткатов: маленькие single-responsibility модули,
-  строгий лейеринг (импорты только вниз; `ops/` → `plugins/`/`support/`/`common/`/`format/`/`core/`;
-  `plugins/` — строгий DAG; `common/` → только `core/`; `core/` — ничего внутреннего).
-- **Quality is enforced.** `npm run fix-and-check` зелёный перед «готово». Он авто-сносит механический
-  dead-code (unused imports через eslint, truly-dead exports через knip) — не удаляй его руками.
-- **Тесты — независимый оракул** (фикстура = только вход). **Доки — present-state** (git хранит
-  историю). **Токены дороги** — плотный, кодированный вывод.
-
-Stack: Node ≥ 22, ESM, strict TS через сырой compiler API (no ts-morph), `node:test`.
-
-@README.md
-
-@ARCHITECTURE.md
-
-@CONTRIBUTING.md
-
-@test/README.md
+- After an edit to `src/`, a running MCP server serves pre-edit code (the `!! PRE-EDIT` banner says
+  so). Ask current source through the one-shot CLI `node src/bin.ts op <name> '<json>'`, and
+  reproduce broken-looking output there before calling it a regression — a stale daemon is the usual
+  cause. CONTRIBUTING "Self-dev loop".

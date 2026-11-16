@@ -6,7 +6,7 @@ dist/
 # local daemon cache mirrors ~/.codemaster/<repoId>/ — never commit indexes
 .codemaster/
 
-# personal Claude Code settings (permission allowlists); .claude/agents/ stays shared
+# personal Claude Code settings (permission allowlists)
 .claude/settings.local.json
 
 # grep-analysis: generated dumps contain private transcript command text — never commit
