@@ -34,6 +34,7 @@ import {
   touchedStat,
   formatOne,
   gateCoverageNotes,
+  type GateCoverage,
   resolvePrettier,
 } from './mutation-support.ts';
 import {
@@ -191,7 +192,7 @@ export async function applyMutation(
   let baselineDiag: TsDiagnostic[];
   let overlayDiag: TsDiagnostic[];
   let gateProgms: string[];
-  let gateDegraded: string[];
+  let coverage: GateCoverage;
   let claims: GateClaims;
   try {
     claims = ts.overlayClaims(gateScope, touched);
@@ -202,7 +203,7 @@ export async function applyMutation(
     baselineDiag = g.baseline;
     overlayDiag = g.overlay;
     gateProgms = g.programs; // pin the post-apply check to this same program set (symmetry)
-    gateDegraded = g.degraded;
+    coverage = g;
   } catch (thrown) {
     // §1 never-hang: the typecheck gate ran past the budget (BEFORE any write) → honest `timeout`.
     return failTimeoutOr('this refactor', 'ts-ls', thrown);
@@ -218,7 +219,7 @@ export async function applyMutation(
     ...(built?.notes ?? []),
     ...buildNotes,
     ...formatNotes,
-    ...gateCoverageNotes(gateProgms, gateDegraded),
+    ...gateCoverageNotes(coverage),
   ];
   const baseNotes = notes.length > 0 ? { notes } : {};
 

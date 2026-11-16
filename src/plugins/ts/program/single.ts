@@ -21,6 +21,13 @@ import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
+import {
+  NO_CONFIG_SHAPE,
+  namedByScript,
+  parseConfigFile,
+  scriptManifests,
+  type ConfigShape,
+} from './config-shape.ts';
 import { isTsconfigBasename } from './discover.ts';
 import type { FileVersions } from './file-versions.ts';
 import { realpathOf, type WorkspaceLinks } from './workspace-links.ts';
@@ -48,6 +55,8 @@ export interface SingleProgram {
    *  question for a not-yet-created move/extract DEST, so the program that owns the dest joins the
    *  cross-program write gate and typechecks the moved file under ITS compilerOptions (membership.ts). */
   mayContain(absPosix: string): boolean;
+  /** Its config's `extends` chain and whether its file set is TS's default glob (config-shape.ts). */
+  configShape(): ConfigShape;
   /** Apply a changed set; returns `true` when the change was structural for THIS program (a
    *  tracked file added/removed → the file list was re-globbed). */
   reindex(changed: readonly RepoRelPath[]): boolean;
@@ -113,9 +122,10 @@ export function createSingleProgram(
 
   const configDir = configPath !== undefined ? path.dirname(configPath) : root;
   let parsed: ts.ParsedCommandLine;
+  let shape: ConfigShape;
   let membership: (absPosix: string) => boolean;
   const loadFileList = (): void => {
-    parsed = parseConfig(root, configPath, links); // (re-)glob: picks up added/removed files
+    ({ parsed, shape } = parseConfig(root, configPath, links)); // (re-)glob: picks up added/removed files
     membership = buildMembership(parsed, configDir, root); // glob predicate, rebuilt on re-glob
     const ignoredJunk = ignored(); // host-memoized: one git call per structural reindex (§19)
     const rootPrefix = `${toPosix(root)}/`;
@@ -169,7 +179,7 @@ export function createSingleProgram(
     let reresolve = false;
     return {
       getScriptFileNames: () =>
-        [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
+        [...new Set([...files.keys(), ...overlay.rootKeys()])].filter((f) => !overlay.isRemoved(f)),
       getScriptVersion: (fileName) => {
         const posix = toPosix(fileName);
         const over = overlay.get(posix);
@@ -252,8 +262,10 @@ export function createSingleProgram(
     isTracked: (absPosix) => files.has(absPosix),
     containsFile: (absPosix) => service.getProgram()?.getSourceFile(absPosix) !== undefined,
     mayContain: (absPosix) => membership(absPosix),
+    configShape: () => shape,
     reindex(changed) {
       let structural = false;
+      let scriptsChanged = false;
       for (const rel of changed) {
         const abs = toPosix(path.join(root, rel));
         if (files.has(abs)) continue; // its version was advanced by the host (`versions`)
@@ -274,10 +286,16 @@ export function createSingleProgram(
         // `.gitignore` in the changed set as structural (else the un-ignored files stay dropped until
         // an unrelated source add/remove — a silent completeness gap, §3.4).
         else if (abs.slice(abs.lastIndexOf('/') + 1) === '.gitignore') structural = true;
+        // The `package.json` files from the config's dir up to the root decide `runByScript`; no
+        // re-glob needed for them.
+        else if (configPath !== undefined && scriptManifests(configPath, root).includes(abs))
+          scriptsChanged = true;
       }
       version++;
       diskVersion++;
       if (structural) loadFileList();
+      else if (scriptsChanged && configPath !== undefined)
+        shape = { ...shape, runByScript: namedByScript(configPath, root) };
       return structural;
     },
     version: () => version,
@@ -286,7 +304,7 @@ export function createSingleProgram(
     rescueService,
     setOverlay(entries, removed = []) {
       overlay.set(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        entries.map((e) => ({ ...e, abs: toPosix(e.abs) })),
         removed.map((r) => toPosix(path.join(root, r))),
       );
       version++;
@@ -298,7 +316,7 @@ export function createSingleProgram(
     withMergedOverlay(entries, removed, fn) {
       const snap = overlay.snapshot();
       overlay.merge(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        entries.map((e) => ({ ...e, abs: toPosix(e.abs) })),
         removed.map((r) => toPosix(path.join(root, r))),
       );
       version++;
@@ -344,17 +362,17 @@ function parseConfig(
   root: string,
   configPath: string | undefined,
   links: WorkspaceLinks | undefined,
-): ts.ParsedCommandLine {
+): { parsed: ts.ParsedCommandLine; shape: ConfigShape } {
   if (configPath === undefined) {
-    return {
+    const parsed: ts.ParsedCommandLine = {
       options: { allowJs: true, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
       fileNames: ts.sys
         .readDirectory(root, ['.ts', '.tsx', '.js', '.jsx'], ['node_modules', 'dist', 'build'], [])
         .map(toPosix),
       errors: [],
     };
+    return { parsed, shape: NO_CONFIG_SHAPE };
   }
-  const text = ts.readConfigFile(configPath, ts.sys.readFile);
   // An `extends: '@scope/config/base.json'` resolves through `node_modules` like an import does.
   const host: ts.ParseConfigHost =
     links === undefined
@@ -376,13 +394,7 @@ function parseConfig(
           // over a real link — its `include` globs then land on the member's real files.
           realpath: (f) => realpathOf(links.translate(toPosix(f)) ?? f),
         };
-  return ts.parseJsonConfigFileContent(
-    text.config ?? {},
-    host,
-    path.dirname(configPath),
-    undefined,
-    configPath,
-  );
+  return parseConfigFile(configPath, root, host);
 }
 
 function isTsLike(p: string): boolean {

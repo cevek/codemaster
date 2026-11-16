@@ -21,6 +21,7 @@ import {
   touchedStat,
   formatOne,
   gateCoverageNotes,
+  type GateCoverage,
   resolvePrettier,
 } from './mutation-support.ts';
 import {
@@ -122,11 +123,15 @@ export async function applyRefactorPlan(
   // importer under a sibling tsconfig is verified too, so a dangling import the primary program
   // can't see is caught. `anchor` (touched + moved-away paths) picks the affected programs; the
   // same whole-tree `checkPaths` fans to each (each program diagnoses the files it contains).
-  const gateScope = { anchor: [...touched, ...plan.removed], check: plan.checkPaths };
+  const gateScope = {
+    anchor: [...touched, ...plan.removed],
+    check: plan.checkPaths,
+    moves: plan.moves,
+  };
   let baselineDiag: TsDiagnostic[];
   let diag: TsDiagnostic[];
   let gateProgms: string[];
-  let gateDegraded: string[];
+  let coverage: GateCoverage;
   let claims: GateClaims;
   try {
     claims = ts.overlayClaims(
@@ -139,7 +144,7 @@ export async function applyRefactorPlan(
     baselineDiag = g.baseline;
     diag = g.overlay;
     gateProgms = g.programs; // pin post-apply to this set (a move shifts program membership)
-    gateDegraded = g.degraded;
+    coverage = g;
   } catch (thrown) {
     // §1 never-hang: the typecheck gate ran past the budget (BEFORE any write) → honest `timeout`.
     return failTimeoutOr(`this ${opts.refusalLabel}`, 'ts-ls', thrown);
@@ -170,7 +175,7 @@ export async function applyRefactorPlan(
 
   // Built AFTER the gate so the cross-program coverage (programs checked / broken siblings skipped)
   // rides on every envelope — a 1-program check never reads as repo-wide (§3.6 / §6).
-  notes.push(...gateCoverageNotes(gateProgms, gateDegraded));
+  notes.push(...gateCoverageNotes(coverage, remapBaselineFile));
   const baseNotes = {
     ...(notes.length > 0 ? { notes } : {}),
     ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),

@@ -1,7 +1,7 @@
 ---
 id: t-037355
 title: 'move_file гейт: программа, достающая пакет транзитивно (node_modules/workspace-ссылка), получает переписанный импортёр без нового dest → ложный Cannot find module'
-status: backlog
+status: done
 priority: high
 created_by_session: s-207994
 type: bug

@@ -112,19 +112,45 @@ export function buildTypecheckField(
   };
 }
 
+/** What the gate reports about the programs its verdict rests on (`GateResult`'s coverage half). */
+export interface GateCoverage {
+  readonly programs: readonly string[];
+  readonly degraded: readonly string[];
+  readonly skipped: readonly string[];
+  readonly advisory: readonly {
+    readonly baseline: readonly TsDiagnostic[];
+    readonly overlay: readonly TsDiagnostic[];
+  }[];
+}
+
+const ADVISORY_DIAG_CAP = 5;
+
 /** The §2.8 cross-program gate's coverage, as envelope notes: how many programs the verdict rests
  *  on (so a 1-program check is never mistaken for a repo-wide one), and any SIBLING program whose LS
  *  threw and was skipped — a dangle only that program would catch is honestly reported as not gated
  *  (§3.6). Surfaced on every envelope (dry-run / refused / applied). */
-export function gateCoverageNotes(
-  programs: readonly string[],
-  degraded: readonly string[],
-): string[] {
+export function gateCoverageNotes(gate: GateCoverage, remap?: BaselinePathRemap): string[] {
+  const { programs, degraded, skipped } = gate;
   const out: string[] = [];
   // Only when the gate ACTUALLY fanned across >1 program — in a single-tsconfig repo (the common
   // case) "checked 1 program" is pure noise (§12 token-thrift). A degraded sibling is always shown.
   if (programs.length > 1) {
     out.push(`§2.8 gate checked ${programs.length} programs: ${programs.join(', ')}`);
+  }
+  if (skipped.length > 0) {
+    // Advisory, not skipped silently: whether the project runs such a config is not provable from
+    // the repo, so what only it reports is shown with its place and left to the reader.
+    const introduced = gate.advisory.flatMap((a) =>
+      introducedDiagnostics(a.baseline, a.overlay, remap),
+    );
+    const shown = introduced
+      .slice(0, ADVISORY_DIAG_CAP)
+      .map((d) => `${d.file}:${d.line} ${d.message.replace(/\s+/g, ' ').slice(0, 160)}`);
+    const more =
+      introduced.length > shown.length ? ` (+${introduced.length - shown.length} more)` : '';
+    out.push(
+      `§2.8 gate judged ${skipped.length} extends-only base config(s) as ADVISORY (no files/include of their own; typechecked through the configs that extend them): ${skipped.join(', ')} — ${introduced.length === 0 ? 'no error introduced under them' : `${introduced.length} error(s) introduced under them do NOT block; real if your typecheck runs these configs: ${shown.join(' | ')}${more}`}`,
+    );
   }
   if (degraded.length > 0) {
     out.push(
