@@ -122,7 +122,6 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
 
   const importers: ImporterRow[] = [];
   const seen = new Set<string>(); // `at` (file:line) — a statement two programs both see counts once
-  const sys = host.workspaceLinks().resolutionHost;
 
   // Resolve EACH loaded program's OWN files under ITS OWN compilerOptions, then row-dedup by `at`.
   // We deliberately do NOT use programFileGroups' primary-first FILE dedup: under a loose root the
@@ -137,12 +136,14 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
     if (program === undefined) continue;
     const options = program.getCompilerOptions();
     const cache = new Map<string, string | undefined>(); // per-program: options differ
+    const sys = host.workspaceLinks().resolutionHost(options);
     for (const sourceFile of program.getSourceFiles()) {
       if (sourceFile.fileName.includes('/node_modules/')) continue;
       for (const stmt of sourceFile.statements) {
         const spec = moduleSpecifierOf(stmt);
         if (spec === undefined) continue;
-        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache, sys)) continue;
+        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache, sys))
+          continue;
         const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
         const at = `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`;
         if (seen.has(at)) continue;

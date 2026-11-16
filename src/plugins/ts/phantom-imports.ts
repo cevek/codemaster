@@ -60,7 +60,7 @@ export function nodeModuleImports(host: TsProjectHost): NodeModuleImportSite[] {
           sourceFile.fileName,
           options,
           cache,
-          host.workspaceLinks().resolutionHost,
+          host.workspaceLinks().resolutionHost(options),
         );
         if (resolved === undefined || !resolved.includes('/node_modules/')) continue;
         const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));

@@ -79,3 +79,22 @@ Inbox: «find_usages omits known re-exported workspace consumers» (2026-11-16T0
 
 
 Менеджер OK по 0d1d746: полная половина + write path включён + floor как запасной путь. Условия DONE: (1) claude-ui без node_modules → find_usages systemText = 6; entry → src находит, entry → несобранный dist → floor со спецификатором; (2) Disclosure через ledger (§3.6) на каждом ответе, чей резолв прошёл через эмулированную ссылку (find_usages, impact, impact_type_error, гейт мутации); (3) тест write path: move_file/rename внутри пакета, потребляемого через `@scope/pkg` — спецификаторы остаются `@scope/pkg/…`, правки не касаются эмулированного пути; (4) architecture-reviewer 1 круг.
+
+
+## Поправки к плану (после plan-ревью и OK)
+- Политика ссылок сужена до случаев, где результат известен без semver-решателя: pnpm — только `workspace:`; npm/yarn — `*` или точная версия члена. Реальный `node_modules/<name>` у потребителя или у любого предка до корня → ссылки нет. Имя, общее для двух членов, → ссылки нет.
+- Единая видимость ссылок: `WorkspaceLinks.resolutionHost(options)` используют `resolveSpecifier` / `resolveModuleArg`, классификатор unused-exports, `refactor/imports/resolve.ts`, хосты capture (forward и reverse) и `extends` в `parseConfig`. При `preserveSymlinks` возвращается `ts.sys`, то есть то же, что видит такая программа.
+- Тёплая свежесть: правка `package.json` / `pnpm-workspace.yaml` → `links.refresh()` (generation++) → на следующей сборке каждая программа резолвит заново через `hasInvalidatedResolutions` (`@internal` у `LanguageServiceHost`, но LS его читает). Пиннится тестом warm в `test/differential/workspace-links.test.ts`. Для этих сигналов закрывает и минимальный исход t-710809 (кроме lockfile).
+- Провенанс — не строка в `status`, а envelope-claim `unsafe=resolution-matches-the-trees-own-tsc` через `discloseAtEnd` (ledger, вычисляется после op'а; продюсер в `warm()` ts-плагина). Его видят все LS-backed ответы, включая гейт мутаций. Гранулярность — уровень хоста: claim ставится, если хоть одна программа сессии шла через эмулированную ссылку. По-ответной точности нет — это сознательная переоценка в безопасную сторону.
+- Мемо floor: ключ = generation ⊕ `projectVersion` ⊕ метки программ (ловит допуск программы через `ensureProgramFor` / `programs:`).
+
+## Факты, вскрытые по ходу
+- TS проверяет существование `<dir>/node_modules` (и `@scope`) ДО заглядывания внутрь. Без синтетических каталогов-предков (`isSyntheticDir`) эмуляция молча не работает: карта на 185 ссылок, `used` непуст, а программа файл не содержит. Первая версия на этом и споткнулась.
+- Зеркальный `node_modules` в снапшотах claude-ui (`mirrorNodeModules`) сохраняет относительные pnpm-ссылки: все 236 относительные, ведут внутрь копии. Гипотеза «ссылка уводит за root» опровергнута. Реальная остаточная форма — зеркало с live-`base` расходится с ревизией снапшота; её закрывает эмуляция, потому что путь ссылки не существует.
+- `move_file` внутри пакета, потребляемого через `@scope/pkg`, даёт ложный dangle в гейте и на НАСТОЯЩЕЙ установке → t-037355. Эмуляция делает его видимым на снапшотах. Тест пиннит «emulated ≡ installed», включая этот вердикт.
+- `importers_of {module:'@scope/pkg'}` резолвит аргумент от корня репо → `resolved:false` и на установке → t-366658.
+- Остальные потребители floor → t-715754.
+
+## Не сделано / непонятно
+- `coverage.ts` и `config-membership.ts` парсят tsconfig через `ts.sys`: `extends` из workspace-пакета, задающий `include`, там не увидит ссылку. Расхождение только в file-set membership, редкий случай; не чинил.
+- Перепарс tsconfig при смене карты ссылок не делается (только при структурном reindex).

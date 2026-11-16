@@ -60,7 +60,7 @@ export function findImportersSubtree(
           sourceFile.fileName,
           options,
           cache,
-          host.workspaceLinks().resolutionHost,
+          host.workspaceLinks().resolutionHost(options),
         );
         if (resolved !== undefined) {
           if (!toPosix(resolved).startsWith(prefix)) continue; // resolves, but not under the tree

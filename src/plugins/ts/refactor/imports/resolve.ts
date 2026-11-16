@@ -52,7 +52,7 @@ export function resolveSpecifierToNode(
     spec,
     importerInitialAbs,
     options,
-    host.workspaceLinks().resolutionHost,
+    host.workspaceLinks().resolutionHost(options),
   ).resolvedModule?.resolvedFileName;
   if (resolved !== undefined) return tree.findByInitialPath(host.relOf(resolved));
   // The TS resolver declined (a CSS-module import, or an unmapped specifier). Probe the tree

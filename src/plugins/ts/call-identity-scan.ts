@@ -99,7 +99,7 @@ export function buildByIdentityModel(host: TsProjectHost, spec: CallMatchSpec): 
       const ctx: SpecCtx = {
         targetAbs: resolvedTarget,
         options: program.getCompilerOptions(),
-        sys: host.workspaceLinks().resolutionHost,
+        sys: host.workspaceLinks().resolutionHost(program.getCompilerOptions()),
         simpleLeaves,
         dottedBases,
         dottedByBase,

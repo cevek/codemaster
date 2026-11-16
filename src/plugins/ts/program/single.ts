@@ -326,7 +326,9 @@ function loadRescueTs(): typeof ts | undefined {
 
 /** `hasInvalidatedResolutions` is read by the LS (`synchronizeHostData`) but `@internal` on
  *  `LanguageServiceHost`; ls-host-workspace-links.test pins that a manifest change re-resolves. */
-type ReresolvingHost = ts.LanguageServiceHost & { hasInvalidatedResolutions(path: string): boolean };
+type ReresolvingHost = ts.LanguageServiceHost & {
+  hasInvalidatedResolutions(path: string): boolean;
+};
 
 function parseConfig(
   root: string,
@@ -350,8 +352,8 @@ function parseConfig(
       : {
           useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
           readDirectory: ts.sys.readDirectory,
-          fileExists: (f) => links.resolutionHost.fileExists(f),
-          readFile: (f) => links.resolutionHost.readFile(f),
+          fileExists: (f) => links.resolutionHost({}).fileExists(f),
+          readFile: (f) => links.resolutionHost({}).readFile(f),
         };
   return ts.parseJsonConfigFileContent(
     text.config ?? {},

@@ -106,7 +106,7 @@ export function assemblePlan(
     overlay !== undefined ? { files: overlay.files, removed: overlay.removed } : undefined;
   const captures = detectImportCaptures(
     options,
-    host.workspaceLinks().resolutionHost,
+    host.workspaceLinks().resolutionHost(options),
     rewrites,
     overlayFiles,
     removed,

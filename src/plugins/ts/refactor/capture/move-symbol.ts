@@ -147,7 +147,7 @@ export function detectMoveSymbolCaptures(
   const rewrites = reconstructRewrites(host, plan, destAbs, movedName);
   return detectImportCaptures(
     options,
-    host.workspaceLinks().resolutionHost,
+    host.workspaceLinks().resolutionHost(options),
     rewrites,
     plan.overlayFiles,
     plan.removed,

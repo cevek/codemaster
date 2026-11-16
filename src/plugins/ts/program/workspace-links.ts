@@ -35,8 +35,9 @@ export interface WorkspaceLinks {
    *  this repo's own package. */
   memberNames(): ReadonlySet<string>;
   /** `ts.sys` seen through the links — for module resolution outside an LS program, so an
-   *  out-of-program resolve agrees with what the programs themselves resolved. */
-  readonly resolutionHost: ts.ModuleResolutionHost;
+   *  out-of-program resolve agrees with what a program under `options` resolved (a
+   *  `preserveSymlinks` program sees no links, so neither does its resolve). */
+  resolutionHost(options: ts.CompilerOptions): ts.ModuleResolutionHost;
   /** Drop the map (a `package.json` / workspace-manifest change); rebuilt on the next lookup. */
   refresh(): void;
   /** Bumps on every `refresh` — a program whose resolutions predate it must re-resolve. */
@@ -94,7 +95,7 @@ export function createWorkspaceLinks(
     used: () => [...used].sort(),
     count: () => links().size,
     memberNames: () => current().members,
-    resolutionHost,
+    resolutionHost: (options) => (options.preserveSymlinks === true ? ts.sys : resolutionHost),
     refresh() {
       table = undefined;
       used.clear();

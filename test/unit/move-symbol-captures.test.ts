@@ -15,8 +15,12 @@ import type { RefactorPlan } from '../../src/plugins/ts/refactor/plan.ts';
 import { detectMoveSymbolCaptures } from '../../src/plugins/ts/refactor/capture/move-symbol.ts';
 
 const ROOT = '/virt';
-// detectMoveSymbolCaptures + its callees touch ONLY `host.absOf` — a minimal fake is faithful.
-const fakeHost = { absOf: (rel: RepoRelPath) => path.join(ROOT, rel) } as unknown as TsProjectHost;
+// detectMoveSymbolCaptures + its callees touch ONLY `host.absOf` and the disk view under the overlay
+// (here plain `ts.sys` — a tree with no workspace links) — a minimal fake is faithful.
+const fakeHost = {
+  absOf: (rel: RepoRelPath) => path.join(ROOT, rel),
+  workspaceLinks: () => ({ resolutionHost: () => ts.sys }),
+} as unknown as TsProjectHost;
 const OPTIONS: ts.CompilerOptions = {
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler,

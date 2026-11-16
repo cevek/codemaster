@@ -78,7 +78,7 @@ export interface RewrittenImport {
  *  are the post-edit TS contents at their CURRENT paths; `removed` are tombstoned old paths. */
 export function detectImportCaptures(
   options: ts.CompilerOptions,
-  /** The host's link-aware disk view (`workspaceLinks().resolutionHost`) the overlay sits on. */
+  /** The host's link-aware disk view (`workspaceLinks().resolutionHost(options)`) the overlay sits on. */
   base: ts.ModuleResolutionHost,
   rewrites: readonly RewrittenImport[],
   overlayFiles: readonly { path: RepoRelPath; content: string }[],
@@ -137,7 +137,7 @@ export function detectReverseImportCaptures(
   for (const f of overlayFiles) afterContent.set(toPosix(host.absOf(f.path)), f.content);
   const removedAbs = new Set(removed.map((r) => toPosix(host.absOf(r))));
   const newArrivalAbs = new Set(newArrivals.map((p) => toPosix(host.absOf(p))));
-  const base = host.workspaceLinks().resolutionHost;
+  const base = host.workspaceLinks().resolutionHost(options);
   const postHost = postMoveResolutionHost(removedAbs, afterContent, base);
   // Sites the FORWARD pass already owns — never double-flag a specifier we deliberately rewrote.
   const rewrittenSites = new Set(

@@ -44,7 +44,6 @@ export function unresolvedWorkspaceImports(
   const memo = memos.get(host);
   if (memo?.key === key) return memo.value;
 
-  const sys = host.workspaceLinks().resolutionHost;
   const unresolved = new Map<string, { pkg: string; spec: string }>(); // `file:line` → what it names
   const resolved = new Set<string>(); // a site some program resolves is not lost
   for (const p of programs) {
@@ -52,6 +51,7 @@ export function unresolvedWorkspaceImports(
     if (program === undefined) continue;
     const options = program.getCompilerOptions();
     const cache = new Map<string, string | undefined>();
+    const sys = host.workspaceLinks().resolutionHost(options);
     for (const sourceFile of program.getSourceFiles()) {
       if (sourceFile.fileName.includes('/node_modules/')) continue;
       for (const stmt of sourceFile.statements) {
@@ -109,4 +109,3 @@ export function unresolvedWorkspaceNote(
 function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
-
