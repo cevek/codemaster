@@ -1,7 +1,7 @@
 ---
 id: t-403708
 title: find_usages / member_usages молча теряют межпакетных потребителей, импортирующих символ через workspace-пакет (снапшот без node_modules)
-status: in-progress
+status: review
 priority: high
 parent: t-982648
 tags:
@@ -98,3 +98,28 @@ Inbox: «find_usages omits known re-exported workspace consumers» (2026-11-16T0
 ## Не сделано / непонятно
 - `coverage.ts` и `config-membership.ts` парсят tsconfig через `ts.sys`: `extends` из workspace-пакета, задающий `include`, там не увидит ссылку. Расхождение только в file-set membership, редкий случай; не чинил.
 - Перепарс tsconfig при смене карты ссылок не делается (только при структурном reindex).
+
+
+## Ревью кода
+- bug-reviewer, круг 1 (515a155): 6 BLOCK, все исправлены в 5749868 —
+  - `workspace:`-алиас;
+  - TDZ при пакетном `extends` у primary;
+  - новый `package.json` на тёплом хосте (сброс обхода);
+  - режим резолва сайта в floor;
+  - ключ сайта `file:offset`;
+  - перепарс tsconfig при смене карты ссылок.
+- architecture-reviewer, 1 круг (515a155): BLOCK = тот же TDZ; should-fix —
+  - маркеры re-resolve на каждый LS-хост (rescue);
+  - `unresolvedWorkspaceNote` через публичную поверхность `plugin.ts`;
+  - формулировки §5-L2.
+
+  Всё исправлено.
+- bug-reviewer, круг 2 (5749868): 5 BLOCK. Это потолок кругов, исправлены без нового круга в 7b3b5c3:
+  - конфликт спецификаций между полями зависимостей → ссылки нет;
+  - `workspace:<range>` принимается только как `*`/`^`/`~` или тривиально выполнимый собственной версией члена;
+  - корень pnpm — член workspace;
+  - `realpath`/`readDirectory`/`directoryExists` в хосте разбора tsconfig (баг затрагивал и реальную установку: `extends` через симлинк терял `include`);
+  - `import x = require()` в floor.
+
+## Факты
+- `ts.ParseConfigHost` без `realpath` оставляет путь extended-конфига под `node_modules`. Его `include` тогда считаются от синтетического каталога, и файлы теряются — и на эмуляции, и на настоящем симлинке. `ts.sys` канонизировал путь сам, поэтому до этого трека проблемы не было. Тест в `workspace-links-write.test.ts` падает при снятом `realpath` (проверено hold-правкой).
