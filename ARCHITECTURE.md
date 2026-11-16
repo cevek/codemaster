@@ -1572,13 +1572,21 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   catalogue — every op's arg schema + per-op notes + columns + example (capped at the MCP seam,
   §12, so nothing is silently lost); **`op:"<name>"`** renders one op's full detail on demand
   (cheaper than re-emitting the whole catalogue to re-read one op). **`brief: true`** is a
-  back-compat alias of the terse default. It also carries the **self-staleness** line
+  back-compat alias of the terse default. Within one MCP session a repeat terse `status` states the
+  catalogue as a diff against what that session was already shown (`same as shown earlier` / `+`/`-`
+  lines) and names the concepts by id instead of re-printing them (`format/render/render-status-recall.ts`);
+  `full`/`op` always list in full. **`concept:"<id>"`** prints one folded explanation (§12) in full,
+  whatever the session has seen. The header names the serving process's **build id** (§13). It also
+  carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the per-op/`batch` responses prepend — on
   EVERY stale response, not just the first — the one-line banner
   ([`format/render/render-status.ts`](src/format/render/render-status.ts) `sourceStaleBanner`, its
   ONE home, shared so the two surfaces cannot drift; a multi-edit session must be warned on every
-  answer it acts on). It is a PREFIX so the render cap (which trims the tail) can never lose it and
+  answer it acts on). It is an alarm, not an explanation: session folding (§12) never drops it — after
+  its first full showing in a session the op/batch prefix is its short form
+  (`!! PRE-EDIT codemaster: ANALYSIS older than its src/ (your data is fresh) [pre-edit]`), and
+  `status {concept:"pre-edit"}` prints the full one. It is a PREFIX so the render cap (which trims the tail) can never lose it and
   it never lands inside a batch's per-section JSON; suppressed in `format:'json'` (a prefix would
   corrupt the single bare-JSON payload — json consumers read the structured `sourceStale` from
   `status`) and silent where the source can't be located (global/`npx` — §19).
@@ -1689,6 +1697,24 @@ one-line legend + sectioned summary). Rules:
   envelope. This is the backstop that makes the ceiling a guarantee for EVERY op regardless of its
   own capping; the size test matrix (`test/e2e/mcp-response-size.test.ts`) asserts it per-op ×
   per-mode.
+- **Session prose folding (the MCP facade only).** Repeated static explanation is a **lesson**
+  (`common/lesson`: `{id, full, short, scope}`); a producer interpolates `full` verbatim next to its
+  facts, so the `Result` — and with it `format:'json'`, sql tables, the CLI and every cold/warm
+  comparison — is byte-identical whether or not anything folds. The registry is one list
+  (`ops/lesson-catalogue.ts` + the facade's own, `mcp/lessons.ts`). `serveMcp {session:true}` (set by
+  `bin.ts`; off by default) remembers per client connection which lessons it delivered
+  (`mcp/session-memory.ts`) and renders every later occurrence — in a later answer or later in the
+  same answer (batch sections, multi-target rows) — as `short [id]`: still a claim, never a bare
+  pointer, and `status {concept:"<id>"}` expands it. Folding walks a COPY of the `Result` in render
+  order and never touches span text, `rows`, `diff` or `body` (data that merely looks like prose);
+  disclosures fold as rendered lines so their per-claim grouping holds. A lesson counts as delivered
+  only if its full text is in the FINAL response — after the per-op cap, the batch aggregate cut and
+  the seam cap — so a cut never leaves the reader holding folds of text it never received. A
+  `scope:'root'` lesson (a fact about one repo's surface) folds per root, keyed on the raw
+  request/tool root or cwd: a key mismatch can only show it again, never hide it. Facts (`!!`
+  markers, counts, config names, targets) are never part of a lesson. The guard is behavioural:
+  `test/e2e/session-fold-detector.test.ts` derives static text from two targets' answers in fresh
+  sessions and fails if a second answer in one session repeats any of it.
 - `verbosity = terse | normal | full` lets the agent dial token cost; column
   projection is done with `sql` (SELECT over the op table), not a `fields` flag.
 - `format=json` for machine composition (agent feeding one call into another).
@@ -1858,6 +1884,22 @@ exactly the dump the relay exists for. The cap is PER-LINE with an explicit mark
 budget would mute the relay before the fatal it is for); the stream is NEVER paused (a full pipe
 would block the child — §1 ranks a hang worst); the sink is released on the STREAM's end, not the
 child's `exit`, since a dying child's last bytes are still in the pipe when `exit` fires.
+
+**Build id.** The package version (`package.json`, read by `support/build-id/package-version.ts` — the
+one source; plugins report it too) keys the daemon socket and pidfile, so it never carries a commit:
+a per-commit key would spawn a daemon per commit. The **build id** is separate — `<version>
+@<sha9>[+dirty]`, or `<version> @unknown` when codemaster's own checkout cannot be read
+(`support/build-id/build-id.ts`): git is asked about the package root and its answer is used only when
+the toplevel IS that root, since an install under another project's `node_modules` would otherwise
+report that project's HEAD. Each process computes its own at start — the daemon or in-process server,
+and every engine child (its id stamps `feedback`'s `cm=`) — because code loaded earlier than an edit
+is not the code on disk. The daemon sends it as an optional `build` field on every reply envelope;
+the bridge relays it (`OrchestratorApi.buildId()`), and a daemon that omits it reads as
+`<version> @unknown (daemon predates build ids)` — never the bridge's own build. It shows in the
+`status` header, once per MCP session as a first-line stamp on a text answer (again when it changes),
+in `codemaster daemon status`, and in the MCP `serverInfo.version` (the bridge spends ≤300 ms on one
+`daemon-info` round-trip over its already-open connection before `initialize`; a host proxy may cache
+`initialize`, so that value can lag a restart).
 
 See [`src/core/debug.ts`](src/core/debug.ts).
 
@@ -2073,7 +2115,9 @@ misses). The harness rests on invariants that do:
 3. **Per-plugin `cold == warm`** — for any state reached by a sequence of edits, an op
    asked against the warm daemon's plugin returns the same result as the same op asked
    against a cold-booted daemon's same plugin. This invariant guards per-plugin
-   incremental-update drift (each plugin maintains its own state independently).
+   incremental-update drift (each plugin maintains its own state independently). It is a claim
+   about the op's `Result`; the MCP facade's per-session prose folding (§12) renders that same
+   `Result` and is outside it.
 4. **Edit safety** — dry-run leaves `git status` clean; `diff(dry-run) == diff(apply)`;
    post-apply the edit introduces **no new** `tsc` errors vs the pre-edit baseline (a repo's
    pre-existing errors are reported as a `preExisting` count, never gated on — so an edit applies

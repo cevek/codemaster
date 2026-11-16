@@ -1,7 +1,7 @@
 ---
 id: t-109681
 title: status on a second root re-prints the whole op catalogue and concepts verbatim — ~6KB per root hop, while the DELTA is the information
-status: backlog
+status: review
 priority: medium
 parent: t-786727
 type: dx
@@ -29,3 +29,5 @@ The delta IS the information; the rest is a per-session fact being billed per ca
 
 Same economy class as the other members of this epic: a channel whose content does not vary carries no
 information about THIS answer, and its cost is paid every time.
+
+A repeat terse status within one MCP session states the catalogue as a delta against the one already shown (same root, else the latest root) and names concepts by id (t-720126).

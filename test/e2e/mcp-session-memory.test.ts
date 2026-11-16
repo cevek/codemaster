@@ -178,6 +178,24 @@ test('status: a repeat states the catalogue as unchanged and names the concepts;
   }
 });
 
+test('status on a second root states the catalogue delta against the one already shown', async () => {
+  const files = {
+    'tsconfig.json': '{"compilerOptions":{"strict":true}}',
+    'src/a.ts': 'export const a = 1;\n',
+  };
+  const p = await project(files);
+  const q = await project(files);
+  try {
+    const client = await connect(p.orchestrator);
+    await call(client, 'status', { root: p.root });
+    const hop = await call(client, 'status', { root: q.root });
+    assert.ok(hop.includes(`same as shown earlier this session for ${p.root}`), hop);
+  } finally {
+    await p.dispose();
+    await q.dispose();
+  }
+});
+
 test('status {concept} prints the full text whatever the session saw; an unknown id lists ids', async () => {
   const client = await connect(stub());
   assert.equal(

@@ -1,7 +1,7 @@
 ---
 id: t-941968
 title: source {syntactic:true} prints ~1KB of identical scope doctrine BEFORE every body — a per-session fact billed per call, and it inverts verdict-first
-status: backlog
+status: review
 priority: high
 parent: t-786727
 type: imp
@@ -37,3 +37,6 @@ Note the tension to resolve explicitly, since it is the reason the doctrine was 
 that lives only in `status` is one an agent may never read, and the answer would then assert an unqualified
 surface. The one-line tag must therefore still be a claim, not a pointer — it says what the surface IS and
 where the full statement lives.
+
+## Closed by t-720126
+The scope doctrine is a lesson (syntactic-surface / syntactic-scope / syntactic-source): shown in full once per MCP session, then `short [id]` — a claim, expandable via `status {concept}`. Still open: on the FIRST showing the doctrine still precedes the body (verdict-first inversion), not addressed here.

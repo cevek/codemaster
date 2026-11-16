@@ -1,0 +1,26 @@
+---
+id: t-871926
+title: 'Session prose folding: register the remaining repeated-explanation families as lessons'
+status: backlog
+priority: medium
+tags:
+  - render
+created_by_session: s-207994
+type: imp
+complexity: M
+area: render
+evidence: reported
+author: mi-24e6dc2b
+created: '2026-11-16T12:45:43.448Z'
+---
+The MCP facade folds a registered lesson (`common/lesson`, registry `ops/lesson-catalogue.ts`, §12 "Session prose folding") after its first full showing per session. Families NOT yet registered (static explanation still repeats verbatim in-session):
+
+- `ops/list-inactive-hint.ts`, `ops/search-file-hint.ts` (absence hints)
+- ambiguity tail of a bare-name FAIL; `plugins/ts/syntactic-decl.ts` `MERGE_CAVEAT` / `PICK_ONE` / miss prose
+- `ops/guard/navigate.ts` `gives:` prose other than `SYNTACTIC_SOURCE_GIVES`, and the fan-out remedy text
+- `ROW_CAP_HINT`-style `truncated.hint` strings
+- mutation-gate notes (`mutation-support`, `programs-lever`), `affected` / `impact` / `impact_type_error` `!!` cap prose
+- `ops/scan-coverage.ts` `emptyScanRemedy` + `!! PARTIAL SCAN` statics; `ops/trace-type-widening-scope.ts` `SKIP_CAUSE` + per-step budget note
+- `ops/symbols-overview.ts` `SYNTACTIC_NOTE` head ("syntactic NAME catalogue …")
+
+Method: extract the longest static run verbatim into a `defineLesson` (the `Result` stays byte-identical), register it, extend the MATRIX of `test/e2e/session-fold-detector.test.ts` with a call that reaches the family. Done = the detector covers each family and stays green; `test/unit/lesson-registry.test.ts` green.

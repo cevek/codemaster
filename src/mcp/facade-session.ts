@@ -35,6 +35,7 @@ export const noSession: FacadeSession = {
 export function createFacadeSession(): FacadeSession {
   const memory = createSessionMemory(LESSONS);
   const catalogues = new Map<string, readonly string[]>();
+  let latest: { root: string; lines: readonly string[] } | undefined;
   let stampedBuild: string | undefined;
   return {
     begin() {
@@ -50,9 +51,10 @@ export function createFacadeSession(): FacadeSession {
           if (
             p !== undefined &&
             (finalText.includes(p.lines.join('\n')) ||
-              finalText.includes(`this session for ${p.root}`))
+              finalText.includes('shown earlier this session for '))
           ) {
             catalogues.set(p.root, p.lines);
+            latest = p;
           }
         },
         buildLine(build) {
@@ -61,7 +63,10 @@ export function createFacadeSession(): FacadeSession {
           return `codemaster v${build}\n`;
         },
         statusRecall: () => ({
-          catalogue: (root) => catalogues.get(root),
+          catalogue: (root) => {
+            const lines = catalogues.get(root);
+            return lines !== undefined ? { root, lines } : latest;
+          },
           conceptsShown: CONCEPT_LESSONS.every((c) => memory.isShown(c)),
         }),
         noteStatus(view) {
