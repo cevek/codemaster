@@ -17,7 +17,7 @@ import {
   exampleCallFor,
   statusToolSchema,
 } from '../../src/mcp/schema.ts';
-import { badArgs } from '../../src/mcp/server.ts';
+import { badArgs } from '../../src/mcp/handled-call.ts';
 
 test('every op example validates against the op’s own argsSchema', () => {
   for (const op of builtinOps()) {

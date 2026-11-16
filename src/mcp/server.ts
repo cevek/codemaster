@@ -41,6 +41,7 @@ import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
 import { withCallTelemetry } from './call-telemetry.ts';
 import {
+  badArgs,
   errorText,
   fail,
   cappedWithRefolds,
@@ -436,5 +437,3 @@ export function opResultText(
 export function staleBanner(sourceStale: boolean, serving: ServingMode): string {
   return sourceStale ? `${sourceStaleBanner(serving)}\n` : '';
 }
-
-export { badArgs } from './handled-call.ts';
