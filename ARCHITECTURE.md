@@ -712,6 +712,33 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is a
   `task-manager` backlog residual). A loaded config is subtracted from the undiscovered set (no
   over-demotion). (Precise per-export discovery is the remaining `task-manager` backlog residual.)
+  **Workspace links on an uninstalled tree** ([`program/workspace-links.ts`](src/plugins/ts/program/workspace-links.ts),
+  t-403708). A snapshot or fresh clone has no `node_modules`, so `@scope/pkg` resolves to nothing, a
+  consumer program never contains the member's files, and the reference fan-out above drops every
+  cross-package site in silence. So every program's LS host presents the `node_modules/<member>` link
+  the package manager WOULD make, and TS stays the only resolver (§4): it reads the member's
+  `package.json` `exports`/`types`/`main` through the link exactly as over a real symlink, and
+  `realpath` maps the link to the member's real dir so its source loads once and unifies with the
+  member's own program. The policy is the package manager's, narrowed to the certain cases: a member the
+  consumer's own `package.json` declares (pnpm: a `workspace:` spec; npm/yarn `workspaces`: `*` or the
+  member's exact version), never a path or an ancestor `node_modules/<name>` that exists on disk, no
+  name two members share, no hoisting of undeclared imports, nothing under `preserveSymlinks`. The
+  same view backs the out-of-program resolves (`resolveSpecifier` / `resolveModuleArg`, the import
+  index, the move-capture hosts, `extends` in a program's own tsconfig), so a read, a mutation and
+  its gate agree; the syntactic coverage / config-membership parses still read raw `ts.sys` (an
+  `extends` through a link that sets `include` is not seen there). A manifest edit re-walks the
+  repo, rebuilds the map, re-parses each program's tsconfig and re-resolves it on its next build
+  (`hasInvalidatedResolutions`, per LS host). Two honesty channels: once any of the host's programs
+  has looked through an emulated link (a lookup, not only a successful resolve; reset on a map
+  rebuild), every LS-backed answer carries the envelope claim
+  `unsafe=resolution-matches-the-trees-own-tsc` (§3.6 — the project's tsc on THIS tree does not
+  resolve those imports; host-scoped, so it over-claims rather than misses), and what still resolves nowhere
+  (an undeclared dependency, a non-`workspace:` range, an entry into an unbuilt `dist`) is a
+  separate `find_usages` / `member_usages` floor, `unresolvedWorkspaceImports` + a `!!` LOWER-BOUND
+  note naming the specifiers ([`unresolved-workspace-imports.ts`](src/plugins/ts/unresolved-workspace-imports.ts);
+  each site resolved in its own resolution mode, memoized on link generation ⊕ `projectVersion` ⊕ the
+  program set)
+  — a sibling of `undiscoveredPrograms`, never folded into it (the other floor consumers: t-715754).
   **The type-anchored SCANS fan too, per-program-typed** (`construction_sites` /
   `discrimination_sites`, [`plugins/ts/program/scan-fanout.ts`](src/plugins/ts/program/scan-fanout.ts)).
   Both answer a blast-radius question by walking files and running one expensive checker call per

@@ -21,6 +21,7 @@ const PROSE_KEYS: ReadonlySet<string> = new Set([
   'notAVerdict',
   'hint',
   'reason',
+  'redirect',
 ]);
 
 /** Folds the failure message, the data and the truncation hint. Disclosures are folded as RENDERED

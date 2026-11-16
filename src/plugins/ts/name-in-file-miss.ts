@@ -13,6 +13,7 @@
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
+import { RESOLUTION_LESSONS } from './resolution-lessons.ts';
 import { messageOfThrown } from '../../common/result/construct.ts';
 import { namedDeclarations, namedDeclarationsAvailable } from './syntactic-internal.ts';
 import { isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
@@ -125,7 +126,7 @@ export function nameInFileMissMessage(
   const head = `could not anchor a top-level declaration named '${name}' in ${file}`;
   const found = candidatesNamed(sf, name);
   if (found === undefined || found.length === 0) {
-    return `${head} — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a destructured binding / namespace import-export / object-literal property is declared yet missed by THIS lookup. A bare '${name}' (no file) may find it, though it can land a same-named symbol elsewhere; to check without a name, address by position (file:line:col)`;
+    return `${head}${RESOLUTION_LESSONS.nameMissNotProof.full} A bare '${name}${RESOLUTION_LESSONS.nameMissBare.full}`;
   }
   // One LS call per candidate, so only the shown preview is checked; the rest are counted. The count is
   // a FLOOR, not a total: the index collapses an overload set and omits plain parameters and the
@@ -146,9 +147,7 @@ export function nameInFileMissMessage(
     byLine = true;
     return `${label(c.node, name)} at line ${lc.line + 1}`;
   });
-  const lineOnly = byLine
-    ? ' An entry given by line only is one go-to-definition at its name did not return (it resolves through a contextual type / import source, or to nothing), so a position there does not print it.'
-    : '';
+  const lineOnly = byLine ? RESOLUTION_LESSONS.nameMissLineOnly.full : '';
   const byPosition = byPos ? ' Address one by its @file:line:col.' : '';
-  return `${head} — found ${found.length} '${name}' declared in this file below or beside what this top-level lookup anchors (a floor: overload signatures, plain parameters and computed names TS does not key are not listed): ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
+  return `${head} — found ${found.length} '${name}${RESOLUTION_LESSONS.nameMissFloor.full} ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
 }

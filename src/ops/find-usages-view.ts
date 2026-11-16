@@ -8,6 +8,7 @@ import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
 import { searchCapFloor } from './no-symbol-hint.ts';
 import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
+import { unresolvedWorkspaceNote } from '../plugins/ts/plugin.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
 import { defineLesson } from '../common/lesson/lesson.ts';
 
@@ -153,13 +154,22 @@ export function hoistView(view: UsagesView, role: string | undefined, sqlMode: b
  *  — they are real refs). */
 export function usagesFloor(view: UsagesView): {
   fields: Record<string, JsonValue>;
-  note?: string;
+  notes: string[];
 } {
-  const u = view.undiscoveredPrograms;
-  if (u === undefined || u.length === 0) return { fields: {} };
+  const u = view.undiscoveredPrograms ?? [];
+  const lost = view.unresolvedWorkspaceImports ?? [];
+  if (u.length === 0 && lost.length === 0) return { fields: {}, notes: [] };
+  const notes = [
+    ...(u.length > 0 ? [lowerBoundNote(u, FLOOR_NOUNS.usages)] : []),
+    ...(lost.length > 0 ? [unresolvedWorkspaceNote(lost, 'usage')] : []),
+  ];
   return {
-    fields: { complete: false, undiscoveredPrograms: u },
-    note: lowerBoundNote(u, FLOOR_NOUNS.usages),
+    fields: {
+      complete: false,
+      ...(u.length > 0 ? { undiscoveredPrograms: u } : {}),
+      ...(lost.length > 0 ? { unresolvedWorkspaceImports: lost } : {}),
+    },
+    notes,
   };
 }
 
@@ -184,7 +194,7 @@ export function usagesFloors(
   const cap = searchCapFloor(searchTruncated);
   return {
     fields: { ...cap.fields, ...floor.fields },
-    notes: [floor.note].filter((n): n is string => n !== undefined),
+    notes: floor.notes,
   };
 }
 

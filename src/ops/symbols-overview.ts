@@ -53,10 +53,10 @@ const COLLISIONS = '(collisions)';
 // of prose when the flags aren't). Cap markers live per-group (`+N more`) + on the envelope, not here.
 export const OVERVIEW_CATALOGUE_LESSON = defineLesson({
   id: 'overview-catalogue',
-  full: 'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: ',
-  short: 'syntactic NAME catalogue, not type-verified. Scope: ',
+  full: 'syntactic NAME catalogue (not type-verified; a re-export name may appear).',
+  short: 'syntactic NAME catalogue, not type-verified.',
 });
-const SYNTACTIC_NOTE = `${OVERVIEW_CATALOGUE_LESSON.full}${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
+const SYNTACTIC_NOTE = `${OVERVIEW_CATALOGUE_LESSON.full} Scope: ${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
 const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
 const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
 export const OVERVIEW_HISTOGRAM_LESSON = defineLesson({

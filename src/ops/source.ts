@@ -16,7 +16,7 @@ import { failFromThrown, ok } from '../common/result/construct.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import { defineOp } from './registry.ts';
 import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
-import { runSourceSyntactic } from './source-syntactic.ts';
+import { runSourceSyntactic, SOURCE_REDIRECT } from './source-syntactic.ts';
 import { describeTsTarget, tsTargetShape, requireTarget } from './ts-target.ts';
 import { navigationFor } from './guard/navigate.ts';
 import type { TsTargetInput } from '../plugins/ts/plugin.ts';
@@ -143,7 +143,7 @@ export const sourceOp = defineOp({
         nameInFileMisses.length === 0
           ? {}
           : {
-              redirect: `name+file on this path anchors top-level declarations only — for the unresolved name+file target(s): ${navigationFor('source', { targets: nameInFileMisses }, 'this-call')} That mode does not index an object-literal property assignment (\`k: v\`, \`k: () => …\`) yet, so a target named above as a \`property assignment\` misses there too (t-857899).`,
+              redirect: `${SOURCE_REDIRECT.head.full} ${navigationFor('source', { targets: nameInFileMisses }, 'this-call')}${SOURCE_REDIRECT.tail.full}`,
             };
       return ok({
         sources,

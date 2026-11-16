@@ -14,6 +14,7 @@ import type { Disclosure } from '../../core/result.ts';
 import { disclose } from '../../support/disclosure/ledger.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import { defineLesson } from '../../common/lesson/lesson.ts';
+import { RESOLUTION_LESSONS } from './resolution-lessons.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 
 /** Why the candidate set could not be seen whole. Both may hold at once; each is stated only when it
@@ -105,6 +106,18 @@ export function discloseResolutionDoubt(target: TsTargetInput, doubt: Resolution
 export function discloseMergeDoubt(name: string, doubt: ResolutionDoubt): void {
   if (!doubt.cut && doubt.unindexed.length === 0) return;
   disclose(claim(`name '${name}'`, doubt));
+}
+
+/** The claim for programs that resolved imports through emulated workspace links (t-403708), or
+ *  nothing when none did. A property of the programs' resolution, not of one target, so its
+ *  `target` names the links. */
+export function emulatedLinksDisclosure(used: readonly string[]): Disclosure | undefined {
+  if (used.length === 0) return undefined;
+  return {
+    unsafe: 'resolution-matches-the-trees-own-tsc',
+    target: 'workspace links',
+    note: `imports of ${nameWithMore(used, MAX_NAMED)}${RESOLUTION_LESSONS.emulatedLinks.full} (status → concepts:disclosure)`,
+  };
 }
 
 /** Is this target addressed ONLY by a bare name — the one form a same-named twin under an unloaded

@@ -37,6 +37,7 @@ const MATRIX: [string, Record<string, unknown>, Record<string, unknown>][] = [
   ['source', { name: 'gamma', syntactic: true }, { name: 'alpha', syntactic: true }],
   ['symbols_overview', { query: 'alp' }, { query: 'gam' }],
   ['source', { name: 'noSuchA', syntactic: true }, { name: 'noSuchB', syntactic: true }],
+  ['source', { name: 'missA', file: 'src/a.ts' }, { name: 'missB', file: 'src/b.ts' }],
   [
     'source',
     { file: 'src/a.ts', line: 3, col: 40, syntactic: true },

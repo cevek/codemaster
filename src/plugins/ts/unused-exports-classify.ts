@@ -197,7 +197,12 @@ export function collectModuleEdges(host: TsProjectHost): ModuleEdges {
       if (!cache.has(key)) {
         cache.set(
           key,
-          ts.resolveModuleName(spec, containing, options, ts.sys).resolvedModule?.resolvedFileName,
+          ts.resolveModuleName(
+            spec,
+            containing,
+            options,
+            host.workspaceLinks().resolutionHost(options),
+          ).resolvedModule?.resolvedFileName,
         );
       }
       return cache.get(key);

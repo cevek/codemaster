@@ -80,6 +80,7 @@ type MemberUsagesData = {
   excluded?: number;
   complete: boolean;
   undiscoveredPrograms?: string[];
+  unresolvedWorkspaceImports?: JsonValue;
   notes: string[];
 };
 
@@ -131,6 +132,9 @@ export const memberUsagesOp = defineOp({
         complete: view.complete,
         ...(view.undiscoveredPrograms !== undefined
           ? { undiscoveredPrograms: view.undiscoveredPrograms }
+          : {}),
+        ...(view.unresolvedWorkspaceImports !== undefined
+          ? { unresolvedWorkspaceImports: view.unresolvedWorkspaceImports }
           : {}),
         notes: view.notes,
       };

@@ -43,6 +43,7 @@ function push(map: Map<string, ImporterRow[]>, key: string, row: ImporterRow): v
 function buildIndex(host: TsProjectHost, program: ts.Program): ProgramImportIndex {
   const options = program.getCompilerOptions();
   const resolved = new Map<string, string | undefined>(); // resolveSpecifier's (dir|spec) memo
+  const sys = host.workspaceLinks().resolutionHost(options);
   const canon = new Map<string, string>();
   const byTarget = new Map<string, ImporterRow[]>();
   const bySpec = new Map<string, ImporterRow[]>();
@@ -57,7 +58,7 @@ function buildIndex(host: TsProjectHost, program: ts.Program): ProgramImportInde
         imports: importedNames(stmt),
       };
       push(bySpec, spec, row);
-      const target = resolveSpecifier(spec, sourceFile.fileName, options, resolved);
+      const target = resolveSpecifier(spec, sourceFile.fileName, options, resolved, sys);
       if (target === undefined) continue;
       let key = canon.get(target);
       if (key === undefined) {

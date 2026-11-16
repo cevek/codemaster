@@ -58,7 +58,14 @@ import {
   type ResolvedTarget,
   type TsTargetInput,
 } from './resolve-target.ts';
-import { discloseMergeDoubt, discloseResolutionDoubt, doubtOf } from './disclose-resolution.ts';
+import {
+  discloseMergeDoubt,
+  discloseResolutionDoubt,
+  doubtOf,
+  emulatedLinksDisclosure,
+} from './disclose-resolution.ts';
+import { discloseAtEnd } from '../../support/disclosure/ledger.ts';
+import type { Disclosure } from '../../core/result.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createScanMemos, createPlanningHelpers, resolvedScan } from './plugin-helpers.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
@@ -67,6 +74,7 @@ import type { TsPluginApi } from './api.ts';
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
+export { unresolvedWorkspaceNote } from './unresolved-workspace-imports.ts';
 export type { GateClaims } from './gate-membership.ts';
 export type {
   RefactorPlan,
@@ -112,6 +120,7 @@ export { DISCLOSURE_LESSONS } from './disclose-resolution.ts';
 export { UNUSED_DEMOTE } from './unused-exports-classify.ts';
 export { CONSTRUCTION_NOTES } from './construction-confidence.ts';
 export { SYNTACTIC_DECL_LESSONS } from './syntactic-decl-lessons.ts';
+export { RESOLUTION_LESSONS } from './resolution-lessons.ts';
 export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };
@@ -147,8 +156,13 @@ export function createTsPlugin(
       host = createTsProjectHost(root, tsconfigOverride);
       pendingBeforeWarm = [];
     }
+    // Every LS-backed answer rides the programs' resolution, so any op that warms states it — read
+    // after the op ran, when its own resolutions have gone through (or not) the emulated links.
+    discloseAtEnd(emulatedLinksClaim);
     return host;
   };
+  const emulatedLinksClaim = (): Disclosure | undefined =>
+    host !== undefined ? emulatedLinksDisclosure(host.workspaceLinks().used()) : undefined;
 
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.

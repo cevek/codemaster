@@ -55,7 +55,13 @@ export function findImportersSubtree(
         const at = `${importerRel}:${lc.line + 1}`;
         if (confirmedAt.has(at)) continue;
 
-        const resolved = resolveSpecifier(spec, sourceFile.fileName, options, cache);
+        const resolved = resolveSpecifier(
+          spec,
+          sourceFile.fileName,
+          options,
+          cache,
+          host.workspaceLinks().resolutionHost(options),
+        );
         if (resolved !== undefined) {
           if (!toPosix(resolved).startsWith(prefix)) continue; // resolves, but not under the tree
           confirmedAt.add(at);

@@ -28,6 +28,20 @@ export const SYNTACTIC_SOURCE_LESSON = defineLesson({
   full: ' Bodies are read at the address given — this path does not follow a reference to its definition and resolves no module specifier; both come back as an explicit miss. An overload set prints its implementation and does not list the signatures. Drop syntactic:true for the type-verified path.',
   short: ' Bodies read at the address given; no reference or module is followed.',
 });
+/** `source`'s redirect for name+file misses on the checker path (its call sits between the two). */
+export const SOURCE_REDIRECT = {
+  head: defineLesson({
+    id: 'source-name-file-redirect',
+    full: 'name+file on this path anchors top-level declarations only — for the unresolved name+file target(s):',
+    short: 'top-level declarations only here — for the unresolved target(s):',
+  }),
+  tail: defineLesson({
+    id: 'source-redirect-property',
+    full: ' That mode does not index an object-literal property assignment (`k: v`, `k: () => …`) yet, so a target named above as a `property assignment` misses there too (t-857899).',
+    short: ' A `property assignment` target misses there too.',
+  }),
+} as const;
+
 export const SYNTACTIC_SOURCE_NOTE = `syntactic (AST-only, no program built, no type-check): ${SYNTACTIC_SCOPE}${SYNTACTIC_SOURCE_LESSON.full}`;
 
 /** Read N declaration bodies off the syntactic surface. The plugin resolves the surface ONCE for the

@@ -20,7 +20,12 @@ export function resolveModuleArg(
   const asAbs = host.absOf(moduleArg as never);
   if (ts.sys.fileExists(asAbs)) return asAbs;
   const probe = path.join(path.dirname(asAbs), '__codemaster_probe__.ts');
-  return ts.resolveModuleName(moduleArg, probe, options, ts.sys).resolvedModule?.resolvedFileName;
+  return ts.resolveModuleName(
+    moduleArg,
+    probe,
+    options,
+    host.workspaceLinks().resolutionHost(options),
+  ).resolvedModule?.resolvedFileName;
 }
 
 /** Resolve an import SPECIFIER from its containing file, memoized by `(dir|spec)` — the same
@@ -31,11 +36,14 @@ export function resolveSpecifier(
   containingFile: string,
   options: ts.CompilerOptions,
   cache: Map<string, string | undefined>,
+  /** The host's link-aware view (`TsProjectHost.workspaceLinks().resolutionHost(options)`), so a resolve
+   *  here agrees with the programs' own. */
+  sys: ts.ModuleResolutionHost,
 ): string | undefined {
   const key = `${path.dirname(containingFile)}|${spec}`;
   const cached = cache.get(key);
   if (cached !== undefined || cache.has(key)) return cached;
-  const resolved = ts.resolveModuleName(spec, containingFile, options, ts.sys).resolvedModule
+  const resolved = ts.resolveModuleName(spec, containingFile, options, sys).resolvedModule
     ?.resolvedFileName;
   cache.set(key, resolved);
   return resolved;

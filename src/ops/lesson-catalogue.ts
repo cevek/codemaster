@@ -10,6 +10,7 @@ import { COMPONENTS_LESSON } from '../plugins/react/plugin.ts';
 import {
   CONSTRUCTION_NOTES,
   DISCLOSURE_LESSONS,
+  RESOLUTION_LESSONS,
   SYNTACTIC_DECL_LESSONS,
   SYNTACTIC_LESSONS,
   UNUSED_DEMOTE,
@@ -32,7 +33,7 @@ import { UNINDEXED_ABSENCE_LESSON } from './no-symbol-hint.ts';
 import { POST_APPLY_INCOMPLETE_LESSON } from './post-apply-verify.ts';
 import { SCAN_COVERAGE_LESSONS } from './scan-coverage.ts';
 import { SYNTACTIC_EXPORTED_ONLY_LESSON, SYNTACTIC_SEARCH_LESSON } from './search-symbol.ts';
-import { SYNTACTIC_SOURCE_LESSON } from './source-syntactic.ts';
+import { SOURCE_REDIRECT, SYNTACTIC_SOURCE_LESSON } from './source-syntactic.ts';
 import {
   OVERVIEW_CATALOGUE_LESSON,
   OVERVIEW_DUP_LESSON,
@@ -77,4 +78,6 @@ export const OP_LESSONS: readonly Lesson[] = [
   ...Object.values(PROGRAMS_LEVER_LESSONS),
   ...WIDENING_SKIP_LESSONS,
   FILE_HINT_LESSON,
+  ...Object.values(RESOLUTION_LESSONS),
+  ...Object.values(SOURCE_REDIRECT),
 ];
