@@ -123,3 +123,6 @@ Inbox: «find_usages omits known re-exported workspace consumers» (2026-11-16T0
 
 ## Факты
 - `ts.ParseConfigHost` без `realpath` оставляет путь extended-конфига под `node_modules`. Его `include` тогда считаются от синтетического каталога, и файлы теряются — и на эмуляции, и на настоящем симлинке. `ts.sys` канонизировал путь сам, поэтому до этого трека проблемы не было. Тест в `workspace-links-write.test.ts` падает при снятом `realpath` (проверено hold-правкой).
+
+
+- bug-reviewer, доп. круг по слову менеджера (скоуп — 5 исправлений 7b3b5c3; 5749868..703966c): блокеров нет.
