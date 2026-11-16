@@ -21,6 +21,9 @@ export interface OrchestratorDeps {
   debug: DebugSystemHandle;
   watcher: Watcher;
   version: string;
+  /** This process's build id (`support/build-id`), computed by the composition root at start.
+   *  Absent → the engine reports `version` and `status` has no build to show. */
+  build?: string;
   /** Composition root injects available plugins/ops per workspace. */
   pluginsFor?: (config: CodemasterConfig, root: string) => readonly Plugin[];
   opsFor?: (config: CodemasterConfig) => readonly AnyOpDefinition[];

@@ -6,6 +6,7 @@
 
 import * as path from 'node:path';
 import type { PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
@@ -191,7 +192,7 @@ export function createTsPlugin(
 
   return {
     id: 'ts',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: [],
     // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
     tsVersion: `bundled-ts`,

@@ -62,6 +62,10 @@ export class Orchestrator implements ServingOrchestrator {
     return this.sourceTracker.stale();
   }
 
+  buildId(): string | undefined {
+    return this.deps.build;
+  }
+
   /** Resolve the target workspace: explicit `root` wins; otherwise the git toplevel
    *  of `cwd`; otherwise `cwd` itself (non-git workspaces run on the mtime fallback). */
   async route(cwd: string, root?: string): Promise<RouteOutcome> {
@@ -163,6 +167,7 @@ export class Orchestrator implements ServingOrchestrator {
     const info = this.daemonInfo();
     return {
       daemonVersion: this.deps.version,
+      ...(this.deps.build !== undefined ? { build: this.deps.build } : {}),
       pid: info.pid,
       isolation,
       engines: info.engines,

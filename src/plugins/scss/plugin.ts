@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { Confidence, Span } from '../../core/span.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
@@ -158,7 +159,7 @@ export function createScssPlugin(root: string): ScssPluginApi {
 
   return {
     id: 'scss',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: ['ts'],
 
     init(deps) {

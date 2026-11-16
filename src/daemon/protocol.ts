@@ -50,10 +50,12 @@ export const SHUTTING_DOWN_CODE = 'daemon-shutting-down';
 
 type RequestOutcome = { ok: true; results: readonly OpResult[] } | { ok: false; message: string };
 
+// `build` is optional on the wire: a daemon that predates build ids omits it, and an older bridge
+// strips it (the reply objects are not strict).
 export type WireReply =
-  | { id: number; kind: 'request'; sourceStale: boolean; outcome: RequestOutcome }
-  | { id: number; kind: 'status'; sourceStale: boolean; view: StatusView }
-  | { id: number; kind: 'daemon-info'; sourceStale: boolean; info: DaemonInfo }
+  | { id: number; kind: 'request'; sourceStale: boolean; build?: string; outcome: RequestOutcome }
+  | { id: number; kind: 'status'; sourceStale: boolean; build?: string; view: StatusView }
+  | { id: number; kind: 'daemon-info'; sourceStale: boolean; build?: string; info: DaemonInfo }
   | { id: number; kind: 'error'; message: string };
 
 const batchSchema = z
@@ -97,6 +99,7 @@ const replySchema = z.discriminatedUnion('kind', [
     id: z.number(),
     kind: z.literal('request'),
     sourceStale: z.boolean(),
+    build: z.string().optional(),
     outcome: z.union([
       z.object({ ok: z.literal(true), results: z.array(z.unknown()) }),
       z.object({ ok: z.literal(false), message: z.string() }),
@@ -106,12 +109,14 @@ const replySchema = z.discriminatedUnion('kind', [
     id: z.number(),
     kind: z.literal('status'),
     sourceStale: z.boolean(),
+    build: z.string().optional(),
     view: z.unknown(),
   }),
   z.object({
     id: z.number(),
     kind: z.literal('daemon-info'),
     sourceStale: z.boolean(),
+    build: z.string().optional(),
     info: daemonInfoSchema,
   }),
   z.object({ id: z.number(), kind: z.literal('error'), message: z.string() }),

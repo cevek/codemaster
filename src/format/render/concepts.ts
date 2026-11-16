@@ -10,6 +10,8 @@
 // scss-only repo would show an op it lacks. Accepted: the worked example earns its keep,
 // and `test/unit/concepts-example.test.ts` keeps the named op/column honest.
 
+import { defineLesson, type Lesson } from '../../common/lesson/lesson.ts';
+
 /** Fully-formatted concept lines, appended under a `concepts:` header by render-status. */
 export const CONCEPTS_LINES: readonly string[] = [
   'targets: symbol-addressed ops take {symbolId:"ts:…"} (a SymbolId from a prior answer) · {name} (a bare name — must be unambiguous; a VISIBLE ambiguity returns the candidate list, while one hidden behind a cut candidate page resolves to one of them and says so on the envelope — see disclosure) · {file,line,col} (1-based). symbolId is ONLY a SymbolId, never a bare name (that is name). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.',
@@ -27,3 +29,31 @@ export const CONCEPTS_LINES: readonly string[] = [
   'cross-program-limits (mutating ops): (a) the capture-safety check (the type-compatible silent re-bind) runs on the PRIMARY program ONLY — the gate still catches a resulting dangle/type error, just not a type-COMPATIBLE re-bind a sibling would see. (b) inside a `transaction` the write-site fan-out is OFF: a step rewrites primary-program sites only, though the cumulative gate still fans across every program and refuses a cross-program dangle.',
   'cross-repo: `root` is a TOP-LEVEL field on any op-tool call (beside the op args, NOT inside `args`) — `<op> {…args, root}` — or on a batch request `{name,args,root}`; resolution request root > tool root > cwd. One batch can mix repos and a mixed-root `sql` join runs across them. SymbolIds do not cross roots (re-search in the new root). The status header lists the warm roots.',
 ];
+
+/** What a repeat `status` says in place of each concept (its id expands it: `status {concept}`). */
+const CONCEPT_SHORT: Readonly<Record<string, string>> = {
+  targets: 'targets: {symbolId} | {name} | {file,line,col}',
+  dials: 'dials: verbosity · format:"json" · sql projection · summaryOnly',
+  sql: 'sql: one read-only SELECT over aliased op tables',
+  'absence-audit': 'absence-audit: family NOT IN callers anti-join',
+  confidence: 'confidence: certain · partial · dynamic · unresolved',
+  truncation: 'truncation: never assume completeness past a marker',
+  disclosure: 'disclosure: !! CANNOT CLAIM — counts are FLOORS, re-address exactly',
+  freshness: 'freshness: reindexed / PENDING / current',
+  'mutating-gate': 'mutating-gate: dry-run default, apply refused on new type errors',
+  'cross-program-read': 'cross-program-read: refs counted across all loaded programs',
+  'cross-program-limits': 'cross-program-limits: capture check primary-only; transaction fan-out off',
+  'cross-repo': 'cross-repo: top-level root on any call',
+};
+
+/** The concepts as lessons: one per `<id>:` line, its `e.g.` lines folded in with the indent
+ *  `status` renders them at, so `full` is the exact text a status response carries. */
+export const CONCEPT_LESSONS: readonly Lesson[] = CONCEPTS_LINES.reduce<string[]>((acc, line) => {
+  const last = acc.length - 1;
+  if (line.startsWith('  ') && last >= 0) acc[last] = `${acc[last] ?? ''}\n  ${line}`;
+  else acc.push(line);
+  return acc;
+}, []).map((full) => {
+  const id = /^[a-z-]+/.exec(full)?.[0] ?? full;
+  return defineLesson({ id, full, short: CONCEPT_SHORT[id] ?? id });
+});

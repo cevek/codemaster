@@ -148,7 +148,6 @@ test('a real forked child writing a fatal dump to stderr lands it in the per-rep
     binPath: fakeBin,
     root,
     stateDir,
-    version: 'test',
     maxOldSpaceMB: 2048,
     sockDir: undefined,
   });

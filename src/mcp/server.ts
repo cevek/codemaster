@@ -41,6 +41,18 @@ import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-t
 import { normalizeBatchArguments } from './op-tools.ts';
 import { dispatchErrorJson } from './render-dispatch-error.ts';
 import { withCallTelemetry } from './call-telemetry.ts';
+import {
+  classify,
+  errorText,
+  fail,
+  ok,
+  responseText,
+  text,
+  type HandledCall,
+} from './handled-call.ts';
+import { createFacadeSession, noSession, type ResponseScope } from './facade-session.ts';
+import { conceptText } from './lessons.ts';
+import { identityFold, type ProseFold } from '../format/render/fold-prose.ts';
 
 /** Idle self-exit wiring for the long-lived `mcp` server (spec-daemon-singleton Stage 1).
  *  `exit` is injectable so tests assert the exit code without killing the runner. */
@@ -91,6 +103,10 @@ export interface ServeMcpOptions {
    *  whose plugin isn't active for a given repo dispatch to an honest `unavailable`, no
    *  `tools/list_changed` churn). */
   ops?: readonly AnyOpDefinition[];
+  /** Remember, per connection, which explanatory prose was already shown in full and fold its
+   *  repeats (§12), stamp the build once, and state a repeat `status` as a diff (§11). Off by
+   *  default: tests and library callers get byte-stable responses; `bin.ts` turns it on. */
+  session?: boolean;
 }
 
 export async function serveMcp(
@@ -110,8 +126,14 @@ export async function serveMcp(
   // Response-scoped: a daemon fact at per-response granularity, composed here, never stamped into
   // the per-result Result envelope. `suppressed` is the json guard — a prefix would corrupt a
   // single bare-JSON payload (§12); json consumers read the structured `sourceStale` from `status`.
-  const banner = (suppressed: boolean): string =>
-    suppressed ? '' : staleBanner(orchestrator.sourceStale(), options.serving);
+  const session = options.session === true ? createFacadeSession() : noSession;
+  // The prefix of a TEXT response: the stale banner (an alarm — present on every stale response,
+  // folded to its short form after the first full showing) and, once per session, the build stamp.
+  const prefix = (suppressed: boolean, scope: ResponseScope, cwd: string): string =>
+    suppressed
+      ? ''
+      : scope.foldFor(cwd)(staleBanner(orchestrator.sourceStale(), options.serving)) +
+        scope.buildLine(orchestrator.buildId());
 
   // Per-op tools (§11): one generated tool per op, plus the handwritten status/batch. The set is
   // built once at connect — a static UNION over the whole op catalogue (per-connection, multi-repo);
@@ -192,14 +214,20 @@ export async function serveMcp(
   const handleCall = async (
     request: { params: { name: string; arguments?: unknown } },
     cwd: string,
+    scope: ResponseScope,
   ): Promise<HandledCall> => {
+    const banner = (suppressed: boolean): string => prefix(suppressed, scope, cwd);
     switch (request.params.name) {
       case 'status': {
         const parsed = statusToolSchema.safeParse(request.params.arguments ?? {});
         if (!parsed.success) return fail(badArgs('status', parsed.error.message));
+        if (parsed.data.concept !== undefined) return ok(text(conceptText(parsed.data.concept)));
         const view = await orchestrator.status(cwd, parsed.data.root);
         const { brief, full, op } = parsed.data;
-        return ok(text(renderStatus(view, { brief, full, op, serving: options.serving })));
+        const terse = full !== true && op === undefined;
+        if (terse) scope.noteStatus(view);
+        const recall = terse ? scope.statusRecall() : undefined;
+        return ok(text(renderStatus(view, { brief, full, op, serving: options.serving, recall })));
       }
       case 'batch': {
         // §7/§11: normalize each request's flat `{op,…}` envelope to canonical `{name,args}` before
@@ -221,14 +249,17 @@ export async function serveMcp(
         // success branch below uses (a batch is always text-wrapped per-section, never a single bare
         // json payload, so the prefix is §12-safe regardless of batch format).
         if (!outcome.ok) return fail(errorText(banner(false) + outcome.message), ops);
+        const requests = parsed.data.requests;
+        const toolRoot = parsed.data.root;
         return classify(
           text(
             banner(false) +
-              renderBatch(outcome.results, parsed.data.requests, {
-                sqlPresent: sql !== undefined,
-                format,
-                verbosity,
-              }),
+              renderBatch(
+                outcome.results,
+                requests,
+                { sqlPresent: sql !== undefined, format, verbosity },
+                (i) => scope.foldFor(requests[i]?.root ?? toolRoot ?? cwd),
+              ),
           ),
           outcome.results,
           ops,
@@ -247,14 +278,20 @@ export async function serveMcp(
             ),
           );
         }
-        return runOpTool(opName, request.params.arguments, cwd);
+        return runOpTool(opName, request.params.arguments, cwd, banner, scope);
       }
     }
   };
 
   /** Execute one per-op tool call. Shares the batch path's banner+suppress+sql semantics so a
    *  per-op response carries the self-staleness marker (§3.6) and the single-op sql sugar. */
-  const runOpTool = async (opName: string, rawArgs: unknown, cwd: string): Promise<HandledCall> => {
+  const runOpTool = async (
+    opName: string,
+    rawArgs: unknown,
+    cwd: string,
+    banner: (suppressed: boolean) => string,
+    scope: ResponseScope,
+  ): Promise<HandledCall> => {
     const ops = [opName];
     const built = buildPerOpRequest(opName, rawArgs);
     if (!built.ok) return fail(badArgsOp(opName, built.message), ops);
@@ -270,6 +307,7 @@ export async function serveMcp(
     // reads `sourceStale` from status. (The facade-side bad-args reject above predates the parse, so
     // its format is unknown and it stays banner-free — a malformed call isn't a stale-behavior read.)
     const suppress = request.format === 'json';
+    const fold = scope.foldFor(root ?? cwd);
     if (sql !== undefined) {
       // §2.6: single-op sql sugar = a batch of one request aliased `t`.
       const outcome = await orchestrator.request(cwd, root, [{ ...request, as: 't' }], {
@@ -278,7 +316,10 @@ export async function serveMcp(
       });
       if (!outcome.ok) return fail(errorText(banner(suppress) + outcome.message), ops);
       return classify(
-        text(banner(suppress) + renderResults(outcome.results, request.format, request.verbosity)),
+        text(
+          banner(suppress) +
+            renderResults(outcome.results, request.format, request.verbosity, fold),
+        ),
         outcome.results,
         ops,
         bareJson && outcome.results.length === 1,
@@ -289,7 +330,7 @@ export async function serveMcp(
     const result = outcome.results[0];
     if (result === undefined) return fail(errorText('no result (codemaster bug)'), ops);
     return classify(
-      opResultText(result, request.format, request.verbosity, () => banner(suppress)),
+      opResultText(result, request.format, request.verbosity, () => banner(suppress), fold),
       [result],
       ops,
       bareJson,
@@ -312,9 +353,10 @@ export async function serveMcp(
         // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
         // stay >0 and the server could never idle-exit — the orphan would persist).
         idleExit?.enter();
+        const scope = session.begin();
         let handled: HandledCall;
         try {
-          handled = await handleCall(request, cwd);
+          handled = await handleCall(request, cwd, scope);
         } catch (thrown) {
           // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
           const message = thrown instanceof Error ? thrown.message : String(thrown);
@@ -329,6 +371,7 @@ export async function serveMcp(
         // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
         // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
         const result = capResponse(handled.result, handled.bareJson);
+        scope.commit(responseText(result));
         return {
           ok: handled.ok,
           ops: handled.ops,
@@ -356,6 +399,7 @@ export function opResultText(
   // daemon" matters MOST, so the banner ships on the TEXT error branch too. Json suppresses it (the
   // caller's thunk returns '' under json — a bare JSON envelope, §12; json reads `sourceStale`).
   banner: () => string = () => '',
+  fold: ProseFold = identityFold,
 ): CallToolResult {
   if ('error' in result) {
     // Under json a dispatch rejection is a valid JSON envelope so a `| jq` consumer never meets
@@ -363,7 +407,7 @@ export function opResultText(
     if (format === 'json') return errorText(dispatchErrorJson(result.error));
     return errorText(`${banner()}${result.error.kind}: ${result.error.message}`);
   }
-  return text(banner() + renderOne(result, format, verbosity));
+  return text(banner() + renderOne(result, format, verbosity, fold));
 }
 
 /** The one-line self-staleness banner (§3.6 applied to the tool), prepended to EVERY op/batch text
@@ -377,52 +421,6 @@ export function staleBanner(sourceStale: boolean, serving: ServingMode): string 
   return sourceStale ? `${sourceStaleBanner(serving)}\n` : '';
 }
 
-/** A handled tool call: the agent-facing response plus its telemetry classification
- *  (success/fail and the op name(s) involved). `bareJson` tells the seam cap that the text payload
- *  is a single parseable JSON object (a `format:'json'` per-op response) — so an over-cap payload is
- *  REPLACED with a valid capped envelope rather than tail-truncated (which would corrupt the JSON);
- *  text responses (status/batch/sql-multi/text) tail-truncate with the `!! OUTPUT CAPPED` marker. */
-interface HandledCall {
-  result: CallToolResult;
-  ok: boolean;
-  ops: string[];
-  bareJson: boolean;
-}
-
-function ok(result: CallToolResult, ops: string[] = []): HandledCall {
-  return { result, ok: true, ops, bareJson: false };
-}
-
-function fail(result: CallToolResult, ops: string[] = [], bareJson = false): HandledCall {
-  return { result, ok: false, ops, bareJson };
-}
-
-/** Classify an op/batch response from its STRUCTURED results, not from `isError`: a
- *  `Result` with `ok:false` (a `ToolFailure` — "couldn't, fall back") renders through a
- *  plain `text()` with no `isError`, so an isError-only check would file it as success.
- *  The call is a success only when every constituent op succeeded. */
-function classify(
-  result: CallToolResult,
-  results: readonly OpResult[],
-  ops: string[],
-  bareJson = false,
-): HandledCall {
-  return { result, ok: results.every((r) => !('error' in r) && r.result.ok), ops, bareJson };
-}
-
-/** The text payload of a response, for the telemetry `response` field. */
-function responseText(result: CallToolResult): string {
-  const first = result.content[0];
-  return first !== undefined && first.type === 'text' ? first.text : '';
-}
-
-function text(body: string): CallToolResult {
-  return { content: [{ type: 'text', text: body }] };
-}
-
-function errorText(message: string): CallToolResult {
-  return { content: [{ type: 'text', text: message }], isError: true };
-}
 
 /** A validation rejection that also teaches the fix: the zod message plus a minimal
  *  valid arguments object for the tool (§1.2, §7 "agents author blind; pointed errors").

@@ -9,6 +9,7 @@
 // with `requires: ['schema']`, gated by plugin presence (the i18n precedent).
 
 import type { FreshnessFingerprint, Plugin } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { walkFiles } from '../../support/fs/walk.ts';
 import { fileExists } from '../../support/fs/exists.ts';
@@ -79,7 +80,7 @@ export function createSchemaPlugin(
 
   return {
     id: 'schema',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: [],
 
     init() {

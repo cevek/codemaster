@@ -1,6 +1,6 @@
 {
   "name": "codemaster",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Stateful, always-on codebase inspector for TypeScript/React repos — structural + semantic + refactor queries for AI agents, dense and proof-carrying.",
   "type": "module",
   "bin": {

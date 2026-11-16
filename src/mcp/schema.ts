@@ -43,6 +43,8 @@ export const statusToolSchema = z.object({
   brief: z.boolean().optional(),
   full: z.boolean().optional(),
   op: z.string().optional(),
+  /** A folded `[id]` from an earlier answer → its full explanation (§12), regardless of history. */
+  concept: z.string().optional(),
 });
 
 export const batchToolSchema = z.object({
@@ -87,6 +89,10 @@ export const TOOL_DESCRIPTORS = [
         brief: {
           type: 'boolean',
           description: 'Back-compat alias of the terse default (names + summaries + concepts)',
+        },
+        concept: {
+          type: 'string',
+          description: 'Expand a folded `[id]` to its full text',
         },
       },
     },
@@ -209,4 +215,5 @@ Honesty contract: results carry explicit freshness, confidence (certain/partial/
 Output is terse by default (spans as file:line:col). verbosity:'full' returns verbatim proof text — use it for one symbol, not for lists. Oversized answers are explicitly capped with '!! OUTPUT CAPPED' — narrow the query, never assume completeness past the marker.
 Relational post-filtering: a batch (or any op call) carrying 'sql' loads each aliased request's rows into an ephemeral in-memory SQLite table and runs ONE read-only SELECT — use it for anti-joins / negations / aggregates over op outputs (e.g. components that render <X> but not under <Form>); producers run uncapped, and a 'partial' table makes NOT IN untrustworthy.
 Hit a bug or missing capability? File it in-band with the feedback tool: feedback({kind:'wish', title:'…', detail:'…'}) — it travels with this server and records to a global inbox.
-Cross-repo: any op or batch request may carry a top-level 'root' to target a sibling TS repo — one batch can mix repos (results stay in order), and 'status' lists the warm roots.`;
+Cross-repo: any op or batch request may carry a top-level 'root' to target a sibling TS repo — one batch can mix repos (results stay in order), and 'status' lists the warm roots.
+An explanation shown once per session repeats as its short claim + '[id]'; status {concept:"<id>"} prints it in full.`;

@@ -23,6 +23,7 @@ process.setMaxListeners(50);
 function stubOrchestrator(stale: () => boolean): OrchestratorApi {
   return {
     sourceStale: stale,
+    buildId: () => undefined,
     dispose: async () => undefined,
     request: async (_cwd, _root, reqs) => ({
       ok: true,

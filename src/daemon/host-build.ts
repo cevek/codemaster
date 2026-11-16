@@ -117,7 +117,7 @@ export async function buildWorkspaceHost(
     root,
     configSource: source,
     ...(workspaceUnsupported !== undefined ? { workspaceUnsupported } : {}),
-    version: deps.version,
+    version: deps.build ?? deps.version,
     stateDir,
     isolation: 'in-process',
     isolationReason: fallbackReason ?? decision.reason,

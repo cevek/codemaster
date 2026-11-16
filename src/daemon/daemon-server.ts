@@ -271,6 +271,8 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
     const req = parsed.value;
     try {
       const sourceStale = deps.orchestrator.sourceStale();
+      const build = deps.orchestrator.buildId();
+      const stamp = build !== undefined ? { build } : {};
       if (req.kind === 'shutdown') {
         // No reply: the connection CLOSING (listener torn down, socket unlinked) is the management
         // client's confirmation that the daemon committed to exit (§3 / spec-daemon-cli stop).
@@ -281,18 +283,19 @@ export async function serveDaemon(deps: DaemonServerDeps): Promise<DaemonHandle>
           id: req.id,
           kind: 'daemon-info',
           sourceStale,
+          ...stamp,
           info: deps.orchestrator.daemonInfo(),
         });
       } else if (req.kind === 'status') {
         const view = await withBreadcrumb(describe(req), () =>
           deps.orchestrator.status(req.cwd, req.root),
         );
-        send(connection, { id: req.id, kind: 'status', sourceStale, view });
+        send(connection, { id: req.id, kind: 'status', sourceStale, ...stamp, view });
       } else {
         const outcome = await withBreadcrumb(describe(req), () =>
           deps.orchestrator.request(req.cwd, req.root, req.reqs, req.batch),
         );
-        send(connection, { id: req.id, kind: 'request', sourceStale, outcome });
+        send(connection, { id: req.id, kind: 'request', sourceStale, ...stamp, outcome });
       }
     } catch (thrown) {
       // §3.6 — a routing/op crash is an honest error reply, never a daemon-down or a hang.

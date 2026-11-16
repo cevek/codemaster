@@ -120,7 +120,6 @@ test('parity: process-host results are byte-identical to an in-process engine', 
         binPath: BIN,
         root,
         stateDir,
-        version: 'test',
         maxOldSpaceMB: 2048,
         sockDir: undefined,
       }),
@@ -157,7 +156,6 @@ test('crash + respawn: a SIGKILLed child fails honestly, then the next request r
             binPath: BIN,
             root: r,
             stateDir: sd,
-            version: 'test',
             maxOldSpaceMB: 2048,
             sockDir: undefined,
           });
@@ -232,7 +230,6 @@ test('kill-on-deadline: a real busy child that overruns the deadline is SIGKILLe
             binPath: BIN,
             root: r,
             stateDir: sd,
-            version: 'test',
             maxOldSpaceMB: 2048,
             sockDir: undefined,
           });

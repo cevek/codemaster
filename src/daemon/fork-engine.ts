@@ -30,7 +30,6 @@ export interface ForkEngineOpts {
   binPath: string;
   root: string;
   stateDir: string;
-  version: string;
   /** Child heap ceiling (MB), resolved by `heap-ceiling.ts` (config verbatim, else box-derived) —
    *  appended to the inherited `execArgv` so type-stripping and any other parent flags survive
    *  (replacing the list would drop them — a prod-only footgun). Appended LAST, so it wins over any
@@ -53,7 +52,6 @@ export function forkEngineChild(opts: ForkEngineOpts): EngineChildHandle {
       ...process.env,
       CODEMASTER_ENGINE_ROOT: opts.root,
       CODEMASTER_ENGINE_STATE_DIR: opts.stateDir,
-      CODEMASTER_ENGINE_VERSION: opts.version,
       ...(opts.sockDir !== undefined ? { CODEMASTER_SOCK_DIR: opts.sockDir } : {}),
     },
   });

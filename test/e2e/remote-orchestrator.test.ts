@@ -62,6 +62,7 @@ function stubOrch(over: Partial<ServingOrchestrator> = {}): ServingOrchestrator 
       sourceStale: false,
     }),
     sourceStale: () => false,
+    buildId: () => undefined,
     daemonInfo: () => ({ pid: 99, uptimeMs: 0, engines: 1, engineRoots: ['/repo'] }),
     dispose: async () => undefined,
     ...over,

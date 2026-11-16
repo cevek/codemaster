@@ -66,9 +66,16 @@ const CLOSED_MESSAGE = `${CLOSED_CODE}: connection closed mid-call — this side
 const NEVER_SENT_MESSAGE = `${CLOSED_CODE}: connection already closed — this request was never sent to the daemon; reconnect and retry`;
 const DEFAULT_PROBE_DEADLINE_MS = 5000;
 
-export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): OrchestratorApi {
+export interface RemoteOrchestrator extends OrchestratorApi {
+  /** One bounded `daemon-info` round-trip to learn the daemon's build before `initialize` is
+   *  answered; past the deadline it resolves with whatever is known (usually `undefined`). */
+  probeBuild(deadlineMs: number): Promise<string | undefined>;
+}
+
+export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): RemoteOrchestrator {
   let nextId = 1;
   let sourceStaleCache = false;
+  let buildCache: string | undefined;
   let closed = false;
   const pending = new Map<number, (reply: WireReply) => void>();
 
@@ -90,7 +97,12 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
       return;
     }
     const reply = parsed.value;
-    if (reply.kind !== 'error') sourceStaleCache = reply.sourceStale;
+    if (reply.kind !== 'error') {
+      sourceStaleCache = reply.sourceStale;
+      // A daemon that predates build ids omits the field. It shares this bridge's socket, which is
+      // keyed by the package version, so the version is known; the commit is not.
+      buildCache = reply.build ?? `${deps.version} @unknown (daemon predates build ids)`;
+    }
     const resolve = pending.get(reply.id);
     if (resolve !== undefined) {
       pending.delete(reply.id);
@@ -186,6 +198,13 @@ export function createRemoteOrchestrator(deps: RemoteOrchestratorDeps): Orchestr
       return degradedStatus(deps.version, sourceStaleCache, message);
     },
     sourceStale: () => sourceStaleCache,
+    buildId: () => buildCache,
+    async probeBuild(deadlineMs) {
+      if (closed) return buildCache;
+      const id = nextId++;
+      await sendAndAwait(daemonInfoEnvelope(id), id, deadlineMs);
+      return buildCache;
+    },
     dispose: () => deps.connection.close(),
   };
 }

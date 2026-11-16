@@ -32,6 +32,7 @@ type Mode = 'unknown_op' | 'request_fail';
 function stubOrchestrator(stale: () => boolean, mode: Mode): OrchestratorApi {
   return {
     sourceStale: stale,
+    buildId: () => undefined,
     dispose: async () => undefined,
     request: async (_cwd, _root, reqs) =>
       mode === 'request_fail'

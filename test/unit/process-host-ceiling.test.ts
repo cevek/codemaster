@@ -51,7 +51,6 @@ async function forkedWith(
   const seen: ForkEngineOpts[] = [];
   const factory = makeProcessHostFactory({
     binPath: '/nonexistent/bin.ts',
-    version: 'test',
     requestDeadlineMs: 1_000,
     sockDir: undefined,
     forkChild: capturingFork(seen),
@@ -96,7 +95,6 @@ test('with no seam the factory reads THIS box — not a constant, not free memor
   const seen: ForkEngineOpts[] = [];
   const factory = makeProcessHostFactory({
     binPath: '/nonexistent/bin.ts',
-    version: 'test',
     requestDeadlineMs: 1_000,
     sockDir: undefined,
     forkChild: capturingFork(seen),
