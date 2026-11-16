@@ -99,6 +99,7 @@ export function buildByIdentityModel(host: TsProjectHost, spec: CallMatchSpec): 
       const ctx: SpecCtx = {
         targetAbs: resolvedTarget,
         options: program.getCompilerOptions(),
+        sys: host.workspaceLinks().resolutionHost(program.getCompilerOptions()),
         simpleLeaves,
         dottedBases,
         dottedByBase,
@@ -121,6 +122,7 @@ export function buildByIdentityModel(host: TsProjectHost, spec: CallMatchSpec): 
 type SpecCtx = {
   targetAbs: string;
   options: ts.CompilerOptions;
+  sys: ts.ModuleResolutionHost;
   simpleLeaves: ReadonlySet<string>;
   dottedBases: ReadonlySet<string>;
   dottedByBase: ReadonlyMap<string, Map<string, string>>;
@@ -147,6 +149,7 @@ function collectBindings(
       sourceFile.fileName,
       ctx.options,
       cache,
+      ctx.sys,
     );
     if (resolved === undefined || !samePath(resolved, ctx.targetAbs)) continue;
     const clause = stmt.importClause;

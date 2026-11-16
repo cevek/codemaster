@@ -63,7 +63,12 @@ export function resolveSpecifier(
   importerInitialAbs: string,
   spec: string,
 ): { node: FsNode | null; viaPackage: boolean } {
-  const module = ts.resolveModuleName(spec, importerInitialAbs, options, ts.sys).resolvedModule;
+  const module = ts.resolveModuleName(
+    spec,
+    importerInitialAbs,
+    options,
+    host.workspaceLinks().resolutionHost(options),
+  ).resolvedModule;
   if (module !== undefined) {
     return {
       node: tree.findByInitialPath(host.relOf(module.resolvedFileName)),
@@ -110,7 +115,12 @@ export function resolvesSameUnderOwners(
   for (const program of owners.length > 0 ? owners : [ctx.primary]) {
     const options = program.getProgram()?.getCompilerOptions();
     if (options === undefined) return false;
-    const resolved = ts.resolveModuleName(spec, importerAbs, options, ts.sys).resolvedModule;
+    const resolved = ts.resolveModuleName(
+      spec,
+      importerAbs,
+      options,
+      host.workspaceLinks().resolutionHost(options),
+    ).resolvedModule;
     if (resolved === undefined || toPosix(resolved.resolvedFileName) !== toPosix(targetAbs)) {
       return false;
     }

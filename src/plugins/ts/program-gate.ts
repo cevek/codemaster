@@ -87,7 +87,8 @@ export interface GateResult {
   /** Extends-only base configs (program-ownership.ts) judged ADVISORY: sampled like any program,
    *  but into `advisory`, so what only they report is disclosed and does not decide the verdict. */
   skipped: string[];
-  advisory: { baseline: TsDiagnostic[]; overlay: TsDiagnostic[] };
+  /** Per program: one advisory config's errors must not cancel against another's. */
+  advisory: { label: string; baseline: TsDiagnostic[]; overlay: TsDiagnostic[] }[];
 }
 
 /** The project host's write-gate surface (implemented in ls-host.ts over its built programs). */
@@ -289,7 +290,7 @@ export function gateAcross(
 
   const baseline: TsDiagnostic[] = [];
   const overlay: TsDiagnostic[] = [];
-  const advisory = { baseline: [] as TsDiagnostic[], overlay: [] as TsDiagnostic[] };
+  const advisory: GateResult['advisory'] = [];
   const checked: string[] = [];
   const skipped: string[] = [];
   const degraded: string[] = [];
@@ -307,9 +308,14 @@ export function gateAcross(
       // Collect BOTH passes before committing either (symmetry): if the overlay pass throws after a
       // clean baseline, neither is kept — the sibling degrades wholesale, never half-counted.
       const { b, o } = sample(program);
-      (isBase ? advisory.baseline : baseline).push(...b);
-      (isBase ? advisory.overlay : overlay).push(...o);
-      (isBase ? skipped : checked).push(program.label);
+      if (isBase) {
+        advisory.push({ label: program.label, baseline: b, overlay: o });
+        skipped.push(program.label);
+      } else {
+        baseline.push(...b);
+        overlay.push(...o);
+        checked.push(program.label);
+      }
     } catch (thrown) {
       // Collapse whitespace: a multi-line LS-throw message would otherwise render as several
       // physical note lines (the dense renderer splits on \n), breaking one-fact-per-line.

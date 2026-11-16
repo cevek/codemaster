@@ -61,6 +61,7 @@ function declaresFileSet(raw: unknown): boolean {
 export function parseConfigFile(
   configPath: string,
   root: string,
+  host: ts.ParseConfigHost = ts.sys,
 ): {
   parsed: ts.ParsedCommandLine;
   shape: ConfigShape;
@@ -70,7 +71,7 @@ export function parseConfigFile(
   const chain = new Map<string, ts.ExtendedConfigCacheEntry>();
   const parsed = ts.parseJsonConfigFileContent(
     text.config ?? {},
-    ts.sys,
+    host,
     path.dirname(configPath),
     undefined,
     configPath,

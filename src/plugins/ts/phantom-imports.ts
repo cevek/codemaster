@@ -55,7 +55,13 @@ export function nodeModuleImports(host: TsProjectHost): NodeModuleImportSite[] {
       for (const stmt of sourceFile.statements) {
         const spec = moduleSpecifierOf(stmt);
         if (spec === undefined || !isBarePackage(spec)) continue;
-        const resolved = resolveSpecifier(spec, sourceFile.fileName, options, cache);
+        const resolved = resolveSpecifier(
+          spec,
+          sourceFile.fileName,
+          options,
+          cache,
+          host.workspaceLinks().resolutionHost(options),
+        );
         if (resolved === undefined || !resolved.includes('/node_modules/')) continue;
         const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
         const importer = host.relOf(sourceFile.fileName);

@@ -117,10 +117,10 @@ export interface GateCoverage {
   readonly programs: readonly string[];
   readonly degraded: readonly string[];
   readonly skipped: readonly string[];
-  readonly advisory: {
+  readonly advisory: readonly {
     readonly baseline: readonly TsDiagnostic[];
     readonly overlay: readonly TsDiagnostic[];
-  };
+  }[];
 }
 
 const ADVISORY_DIAG_CAP = 5;
@@ -140,7 +140,9 @@ export function gateCoverageNotes(gate: GateCoverage, remap?: BaselinePathRemap)
   if (skipped.length > 0) {
     // Advisory, not skipped silently: whether the project runs such a config is not provable from
     // the repo, so what only it reports is shown with its place and left to the reader.
-    const introduced = introducedDiagnostics(gate.advisory.baseline, gate.advisory.overlay, remap);
+    const introduced = gate.advisory.flatMap((a) =>
+      introducedDiagnostics(a.baseline, a.overlay, remap),
+    );
     const shown = introduced
       .slice(0, ADVISORY_DIAG_CAP)
       .map((d) => `${d.file}:${d.line} ${d.message.replace(/\s+/g, ' ').slice(0, 160)}`);

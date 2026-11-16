@@ -21,7 +21,11 @@ import type { Disclosure, Result } from '../../core/result.ts';
 
 /** Keyed `unsafe|target` so one resolution repeated across an op's internal calls (impact's BFS
  *  re-resolving its seed, source's per-target loop) states its claim once. */
-type Ledger = Map<string, Disclosure>;
+type Ledger = Map<string, Disclosure> & {
+  /** Producers read at stamp time, for a fact the op's own work establishes (a resolution it ran)
+   *  rather than one known before it starts. A Set, so one producer registered per call states once. */
+  late?: Set<() => Disclosure | undefined>;
+};
 
 const storage = new AsyncLocalStorage<Ledger>();
 
@@ -30,6 +34,14 @@ const storage = new AsyncLocalStorage<Ledger>();
  *  silently inventing a scope for a caller that has no envelope would have nowhere to put it. */
 export function disclose(entry: Disclosure): void {
   storage.getStore()?.set(`${entry.unsafe}|${entry.target}`, entry);
+}
+
+/** State a claim whose truth is known only once the op has run (it is evaluated when the envelope
+ *  is stamped, after the body). Same scope rule as `disclose`. */
+export function discloseAtEnd(producer: () => Disclosure | undefined): void {
+  const ledger = storage.getStore();
+  if (ledger === undefined) return;
+  (ledger.late ??= new Set()).add(producer);
 }
 
 /** Run one op inside a fresh ledger and stamp whatever it disclosed onto the envelope it returns —
@@ -51,6 +63,10 @@ export async function runWithDisclosures<T>(body: () => Promise<Result<T>>): Pro
 }
 
 function stamp<T>(result: Result<T>, ledger: Ledger): Result<T> {
+  for (const producer of ledger.late ?? []) {
+    const entry = producer();
+    if (entry !== undefined) ledger.set(`${entry.unsafe}|${entry.target}`, entry);
+  }
   if (ledger.size === 0) return result;
   // Merge, never overwrite: an op that composed its own disclosures keeps them.
   const existing = result.disclosures ?? [];

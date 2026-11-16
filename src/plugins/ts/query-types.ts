@@ -11,6 +11,7 @@ import type { ConditionChain } from '../../common/condition/chain.ts';
 import type { UsageRole } from './usage-roles.ts';
 import type { JsxAttrValue } from './jsx-attr-values.ts';
 import type { PropFilter } from './jsx-prop-filter.ts';
+import type { UnresolvedWorkspacePackage } from './unresolved-workspace-imports.ts';
 
 /** A target that could not be resolved but whose stale handle DID rebind — carries the
  *  structured `HandleRebind` (notably `{status:'gone'}`, §6) so the op surfaces it on the
@@ -205,6 +206,9 @@ export type UsagesView = {
    *  property of the SET, not any row), surfaced by the op as
    *  `complete:false` + a named `!!` note. Absent/empty ⇒ every loaded program was searched. */
   undiscoveredPrograms?: string[];
+  /** §3.4 FLOOR, a second cause: imports of this repo's own workspace packages that resolve to no
+   *  file, so the importing files never joined the declaration's program (t-403708). */
+  unresolvedWorkspaceImports?: UnresolvedWorkspacePackage[];
 };
 
 /** One structural member of an expanded type (§3.3). `inherited` marks a member that

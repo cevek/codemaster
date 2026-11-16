@@ -19,6 +19,11 @@ import type { Span } from '../../core/span.ts';
 import { elideString } from '../../common/truncate/elide-string.ts';
 import { passesPathFilter } from '../../common/glob/path-filter.ts';
 import type { TsProjectHost } from './ls-host.ts';
+import {
+  unresolvedWorkspaceImports,
+  unresolvedWorkspaceNote,
+  type UnresolvedWorkspacePackage,
+} from './unresolved-workspace-imports.ts';
 import { nodeAt } from './ast-node.ts';
 import { typeAtNode } from './type-at-node.ts';
 import { spanFromRange } from './spans.ts';
@@ -64,6 +69,8 @@ export type MemberUsagesView = {
   truncated?: { shown: number; total: number };
   /** Sibling tsconfigs NOT searched (a member access living only under one would be missed). */
   undiscoveredPrograms?: string[];
+  /** §3.4 floor: unresolved imports of the repo's own workspace packages (t-403708). */
+  unresolvedWorkspaceImports?: UnresolvedWorkspacePackage[];
   /** Situational disclosures: destructure floor present, cap, undiscovered programs. */
   notes: string[];
   /** True only when nothing knowable limits the set (no undiscovered program, no cap). */
@@ -178,6 +185,7 @@ function assemble(
   const displayLimited = matched.length > sites.length;
 
   const undiscovered = [...host.undiscoveredProgramLabels()];
+  const lost = unresolvedWorkspaceImports(host);
   const notes: string[] = [];
   if (dispositions.destructure > 0) {
     notes.push(
@@ -198,10 +206,11 @@ function assemble(
       `!! LOWER BOUND — not searched: ${undiscovered.join(', ')} (a member access living only under one of these is not counted).`,
     );
   }
+  if (lost.length > 0) notes.push(unresolvedWorkspaceNote(lost, 'member access'));
   // `truncated` (the honesty envelope) surfaces EITHER cap; `complete` reflects ONLY the knowledge cap.
   const truncated =
     scan.truncated ?? (displayLimited ? { shown: sites.length, total: matched.length } : undefined);
-  const complete = undiscovered.length === 0 && scan.truncated === undefined;
+  const complete = undiscovered.length === 0 && lost.length === 0 && scan.truncated === undefined;
   return {
     member: memberInfo,
     sites,
@@ -210,6 +219,7 @@ function assemble(
     ...(excluded > 0 ? { excluded } : {}),
     ...(truncated !== undefined ? { truncated } : {}),
     ...(undiscovered.length > 0 ? { undiscoveredPrograms: undiscovered } : {}),
+    ...(lost.length > 0 ? { unresolvedWorkspaceImports: [...lost] } : {}),
     notes,
     complete,
   };

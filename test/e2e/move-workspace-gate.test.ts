@@ -250,3 +250,23 @@ test('transaction: a chained move inside a workspace package still hands the des
     await p.dispose();
   }
 });
+
+// Same rule without an install: the workspace links are emulated (t-403708), so the specifier
+// resolves through them and is kept exactly as with a real symlink. No cold oracle here — a cold
+// `tsc` cannot resolve an uninstalled package.
+test('without node_modules the bare workspace-package specifier is kept the same way', async () => {
+  const p = await project({
+    ...WORKSPACE,
+    'pnpm-workspace.yaml': 'packages:\n  - packages/*\n',
+    'packages/app/package.json': '{"name":"app","dependencies":{"@w/core":"workspace:*"}}',
+  });
+  try {
+    const dest = 'packages/app/src/entry/main.ts';
+    const dry = await move(p, 'packages/app/src/main.ts', dest);
+    assert.equal(dry.typecheck.clean, true, JSON.stringify(dry.typecheck));
+    assert.equal((await move(p, 'packages/app/src/main.ts', dest, true)).applied, true);
+    assert.match(readFileSync(path.join(p.root, dest), 'utf8'), /from '@w\/core'/);
+  } finally {
+    await p.dispose();
+  }
+});

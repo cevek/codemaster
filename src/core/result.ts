@@ -93,7 +93,12 @@ export type UnsafeClaim =
    *  candidate set was cut before we saw all of it, so the resolved symbol is one of the ones we
    *  COULD see: the target itself may be a mis-pick, and any count / emptiness / completeness the
    *  answer states about it is a floor rather than a fact. */
-  'target-is-the-only-symbol-of-this-name';
+  | 'target-is-the-only-symbol-of-this-name'
+  /** "the module resolution under this answer is the one the project's own tsc sees on this
+   *  tree." Imports of the repo's own workspace packages resolved through emulated `node_modules`
+   *  links (t-403708): facts across them hold for an installed tree, while tsc run on THIS tree
+   *  reports those imports unresolved. */
+  | 'resolution-matches-the-trees-own-tsc';
 
 /** What a failure puts BEYOND REACH — an assertion about the caller's NEXT call, never a record
  *  of what happened to this one. Two failures that read alike ("could not do it") can leave the

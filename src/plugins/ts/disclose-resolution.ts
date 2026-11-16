@@ -89,6 +89,18 @@ export function discloseMergeDoubt(name: string, doubt: ResolutionDoubt): void {
   disclose(claim(`name '${name}'`, doubt));
 }
 
+/** The claim for programs that resolved imports through emulated workspace links (t-403708), or
+ *  nothing when none did. A property of the programs' resolution, not of one target, so its
+ *  `target` names the links. */
+export function emulatedLinksDisclosure(used: readonly string[]): Disclosure | undefined {
+  if (used.length === 0) return undefined;
+  return {
+    unsafe: 'resolution-matches-the-trees-own-tsc',
+    target: 'workspace links',
+    note: `imports of ${nameWithMore(used, MAX_NAMED)} resolved through EMULATED workspace links — this tree has no node_modules link for them, so the project's own tsc run on it does NOT resolve them. Facts across those imports hold for an installed tree (links as the declared \`workspace:\` dependencies make them). (status → concepts:disclosure)`,
+  };
+}
+
 /** Is this target addressed ONLY by a bare name — the one form a same-named twin under an unloaded
  *  program can hijack? A handle, a position, and a `name+file` all pin the declaration, so a twin
  *  elsewhere is irrelevant to an answer about a pinned one and claiming doubt there would dress a

@@ -254,3 +254,41 @@ test('affected: import cycle terminates (visited-set), no hang', async () => {
     await p.dispose();
   }
 });
+
+test('affected: the budget expiring INSIDE the changed-file fan-out stops it there — a timeout partial with the tests found so far', async () => {
+  // The whole changed set fans out inside ONE closure expansion, so only a poll between changed
+  // files can stop it. Each importersOf advances the frozen clock past the budget: the first changed
+  // file is traced, the second must never be queried.
+  const queried: string[] = [];
+  const p = await project(GRAPH, {
+    opDeadlineMs: 1_000,
+    patchTs: (api, { clock }) => {
+      const orig = api.importersOf.bind(api);
+      api.importersOf = (module) => {
+        queried.push(module);
+        const view = orig(module);
+        clock.advance(2_000);
+        return view;
+      };
+    },
+  });
+  try {
+    const r = await p.op('affected', {
+      files: ['src/a.ts', 'src/unrelated.ts'],
+      testGlobs: TEST_GLOBS,
+    });
+    assert.ok('result' in r && !r.result.ok, JSON.stringify(r));
+    const res = r.result;
+    assert.ok(!res.ok && res.failure.tool === 'timeout' && res.failure.partial === true);
+    assert.deepEqual(queried, ['src/a.ts'], 'the fan-out stopped before the next changed file');
+    const data = res.data as unknown as AffectedData;
+    assert.equal(data.summary.complete, false);
+    assert.ok(data.tests.includes('src/a.test.ts'), 'tests found before the stop are kept');
+    assert.ok(
+      !data.tests.includes('src/unrelated.test.ts'),
+      'the untraced file contributed nothing',
+    );
+  } finally {
+    await p.dispose();
+  }
+});

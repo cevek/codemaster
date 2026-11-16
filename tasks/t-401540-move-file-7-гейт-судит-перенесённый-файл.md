@@ -1,7 +1,7 @@
 ---
 id: t-401540
 title: 'move_file: §7-гейт судит перенесённый файл чужой программой (tsconfig.base.json / корневой) → ложные introduced-ошибки, apply отклонён'
-status: in-progress
+status: review
 priority: high
 parent: t-982648
 tags:
@@ -102,3 +102,12 @@ Inbox: «move_file typecheck gate judges a moved .tsx by tsconfig.base.json…»
 - [BLOCK] Конфиг, который запускается не из `package.json`-строки (shell-скрипт `scripts/typecheck.sh` → `tsc -p tsconfig.build.json`), классифицировался как base и молча выпадал из гейта: ложный clean. По репо «конфиг никто не запускает» НЕ доказуемо, ни одна эвристика поиска команд этого не гарантирует. Опровергнутая ветка решения: «исключить base из гейта». Решение: base судится ADVISORY. Программа сэмплируется как любая другая, но в `GateResult.advisory`; её introduced-ошибки (с тем же remap перенесённых путей) перечислены в ноте с местами (`file:line message`, cap 5) и apply не отклоняют. Ноги предиката остаются: они сужают круг advisory-программ, а ошибка классификации теперь даёт раскрытое предупреждение, а не тишину. Цена: base-программа снова строится и проверяется, как до фикса.
 - [BLOCK] `resolvesSameUnderOwners` спрашивал и base-программу, так что её `paths` решали, переписывать ли спецификатор (ложный отказ). Теперь base из владельцев исключён; e2e с shadow-`paths` в base.
 - Живая проверка на свежей копии claude-ui: переносы применяются; на web-переносе нота advisory показывает те же 7 ошибок `tsconfig.base.json`, что в разборе; typecheck server/web/root даёт exit 0.
+
+
+## Доп. круг bug-ревью (по слову менеджера, 0833020..46d1e77)
+- [BLOCK] advisory-диагностики всех base-программ сливались в один multiset: ошибка, исчезнувшая под одним base и появившаяся под другим (та же строка), гасила сама себя, и нота писала «no error introduced». Теперь `GateResult.advisory` хранится по программе, а diff с remap выполняется для каждой отдельно; юнит `gate-coverage-notes.test.ts` краснеет на слитом multiset.
+- Тест транзакции формы B (две цепочки move внутри workspace-пакета, `transaction`) краснеет без source-пары: подтверждено, что `TxnCompose` проводит `moves` в гейт.
+
+## Слияние с фичеветкой (origin/mcp-session-economy 0bb59a0, трек t-403708 — эмуляция workspace-ссылок)
+- Конфликты: `program/single.ts` (их `links`/`ReresolvingHost`) и `refactor/imports/resolve.ts` (их `host.workspaceLinks().resolutionHost`). Мои правки перенесены поверх их версии; `parseConfigFile` получает их `ParseConfigHost`; `resolveSpecifier` и `resolvesSameUnderOwners` резолвят через `resolutionHost`.
+- Правило C не зависит от node_modules: под эмуляцией (pnpm-workspace + `workspace:*`, без симлинка) спецификатор так же остаётся, e2e `without node_modules…`.
