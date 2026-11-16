@@ -3,10 +3,12 @@ id: t-401540
 title: 'move_file: §7-гейт судит перенесённый файл чужой программой (tsconfig.base.json / корневой) → ложные introduced-ошибки, apply отклонён'
 status: backlog
 priority: high
+parent: t-982648
 tags:
   - UNVERIFIED
   - dogfood
   - dogfood-nov
+assigned_to_session: s-207994
 type: bug
 complexity: M
 area: ts-refactor

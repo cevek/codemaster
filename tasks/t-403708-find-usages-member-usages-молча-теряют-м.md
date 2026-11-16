@@ -3,10 +3,12 @@ id: t-403708
 title: find_usages / member_usages молча теряют межпакетных потребителей, импортирующих символ через workspace-пакет (снапшот без node_modules)
 status: backlog
 priority: high
+parent: t-982648
 tags:
   - UNVERIFIED
   - dogfood
   - dogfood-nov
+assigned_to_session: s-207994
 type: bug
 complexity: M
 area: multi-program

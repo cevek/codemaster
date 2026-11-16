@@ -3,10 +3,12 @@ id: t-877573
 title: batch / source на холодном снапшот-root висят минутами без ответа
 status: backlog
 priority: high
+parent: t-982648
 tags:
   - UNVERIFIED
   - dogfood
   - dogfood-nov
+assigned_to_session: s-207994
 type: bug
 complexity: M
 area: platform

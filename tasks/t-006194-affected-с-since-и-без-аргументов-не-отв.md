@@ -3,10 +3,12 @@ id: t-006194
 title: affected (с since и без аргументов) не отвечает до таймаута MCP 300 с на worktree монорепо claude-ui
 status: backlog
 priority: high
+parent: t-982648
 tags:
   - UNVERIFIED
   - dogfood
   - dogfood-nov
+assigned_to_session: s-207994
 type: bug
 complexity: M
 area: impact-usages
