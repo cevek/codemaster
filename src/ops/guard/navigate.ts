@@ -250,14 +250,23 @@ function syntacticModeAlternatives(op: string, nav: NavArgs, gives: string): Che
   if (bag === undefined || bag['syntactic'] === true) return [];
   const exact = callWith(op, bag, { syntactic: true });
   if (exact !== undefined) return [{ call: exact, gives }];
-  if (name === undefined) return [];
   // The exact render did not fit, so the fallback carries ONE target. Say how many it drops: a call that
   // answers about 1 of 20 while its `gives` promises "the same bodies" is a redirect that quietly
-  // under-delivers, which is the §3.4 omission in miniature.
+  // under-delivers, which is the §3.4 omission in miniature. The target rides WHOLE: a bare name cut
+  // off its `file` re-addresses the whole workspace — a different question, not the first one.
+  const list = bag['targets'];
+  const head: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
+  const call =
+    head !== undefined
+      ? callWith(op, { targets: [head] }, { syntactic: true })
+      : name !== undefined && nav.file === undefined
+        ? `${op} {name:${j(name)},syntactic:true}`
+        : undefined;
+  if (call === undefined) return [];
   const dropped = droppedTargets(bag);
   return [
     {
-      call: `${op} {name:${j(name)},syntactic:true}`,
+      call,
       gives:
         dropped > 0
           ? `${gives} — this call carries the FIRST target only (${dropped} more: re-request them)`

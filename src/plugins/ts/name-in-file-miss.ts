@@ -4,7 +4,7 @@
 // binding pattern, an import). Naming those turns the dead end into a pick-list.
 //
 // The candidates come from TS's own `getNamedDeclarations` index — the one `source {syntactic:true}`
-// addresses by — so what this message names is what the syntactic path finds. A candidate is printed as
+// addresses by — plus object-literal property assignments, which that index omits. A candidate is printed as
 // a pasteable `file:line:col` ONLY when go-to-definition at that position lands back on it: an
 // object-literal member's name resolves through its contextual type (an interface signature elsewhere),
 // an import or a destructured binding to its source, so pasting their position would print a
@@ -38,12 +38,12 @@ function candidatesNamed(sf: ts.SourceFile, name: string): Candidate[] | undefin
   };
   nodes.forEach(add);
   // TS's index leaves out object-literal property assignments (`load: async () => …`, `a: 1`) — the
-  // commonest "method of an object literal" spelling. Without them the count would be a false total.
-  // The syntactic index misses them too, so its redirect cannot print them yet (t-857899).
+  // commonest "method of an object literal" spelling. The syntactic index misses them too, so its
+  // redirect cannot print them yet (t-857899).
   const visit = (node: ts.Node): void => {
     if (
       (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
-      ts.isIdentifier(node.name) &&
+      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
       node.name.text === name
     ) {
       add(node);
@@ -93,8 +93,8 @@ function label(node: ts.Declaration, name: string): string {
   return where.member ? `${where.name}.${name} (${kind})` : `${name} (${kind}, in ${where.name})`;
 }
 
-/** Does go-to-definition at `anchor` yield THIS declaration first (what `source` prints)? A thrown LS
- *  call is "not shown to", never a guess — the candidate then degrades to its line. */
+/** Does go-to-definition at `anchor` yield THIS declaration first (what `source` prints)? An empty
+ *  answer or a thrown LS call is "not shown to", never a guess — the candidate degrades to its line. */
 function selfResolving(h: TsProjectHost, abs: string, anchor: number): boolean {
   try {
     const service = h.sourceFileAcross(abs)?.program.service ?? h.service;
@@ -118,8 +118,9 @@ export function nameInFileMissMessage(
   if (found === undefined || found.length === 0) {
     return `${head} — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a destructured binding / namespace import-export / object-literal property is declared yet missed by THIS lookup. A bare '${name}' (no file) may find it, though it can land a same-named symbol elsewhere; to check without a name, address by position (file:line:col)`;
   }
-  // One LS call per candidate, so only the shown preview is checked; the rest are counted (the walk
-  // over this one file finished, so the total is exact).
+  // One LS call per candidate, so only the shown preview is checked; the rest are counted. The count is
+  // a FLOOR, not a total: the index collapses an overload set and omits plain parameters and computed
+  // names, and no walk here adds them back.
   let byLine = false;
   let byPos = false;
   const labels = found.map((c, i) => {
@@ -133,8 +134,8 @@ export function nameInFileMissMessage(
     return `${label(c.node, name)} at line ${lc.line + 1}`;
   });
   const lineOnly = byLine
-    ? ' An entry given by line only is one where go-to-definition at its name lands on a DIFFERENT declaration (its contextual type / import source), so a position there does not print it.'
+    ? ' An entry given by line only is one go-to-definition at its name did not return (it resolves through a contextual type / import source, or to nothing), so a position there does not print it.'
     : '';
   const byPosition = byPos ? ' Address one by its @file:line:col.' : '';
-  return `${head} — the file declares ${found.length} '${name}' this top-level lookup does not anchor: ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
+  return `${head} — found ${found.length} '${name}' declared in this file below or beside what this top-level lookup anchors (a floor: overload signatures, plain parameters and computed names are not listed): ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
 }

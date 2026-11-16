@@ -342,6 +342,15 @@ test('the source mode switch admits how many targets its fallback drops', () => 
   assert.ok(only.call.length <= 300, 'and it is renderable, not a truncated blob');
   assert.match(only.gives, /FIRST target only \(19 more/, `must state the drop: ${only.gives}`);
 
+  // The kept target rides WHOLE: a name cut off its `file` would re-address the whole workspace.
+  const pinned = Array.from({ length: 10 }, (_, i) => ({ name: 'run', file: `src/dir/f${i}.ts` }));
+  const [first] = cheapCallsFor('source', { targets: pinned }, 'this-call').calls;
+  assert.equal(
+    first?.call,
+    'source {targets:[{"name":"run","file":"src/dir/f0.ts"}],syntactic:true}',
+  );
+  assert.match(first.gives, /FIRST target only \(9 more/);
+
   // The exact render fits for a small call, and then nothing is dropped and nothing is claimed to be.
   const [exact] = cheapCallsFor('source', { targets: [{ name: 'Button' }] }, 'this-call').calls;
   assert.equal(exact?.call, 'source {targets:[{"name":"Button"}],syntactic:true}');

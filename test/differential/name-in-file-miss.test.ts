@@ -24,7 +24,9 @@ const A =
   '  function inner(): number { return helper(); }\n' + // 9: a nested function
   '  return inner();\n' + // 10
   '}\n' + // 11
-  'export const api = { load: async (): Promise<number> => 1 };\n'; // 12: an arrow-valued property
+  'export const api = { load: async (): Promise<number> => 1 };\n' + // 12: an arrow-valued property
+  "export const r1 = { run: () => 1 }, r2 = { 'run': () => 2 };\n" + // 13: ident + string-literal keys
+  'export const { value } = {} as Record<string, number>;\n'; // 14: go-to-definition returns nothing
 const FILES = {
   'tsconfig.json': '{"compilerOptions":{"strict":true}}',
   'src/a.ts': A,
@@ -67,7 +69,8 @@ test('name+file miss lists below-top-level declarations; printed positions round
   const p: TestProject = await project(FILES);
   try {
     const area = failMsg(await p.op('find_definition', { name: 'area', file: 'src/a.ts' }));
-    assert.match(area, /declares 3 'area'/, area);
+    assert.match(area, /found 3 'area'/, area);
+    assert.match(area, /a floor/, 'the count is not claimed as a total');
     assert.deepEqual(
       positions(area).map((x) => x.line),
       [2, 5],
@@ -90,6 +93,14 @@ test('name+file miss lists below-top-level declarations; printed positions round
       );
       await roundTrip(p, name, msg);
     }
+
+    const run = failMsg(await p.op('find_definition', { name: 'run', file: 'src/a.ts' }));
+    assert.match(run, /found 2 'run'/, `a string-literal key is the same name: ${run}`);
+
+    // No definition at all is not "a different declaration": the line-only reason must hold for both.
+    const value = failMsg(await p.op('find_definition', { name: 'value', file: 'src/a.ts' }));
+    assert.deepEqual(byLine(value), [14], value);
+    assert.ok(!/DIFFERENT/.test(value), `claims a definition it never saw: ${value}`);
 
     const helper = failMsg(await p.op('find_definition', { name: 'helper', file: 'src/a.ts' }));
     assert.deepEqual(positions(helper), [], 'an import is never offered as an address');
