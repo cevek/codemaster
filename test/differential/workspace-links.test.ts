@@ -284,3 +284,30 @@ test('importers_of a workspace package specifier answers as on a real install', 
     await real.dispose();
   }
 });
+
+test('the reverse-import index (importers_of by file, affected) sees the consumer through the link', async () => {
+  const shape = {
+    ...files({ appSpec: 'workspace:*' }),
+    'packages/app/src/main.test.ts': "import { hello } from './main';\nexport const t = hello;\n",
+  };
+  const emu = await project(shape);
+  const real = await project(shape);
+  try {
+    linkReal(real, ['@w/core']);
+    for (const [op, args] of [
+      ['importers_of', { module: 'packages/core/src/index.ts' }],
+      ['affected', { files: ['packages/core/src/greet.ts'] }],
+    ] as const) {
+      const e = okResult(await emu.op(op, args));
+      const r = okResult(await real.op(op, args));
+      assert.deepEqual(e.data, r.data, op);
+      const text = JSON.stringify(e.data);
+      const want =
+        op === 'affected' ? 'packages/app/src/main.test.ts' : 'packages/app/src/main.ts:1';
+      assert.ok(text.includes(want), `${op}: ${text}`);
+    }
+  } finally {
+    await emu.dispose();
+    await real.dispose();
+  }
+});

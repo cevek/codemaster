@@ -18,6 +18,20 @@ import { defineOp } from './registry.ts';
 import { SYNTACTIC_SCOPE } from '../plugins/ts/plugin.ts';
 import { runSourceSyntactic } from './source-syntactic.ts';
 import { describeTsTarget, tsTargetShape, requireTarget } from './ts-target.ts';
+import { navigationFor } from './guard/navigate.ts';
+import type { TsTargetInput } from '../plugins/ts/plugin.ts';
+
+/** The exact domain of the checker's `name+file` lookup, which anchors top-level declarations only —
+ *  a shape gate, never a match on the failure text. */
+function isNameInFile(t: TsTargetInput): boolean {
+  return (
+    t.name !== undefined &&
+    t.file !== undefined &&
+    t.symbolId === undefined &&
+    t.line === undefined &&
+    t.col === undefined
+  );
+}
 
 const targetSchema = z.strictObject(tsTargetShape).refine(requireTarget.predicate, {
   message: requireTarget.message,
@@ -67,6 +81,7 @@ export const sourceOp = defineOp({
     const ts = ctx.plugins.get<TsPluginApi>('ts');
     const sources: JsonValue[] = [];
     const unresolved: JsonValue[] = [];
+    const nameInFileMisses: TsTargetInput[] = [];
     try {
       // Opt-in AST-only path: no program build, no LS warm. Deliberately NOT an automatic degrade —
       // the two paths resolve an address differently (above), so switching silently would change what
@@ -76,6 +91,7 @@ export const sourceOp = defineOp({
         const outcome = ts.findDefinition(target);
         if (typeof outcome === 'string') {
           unresolved.push({ target: describeTsTarget(target), reason: outcome });
+          if (isNameInFile(target)) nameInFileMisses.push(target);
           continue;
         }
         if ('unresolved' in outcome) {
@@ -120,9 +136,19 @@ export const sourceOp = defineOp({
             : {}),
         });
       }
+      // One redirect for the call, not one per target: the AST-only mode addresses below-top-level and
+      // out-of-tsconfig declarations by the same name+file, and prints the one AT the address (a position
+      // here can print a contextual-type declaration instead — t-406178).
+      const redirect =
+        nameInFileMisses.length === 0
+          ? {}
+          : {
+              redirect: `name+file on this path anchors top-level declarations only — for the unresolved name+file target(s): ${navigationFor('source', { targets: nameInFileMisses }, 'this-call')} That mode does not index an object-literal property assignment (\`k: v\`, \`k: () => …\`) yet, so a target named above as a \`property assignment\` misses there too (t-857899).`,
+            };
       return ok({
         sources,
         ...(unresolved.length > 0 ? { unresolved } : {}),
+        ...redirect,
       });
     } catch (thrown) {
       return failFromThrown('ts-ls', thrown);

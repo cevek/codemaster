@@ -55,12 +55,14 @@ export function resolveSpecifier(
  *  arg on a case-insensitive volume, would compare unequal and silently report ZERO usages
  *  (moduleResolved=true, calls=[]) — a quiet mislead (bug-review). realpath collapses both. */
 export function samePath(a: string, b: string): boolean {
-  const canon = (p: string): string => {
-    try {
-      return ts.sys.realpath ? ts.sys.realpath(p) : path.normalize(p);
-    } catch {
-      return path.normalize(p);
-    }
-  };
-  return canon(a) === canon(b);
+  return canonPath(a) === canonPath(b);
+}
+
+/** The identity form `samePath` compares: realpath, or the normalized spelling when it cannot. */
+export function canonPath(p: string): string {
+  try {
+    return ts.sys.realpath ? ts.sys.realpath(p) : path.normalize(p);
+  } catch {
+    return path.normalize(p);
+  }
 }

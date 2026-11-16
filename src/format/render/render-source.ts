@@ -32,15 +32,18 @@ export type SourceEntry = {
   moreDefinitions?: string[];
 };
 type Unresolved = { target: string; reason: string };
-
-/** Shape guard for `source` op data: an object carrying a `sources` array. Distinct from
- *  find_usages multi-target (`targets`) and the sql table (`columns`/`rows`). */
-export function isSourceData(data: JsonValue): data is {
+type SourceData = {
   surface?: string;
   note?: string;
   sources: SourceEntry[];
   unresolved?: Unresolved[];
-} {
+  /** The call that answers the unresolved targets another way — after them, since it acts on them. */
+  redirect?: string;
+};
+
+/** Shape guard for `source` op data: an object carrying a `sources` array. Distinct from
+ *  find_usages multi-target (`targets`) and the sql table (`columns`/`rows`). */
+export function isSourceData(data: JsonValue): data is SourceData {
   return (
     typeof data === 'object' &&
     data !== null &&
@@ -49,10 +52,7 @@ export function isSourceData(data: JsonValue): data is {
   );
 }
 
-export function renderSource(
-  data: { surface?: string; note?: string; sources: SourceEntry[]; unresolved?: Unresolved[] },
-  budget: number = SOURCE_BODY_BUDGET,
-): string {
+export function renderSource(data: SourceData, budget: number = SOURCE_BODY_BUDGET): string {
   const lines: string[] = [];
   // Ahead of the note: when the scan's surface was NOT the documented default, that qualifies which
   // files the bodies below could have come from at all — the widest-scope statement goes first (§12).
@@ -91,6 +91,7 @@ export function renderSource(
   for (const u of data.unresolved ?? []) {
     lines.push(`unresolved: ${u.target} — ${u.reason}`);
   }
+  if (data.redirect !== undefined && data.redirect !== '') lines.push(data.redirect);
   return lines.join('\n');
 }
 

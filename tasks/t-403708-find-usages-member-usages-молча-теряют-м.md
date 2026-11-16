@@ -15,7 +15,7 @@ area: multi-program
 audience: external
 evidence: reported
 author: mb-ce356acc
-assignee: mi-c8278b4a
+assignee: mi-5302e415
 created: '2026-11-16T09:41:50.537Z'
 ---
 ## Симптом

@@ -9,8 +9,9 @@ import { realpathSync } from 'node:fs';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { toPosix } from '../../support/fs/canonicalize.ts';
 import type { TsProjectHost } from './ls-host.ts';
-import { resolveModuleArg, resolveSpecifier, samePath } from './resolve-module.ts';
+import { canonPath, resolveModuleArg } from './resolve-module.ts';
 import { findImportersSubtree } from './importers-subtree.ts';
+import type { ImportIndexCache } from './import-index.ts';
 
 export type ImporterRow = {
   /** Importing file + line of the import statement. */
@@ -107,7 +108,11 @@ function detectSubtree(
   return { rel, abs };
 }
 
-export function findImporters(host: TsProjectHost, moduleArg: string): ImportersView {
+export function findImporters(
+  host: TsProjectHost,
+  moduleArg: string,
+  indexes: ImportIndexCache,
+): ImportersView {
   const primary = host.service.getProgram();
   if (primary === undefined) return { module: moduleArg, resolved: false, importers: [], total: 0 };
 
@@ -123,33 +128,24 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
   const importers: ImporterRow[] = [];
   const seen = new Set<string>(); // `at` (file:line) — a statement two programs both see counts once
 
-  // Resolve EACH loaded program's OWN files under ITS OWN compilerOptions, then row-dedup by `at`.
-  // We deliberately do NOT use programFileGroups' primary-first FILE dedup: under a loose root the
-  // consumer file is globbed by BOTH the root (no alias → miss) and the nested config (alias →
-  // match); file-dedup would assign it to the root and silently drop the match (a §3.4 lie). Row
-  // dedup keeps the match whichever program resolved it and collapses a statement two programs both
-  // resolve to the target. A file is scanned once per containing program (bounded by program count,
-  // typically 2-3 — fileDriven adds at most one). Matching is by RESOLVED target (identity, not raw
-  // string), so a program whose options can't resolve the specifier yields no false row.
+  // Each loaded program answers from ITS OWN resolution (its own compilerOptions), then rows are
+  // deduped by `at`. Deliberately NOT programFileGroups' primary-first FILE dedup: under a loose root
+  // the consumer file is globbed by BOTH the root (no alias → miss) and the nested config (alias →
+  // match); file-dedup would assign it to the root and silently drop the match (a §3.4 lie). Matching
+  // is by RESOLVED target (identity, not raw string), so a program whose options can't resolve the
+  // specifier yields no false row. When the target RESOLVES, identity alone decides — a raw-string
+  // shortcut would mis-match two modules sharing a relative spec (`./x` in dirA vs dirB). The literal
+  // match is the fallback ONLY for an unresolvable target (a `.scss` path, an unmapped package).
+  const key = targetAbs !== undefined ? canonPath(targetAbs) : undefined;
   for (const p of host.programs()) {
     const program = p.getProgram();
     if (program === undefined) continue;
-    const options = program.getCompilerOptions();
-    const cache = new Map<string, string | undefined>(); // per-program: options differ
-    const sys = host.workspaceLinks().resolutionHost(options);
-    for (const sourceFile of program.getSourceFiles()) {
-      if (sourceFile.fileName.includes('/node_modules/')) continue;
-      for (const stmt of sourceFile.statements) {
-        const spec = moduleSpecifierOf(stmt);
-        if (spec === undefined) continue;
-        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache, sys))
-          continue;
-        const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
-        const at = `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`;
-        if (seen.has(at)) continue;
-        seen.add(at);
-        importers.push({ at, imports: importedNames(stmt) });
-      }
+    const index = indexes.of(host, program);
+    const rows = key !== undefined ? index.byTarget.get(key) : index.bySpec.get(moduleArg);
+    for (const row of rows ?? []) {
+      if (seen.has(row.at)) continue;
+      seen.add(row.at);
+      importers.push({ at: row.at, imports: row.imports });
     }
   }
   const undiscovered = host.undiscoveredProgramLabels();
@@ -180,27 +176,6 @@ export function moduleSpecifierOf(stmt: ts.Statement): string | undefined {
     return stmt.moduleSpecifier.text;
   }
   return undefined;
-}
-
-function matches(
-  spec: string,
-  moduleArg: string,
-  targetAbs: string | undefined,
-  containingFile: string,
-  options: ts.CompilerOptions,
-  cache: Map<string, string | undefined>,
-  sys: ts.ModuleResolutionHost,
-): boolean {
-  // When the target RESOLVES to a file, identity is decided by resolution alone — a raw-string
-  // `spec === moduleArg` shortcut would mis-match two different modules that share a relative
-  // specifier (`./x` in dirA vs dirB both "match" `importers_of './x'` — a false-live). The
-  // exact-string match is the fallback ONLY for an unresolvable target (a `.scss` path, a package
-  // specifier the TS resolver doesn't map to a file), where the literal string is all we have.
-  if (targetAbs !== undefined) {
-    const resolved = resolveSpecifier(spec, containingFile, options, cache, sys);
-    return resolved !== undefined && samePath(resolved, targetAbs);
-  }
-  return spec === moduleArg;
 }
 
 export function importedNames(stmt: ts.Statement): string {
