@@ -1,7 +1,7 @@
 ---
 id: t-871926
 title: 'Session prose folding: register the remaining repeated-explanation families as lessons'
-status: backlog
+status: review
 priority: medium
 tags:
   - render
@@ -24,3 +24,7 @@ The MCP facade folds a registered lesson (`common/lesson`, registry `ops/lesson-
 - `ops/symbols-overview.ts` `SYNTACTIC_NOTE` head ("syntactic NAME catalogue …")
 
 Method: extract the longest static run verbatim into a `defineLesson` (the `Result` stays byte-identical), register it, extend the MATRIX of `test/e2e/session-fold-detector.test.ts` with a call that reaches the family. Done = the detector covers each family and stays green; `test/unit/lesson-registry.test.ts` green.
+
+## Registered in t-720126
+syntactic-decl misses (decl-*), list-inactive (nested-plugin), search-file hint (file-not-symbol), affected floors (affected-*), impact timeout, programs lever (programs-*), scan-coverage empty-scan remedies (scan-nothing-ran, scan-no-source), widening skip causes, symbols_overview head (overview-catalogue). Detector MATRIX extended with syntactic `source` misses.
+Left out by the plan's rule (static run < 60 chars, facts woven in): navigate `gives:` clauses, `ROW_CAP_HINT` (59), §2.8 gate notes, the short affected/impact cap clauses, `!! PARTIAL SCAN` (subject nouns interpolated), widening `deadline` cause (contained in scan-coverage `skip-deadline`).

@@ -28,6 +28,13 @@ import { TS_TARGET_HINT, requireTarget, tsTargetShape, tsTargetIntake } from './
 import { TS_TARGET_ONE_OF } from './ts-target.ts';
 import { buildClosure, type ClosureResult, type Expand } from './impact-closure.ts';
 import { outcomeFromView } from './impact-expand.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
+
+export const IMPACT_TIMEOUT_LESSON = defineLesson({
+  id: 'impact-timeout',
+  full: '; the dependents below are a PARTIAL closure. Narrow with kind/path filters or a smaller depth/nodes to finish within budget.',
+  short: '; the dependents below are a PARTIAL closure.',
+});
 
 const DEFAULT_DEPTH = 3;
 const MAX_DEPTH = 12;
@@ -86,7 +93,7 @@ function impactNotes(
   const notes: string[] = [];
   if (closure.capped?.by === 'timeout') {
     notes.push(
-      `!! wall-clock budget exhausted mid-walk — dependent set INCOMPLETE (${closure.capped.boundaryNodes} node(s) left un-expanded); the dependents below are a PARTIAL closure. Narrow with kind/path filters or a smaller depth/nodes to finish within budget.`,
+      `!! wall-clock budget exhausted mid-walk — dependent set INCOMPLETE (${closure.capped.boundaryNodes} node(s) left un-expanded)${IMPACT_TIMEOUT_LESSON.full}`,
     );
   } else if (closure.capped?.by === 'nodes') {
     notes.push(

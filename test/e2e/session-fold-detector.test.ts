@@ -36,6 +36,12 @@ const MATRIX: [string, Record<string, unknown>, Record<string, unknown>][] = [
   ['search_symbol', { query: 'gam', syntactic: true }, { query: 'alp', syntactic: true }],
   ['source', { name: 'gamma', syntactic: true }, { name: 'alpha', syntactic: true }],
   ['symbols_overview', { query: 'alp' }, { query: 'gam' }],
+  ['source', { name: 'noSuchA', syntactic: true }, { name: 'noSuchB', syntactic: true }],
+  [
+    'source',
+    { file: 'src/a.ts', line: 3, col: 40, syntactic: true },
+    { file: 'src/b.ts', line: 2, col: 30, syntactic: true },
+  ],
   ['find_unused_exports', { pathInclude: ['src/a.ts'] }, { pathInclude: ['src/b.ts'] }],
 ];
 

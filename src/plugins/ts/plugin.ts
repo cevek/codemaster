@@ -111,6 +111,7 @@ export {
 export { DISCLOSURE_LESSONS } from './disclose-resolution.ts';
 export { UNUSED_DEMOTE } from './unused-exports-classify.ts';
 export { CONSTRUCTION_NOTES } from './construction-confidence.ts';
+export { SYNTACTIC_DECL_LESSONS } from './syntactic-decl-lessons.ts';
 export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };

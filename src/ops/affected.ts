@@ -14,6 +14,7 @@
 // test-file heuristic is a path-glob convention, STATED in the output, never proven.
 
 import { z } from 'zod';
+import { AFFECTED_LESSONS } from './affected-lessons.ts';
 import { forceFlagGuardNotOverridable } from './force-flag.ts';
 import type { JsonValue } from '../core/json.ts';
 import type { RepoRelPath } from '../core/brands.ts';
@@ -304,7 +305,7 @@ export const affectedOp = defineOp({
       }
       if (undiscovered.length > 0) {
         notes.push(
-          `!! ${undiscovered.length} repo tsconfig(s) NOT loaded as programs (nested package, not adjacent / referenced) — tests under them are invisible to the import graph and NOT traced; set is a LOWER BOUND — run the full suite. (${undiscovered.join(', ')})`,
+          `!! ${undiscovered.length}${AFFECTED_LESSONS.unloaded.full} (${undiscovered.join(', ')})`,
         );
       }
       if (timedOut) {
@@ -322,22 +323,20 @@ export const affectedOp = defineOp({
       }
       if (deleted.length > 0) {
         notes.push(
-          `!! ${deleted.length} changed file(s) DELETED (gone from disk) — their former importers cannot be traced from the post-change tree; their affected tests are NOT included — run the full suite. (${deleted.join(', ')})`,
+          `!! ${deleted.length} changed file(s) DELETED (gone from disk)${AFFECTED_LESSONS.deleted.full} (${deleted.join(', ')})`,
         );
       }
       if (untraced.length > 0) {
-        notes.push(
-          `!! ${untraced.length} changed file(s) outside the TS import graph (non-TS asset / config) — tests reaching them via non-TS imports are NOT traced; set is a LOWER BOUND. (${untraced.join(', ')})`,
-        );
+        notes.push(`!! ${untraced.length}${AFFECTED_LESSONS.nonTs.full} (${untraced.join(', ')})`);
       }
       if (outside.length > 0) {
         notes.push(
-          `!! ${outside.length} changed file(s) OUTSIDE the workspace root — not traced (a test under the root may import them); set is a LOWER BOUND — run the full suite. (${outside.join(', ')})`,
+          `!! ${outside.length} changed file(s) OUTSIDE the workspace root${AFFECTED_LESSONS.outside.full} (${outside.join(', ')})`,
         );
       }
       if (failed.length > 0) {
         notes.push(
-          `!! ${failed.length} module(s) could not be queried (importersOf failed) — their importers are NOT traced; affected-test set is a LOWER BOUND — run the full suite. (${failed.join(', ')})`,
+          `!! ${failed.length} module(s) could not be queried (importersOf failed)${AFFECTED_LESSONS.queryFailed.full} (${failed.join(', ')})`,
         );
       }
       notes.push(

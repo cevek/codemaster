@@ -20,7 +20,7 @@ import type { JsonValue } from '../core/json.ts';
 import type { WideningScanCoverage } from '../plugins/ts/plugin.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
-import { defineLesson } from '../common/lesson/lesson.ts';
+import { defineLesson, type Lesson } from '../common/lesson/lesson.ts';
 
 const MAX_NAMED = 3;
 
@@ -143,11 +143,25 @@ function skippedNotes(coverage: WideningScanCoverage): string[] {
 
 /** Exhaustive over `SkippedWideningProgram['reason']` — cause AND remedy in one clause each, so a
  *  new reason cannot fall through to a plausible-but-wrong sentence (it renders its raw tag). */
+const NO_VALUE_LESSON = defineLesson({
+  id: 'widening-skip-no-value',
+  full: `the position resolves to no value under that program's OWN compilerOptions, so it has no source type there to judge sinks against — neither a spent budget nor a missing config; re-run with that package as \`root\` to trace the value under those options`,
+  short: 'no value at that position under that program’s own options (re-run with it as root)',
+});
+const UNAVAILABLE_LESSON = defineLesson({
+  id: 'widening-skip-program-unavailable',
+  full: `the TS Language Service could not produce a Program (or this file) for them — an internal-tool failure, not a scope decision`,
+  short: 'the LS produced no Program for them (internal failure)',
+});
+
+// `deadline` is not a lesson: scan-coverage's `skip-deadline` contains these exact words.
 const SKIP_CAUSE: Record<string, string> = {
-  'no-value-here': `the position resolves to no value under that program's OWN compilerOptions, so it has no source type there to judge sinks against — neither a spent budget nor a missing config; re-run with that package as \`root\` to trace the value under those options`,
+  'no-value-here': NO_VALUE_LESSON.full,
   deadline: `the wall-clock budget was already spent when the fan reached them, so their checkers were never warmed`,
-  'program-unavailable': `the TS Language Service could not produce a Program (or this file) for them — an internal-tool failure, not a scope decision`,
+  'program-unavailable': UNAVAILABLE_LESSON.full,
 };
+
+export const WIDENING_SKIP_LESSONS: readonly Lesson[] = [NO_VALUE_LESSON, UNAVAILABLE_LESSON];
 
 export const WIDENING_LESSONS = {
   fallbackExcluded: defineLesson({

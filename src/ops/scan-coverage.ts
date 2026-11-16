@@ -239,7 +239,21 @@ const BUDGET_FLOOR_LESSON = defineLesson({
   short: '. The shortfall is the budget (raise limit / narrow pathInclude).',
 });
 
+const NOTHING_RAN_LESSON = defineLesson({
+  id: 'scan-nothing-ran',
+  full: ' — nothing ran. Narrow with pathInclude, or retry against a warm engine.',
+  short: ' — nothing ran.',
+});
+
+const NO_SOURCE_LESSON = defineLesson({
+  id: 'scan-no-source',
+  full: ', so no scope filter could have helped. Target a symbol whose own tsconfig covers source files.',
+  short: ', so no scope filter could have helped.',
+});
+
 export const SCAN_COVERAGE_LESSONS: readonly Lesson[] = [
+  NOTHING_RAN_LESSON,
+  NO_SOURCE_LESSON,
   ...Object.values(SKIP_CAUSE),
   FALLBACK_FILES_LESSON,
   FALLBACK_ONLY_LESSON,
@@ -301,10 +315,10 @@ function emptyScanRemedy(coverage: ScanCoverage): string {
       coverage.files > 0
         ? `BEFORE the first of ${coverage.files} in-scope file(s) was opened`
         : `BEFORE any program in the fan could be consulted, so nothing is known about the target here`;
-    return `The wall-clock budget expired ${reached} — nothing ran. Narrow with pathInclude, or retry against a warm engine.`;
+    return `The wall-clock budget expired ${reached}${NOTHING_RAN_LESSON.full}`;
   }
   if (coverage.files === 0 && coverage.eligibleFiles > 0) {
     return `Your pathInclude/pathExclude matched 0 of the ${coverage.eligibleFiles} file(s) the program(s) scanned (${named}) hold — the path filter, not the program set, emptied the scan. Globs are REPO-relative; drop the filter to scan all ${coverage.eligibleFiles}.`;
   }
-  return `The program(s) scanned (${named}) contain NO scannable source file, so no scope filter could have helped. Target a symbol whose own tsconfig covers source files.`;
+  return `The program(s) scanned (${named}) contain NO scannable source file${NO_SOURCE_LESSON.full}`;
 }

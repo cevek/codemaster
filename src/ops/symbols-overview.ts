@@ -51,7 +51,12 @@ const COLLISIONS = '(collisions)';
 // neither listing; pick
 // → search). The flag-specific caveats below are appended ONLY when their flag is active (§12 — no wall
 // of prose when the flags aren't). Cap markers live per-group (`+N more`) + on the envelope, not here.
-const SYNTACTIC_NOTE = `syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: ${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
+export const OVERVIEW_CATALOGUE_LESSON = defineLesson({
+  id: 'overview-catalogue',
+  full: 'syntactic NAME catalogue (not type-verified; a re-export name may appear). Scope: ',
+  short: 'syntactic NAME catalogue, not type-verified. Scope: ',
+});
+const SYNTACTIC_NOTE = `${OVERVIEW_CATALOGUE_LESSON.full}${SURFACE_SCOPE_CLAUSE}. Pick a name → search_symbol / find_definition.`;
 const EXPORTED_ONLY_CAVEAT = ' Exported surface only; all:true adds non-exported locals.';
 const ALL_NOTE = ' All declared names incl non-exported locals (all:true).';
 export const OVERVIEW_HISTOGRAM_LESSON = defineLesson({

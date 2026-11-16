@@ -13,6 +13,20 @@
 import { z } from 'zod';
 import type { JsonValue } from '../core/json.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
+
+export const PROGRAMS_LEVER_LESSONS = {
+  floored: defineLesson({
+    id: 'programs-floored',
+    full: ' — partial coverage (an un-injectable stray or a file outside the correct-resolution union remains under them), so they do NOT lift the completeness floor.',
+    short: ' — partial coverage; they do NOT lift the floor.',
+  }),
+  notFound: defineLesson({
+    id: 'programs-not-found',
+    full: ' — pass a repo-relative tsconfig path (or its dir); cross-repo targets use root:, not programs:.',
+    short: ' — pass a repo-relative tsconfig path.',
+  }),
+} as const;
 
 /** Cap mirrors the discovery backstop: far above any real repo's tsconfig count, a runaway guard. */
 export const programsArgShape = {
@@ -36,12 +50,12 @@ export function applyProgramsLever(
   const notes: string[] = [];
   if (report.floored.length > 0) {
     notes.push(
-      `!! programs: ${report.floored.length} config(s) LOADED but STILL FLOORED (${report.floored.join(', ')}) — partial coverage (an un-injectable stray or a file outside the correct-resolution union remains under them), so they do NOT lift the completeness floor.`,
+      `!! programs: ${report.floored.length} config(s) LOADED but STILL FLOORED (${report.floored.join(', ')})${PROGRAMS_LEVER_LESSONS.floored.full}`,
     );
   }
   if (report.notFound.length > 0) {
     notes.push(
-      `programs: ${report.notFound.length} path(s) NOT FOUND under the repo root (${report.notFound.join(', ')}) — pass a repo-relative tsconfig path (or its dir); cross-repo targets use root:, not programs:.`,
+      `programs: ${report.notFound.length} path(s) NOT FOUND under the repo root (${report.notFound.join(', ')})${PROGRAMS_LEVER_LESSONS.notFound.full}`,
     );
   }
   return { fields, notes };

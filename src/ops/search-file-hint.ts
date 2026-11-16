@@ -4,6 +4,8 @@
 // almost always the module the agent wants, and a pointer saves a fallback grep. Orthogonal to the
 // undiscovered-program hint (both can apply — a file under an unloaded program is exactly this case).
 
+import { defineLesson } from '../common/lesson/lesson.ts';
+
 /** The file/module clause to append to a 0-match `search_symbol` note, or `''` when no source file
  *  bears the query's name (the note stays byte-identical — no false hint). Proof-carrying: names the
  *  exact resolved path(s) and steers to `find_definition {file}` (the op that inspects a known file —
@@ -17,5 +19,11 @@ export function fileModuleHint(
   if (files.length === 0) return '';
   const more = total > files.length ? ` (+${total - files.length} more with this name)` : '';
   const named = `${files.join(', ')}${more}`;
-  return ` — but a source file named '${query}' exists (${named}); if you meant the FILE/module rather than a symbol, try find_definition {file:'${files[0]}'}.`;
+  return ` — but a source file named '${query}' exists (${named})${FILE_HINT_LESSON.full}${files[0]}'}.`;
 }
+
+export const FILE_HINT_LESSON = defineLesson({
+  id: 'file-not-symbol',
+  full: '; if you meant the FILE/module rather than a symbol, try find_definition {file:',
+  short: '; for the file: find_definition {file:',
+});
