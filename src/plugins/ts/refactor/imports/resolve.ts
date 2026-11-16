@@ -48,8 +48,12 @@ export function resolveSpecifierToNode(
   importerInitialAbs: string,
   spec: string,
 ): FsNode | null {
-  const resolved = ts.resolveModuleName(spec, importerInitialAbs, options, ts.sys).resolvedModule
-    ?.resolvedFileName;
+  const resolved = ts.resolveModuleName(
+    spec,
+    importerInitialAbs,
+    options,
+    host.workspaceLinks().resolutionHost,
+  ).resolvedModule?.resolvedFileName;
   if (resolved !== undefined) return tree.findByInitialPath(host.relOf(resolved));
   // The TS resolver declined (a CSS-module import, or an unmapped specifier). Probe the tree
   // for the relative- OR alias-mapped base; a bare package is never ours to move.

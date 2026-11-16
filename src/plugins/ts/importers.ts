@@ -122,6 +122,7 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
 
   const importers: ImporterRow[] = [];
   const seen = new Set<string>(); // `at` (file:line) — a statement two programs both see counts once
+  const sys = host.workspaceLinks().resolutionHost;
 
   // Resolve EACH loaded program's OWN files under ITS OWN compilerOptions, then row-dedup by `at`.
   // We deliberately do NOT use programFileGroups' primary-first FILE dedup: under a loose root the
@@ -141,7 +142,7 @@ export function findImporters(host: TsProjectHost, moduleArg: string): Importers
       for (const stmt of sourceFile.statements) {
         const spec = moduleSpecifierOf(stmt);
         if (spec === undefined) continue;
-        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache)) continue;
+        if (!matches(spec, moduleArg, targetAbs, sourceFile.fileName, options, cache, sys)) continue;
         const lc = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile));
         const at = `${host.relOf(sourceFile.fileName)}:${lc.line + 1}`;
         if (seen.has(at)) continue;
@@ -187,6 +188,7 @@ function matches(
   containingFile: string,
   options: ts.CompilerOptions,
   cache: Map<string, string | undefined>,
+  sys: ts.ModuleResolutionHost,
 ): boolean {
   // When the target RESOLVES to a file, identity is decided by resolution alone — a raw-string
   // `spec === moduleArg` shortcut would mis-match two different modules that share a relative
@@ -194,7 +196,7 @@ function matches(
   // exact-string match is the fallback ONLY for an unresolvable target (a `.scss` path, a package
   // specifier the TS resolver doesn't map to a file), where the literal string is all we have.
   if (targetAbs !== undefined) {
-    const resolved = resolveSpecifier(spec, containingFile, options, cache);
+    const resolved = resolveSpecifier(spec, containingFile, options, cache, sys);
     return resolved !== undefined && samePath(resolved, targetAbs);
   }
   return spec === moduleArg;
