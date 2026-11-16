@@ -338,54 +338,60 @@ export async function serveMcp(
     );
   };
 
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-    const cwd = process.cwd();
-    // The whole call runs inside the telemetry span (call-telemetry.ts): breadcrumb → dispatch →
-    // record → clear, with the ordering guarantees that make a fatal visible stated there.
-    return withCallTelemetry({
-      usage,
-      clock,
-      tool: request.params.name,
-      args: request.params.arguments,
-      cwd,
-      lastSuspension: options.lastSuspension ?? readLastSuspension,
-      run: async () => {
-        // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
-        // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
-        // stay >0 and the server could never idle-exit — the orphan would persist).
-        idleExit?.enter();
-        const scope = session.begin();
-        let handled: HandledCall;
-        try {
-          handled = await handleCall(request, cwd, scope);
-        } catch (thrown) {
-          // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
-          const message = thrown instanceof Error ? thrown.message : String(thrown);
-          handled = fail(
-            errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    async (request, extra): Promise<CallToolResult> => {
+      const cwd = process.cwd();
+      const scope = session.begin();
+      // The whole call runs inside the telemetry span (call-telemetry.ts): breadcrumb → dispatch →
+      // record → clear, with the ordering guarantees that make a fatal visible stated there.
+      const sent = await withCallTelemetry({
+        usage,
+        clock,
+        tool: request.params.name,
+        args: request.params.arguments,
+        cwd,
+        lastSuspension: options.lastSuspension ?? readLastSuspension,
+        run: async () => {
+          // enter()/leave() bracket EVERY request so the idle deadline never fires mid-call; leave()
+          // is in `finally` so a throwing path still releases the in-flight count (else inFlight would
+          // stay >0 and the server could never idle-exit — the orphan would persist).
+          idleExit?.enter();
+          let handled: HandledCall;
+          try {
+            handled = await handleCall(request, cwd, scope);
+          } catch (thrown) {
+            // §3.6 applied to ourselves: never an escaped exception, the daemon stays up.
+            const message = thrown instanceof Error ? thrown.message : String(thrown);
+            handled = fail(
+              errorText(`codemaster internal error: ${message} (daemon still up; please report)`),
+            );
+          } finally {
+            idleExit?.leave();
+          }
+          // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness
+          // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
+          // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
+          // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
+          const result = capResponse(
+            handled.bareJson ? handled.result : mapText(handled.result, scope.repair),
+            handled.bareJson,
           );
-        } finally {
-          idleExit?.leave();
-        }
-        // §3.4/§12 UNIVERSAL seam cap: guarantee the serialized frame stays under the harness
-        // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
-        // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
-        // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
-        const result = capResponse(
-          handled.bareJson ? handled.result : mapText(handled.result, scope.repair),
-          handled.bareJson,
-        );
-        scope.commit(responseText(result));
-        return {
-          ok: handled.ok,
-          ops: handled.ops,
-          response: responseText(result),
-          isError: result.isError ?? false,
-          value: result,
-        };
-      },
-    });
-  });
+          return {
+            ok: handled.ok,
+            ops: handled.ops,
+            response: responseText(result),
+            isError: result.isError ?? false,
+            value: result,
+          };
+        },
+      });
+      // Counted as delivered only now, as the SDK sends it — never for a cancelled call, whose answer
+      // the client never receives.
+      if (!extra.signal.aborted) scope.commit(responseText(sent));
+      return sent;
+    },
+  );
 
   const transport = options.transport ?? new StdioServerTransport();
   await server.connect(transport);

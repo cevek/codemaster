@@ -9,7 +9,9 @@ import { identityFold, type ProseFold } from '../format/render/fold-prose.ts';
 export interface ResponseFolder {
   /** The fold for one section answered against `root` (request root ?? tool root ?? cwd, raw). */
   foldFor(root: string): ProseFold;
-  /** Re-expand the first fold of a lesson whose kept full copy did not survive the render caps. */
+  /** Resolve this response's folds: each becomes `short [id]`, except the first fold of a lesson
+   *  whose kept full copy did not survive the render caps, which becomes the full text. REQUIRED on
+   *  every text this response produced before it is sent. */
   repair(renderedText: string): string;
   /** Record what the final, capped response text actually delivered. */
   commit(finalText: string): void;
@@ -28,8 +30,21 @@ export const noFolding: ResponseFolder = {
   commit: () => undefined,
 };
 
+// A fold is written as a placeholder of the ref's length (so the render caps measure what the reader
+// gets) in private-use characters no producer emits, and resolved by `repair` after all caps but the
+// seam's.
+const OPEN = String.fromCharCode(0xe000);
+const PAD = String.fromCharCode(0xe001);
+const PLACEHOLDER = new RegExp(`${OPEN}([a-z-]+)${PAD}+`, 'g');
+
+function placeholder(lesson: Lesson): string {
+  const head = `${OPEN}${lesson.id}${PAD}`;
+  return head + PAD.repeat(Math.max(lessonRef(lesson).length - head.length, 0));
+}
+
 export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
   const shown = new Set<string>();
+  const byId = new Map(lessons.map((l) => [l.id, l] as const));
   const sessionLessons = lessons.filter((l) => l.scope === 'session');
   const minLength = Math.min(...lessons.map((l) => l.full.length));
   const keyOf = (lesson: Lesson, root: string): string =>
@@ -57,7 +72,7 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
             const keys = kept.get(lesson) ?? new Set<string>();
             const keep = !shown.has(key) && !keys.has(key);
             if (keep) kept.set(lesson, keys.add(key));
-            rebuilt += (keep ? lesson.full : lessonRef(lesson)) + (parts[i] ?? '');
+            rebuilt += (keep ? lesson.full : placeholder(lesson)) + (parts[i] ?? '');
           }
           out = rebuilt;
         }
@@ -66,15 +81,18 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
       return {
         foldFor: (root) => (s) => fold(s, root),
         repair(text) {
-          // A cap may have cut the one full copy this response kept; a later fold of it (later in
-          // the section, or in a later section) would then point at text the reader never got.
-          let out = text;
-          for (const lesson of kept.keys()) {
-            const ref = lessonRef(lesson);
-            if (out.includes(lesson.full) || !out.includes(ref)) continue;
-            out = out.replace(ref, lesson.full);
-          }
-          return out;
+          // Folds are placeholders until here, so only positions the fold itself wrote are touched
+          // — never a json section or data that happens to spell a ref. A cap may have cut the one
+          // full copy this response kept; its first surviving fold then becomes the full text.
+          const expand = new Set(
+            [...kept.keys()].filter((l) => !text.includes(l.full)).map((l) => l.id),
+          );
+          return text.replace(PLACEHOLDER, (_m, id: string) => {
+            const lesson = byId.get(id);
+            if (lesson === undefined) return _m;
+            if (expand.delete(id)) return lesson.full;
+            return lessonRef(lesson);
+          });
         },
         commit(finalText) {
           shownIn(finalText);

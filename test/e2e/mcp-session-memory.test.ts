@@ -148,6 +148,49 @@ test('a batch whose first copy was cut by the cap re-expands the next copy in th
   assert.ok((s1 ?? '').includes(ALL_PROGRAM_LESSON.full), 'the reader still gets it in full once');
 });
 
+test('repair touches only folds it wrote: a json section spelling the ref stays verbatim', async () => {
+  const big = Array.from({ length: 3000 }, (_, i) => `src/file-${i}.ts:1:1`);
+  const client = await connect(
+    stub({
+      data: (args) =>
+        args['name'] === 'big' ? { items: big, note: NOTE } : { text: `quoted: ${REF}` },
+    }),
+  );
+  const text = await call(client, 'batch', {
+    requests: [
+      { name: 'find_usages', args: { name: 'big' } },
+      { name: 'source', args: { name: 'x' }, format: 'json' },
+    ],
+  });
+  const json = text.split('\n\n[1] source\n')[1] ?? '';
+  assert.equal((JSON.parse(json) as { data: { text: string } }).data.text, `quoted: ${REF}`);
+});
+
+test('a cancelled call never counts as delivered', async () => {
+  let release: () => void = () => undefined;
+  let slow = true;
+  const base = stub();
+  const orch: OrchestratorApi = {
+    ...base,
+    request: async (...a) => {
+      if (slow) await new Promise<void>((r) => (release = r));
+      return base.request(...a);
+    },
+  };
+  const client = await connect(orch);
+  const ac = new AbortController();
+  const pending = client
+    .callTool({ name: 'find_usages', arguments: { name: 'a' } }, undefined, { signal: ac.signal })
+    .catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 20));
+  ac.abort();
+  await pending;
+  slow = false;
+  release();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok((await call(client, 'find_usages', { name: 'b' })).includes(ALL_PROGRAM_LESSON.full));
+});
+
 test('a root-scoped explanation folds per root', async () => {
   const note = `!! SURFACE = FILESYSTEM WALK, not the git listing${SURFACE_WALK_LESSON.full}`;
   const client = await connect(stub({ data: () => ({ surface: note }) }));

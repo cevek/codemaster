@@ -1706,10 +1706,14 @@ one-line legend + sectioned summary). Rules:
   (`mcp/session-memory.ts`) and renders every later occurrence — in a later answer or later in the
   same answer (batch sections, multi-target rows) — as `short [id]`: still a claim, never a bare
   pointer, and `status {concept:"<id>"}` expands it. Folding walks a COPY of the `Result` in render
-  order and never touches span text, `rows`, `diff` or `body` (data that merely looks like prose);
-  disclosures fold as rendered lines so their per-claim grouping holds. A lesson counts as delivered
-  only if its full text is in the FINAL response — after the per-op cap, the batch aggregate cut and
-  the seam cap — so a cut never leaves the reader holding folds of text it never received. A
+  order and rewrites only strings under the explanation keys (`note(s)`, `surface`, `scope`, `hint`,
+  `reason`, `notAVerdict`, the failure message, the truncation hint) — a type, a prop value, a span,
+  an sql cell or a trace hop's note (it quotes walked source) stays verbatim even when it spells a
+  lesson; disclosures fold as rendered lines so their per-claim grouping holds. A fold is a
+  ref-length placeholder until every render cap has run, then resolves to `short [id]` — or, when
+  the cap cut the one full copy this response kept, its first surviving fold becomes the full text.
+  A lesson counts as delivered only if its full text is in the FINAL response (after the seam cap)
+  and the call was not cancelled, so the reader never holds folds of text it never received. A
   `scope:'root'` lesson (a fact about one repo's surface) folds per root, keyed on the raw
   request/tool root or cwd: a key mismatch can only show it again, never hide it. Facts (`!!`
   markers, counts, config names, targets) are never part of a lesson. The guard is behavioural:

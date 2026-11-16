@@ -6,6 +6,7 @@
 
 import type { Result } from '../../core/result.ts';
 import type { JsonValue } from '../../core/json.ts';
+import { SHAPE_KEY } from '../../common/shape-tag/tag.ts';
 
 export type ProseFold = (s: string) => string;
 
@@ -46,8 +47,11 @@ function foldData(value: JsonValue, fold: ProseFold, prose: boolean): JsonValue 
     return (value as readonly JsonValue[]).map((v) => foldData(v, fold, prose));
   }
   if (value === null || typeof value !== 'object') return value;
+  const obj = value as { readonly [key: string]: JsonValue };
+  // A trace hop's note quotes the source expression it walked through: proof text, not prose.
+  if (obj[SHAPE_KEY] === 'trace-hop') return value;
   const out: { [k: string]: JsonValue } = {};
-  for (const [k, v] of Object.entries(value as { readonly [key: string]: JsonValue })) {
+  for (const [k, v] of Object.entries(obj)) {
     out[k] = foldData(v, fold, PROSE_KEYS.has(k));
   }
   return out;
