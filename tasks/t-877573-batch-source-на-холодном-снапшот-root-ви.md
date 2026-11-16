@@ -3,7 +3,6 @@ id: t-877573
 title: batch / source на холодном снапшот-root висят минутами без ответа
 status: backlog
 priority: high
-parent: t-982648
 tags:
   - UNVERIFIED
   - dogfood

@@ -1,7 +1,7 @@
 ---
 id: t-000163
 title: "FAIL envelopes repeat the `file it: feedback({kind:'bug'…})` footer"
-status: review
+status: done
 priority: low
 type: dx
 complexity: S

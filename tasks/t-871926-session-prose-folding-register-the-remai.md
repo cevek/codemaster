@@ -1,7 +1,7 @@
 ---
 id: t-871926
 title: 'Session prose folding: register the remaining repeated-explanation families as lessons'
-status: review
+status: done
 priority: medium
 tags:
   - render

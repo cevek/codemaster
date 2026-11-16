@@ -1,7 +1,7 @@
 ---
 id: t-941968
 title: source {syntactic:true} prints ~1KB of identical scope doctrine BEFORE every body — a per-session fact billed per call, and it inverts verdict-first
-status: review
+status: done
 priority: high
 parent: t-786727
 type: imp

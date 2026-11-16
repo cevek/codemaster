@@ -1,7 +1,7 @@
 ---
 id: t-109681
 title: status on a second root re-prints the whole op catalogue and concepts verbatim — ~6KB per root hop, while the DELTA is the information
-status: review
+status: done
 priority: medium
 parent: t-786727
 type: dx

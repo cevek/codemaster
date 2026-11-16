@@ -1,7 +1,7 @@
 ---
 id: t-893875
 title: 'EPIC: MCP-сессия — версия сборки и обучение один раз за сессию'
-status: backlog
+status: done
 priority: high
 assigned_to_session: s-207994
 type: imp
