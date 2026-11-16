@@ -379,7 +379,7 @@ MCP). Дёшево, когда выключено (no-op после single set-m
 
 - Node ≥ 20, ESM, strict TS через raw compiler API (no ts-morph).
 - ESLint (300-line cap · no-any · no-console · exhaustive switch), Prettier, knip,
-  lint-staged + husky.
+  без локальных git-хуков (гейт — CI).
 - Один command — `npm run fix-and-check` (eslint → prettier → tsc → knip). Должен быть
   green перед merge'ом.
 - Doc'и описывают present state, никогда past («previously / used to / now changed» —
