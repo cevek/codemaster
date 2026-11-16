@@ -1,11 +1,10 @@
 ---
 id: t-401540
 title: 'move_file: §7-гейт судит перенесённый файл чужой программой (tsconfig.base.json / корневой) → ложные introduced-ошибки, apply отклонён'
-status: in-progress
+status: review
 priority: high
 parent: t-982648
 tags:
-  - UNVERIFIED
   - dogfood
   - dogfood-nov
 assigned_to_session: s-207994
@@ -13,7 +12,7 @@ type: bug
 complexity: M
 area: ts-refactor
 audience: external
-evidence: reported
+evidence: repro
 author: mb-ce356acc
 assignee: mi-71ed3970
 created: '2026-11-16T09:41:51.479Z'
@@ -97,3 +96,9 @@ Inbox: «move_file typecheck gate judges a moved .tsx by tsconfig.base.json…»
 - bug, [BLOCK] — скрипт корневого `package.json` (`tsc -p packages/lib/tsconfig.build.json`) не учитывался. Теперь читаются manifests от папки конфига до корня воркспейса; совпадение по basename консервативно: ложное совпадение только оставляет конфиг в гейте.
 - bug, [BLOCK] — оставленный bare-спецификатор capture проверял под опциями primary, и `paths` dest-программы мог тихо перенаправить имя. Теперь спецификатор остаётся, только если КАЖДАЯ программа, чей glob владеет новым путём, разрешает его в тот же файл (`resolvesSameUnderOwners`); иначе работает прежний emit. e2e с shadow-`paths`.
 - Живая проверка повторена на свежей копии claude-ui: оба переноса применяются, typecheck server/web/root даёт exit 0.
+
+
+## Ревью кода, круг 2 (0833020) — потолок bug-reviewer, фикс без нового круга
+- [BLOCK] Конфиг, который запускается не из `package.json`-строки (shell-скрипт `scripts/typecheck.sh` → `tsc -p tsconfig.build.json`), классифицировался как base и молча выпадал из гейта: ложный clean. По репо «конфиг никто не запускает» НЕ доказуемо, ни одна эвристика поиска команд этого не гарантирует. Опровергнутая ветка решения: «исключить base из гейта». Решение: base судится ADVISORY. Программа сэмплируется как любая другая, но в `GateResult.advisory`; её introduced-ошибки (с тем же remap перенесённых путей) перечислены в ноте с местами (`file:line message`, cap 5) и apply не отклоняют. Ноги предиката остаются: они сужают круг advisory-программ, а ошибка классификации теперь даёт раскрытое предупреждение, а не тишину. Цена: base-программа снова строится и проверяется, как до фикса.
+- [BLOCK] `resolvesSameUnderOwners` спрашивал и base-программу, так что её `paths` решали, переписывать ли спецификатор (ложный отказ). Теперь base из владельцев исключён; e2e с shadow-`paths` в base.
+- Живая проверка на свежей копии claude-ui: переносы применяются; на web-переносе нота advisory показывает те же 7 ошибок `tsconfig.base.json`, что в разборе; typecheck server/web/root даёт exit 0.

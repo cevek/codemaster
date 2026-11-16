@@ -79,5 +79,6 @@ function copyResult(r: GateResult): GateResult {
     programs: [...r.programs],
     degraded: [...r.degraded],
     skipped: [...r.skipped],
+    advisory: { baseline: [...r.advisory.baseline], overlay: [...r.advisory.overlay] },
   };
 }

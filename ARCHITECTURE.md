@@ -773,12 +773,14 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   fails honestly). A move DEST also goes to every program holding its SOURCE, since such a program
   reaches the dest through the rewritten import. A file a program holds only through an import is
   overlaid as content, never as a root: a root stops being external, so a workspace package's file
-  would trip `rootDir` (TS6059) in the overlay pass alone. An **extends-only base config** is not
-  gated, and the skip is a note: a non-primary config with no `files`/`include` in its `extends`
+  would trip `rootDir` (TS6059) in the overlay pass alone. An **extends-only base config** is gated
+  ADVISORY: sampled like any program, but what it alone reports is listed in a note with its place
+  and does not refuse — whether the project runs such a config is not provable from the repo. It is a
+  non-primary config with no `files`/`include` in its `extends`
   chain, that another loaded config extends, not named `tsconfig.json`, not a `references` target,
   and not named by a script of a `package.json` from its dir up to the workspace root (re-read on a
-  reindex naming one of those manifests, the rest of the shape on the config re-parse). Its default `**/*` glob owns every file, yet nothing
-  typechecks the repo under it; its extenders do (t-401540). The import rewrite keeps a package
+  reindex naming one of those manifests, the rest of the shape on the config re-parse). Its default `**/*` glob owns every file, while the repo is
+  typechecked through its extenders (t-401540); its options never decide an import rewrite either. The import rewrite keeps a package
   specifier TS resolved through `node_modules` (a pnpm workspace package) as written when only the
   importer moved and every program owning the new path resolves it to the same file. (Inside a `transaction` the
   write-site fan-out is gated off — a step's `PlanningOverlay` lives on the primary, so a sibling

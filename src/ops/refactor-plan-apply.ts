@@ -175,7 +175,7 @@ export async function applyRefactorPlan(
 
   // Built AFTER the gate so the cross-program coverage (programs checked / broken siblings skipped)
   // rides on every envelope — a 1-program check never reads as repo-wide (§3.6 / §6).
-  notes.push(...gateCoverageNotes(coverage));
+  notes.push(...gateCoverageNotes(coverage, remapBaselineFile));
   const baseNotes = {
     ...(notes.length > 0 ? { notes } : {}),
     ...(opts.cssCoExtract !== undefined ? { cssCoExtract: opts.cssCoExtract } : {}),

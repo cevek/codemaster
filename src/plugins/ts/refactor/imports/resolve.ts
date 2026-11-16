@@ -14,6 +14,7 @@ import type { VFSTree } from '../tree/tree.ts';
 import type { FsNode } from '../tree/node.ts';
 import { aliasMappedRel, type AliasPrefix } from '../../alias-paths.ts';
 import { toPosix } from '../../../../support/fs/canonicalize.ts';
+import { extendsOnlyBases } from '../../program-ownership.ts';
 
 const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'] as const;
 
@@ -104,7 +105,8 @@ export function resolvesSameUnderOwners(
   targetAbs: string,
 ): boolean {
   const ctx = host.gateHostCtx();
-  const owners = ctx.programs.filter((p) => p.mayContain(importerAbs));
+  const bases = new Set(extendsOnlyBases(ctx));
+  const owners = ctx.programs.filter((p) => !bases.has(p) && p.mayContain(importerAbs));
   for (const program of owners.length > 0 ? owners : [ctx.primary]) {
     const options = program.getProgram()?.getCompilerOptions();
     if (options === undefined) return false;

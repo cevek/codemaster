@@ -84,7 +84,7 @@ test('ORACLE: the workspace fixture is clean under every package config before a
   }
 });
 
-test('move_file .tsx: the extends-only base config does not judge it; the skip is disclosed', async () => {
+test('move_file .tsx: what only the extends-only base reports is disclosed with its place, not blocking', async () => {
   const p = await mount();
   try {
     const src = 'packages/app/src/Hello.tsx';
@@ -93,9 +93,11 @@ test('move_file .tsx: the extends-only base config does not judge it; the skip i
     assert.equal(dry.typecheck.clean, true, JSON.stringify(dry.typecheck));
     assert.ok(
       (dry.notes ?? []).some((n) =>
-        /skipped 1 extends-only base config.*tsconfig\.base\.json/.test(n),
+        /judged 1 extends-only base config.*ADVISORY.*tsconfig\.base\.json.*introduced under them do NOT block.*packages\/app\/src\/.*jsx/.test(
+          n,
+        ),
       ),
-      `the skipped base is named: ${JSON.stringify(dry.notes)}`,
+      `the base's jsx error is shown, not dropped: ${JSON.stringify(dry.notes)}`,
     );
     assert.equal((await move(p, src, dest, true)).applied, true);
     assertPackagesClean(p.root);
@@ -141,8 +143,8 @@ test('a package script naming the base config, added after warm-up, puts it back
     const src = 'packages/app/src/Hello.tsx';
     const dest = 'packages/app/src/ui/Hello.tsx';
     const skipped = (e: Envelope): boolean =>
-      (e.notes ?? []).some((n) => /skipped 1 extends-only/.test(n));
-    assert.equal(skipped(await move(p, src, dest)), true, 'warm: the base is skipped');
+      (e.notes ?? []).some((n) => /judged 1 extends-only/.test(n));
+    assert.equal(skipped(await move(p, src, dest)), true, 'warm: the base is advisory');
     p.write('package.json', '{"scripts":{"check":"tsc -p tsconfig.base.json"}}');
     p.commit('run the base');
     const after = await move(p, src, dest);
@@ -186,6 +188,34 @@ test("a package specifier the dest program's `paths` maps elsewhere is not kept"
       `the shadowing alias must not capture it: ${moved}`,
     );
     assert.match(moved, /packages\/core\/src\/index|\.\.\/\.\.\/core/, moved);
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a `paths` entry of the advisory base does not decide whether a package specifier is kept', async () => {
+  const p = await project({
+    ...WORKSPACE,
+    'tsconfig.base.json': JSON.stringify({
+      compilerOptions: {
+        ...(JSON.parse(BASE) as { compilerOptions: object }).compilerOptions,
+        paths: { '@w/core': ['./shadow.ts'] },
+      },
+    }),
+    'shadow.ts': 'export const greet = (n: string): string => `shadow ${n}`;\n',
+    'tsconfig.json':
+      '{"extends":"./tsconfig.base.json","compilerOptions":{"paths":{}},"include":["scripts"]}',
+    'packages/app/tsconfig.json':
+      '{"extends":"../../tsconfig.base.json","compilerOptions":{"rootDir":".","jsx":"preserve","paths":{}},"include":["src"]}',
+  });
+  try {
+    const scope = path.join(p.root, 'packages/app/node_modules/@w');
+    mkdirSync(scope, { recursive: true });
+    symlinkSync(path.join(p.root, 'packages/core'), path.join(scope, 'core'), 'dir');
+    const dest = 'packages/app/src/entry/main.ts';
+    assert.equal((await move(p, 'packages/app/src/main.ts', dest, true)).applied, true);
+    assert.match(readFileSync(path.join(p.root, dest), 'utf8'), /from '@w\/core'/);
+    assertPackagesClean(p.root);
   } finally {
     await p.dispose();
   }

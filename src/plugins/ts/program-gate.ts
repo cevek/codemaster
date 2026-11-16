@@ -84,8 +84,10 @@ export interface GateResult {
   overlay: TsDiagnostic[];
   programs: string[];
   degraded: string[];
-  /** Extends-only base configs left out of the gate (program-ownership.ts). */
+  /** Extends-only base configs (program-ownership.ts) judged ADVISORY: sampled like any program,
+   *  but into `advisory`, so what only they report is disclosed and does not decide the verdict. */
   skipped: string[];
+  advisory: { baseline: TsDiagnostic[]; overlay: TsDiagnostic[] };
 }
 
 /** The project host's write-gate surface (implemented in ls-host.ts over its built programs). */
@@ -238,6 +240,8 @@ export function gateAcross(
   scope: GateScope,
 ): GateResult {
   const programs = affected(ctx, scope.anchor);
+  const bases = skippedBases(ctx, scope.anchor);
+  const sampled = [...programs, ...bases];
   const checkAbs = scope.check.map((p) => ctx.absOf(p));
   const entries: OverlayEntry[] = files.map((f) => ({
     abs: ctx.absOf(f.path),
@@ -245,18 +249,19 @@ export function gateAcross(
   }));
   // An overlay already applied means the "baseline" below is not the disk → never cache it.
   const cache =
-    ctx.cache !== undefined && !programs.some((p) => p.overlayActive()) ? ctx.cache : undefined;
+    ctx.cache !== undefined && !sampled.some((p) => p.overlayActive()) ? ctx.cache : undefined;
   const key =
     cache !== undefined
       ? JSON.stringify([
           programs.map((p) => [cache.idOf(p), p.diskVersion()]),
+          bases.map((p) => [cache.idOf(p), p.diskVersion()]),
           entries.map((e) => [e.abs, e.content]),
           scope.removed ?? null,
           scope.moves ?? null,
           checkAbs,
         ])
       : undefined;
-  const hit = key !== undefined ? cache?.result(key, programs) : undefined;
+  const hit = key !== undefined ? cache?.result(key, sampled) : undefined;
   if (hit !== undefined) return hit;
 
   const token = tokenOf(ctx);
@@ -284,9 +289,12 @@ export function gateAcross(
 
   const baseline: TsDiagnostic[] = [];
   const overlay: TsDiagnostic[] = [];
+  const advisory = { baseline: [] as TsDiagnostic[], overlay: [] as TsDiagnostic[] };
   const checked: string[] = [];
+  const skipped: string[] = [];
   const degraded: string[] = [];
-  for (const program of programs) {
+  for (const program of sampled) {
+    const isBase = bases.includes(program);
     if (program === ctx.primary) {
       // NEVER degraded: a throw here means nothing was verified → propagate (honest ts-ls failure).
       const { b, o } = sample(program);
@@ -299,18 +307,17 @@ export function gateAcross(
       // Collect BOTH passes before committing either (symmetry): if the overlay pass throws after a
       // clean baseline, neither is kept — the sibling degrades wholesale, never half-counted.
       const { b, o } = sample(program);
-      baseline.push(...b);
-      overlay.push(...o);
-      checked.push(program.label);
+      (isBase ? advisory.baseline : baseline).push(...b);
+      (isBase ? advisory.overlay : overlay).push(...o);
+      (isBase ? skipped : checked).push(program.label);
     } catch (thrown) {
       // Collapse whitespace: a multi-line LS-throw message would otherwise render as several
       // physical note lines (the dense renderer splits on \n), breaking one-fact-per-line.
       degraded.push(`${program.label} (${messageOfThrown(thrown).replace(/\s+/g, ' ').trim()})`);
     }
   }
-  const skipped = skippedBases(ctx, scope.anchor).map((p) => p.label);
-  const result = { baseline, overlay, programs: checked, degraded, skipped };
+  const result = { baseline, overlay, programs: checked, degraded, skipped, advisory };
   // A degraded sibling may be transient (a deadline cancel inside it is caught as degraded).
-  if (key !== undefined && degraded.length === 0) cache?.storeResult(key, programs, result);
+  if (key !== undefined && degraded.length === 0) cache?.storeResult(key, sampled, result);
   return result;
 }
