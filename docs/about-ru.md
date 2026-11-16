@@ -377,9 +377,8 @@ MCP). Дёшево, когда выключено (no-op после single set-m
 
 ## 15. Тулчейн и гигиена
 
-- Node ≥ 20, ESM, strict TS через raw compiler API (no ts-morph).
-- ESLint (300-line cap · no-any · no-console · exhaustive switch), Prettier, knip,
-  без локальных git-хуков (гейт — CI).
+- Node ≥ 22, ESM, strict TS через raw compiler API (no ts-morph).
+- ESLint (300-line cap · no-any · no-console · exhaustive switch), Prettier, knip.
 - Один command — `npm run fix-and-check` (eslint → prettier → tsc → knip). Должен быть
   green перед merge'ом.
 - Doc'и описывают present state, никогда past («previously / used to / now changed» —

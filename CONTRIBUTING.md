@@ -56,8 +56,19 @@ The job sets `CODEMASTER_REQUIRE_RG=1` and installs + verifies ripgrep, so the `
 distinctness oracle (`test/helpers/ripgrep.ts`) **fails loud** if `rg` is missing rather than
 honest-skipping — locally a missing `rg` still skips that cross-check (see §16).
 
-**No local git hooks.** Commit and push are untouched: what you staged is what lands, so run
-`fix-and-check` yourself, and CI's non-mutating `prettier --check` is what catches a tree you didn't.
+**Local gates.** No git hook runs anything: CI is the only automatic gate, so run `fix-and-check`
+before committing.
+
+- **Narrow** (every change): `npm run fix-and-check` + the affected tests by path,
+  `node --test <file>` (a file, not a directory). `npm run test:light` (unit + golden, ~12 s) is the
+  cheap inner loop.
+- **Full**: `npm test`. `test:heavy` (e2e + differential: real spawns, cold-Program oracles) is ~90%
+  of its time; `npm run test:timing` writes a profile to `test-timing.html`.
+- **A full run goes through the machine-wide lock:** `node scripts/with-test-lock.mjs -- npm test`.
+  Several worktrees share one machine, and two concurrent full suites thrash every core
+  superlinearly instead of taking twice as long. The lock (K=1, `~/.codemaster-orch/verify.lock`)
+  also sets `TEST_CONCURRENCY` to cores − 4; targeted `node --test` runs stay unlocked.
+- Golden snapshots are regenerated with `UPDATE_GOLDEN=1`, never merged by hand.
 
 ## Prime directive — never lie
 
@@ -71,6 +82,18 @@ A doubt established while RESOLVING a target belongs on the envelope (`Result.di
 target inherits it — a per-op obligation is one an op can silently forget. A resolution that FAILED
 is not disclosed but returned as a failure; an `ok` shaped like a proven absence is worse than an
 incomplete answer.
+
+An empty SCAN and an empty RESULT are different facts. If an unusable state can be made unreachable
+(fail upstream), do that: a note explains a bad answer, a refusal never serves it. The inverse binds
+equally: a walk that REACHED ITS END and found nothing has established absence, and refusing there is
+the same lie inverted. The discriminator is "did the walk finish", never "is the counter zero".
+
+The incompleteness vocabulary has one home (`ops/scan-coverage.ts`: `NOT_A_VERDICT_MARKER`,
+`EMPTY_SCAN_DOCTRINE`): reuse its PROSE everywhere, the `ScanCoverage` STRUCTURE
+(`plugins/ts/program/scan-coverage-view.ts`) only where the unit matches (open decision: t-381761). Its `walkedFiles === 0` discriminator, applied to a reference- or export-denominated
+walk, stamps `!! NOT A VERDICT` over an established answer. One cause gets one lever: naming
+`pathInclude` where the program holds 0 files is an inert lever inside a message about levers
+(t-259465).
 
 A refusal names a call the agent can run **here** (`ops/guard/navigate.ts`, §9) — another op with
 different args, not a config edit or a daemon restart it may have no access to. Where no cheaper
@@ -160,8 +183,9 @@ within; guard the edges.
 
 ## Tests (§16)
 
-- `node:test` + `node:assert`; run with `npm test`.
-- Every test needs an **independent oracle** — a fixture is only input, not proof.
+- `node:test` + `node:assert`.
+- Every test needs an **independent oracle** — a fixture is only input, not proof. Here that is a
+  cold `ts.Program`, a cold reparse or a separate code path.
 - Default to inline-VFS `project({ ...files })` fixtures (hermetic, no `npm install`); use
   `test/fixtures/repos/` only for realistic and end-to-end cases.
 - Never golden-only for a correctness claim — pair it with an oracle.
@@ -246,16 +270,19 @@ read by agents as live truth. A resolved item left `status: backlog`/`todo` is a
 open work, and an agent will build against a bug that no longer exists. Two rules:
 
 - **Close in the same commit you fix.** A `fix(`/`feat(` that closes a tracked behaviour
-  MUST, in the same diff, flip the matching task to `done` (`set_status <id> done`, passing
-  the `expected_hash` from your read) — never defer it to a later sweep. The gap between fix
+  MUST, in the same diff, flip the matching task's status (`set_status`, passing the
+  `expected_hash` from your read) — never defer it to a later sweep. The gap between fix
   and status-flip is a window where the backlog reads false. Filing newly-found residuals in
   that commit (`create_task`) is fine and encouraged — just don't leave the one you closed
   open. (Done tasks are `archive`d in periodic sweeps; git holds the history — see Docs above.)
 - **A dogfood finding enters the backlog only after a repro on current `main`.** A
   hedged hypothesis ("appears to…") filed as an open task is the other source of false
   entries — the behaviour may already be correct. Reproduce hermetically first (CLI
-  one-shot / fixture); if you can't, either omit it or tag it `UNVERIFIED` so the next
-  reader knows it's unconfirmed, not a known bug.
+  one-shot / fixture): the repro shows correct behaviour → do not file it (an inbox entry goes to
+  the archive with that reason); no repro is possible → file it with `evidence: unverified`, so the
+  next reader knows it's unconfirmed, not a known bug.
+- `npm run backlog:lint` checks the backlog for the structural falsehoods (work invisible to the
+  queue, a reference to nothing); run it after filing or editing tasks.
 
 ### What to work on next — `npm run queue`, and why `priority` is not the answer
 
@@ -332,6 +359,6 @@ imports it (knip will flag the entry as redundant).
 
 `fix-and-check` green · new behavior has an oracle-backed test · any new boundary is
 zod-validated · every external-tool call wrapped (no crash, no guess) · docs at present
-state · the fixed task flipped to `done` in the same commit (Backlog discipline) · no new
+state · the fixed task's status flipped in the same commit (Backlog discipline) · no new
 upward import · no file over 300 lines · no blocking the orchestrator (heavy work → the
 workspace engine, §2).
