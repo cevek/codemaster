@@ -1,7 +1,7 @@
 ---
 id: t-006194
 title: affected (с since и без аргументов) не отвечает до таймаута MCP 300 с на worktree монорепо claude-ui
-status: review
+status: done
 priority: high
 parent: t-982648
 tags:

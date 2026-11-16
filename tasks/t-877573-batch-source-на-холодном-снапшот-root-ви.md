@@ -1,7 +1,7 @@
 ---
 id: t-877573
 title: batch / source на холодном снапшот-root висят минутами без ответа
-status: in-progress
+status: backlog
 priority: high
 parent: t-982648
 tags:
@@ -15,7 +15,6 @@ area: platform
 audience: external
 evidence: reported
 author: mb-ce356acc
-assignee: mi-f66810de
 created: '2026-11-16T09:41:53.744Z'
 ---
 ## Симптом
