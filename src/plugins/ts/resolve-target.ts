@@ -96,7 +96,7 @@ function resolveNameInFile(h: TsProjectHost, name: string, file: string): Resolv
     // NOT "the file declares no such symbol": this walk anchors bare-identifier declarations, so a
     // top-level binding pattern, a namespace import/export and every below-top-level declaration are
     // invisible to it (t-561552). The message names what the file does declare under the name.
-    return { ok: false, message: nameInFileMissMessage(h, sourceFile, abs, name, file) };
+    return { ok: false, message: nameInFileMissMessage(h, sourceFile, name, file) };
   }
   if (decls.length > 1) {
     return {

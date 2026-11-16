@@ -26,7 +26,8 @@ const A =
   '}\n' + // 11
   'export const api = { load: async (): Promise<number> => 1 };\n' + // 12: an arrow-valued property
   "export const r1 = { run: () => 1 }, r2 = { 'run': () => 2 };\n" + // 13: ident + string-literal keys
-  'export const { value } = {} as Record<string, number>;\n'; // 14: go-to-definition returns nothing
+  'export const { value } = {} as Record<string, number>;\n' + // 14: go-to-definition returns nothing
+  'export class K { constructor() { const tmp = 1; void tmp; } }\n'; // 15: a constructor local
 const FILES = {
   'tsconfig.json': '{"compilerOptions":{"strict":true}}',
   'src/a.ts': A,
@@ -101,6 +102,10 @@ test('name+file miss lists below-top-level declarations; printed positions round
     const value = failMsg(await p.op('find_definition', { name: 'value', file: 'src/a.ts' }));
     assert.deepEqual(byLine(value), [14], value);
     assert.ok(!/DIFFERENT/.test(value), `claims a definition it never saw: ${value}`);
+
+    const tmp = failMsg(await p.op('find_definition', { name: 'tmp', file: 'src/a.ts' }));
+    assert.ok(!/K\.tmp/.test(tmp), `a constructor local is not a member: ${tmp}`);
+    assert.match(tmp, /tmp \(const, in K\)/, tmp);
 
     const helper = failMsg(await p.op('find_definition', { name: 'helper', file: 'src/a.ts' }));
     assert.deepEqual(positions(helper), [], 'an import is never offered as an address');

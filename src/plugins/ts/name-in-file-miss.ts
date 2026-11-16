@@ -13,6 +13,7 @@
 import ts from 'typescript';
 import type { TsProjectHost } from './ls-host.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
+import { messageOfThrown } from '../../common/result/construct.ts';
 import { namedDeclarations, namedDeclarationsAvailable } from './syntactic-internal.ts';
 import { isRealDeclaration, nameAnchor, nodeKindLabel } from './syntactic-nodes.ts';
 
@@ -54,8 +55,11 @@ function candidatesNamed(sf: ts.SourceFile, name: string): Candidate[] | undefin
   return out.sort((a, b) => a.anchor - b.anchor);
 }
 
-/** Nearest named enclosing declaration — `Engine` for a method, `createHost` for a returned literal. */
+/** Nearest named enclosing declaration — `Engine` for a method, `createHost` for a returned literal.
+ *  `member` only when no function body or block lies between: a `const` inside a constructor is a
+ *  local of that body, not `C.name`. */
 function container(node: ts.Node): { name: string; member: boolean } | undefined {
+  let crossedBody = false;
   for (let up: ts.Node | undefined = node.parent; up !== undefined; up = up.parent) {
     if (ts.isSourceFile(up)) return undefined;
     const typeLike =
@@ -63,24 +67,24 @@ function container(node: ts.Node): { name: string; member: boolean } | undefined
       ts.isInterfaceDeclaration(up) ||
       ts.isTypeAliasDeclaration(up) ||
       ts.isEnumDeclaration(up);
-    if (
-      !typeLike &&
-      !ts.isFunctionLike(up) &&
-      !ts.isVariableDeclaration(up) &&
-      !ts.isModuleDeclaration(up)
-    ) {
-      continue;
+    const named =
+      typeLike ||
+      ts.isFunctionLike(up) ||
+      ts.isVariableDeclaration(up) ||
+      ts.isModuleDeclaration(up);
+    const n = named ? ts.getNameOfDeclaration(up as ts.Declaration) : undefined;
+    if (n !== undefined && ts.isIdentifier(n)) {
+      return { name: n.text, member: typeLike && !crossedBody };
     }
-    const n = ts.getNameOfDeclaration(up as ts.Declaration);
-    if (n !== undefined && ts.isIdentifier(n)) return { name: n.text, member: typeLike };
+    if (ts.isFunctionLike(up) || ts.isBlock(up)) crossedBody = true;
   }
   return undefined;
 }
 
 function kindOf(node: ts.Declaration): string {
   if (ts.isBindingElement(node)) return 'destructured binding';
-  if (ts.isPropertyAssignment(node)) return 'property';
-  if (ts.isShorthandPropertyAssignment(node)) return 'shorthand property';
+  if (ts.isPropertyAssignment(node)) return 'property assignment';
+  if (ts.isShorthandPropertyAssignment(node)) return 'shorthand property assignment';
   if (!isRealDeclaration(node)) return ts.isExportSpecifier(node) ? 're-export' : 'import';
   return nodeKindLabel(node);
 }
@@ -93,15 +97,21 @@ function label(node: ts.Declaration, name: string): string {
   return where.member ? `${where.name}.${name} (${kind})` : `${name} (${kind}, in ${where.name})`;
 }
 
-/** Does go-to-definition at `anchor` yield THIS declaration first (what `source` prints)? An empty
- *  answer or a thrown LS call is "not shown to", never a guess — the candidate degrades to its line. */
-function selfResolving(h: TsProjectHost, abs: string, anchor: number): boolean {
+/** Where go-to-definition at `anchor` lands, against THIS declaration (what `source` prints first).
+ *  A thrown LS call is its own state, carrying its reason — never read as a semantic "elsewhere". */
+type Landing = { kind: 'self' } | { kind: 'other' } | { kind: 'failed'; reason: string };
+
+function landingOf(h: TsProjectHost, sf: ts.SourceFile, anchor: number): Landing {
   try {
-    const service = h.sourceFileAcross(abs)?.program.service ?? h.service;
-    const first = service.getDefinitionAtPosition(abs, anchor)?.[0];
-    return first !== undefined && first.fileName === abs && first.textSpan.start === anchor;
-  } catch {
-    return false;
+    // The program's own file name, not the caller's spelling: a case-folded `file` arg still finds
+    // the program file, and the LS answers in the program's spelling.
+    const service = h.sourceFileAcross(sf.fileName)?.program.service ?? h.service;
+    const first = service.getDefinitionAtPosition(sf.fileName, anchor)?.[0];
+    const self =
+      first !== undefined && first.fileName === sf.fileName && first.textSpan.start === anchor;
+    return { kind: self ? 'self' : 'other' };
+  } catch (thrown) {
+    return { kind: 'failed', reason: messageOfThrown(thrown) };
   }
 }
 
@@ -109,7 +119,6 @@ function selfResolving(h: TsProjectHost, abs: string, anchor: number): boolean {
 export function nameInFileMissMessage(
   h: TsProjectHost,
   sf: ts.SourceFile,
-  abs: string,
   name: string,
   file: string,
 ): string {
@@ -119,16 +128,20 @@ export function nameInFileMissMessage(
     return `${head} — check the name/file, or pass file:line:col. NOTE: this is NOT proof of absence — a destructured binding / namespace import-export / object-literal property is declared yet missed by THIS lookup. A bare '${name}' (no file) may find it, though it can land a same-named symbol elsewhere; to check without a name, address by position (file:line:col)`;
   }
   // One LS call per candidate, so only the shown preview is checked; the rest are counted. The count is
-  // a FLOOR, not a total: the index collapses an overload set and omits plain parameters and computed
-  // names, and no walk here adds them back.
+  // a FLOOR, not a total: the index collapses an overload set and omits plain parameters and the
+  // computed names it cannot key, and no walk here adds them back.
   let byLine = false;
   let byPos = false;
   const labels = found.map((c, i) => {
     if (i >= PREVIEW) return '';
     const lc = sf.getLineAndCharacterOfPosition(c.anchor);
-    if (selfResolving(h, abs, c.anchor)) {
+    const landing = landingOf(h, sf, c.anchor);
+    if (landing.kind === 'self') {
       byPos = true;
       return `${label(c.node, name)} @${file}:${lc.line + 1}:${lc.character + 1}`;
+    }
+    if (landing.kind === 'failed') {
+      return `${label(c.node, name)} at line ${lc.line + 1} (go-to-definition failed there, unverified: ${landing.reason})`;
     }
     byLine = true;
     return `${label(c.node, name)} at line ${lc.line + 1}`;
@@ -137,5 +150,5 @@ export function nameInFileMissMessage(
     ? ' An entry given by line only is one go-to-definition at its name did not return (it resolves through a contextual type / import source, or to nothing), so a position there does not print it.'
     : '';
   const byPosition = byPos ? ' Address one by its @file:line:col.' : '';
-  return `${head} — found ${found.length} '${name}' declared in this file below or beside what this top-level lookup anchors (a floor: overload signatures, plain parameters and computed names are not listed): ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
+  return `${head} — found ${found.length} '${name}' declared in this file below or beside what this top-level lookup anchors (a floor: overload signatures, plain parameters and computed names TS does not key are not listed): ${nameWithMore(labels, PREVIEW)}.${byPosition}${lineOnly}`;
 }

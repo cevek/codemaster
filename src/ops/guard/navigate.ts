@@ -255,7 +255,11 @@ function syntacticModeAlternatives(op: string, nav: NavArgs, gives: string): Che
   // under-delivers, which is the §3.4 omission in miniature. The target rides WHOLE: a bare name cut
   // off its `file` re-addresses the whole workspace — a different question, not the first one.
   const list = bag['targets'];
-  const head: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
+  const first: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
+  // Raw wire args reach here unvalidated: only a target OBJECT can ride as one (a `null` would be pasted
+  // straight into a `bad_args`).
+  const head =
+    typeof first === 'object' && first !== null && !Array.isArray(first) ? first : undefined;
   const call =
     head !== undefined
       ? callWith(op, { targets: [head] }, { syntactic: true })

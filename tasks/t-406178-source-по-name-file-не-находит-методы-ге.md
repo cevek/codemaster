@@ -1,7 +1,7 @@
 ---
 id: t-406178
 title: source по name+file не находит методы/геттеры класса и методы объектного литерала (could not anchor a top-level declaration)
-status: in-progress
+status: review
 priority: high
 parent: t-982648
 tags:

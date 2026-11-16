@@ -350,6 +350,9 @@ test('the source mode switch admits how many targets its fallback drops', () => 
     'source {targets:[{"name":"run","file":"src/dir/f0.ts"}],syntactic:true}',
   );
   assert.match(first.gives, /FIRST target only \(9 more/);
+  // Raw wire args are unvalidated: a non-object head is never pasted into the call.
+  const raw = cheapCallsFor('source', { targets: [null, { name: 'x'.repeat(400) }] }, 'this-call');
+  assert.ok(!raw.calls.some((c) => c.call.includes('[null]')), JSON.stringify(raw.calls));
 
   // The exact render fits for a small call, and then nothing is dropped and nothing is claimed to be.
   const [exact] = cheapCallsFor('source', { targets: [{ name: 'Button' }] }, 'this-call').calls;
