@@ -8,6 +8,7 @@
 // is a resolution, not a miss, so it gets no hint).
 
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
 
 const MAX_NAMED = 3;
 
@@ -24,8 +25,14 @@ export function isSymbolAbsence(message: string): boolean {
  *  Names up to `MAX_NAMED` configs, then `+N more`. */
 export function undiscoveredHint(labels: readonly string[]): string {
   if (labels.length === 0) return '';
-  return ` — but ${labels.length} nested tsconfig(s) are NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)}); the symbol may be declared ONLY under one of them (unindexed here). This is NOT proof it is gone — add the config to a parent \`references\` (or place it adjacent to the primary/main config) to index it.`;
+  return ` — but ${labels.length} nested tsconfig(s) are NOT loaded as programs (${nameWithMore(labels, MAX_NAMED)})${UNINDEXED_ABSENCE_LESSON.full}`;
 }
+
+export const UNINDEXED_ABSENCE_LESSON = defineLesson({
+  id: 'unindexed-absence',
+  full: '; the symbol may be declared ONLY under one of them (unindexed here). This is NOT proof it is gone — add the config to a parent `references` (or place it adjacent to the primary/main config) to index it.',
+  short: '; it may be declared only there — NOT proof it is gone',
+});
 
 /** Append the undiscovered-program hint to `message` when it is a genuine name-absence AND some
  *  program is unloaded. Any non-absence message (ambiguity / positional / merge-no-refs) or an empty

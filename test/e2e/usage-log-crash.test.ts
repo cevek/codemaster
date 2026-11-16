@@ -47,6 +47,7 @@ function stubOp(): AnyOpDefinition {
 function throwingOrchestrator(): Orchestrator {
   return {
     sourceStale: () => false,
+    buildId: () => undefined,
     dispose: async () => undefined,
     status: async () => ({}) as never,
     request: async (_c: string, _r: string | undefined, reqs: readonly { name: string }[]) => ({

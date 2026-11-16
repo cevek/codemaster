@@ -59,7 +59,8 @@ function mergedFileSet(
   return { afterContent, removedAbs };
 }
 
-/** One import specifier the rewrite changed, with the target it was meant to land on. */
+/** One import specifier the rewrite changed — or, in a moved importer, kept non-relative — with
+ *  the target it was meant to land on. */
 export interface RewrittenImport {
   /** Importer's CURRENT (post-move) absolute path — the `containingFile` resolution runs from. */
   importerCurrentAbs: string;
@@ -78,6 +79,8 @@ export interface RewrittenImport {
  *  are the post-edit TS contents at their CURRENT paths; `removed` are tombstoned old paths. */
 export function detectImportCaptures(
   options: ts.CompilerOptions,
+  /** The host's link-aware disk view (`workspaceLinks().resolutionHost(options)`) the overlay sits on. */
+  base: ts.ModuleResolutionHost,
   rewrites: readonly RewrittenImport[],
   overlayFiles: readonly { path: RepoRelPath; content: string }[],
   removed: readonly RepoRelPath[],
@@ -86,7 +89,7 @@ export function detectImportCaptures(
 ): Capture[] {
   if (rewrites.length === 0) return [];
   const { afterContent, removedAbs } = mergedFileSet(overlayFiles, removed, absOf, prior);
-  const host = postMoveResolutionHost(removedAbs, afterContent);
+  const host = postMoveResolutionHost(removedAbs, afterContent, base);
 
   const out: Capture[] = [];
   for (const rw of rewrites) {
@@ -135,7 +138,8 @@ export function detectReverseImportCaptures(
   for (const f of overlayFiles) afterContent.set(toPosix(host.absOf(f.path)), f.content);
   const removedAbs = new Set(removed.map((r) => toPosix(host.absOf(r))));
   const newArrivalAbs = new Set(newArrivals.map((p) => toPosix(host.absOf(p))));
-  const postHost = postMoveResolutionHost(removedAbs, afterContent);
+  const base = host.workspaceLinks().resolutionHost(options);
+  const postHost = postMoveResolutionHost(removedAbs, afterContent, base);
   // Sites the FORWARD pass already owns — never double-flag a specifier we deliberately rewrote.
   const rewrittenSites = new Set(
     rewrites.map((r) => `${toPosix(r.importerCurrentAbs)}:${r.line}:${r.col}`),
@@ -143,7 +147,7 @@ export function detectReverseImportCaptures(
   // Resolution is a pure function of (dir, spec, host); a shared `ModuleResolutionCache` per host
   // memoizes dir/`package.json` probes across specifiers, and a `(dir, spec)` string memo dedups
   // identical imports — together bounding the scan to O(distinct dir×spec) instead of O(imports).
-  const resolver = createReverseResolver(options, program.getCurrentDirectory(), postHost);
+  const resolver = createReverseResolver(options, program.getCurrentDirectory(), postHost, base);
 
   const out: Capture[] = [];
   for (const sf of program.getSourceFiles()) {
@@ -211,6 +215,7 @@ const posixDirname = (p: string): string => {
 function postMoveResolutionHost(
   removedAbs: ReadonlySet<string>,
   afterContent: ReadonlyMap<string, string>,
+  base: ts.ModuleResolutionHost,
 ): ts.ModuleResolutionHost {
   const dirs = new Set<string>();
   for (const f of afterContent.keys()) {
@@ -265,13 +270,13 @@ function postMoveResolutionHost(
       const p = toPosix(f);
       if (removedAbs.has(p)) return false;
       if (afterContent.has(p)) return true;
-      return ts.sys.fileExists(f);
+      return base.fileExists(f);
     },
     readFile(f) {
       const p = toPosix(f);
       if (removedAbs.has(p)) return undefined;
       const c = afterContent.get(p);
-      return c !== undefined ? c : ts.sys.readFile(f);
+      return c !== undefined ? c : base.readFile(f);
     },
     directoryExists(d) {
       const p = toPosix(d);
@@ -280,11 +285,11 @@ function postMoveResolutionHost(
       // could land an index probe there and MASK a capture (gated to `removedDirs` so we never
       // walk an untouched tree).
       if (removedDirs.has(p) && emptiedByMove(p)) return false;
-      return ts.sys.directoryExists ? ts.sys.directoryExists(d) : false;
+      return base.directoryExists ? base.directoryExists(d) : false;
     },
-    getDirectories: (d) => (ts.sys.getDirectories ? ts.sys.getDirectories(d) : []),
+    getDirectories: (d) => (base.getDirectories ? base.getDirectories(d) : []),
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
   };
-  if (ts.sys.realpath !== undefined) host.realpath = ts.sys.realpath;
+  if (base.realpath !== undefined) host.realpath = base.realpath;
   return host;
 }

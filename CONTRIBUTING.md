@@ -204,7 +204,8 @@ A **long-lived** server (the singleton daemon the MCP bridge connects to, or an
 `mcp --in-process` server) does **not** — it serves the behavior it spawned with. So after you
 edit `src/`, the running server is stale, and the `status` tool and every op/batch response say so
 outright (`!! PRE-EDIT codemaster …`), driven by a `src/**` fingerprint taken at spawn (§3.6 applied
-to the tool itself). (`codemaster daemon status`, the management verb, reports the same fact in its
+to the tool itself). The `status` header names the code that answers — its build id,
+`v<version> @<sha9>[+dirty]` (§13). (`codemaster daemon status`, the management verb, reports the same fact in its
 own shorter line — it answers a human asking about the daemon, not an agent reading an answer.)
 
 **The banner names the one-shot above as the in-place remedy, and it is the one to reach for**: it

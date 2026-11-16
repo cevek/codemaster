@@ -11,7 +11,7 @@ import { semanticFanoutRefusal } from './guard/semantic-fanout-guard.ts';
 import { capList } from '../common/truncate/cap-list.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { tag } from '../common/shape-tag/tag.ts';
-import { lowerBoundNote } from './lower-bound-note.ts';
+import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 import type { ImporterRow, ImportersView } from '../plugins/ts/importers.ts';
 import { defineOp } from './registry.ts';
@@ -33,11 +33,7 @@ function importersFloor(view: ImportersView): { fields: Record<string, JsonValue
   if (u === undefined || u.length === 0) return { fields: {} };
   return {
     fields: { complete: false, undiscoveredPrograms: u },
-    note: lowerBoundNote(u, {
-      subject: 'importers',
-      noun: 'importer',
-      negation: 'that nothing depends on it',
-    }),
+    note: lowerBoundNote(u, FLOOR_NOUNS.importers),
   };
 }
 

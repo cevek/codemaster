@@ -12,6 +12,7 @@
 // plugin's (its fingerprint rides in the aggregate FreshnessNote), and `list` reads `ts` live.
 
 import type { Plugin, PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { ListView } from '../../core/list.ts';
 import type { TsPluginApi } from '../ts/plugin.ts';
 import type { TsTargetInput } from '../ts/plugin.ts';
@@ -34,6 +35,7 @@ export type {
   UnusedPropsOptions,
 } from './unused-props.ts';
 export type { DeclClassification, DeclKind } from './classify.ts';
+export { COMPONENTS_LESSON } from './detect.ts';
 
 const REGISTRIES = ['components', 'hooks', 'dialogs'] as const;
 
@@ -64,7 +66,7 @@ export function createReactPlugin(): ReactPluginApi {
 
   return {
     id: 'react',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: ['ts'],
 
     init(deps) {

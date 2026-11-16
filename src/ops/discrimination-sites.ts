@@ -27,6 +27,7 @@ import {
   scanTableNotes,
   type ScanSubject,
 } from './scan-coverage.ts';
+import { FLOOR_NOUNS } from './lower-bound-note.ts';
 
 const argsSchema = z
   .strictObject({
@@ -41,12 +42,7 @@ const argsSchema = z
 
 /** What a `discrimination_sites` floor is a floor OF — the nouns the shared coverage vocabulary
  *  needs (`scan-coverage.ts`). */
-const SUBJECT: ScanSubject = {
-  subject: 'discriminating switch/if-chains',
-  noun: 'discriminating switch/if-chain',
-  negation: 'that nothing switches on it',
-  candidate: 'switch/if-head',
-};
+const SUBJECT: ScanSubject = { ...FLOOR_NOUNS.discrimination, candidate: 'switch/if-head' };
 
 type DiscriminationData = {
   /** `complete:false` + the per-program scope lead the object (verdict-first, §12). */

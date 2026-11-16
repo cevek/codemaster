@@ -32,6 +32,7 @@
 
 import type { OutOfReach } from '../../core/result.ts';
 import { classifyTargetString } from '../intake/smart-string.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
 
 /** One paste-able call plus what it actually returns. `gives` states the answer's real extent,
  *  including what it is NOT, so a redirect can never read as an equivalent of the refused op. */
@@ -250,14 +251,27 @@ function syntacticModeAlternatives(op: string, nav: NavArgs, gives: string): Che
   if (bag === undefined || bag['syntactic'] === true) return [];
   const exact = callWith(op, bag, { syntactic: true });
   if (exact !== undefined) return [{ call: exact, gives }];
-  if (name === undefined) return [];
   // The exact render did not fit, so the fallback carries ONE target. Say how many it drops: a call that
   // answers about 1 of 20 while its `gives` promises "the same bodies" is a redirect that quietly
-  // under-delivers, which is the §3.4 omission in miniature.
+  // under-delivers, which is the §3.4 omission in miniature. The target rides WHOLE: a bare name cut
+  // off its `file` re-addresses the whole workspace — a different question, not the first one.
+  const list = bag['targets'];
+  const first: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
+  // Raw wire args reach here unvalidated: only a target OBJECT can ride as one (a `null` would be pasted
+  // straight into a `bad_args`).
+  const head =
+    typeof first === 'object' && first !== null && !Array.isArray(first) ? first : undefined;
+  const call =
+    head !== undefined
+      ? callWith(op, { targets: [head] }, { syntactic: true })
+      : name !== undefined && nav.file === undefined
+        ? `${op} {name:${j(name)},syntactic:true}`
+        : undefined;
+  if (call === undefined) return [];
   const dropped = droppedTargets(bag);
   return [
     {
-      call: `${op} {name:${j(name)},syntactic:true}`,
+      call,
       gives:
         dropped > 0
           ? `${gives} — this call carries the FIRST target only (${dropped} more: re-request them)`
@@ -275,8 +289,12 @@ function droppedTargets(bag: Record<string, unknown>): number {
 /** What `source {syntactic:true}` actually returns — stated as a difference, not as an equivalence:
  *  it prints the declaration AT the address, so a caller who addressed a REFERENCE gets an explicit
  *  miss there rather than a body. Naming that up front is what keeps this a redirect and not a claim. */
-const SYNTACTIC_SOURCE_GIVES =
-  'the same bodies read off the AST — no program build, no LS warm; it prints the declaration AT the address (it does not follow a reference to its definition) and is not type-verified';
+export const SYNTACTIC_SOURCE_GIVES_LESSON = defineLesson({
+  id: 'redirect-syntactic-source',
+  full: 'the same bodies read off the AST — no program build, no LS warm; it prints the declaration AT the address (it does not follow a reference to its definition) and is not type-verified',
+  short: 'the same bodies off the AST (declaration at the address, not type-verified)',
+});
+const SYNTACTIC_SOURCE_GIVES = SYNTACTIC_SOURCE_GIVES_LESSON.full;
 
 /** Per-op cheap paths. An op absent from this map, or one whose entry yields nothing for the args
  *  at hand, falls through to the honest no-substitute arm — never a fabricated near-equivalent.

@@ -13,6 +13,8 @@
 import type { Disclosure } from '../../core/result.ts';
 import { disclose } from '../../support/disclosure/ledger.ts';
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
+import { RESOLUTION_LESSONS } from './resolution-lessons.ts';
 import type { TsTargetInput } from './resolve-target.ts';
 
 /** Why the candidate set could not be seen whole. Both may hold at once; each is stated only when it
@@ -35,9 +37,7 @@ const MAX_NAMED = 3;
 function noteFor(doubt: ResolutionDoubt): string {
   const causes: string[] = [];
   if (doubt.cut) {
-    causes.push(
-      'the candidate set was cut before every same-named declaration was seen, so one may sit behind the cut',
-    );
+    causes.push(CANDIDATES_CUT_LESSON.full);
   }
   if (doubt.unindexed.length > 0) {
     causes.push(
@@ -48,12 +48,31 @@ function noteFor(doubt: ResolutionDoubt): string {
   // right, while indexing the config removes the doubt for every future query. An unindexed program
   // is a repo-shaped cause with a repo-shaped fix, and an agent told only how to re-word its query
   // keeps hitting the same floor.
-  const indexIt =
-    doubt.unindexed.length > 0
-      ? ' To remove the doubt for good, index the config: add it to a parent `references`, or place it adjacent to the primary.'
-      : '';
-  return `${causes.join('; and ')}. Counts / emptiness / completeness about this target are a FLOOR. Re-address exactly — name+file or file:line:col ranks nothing.${indexIt} (status → concepts:disclosure)`;
+  const indexIt = doubt.unindexed.length > 0 ? INDEX_CONFIG_LESSON.full : '';
+  return `${causes.join('; and ')}${FLOOR_READDRESS_LESSON.full}${indexIt} (status → concepts:disclosure)`;
 }
+
+const CANDIDATES_CUT_LESSON = defineLesson({
+  id: 'candidates-cut',
+  full: 'the candidate set was cut before every same-named declaration was seen, so one may sit behind the cut',
+  short: 'the candidate set was cut',
+});
+const FLOOR_READDRESS_LESSON = defineLesson({
+  id: 'floor-readdress',
+  full: '. Counts / emptiness / completeness about this target are a FLOOR. Re-address exactly — name+file or file:line:col ranks nothing.',
+  short: '. Counts about this target are a FLOOR; re-address exactly',
+});
+const INDEX_CONFIG_LESSON = defineLesson({
+  id: 'index-config',
+  full: ' To remove the doubt for good, index the config: add it to a parent `references`, or place it adjacent to the primary.',
+  short: ' Indexing the config removes the doubt.',
+});
+
+export const DISCLOSURE_LESSONS = [
+  CANDIDATES_CUT_LESSON,
+  FLOOR_READDRESS_LESSON,
+  INDEX_CONFIG_LESSON,
+] as const;
 
 /** How the target was addressed, so a disclosure is attributed to the resolution that is actually
  *  at risk. Branch order matches the resolver's own dispatch (`resolveTarget`): a call carrying BOTH
@@ -87,6 +106,18 @@ export function discloseResolutionDoubt(target: TsTargetInput, doubt: Resolution
 export function discloseMergeDoubt(name: string, doubt: ResolutionDoubt): void {
   if (!doubt.cut && doubt.unindexed.length === 0) return;
   disclose(claim(`name '${name}'`, doubt));
+}
+
+/** The claim for programs that resolved imports through emulated workspace links (t-403708), or
+ *  nothing when none did. A property of the programs' resolution, not of one target, so its
+ *  `target` names the links. */
+export function emulatedLinksDisclosure(used: readonly string[]): Disclosure | undefined {
+  if (used.length === 0) return undefined;
+  return {
+    unsafe: 'resolution-matches-the-trees-own-tsc',
+    target: 'workspace links',
+    note: `imports of ${nameWithMore(used, MAX_NAMED)}${RESOLUTION_LESSONS.emulatedLinks.full} (status → concepts:disclosure)`,
+  };
 }
 
 /** Is this target addressed ONLY by a bare name — the one form a same-named twin under an unloaded

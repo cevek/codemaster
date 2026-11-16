@@ -13,6 +13,8 @@ import type { TsProjectHost } from '../../ls-host.ts';
 import type { VFSTree } from '../tree/tree.ts';
 import type { FsNode } from '../tree/node.ts';
 import { aliasMappedRel, type AliasPrefix } from '../../alias-paths.ts';
+import { toPosix } from '../../../../support/fs/canonicalize.ts';
+import { extendsOnlyBases } from '../../program-ownership.ts';
 
 const MODULE_EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'] as const;
 
@@ -48,9 +50,44 @@ export function resolveSpecifierToNode(
   importerInitialAbs: string,
   spec: string,
 ): FsNode | null {
-  const resolved = ts.resolveModuleName(spec, importerInitialAbs, options, ts.sys).resolvedModule
-    ?.resolvedFileName;
-  if (resolved !== undefined) return tree.findByInitialPath(host.relOf(resolved));
+  return resolveSpecifier(host, tree, options, aliasPrefixes, importerInitialAbs, spec).node;
+}
+
+/** `resolveSpecifierToNode` plus whether TS found the target through `node_modules` (a package —
+ *  a pnpm workspace package resolves through its symlink to a node of the tree). */
+export function resolveSpecifier(
+  host: TsProjectHost,
+  tree: VFSTree,
+  options: ts.CompilerOptions,
+  aliasPrefixes: readonly AliasPrefix[],
+  importerInitialAbs: string,
+  spec: string,
+): { node: FsNode | null; viaPackage: boolean } {
+  const module = ts.resolveModuleName(
+    spec,
+    importerInitialAbs,
+    options,
+    host.workspaceLinks().resolutionHost(options),
+  ).resolvedModule;
+  if (module !== undefined) {
+    return {
+      node: tree.findByInitialPath(host.relOf(module.resolvedFileName)),
+      viaPackage: module.isExternalLibraryImport === true,
+    };
+  }
+  return {
+    node: declinedNode(host, tree, aliasPrefixes, importerInitialAbs, spec),
+    viaPackage: false,
+  };
+}
+
+function declinedNode(
+  host: TsProjectHost,
+  tree: VFSTree,
+  aliasPrefixes: readonly AliasPrefix[],
+  importerInitialAbs: string,
+  spec: string,
+): FsNode | null {
   // The TS resolver declined (a CSS-module import, or an unmapped specifier). Probe the tree
   // for the relative- OR alias-mapped base; a bare package is never ours to move.
   const baseAbs = declinedSpecifierBase(host, aliasPrefixes, importerInitialAbs, spec);
@@ -60,4 +97,33 @@ export function resolveSpecifierToNode(
     if (node !== null) return node;
   }
   return tree.findByInitialPath(host.relOf(baseAbs));
+}
+
+/** Does `spec`, written in a file at `importerAbs`, still land on `targetAbs` under the options of
+ *  every program whose glob owns that path (the primary when none does)? A package specifier kept
+ *  across a move is judged by the program the importer lands in, and its `paths` may map the same
+ *  name elsewhere. */
+export function resolvesSameUnderOwners(
+  host: TsProjectHost,
+  spec: string,
+  importerAbs: string,
+  targetAbs: string,
+): boolean {
+  const ctx = host.gateHostCtx();
+  const bases = new Set(extendsOnlyBases(ctx));
+  const owners = ctx.programs.filter((p) => !bases.has(p) && p.mayContain(importerAbs));
+  for (const program of owners.length > 0 ? owners : [ctx.primary]) {
+    const options = program.getProgram()?.getCompilerOptions();
+    if (options === undefined) return false;
+    const resolved = ts.resolveModuleName(
+      spec,
+      importerAbs,
+      options,
+      host.workspaceLinks().resolutionHost(options),
+    ).resolvedModule;
+    if (resolved === undefined || toPosix(resolved.resolvedFileName) !== toPosix(targetAbs)) {
+      return false;
+    }
+  }
+  return true;
 }

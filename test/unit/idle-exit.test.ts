@@ -115,6 +115,7 @@ test('idle-exit: fires at most once', () => {
 function stubOrchestrator(request: Orchestrator['request']): Orchestrator {
   return {
     sourceStale: () => false,
+    buildId: () => undefined,
     dispose: async () => undefined,
     request,
     status: async () => ({}) as never,

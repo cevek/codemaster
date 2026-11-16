@@ -13,6 +13,7 @@ import { classifyRole, type UsageRole } from './usage-roles.ts';
 import type { SymbolView, UsageView, UsageOptions, UsagesView } from './query-types.ts';
 import type { TsProjectHost } from './ls-host.ts';
 import { findReferencesAcross, type CrossReferences } from './cross-program.ts';
+import { unresolvedWorkspaceImports } from './unresolved-workspace-imports.ts';
 import { rollupGroups, type Ref } from './usages-rollup.ts';
 import { callResultShapeAt } from './call-result-shape.ts';
 import { conditionChainAt } from './call-condition-chain.ts';
@@ -149,6 +150,8 @@ export function assembleView(
   const undiscovered = host.undiscoveredProgramLabels();
   const undiscoveredField =
     undiscovered.length > 0 ? { undiscoveredPrograms: [...undiscovered] } : {};
+  const lost = unresolvedWorkspaceImports(host);
+  const lostField = lost.length > 0 ? { unresolvedWorkspaceImports: [...lost] } : {};
   const base = {
     ...(meta.definition !== undefined ? { definition: meta.definition } : {}),
     ...(meta.mergedDeclarations !== undefined
@@ -165,6 +168,7 @@ export function assembleView(
     ...collapseField,
     ...breakdownField,
     ...undiscoveredField,
+    ...lostField,
   };
 
   if (options.groupBy === 'enclosing') {

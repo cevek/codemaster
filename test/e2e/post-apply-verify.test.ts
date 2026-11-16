@@ -206,25 +206,27 @@ test('move_file: the post-write recheck covers the written files, not the whole 
   }
 });
 
-// The overlay force-adds an unowned dest as a primary ROOT; on disk an orphan outside every
-// `include` is in no program. Its `declare global` reaches `use.ts` in the overlay but not on disk —
-// a break in an UNWRITTEN file that only the widened recheck can see.
-test('move_file: a membership divergence widens the recheck and rolls back the proven break', async () => {
-  const p = await project({
-    'tsconfig.json': '{"compilerOptions":{"strict":true},"include":["src"]}',
-    'src/globals.ts': 'declare global {\n  var APP_NAME: string;\n}\nexport {};\n',
-    'src/use.ts': 'export const name: string = globalThis.APP_NAME;\n',
-  });
+const GLOBALS = {
+  'tsconfig.json': '{"compilerOptions":{"strict":true},"include":["src"]}',
+  'src/globals.ts': 'declare global {\n  var APP_NAME: string;\n}\nexport {};\n',
+  'src/use.ts': 'export const name: string = globalThis.APP_NAME;\n',
+};
+
+// The same move to a dir outside every `include`: the dest follows its source into the primary only
+// as content, never as a root, so an unimported `declare global` leaves the program in the overlay
+// exactly as on disk — the gate refuses before anything is written (t-401540).
+test('move_file: an unimported global moved outside every glob is refused before the write', async () => {
+  const p = await project(GLOBALS);
   try {
     const data = await run(p, {
       name: 'move_file',
       args: { source: 'src/globals.ts', dest: 'out/globals.ts' },
       apply: true,
     });
-    assert.equal(data['applied'], false, JSON.stringify(data));
-    assert.equal((data['rollback'] as Data)['performed'], true);
-    assert.ok(existsSync(path.join(p.root, 'src/globals.ts')), 'restored');
-    assert.ok(!existsSync(path.join(p.root, 'out/globals.ts')), 'dest removed');
+    assert.notEqual(data['applied'], true, JSON.stringify(data));
+    assert.equal((data['typecheck'] as Data)['clean'], false);
+    assert.equal(data['rollback'], undefined, 'refused by the gate, not rolled back');
+    assert.equal(p.git('status', '--porcelain'), '', 'nothing written');
   } finally {
     await p.dispose();
   }

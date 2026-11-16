@@ -32,6 +32,7 @@
 import type { ScanCoverage } from '../plugins/ts/program/scan-coverage-view.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
 import { lowerBoundNote } from './lower-bound-note.ts';
+import { defineLesson, type Lesson } from '../common/lesson/lesson.ts';
 
 const MAX_NAMED = 3;
 
@@ -165,13 +166,11 @@ export function scanFloorNotes(
   const unscanned = coverage.fallbackOnlyFiles;
   if (unscanned !== undefined) {
     notes.push(
-      `!! LOWER BOUND — ${unscanned} file(s) are covered by NO tsconfig (only by the whole-repo no-config fallback program), so they were NOT scanned: under its DEFAULT options (no \`paths\`/\`baseUrl\`, whole-repo glob) a type verdict is not the one the project itself yields, and a wrong verdict is worse than a named gap. Add a tsconfig covering those files for a complete answer.`,
+      `!! LOWER BOUND — ${unscanned} file(s) are covered by NO tsconfig (only by the whole-repo no-config fallback program), so they were NOT scanned${FALLBACK_FILES_LESSON.full}`,
     );
   }
   if (coverage.fallbackOnly === true) {
-    notes.push(
-      `!! the repo has no tsconfig covering the target, so the scan ran on the whole-repo no-config fallback program under DEFAULT compilerOptions — alias imports do not resolve there and whole-repo type augmentations leak in, so each verdict is weaker than it looks. Add a tsconfig for a sound answer.`,
-    );
+    notes.push(`!! ${FALLBACK_ONLY_LESSON.full}`);
   }
   return notes;
 }
@@ -194,7 +193,7 @@ function skippedNotes(coverage: ScanCoverage, subject: ScanSubject): string[] {
   for (const [reason, labels] of byReason) {
     const named = nameWithMore(labels, MAX_NAMED);
     out.push(
-      `!! LOWER BOUND — ${labels.length} program(s) in the fan were NOT scanned (${named}): ${SKIP_CAUSE[reason] ?? reason}. Any ${subject.noun} living only in their files is absent from this answer.`,
+      `!! LOWER BOUND — ${labels.length} program(s) in the fan were NOT scanned (${named}): ${SKIP_CAUSE[reason]?.full ?? reason}. Any ${subject.noun} living only in their files is absent from this answer.`,
     );
   }
   return out;
@@ -202,11 +201,64 @@ function skippedNotes(coverage: ScanCoverage, subject: ScanSubject): string[] {
 
 /** Exhaustive over `SkippedProgram['reason']` — cause AND remedy in one clause each, so a new reason
  *  cannot fall through to a plausible-but-wrong sentence (it renders its raw tag instead, loudly). */
-const SKIP_CAUSE: Record<string, string> = {
-  'no-checkable-type': `the target does not resolve to a checkable type under that program's OWN compilerOptions (vacuous / not a union there), so its files could not be judged against it — neither a spent budget nor a missing config; re-run with that package as \`root\` to query the target under those options`,
-  deadline: `the wall-clock budget was already spent when the fan reached them, so their checkers were never warmed — narrow with pathInclude so the budget reaches the whole fan`,
-  'program-unavailable': `the TS Language Service could not produce a Program for them (an internal-tool failure, not a scope decision)`,
+const SKIP_CAUSE: Record<string, Lesson> = {
+  'no-checkable-type': defineLesson({
+    id: 'skip-no-checkable-type',
+    full: `the target does not resolve to a checkable type under that program's OWN compilerOptions (vacuous / not a union there), so its files could not be judged against it — neither a spent budget nor a missing config; re-run with that package as \`root\` to query the target under those options`,
+    short: 'no checkable target type under that program’s own options (re-run with it as root)',
+  }),
+  deadline: defineLesson({
+    id: 'skip-deadline',
+    full: `the wall-clock budget was already spent when the fan reached them, so their checkers were never warmed — narrow with pathInclude so the budget reaches the whole fan`,
+    short: 'the budget was spent before the fan reached them (narrow pathInclude)',
+  }),
+  'program-unavailable': defineLesson({
+    id: 'skip-program-unavailable',
+    full: `the TS Language Service could not produce a Program for them (an internal-tool failure, not a scope decision)`,
+    short: 'the LS produced no Program for them (internal failure)',
+  }),
 };
+
+const FALLBACK_FILES_LESSON = defineLesson({
+  id: 'fallback-files',
+  full: ': under its DEFAULT options (no `paths`/`baseUrl`, whole-repo glob) a type verdict is not the one the project itself yields, and a wrong verdict is worse than a named gap. Add a tsconfig covering those files for a complete answer.',
+  short: ': a default-options verdict would not be the project’s own',
+});
+
+const FALLBACK_ONLY_LESSON = defineLesson({
+  id: 'fallback-only',
+  full: 'the repo has no tsconfig covering the target, so the scan ran on the whole-repo no-config fallback program under DEFAULT compilerOptions — alias imports do not resolve there and whole-repo type augmentations leak in, so each verdict is weaker than it looks. Add a tsconfig for a sound answer.',
+  short:
+    'no tsconfig covers the target: verdicts ran on the default-options fallback program, weaker than they look',
+  scope: 'root',
+});
+
+const BUDGET_FLOOR_LESSON = defineLesson({
+  id: 'budget-floor',
+  full: '. These programs ARE loaded; the shortfall is the budget, NOT a missing config — raise `limit` or narrow `pathInclude` to finish.',
+  short: '. The shortfall is the budget (raise limit / narrow pathInclude).',
+});
+
+const NOTHING_RAN_LESSON = defineLesson({
+  id: 'scan-nothing-ran',
+  full: ' — nothing ran. Narrow with pathInclude, or retry against a warm engine.',
+  short: ' — nothing ran.',
+});
+
+const NO_SOURCE_LESSON = defineLesson({
+  id: 'scan-no-source',
+  full: ', so no scope filter could have helped. Target a symbol whose own tsconfig covers source files.',
+  short: ', so no scope filter could have helped.',
+});
+
+export const SCAN_COVERAGE_LESSONS: readonly Lesson[] = [
+  NOTHING_RAN_LESSON,
+  NO_SOURCE_LESSON,
+  ...Object.values(SKIP_CAUSE),
+  FALLBACK_FILES_LESSON,
+  FALLBACK_ONLY_LESSON,
+  BUDGET_FLOOR_LESSON,
+];
 
 /** The budget cause, with its OWN remedy. Names the programs whose candidates were left unchecked so
  *  "loaded but unfinished" can never be read as "never loaded" — the levers are `limit` (raise) and
@@ -220,7 +272,7 @@ function budgetNote(coverage: ScanCoverage, subject: ScanSubject): string {
   // only ever counts what the walk reached. Printing it bare would state a floor as exact (§12).
   const floor =
     coverage.walkedFiles < coverage.files || coverage.skipped !== undefined ? '\u2265' : '';
-  return `!! LOWER BOUND — budget: ${coverage.examined} of ${floor}${coverage.candidates} ${subject.candidate}(s) checked (limit ${coverage.limit})${where}. These programs ARE loaded; the shortfall is the budget, NOT a missing config — raise \`limit\` or narrow \`pathInclude\` to finish. A low ${subject.noun} count here is NOT proof ${subject.negation}.`;
+  return `!! LOWER BOUND — budget: ${coverage.examined} of ${floor}${coverage.candidates} ${subject.candidate}(s) checked (limit ${coverage.limit})${where}${BUDGET_FLOOR_LESSON.full} A low ${subject.noun} count here is NOT proof ${subject.negation}.`;
 }
 
 /** The emptiness line for a 0-site answer — the §3.4 core of this module. An empty SCAN and an empty
@@ -263,10 +315,10 @@ function emptyScanRemedy(coverage: ScanCoverage): string {
       coverage.files > 0
         ? `BEFORE the first of ${coverage.files} in-scope file(s) was opened`
         : `BEFORE any program in the fan could be consulted, so nothing is known about the target here`;
-    return `The wall-clock budget expired ${reached} — nothing ran. Narrow with pathInclude, or retry against a warm engine.`;
+    return `The wall-clock budget expired ${reached}${NOTHING_RAN_LESSON.full}`;
   }
   if (coverage.files === 0 && coverage.eligibleFiles > 0) {
     return `Your pathInclude/pathExclude matched 0 of the ${coverage.eligibleFiles} file(s) the program(s) scanned (${named}) hold — the path filter, not the program set, emptied the scan. Globs are REPO-relative; drop the filter to scan all ${coverage.eligibleFiles}.`;
   }
-  return `The program(s) scanned (${named}) contain NO scannable source file, so no scope filter could have helped. Target a symbol whose own tsconfig covers source files.`;
+  return `The program(s) scanned (${named}) contain NO scannable source file${NO_SOURCE_LESSON.full}`;
 }

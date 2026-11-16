@@ -70,6 +70,7 @@ function stubOrch(over: Partial<ServingOrchestrator> = {}): ServingOrchestrator 
     }),
     status: async () => STATUS_VIEW,
     sourceStale: () => false,
+    buildId: () => undefined,
     daemonInfo: () => ({ pid: 1, uptimeMs: 0, engines: 0, engineRoots: [] }),
     dispose: async () => undefined,
     ...over,

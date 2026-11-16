@@ -19,6 +19,8 @@ import { renderDense } from './render-dense.ts';
 import { condenseSpans } from './condense.ts';
 import { isSqlTableData, renderSqlTable } from './render-table.ts';
 import { isSourceData, renderSource, type SourceEntry, type SourceSpan } from './render-source.ts';
+import { foldResult, identityFold, type ProseFold } from './fold-prose.ts';
+import { CAP_MARKER_REMEDY, FEEDBACK_FOOTER } from './render-lessons.ts';
 
 /** Hard self-cap on one rendered result. Blowing the agent's context with a dump is a
  *  failure mode of its own — past the cap the output is cut AT A LINE BOUNDARY with an
@@ -38,7 +40,12 @@ const RENDER_BYTE_CAP = 50_000;
 
 /** Default verbosity is TERSE: list-shaped answers come back as `file:line:col` lines;
  *  verbatim proof text is opt-in via verbosity=full (re-fetch one symbol when needed). */
-export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = 'terse'): string {
+export function renderResult(
+  unfolded: Result<JsonValue>,
+  verbosity: Verbosity = 'terse',
+  fold: ProseFold = identityFold,
+): string {
+  const result = foldResult(unfolded, fold);
   // The envelope is rendered as FOUR segments so the cap can never bury an honesty channel
   // (§12 envelope-seam): `head` is the verdict-before-bulk preamble, `bulk` is the ONLY
   // cappable region (the data render), `tail` carries the load-bearing honesty channels — in
@@ -65,9 +72,7 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
     // FAIL, never on `partial` (which is honest success). The nudge fires where the agent
     // is blocked, not in a doc read once.
     if (!partial) {
-      head.push(
-        "— blocked or missing a capability? file it: feedback({kind:'bug', title:'…', detail:'…'})",
-      );
+      head.push(fold(FEEDBACK_FOOTER.full));
     }
   } else if (isSqlTableData(result.data)) {
     // sql-mode result (§5.6): a relation, not a span tree — its own dense table.
@@ -96,7 +101,8 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
   // Disclosures lead: they qualify what the WHOLE answer may be read as asserting (its target may
   // not be the symbol the agent meant), where truncation only qualifies the listed set. Then
   // truncation (it qualifies the bulk it follows), then handle, then freshness.
-  if (result.disclosures !== undefined) tail.push(...renderDisclosures(result.disclosures));
+  if (result.disclosures !== undefined)
+    tail.push(...renderDisclosures(result.disclosures).map(fold));
   if (result.ok && result.truncated !== undefined) tail.push(renderTruncation(result.truncated));
   if (result.handle !== undefined) tail.push(renderRebind(result.handle));
   if (result.freshness !== undefined) {
@@ -112,7 +118,7 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
   if (result.debug !== undefined && result.debug.length > 0) {
     debug.push('--- debug trace ---', ...result.debug, '--- end debug ---');
   }
-  return assembleEnvelope(head, bulk, tail, debug);
+  return assembleEnvelope(head, bulk, tail, debug, fold);
 }
 
 /** Join the four segments under BOTH the char cap and the byte cap. When everything fits, the output
@@ -121,7 +127,13 @@ export function renderResult(result: Result<JsonValue>, verbosity: Verbosity = '
  *  reserved against BOTH budgets so they survive by construction, and `debug` (a dev trace, not an
  *  honesty channel) is dropped. Enforcing the byte cap here (not at the flat MCP seam) is what keeps
  *  the honesty tail from being blind-chopped on a multi-byte-heavy body (§12 / t-287999). */
-function assembleEnvelope(head: string[], bulk: string[], tail: string[], debug: string[]): string {
+function assembleEnvelope(
+  head: string[],
+  bulk: string[],
+  tail: string[],
+  debug: string[],
+  fold: ProseFold,
+): string {
   const full = [...head, ...bulk, ...tail, ...debug].join('\n');
   if (full.length <= RENDER_CHAR_CAP && Buffer.byteLength(full, 'utf8') <= RENDER_BYTE_CAP) {
     return full;
@@ -148,7 +160,7 @@ function assembleEnvelope(head: string[], bulk: string[], tail: string[], debug:
   if (Buffer.byteLength(cappedBulk, 'utf8') > byteBudget) {
     cappedBulk = cutAtByteBoundary(cappedBulk, byteBudget);
   }
-  const marker = capMarker(dataLen, cappedBulk.length);
+  const marker = fold(capMarker(dataLen, cappedBulk.length));
 
   // Order in the capped path: head, trimmed bulk, the marker (explaining the bulk cut), then the
   // intact honesty tail. Debug is dropped — it is the lowest priority and never an honesty channel.
@@ -156,7 +168,7 @@ function assembleEnvelope(head: string[], bulk: string[], tail: string[], debug:
 }
 
 function capMarker(dataTotal: number, dataShown: number): string {
-  return `!! OUTPUT CAPPED: data ${dataTotal} chars, showing first ${dataShown} (honesty channels below preserved). Narrow the query (lower limit, scope by file/dir), use terse, or project columns with sql — do NOT assume this is everything.`;
+  return `!! OUTPUT CAPPED: data ${dataTotal} chars, showing first ${dataShown} (honesty channels below preserved). ${CAP_MARKER_REMEDY.full}`;
 }
 
 /** Upper bound on `capMarker`'s length — the fixed template plus headroom for the two

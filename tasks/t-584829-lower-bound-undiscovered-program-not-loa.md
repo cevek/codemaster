@@ -16,8 +16,8 @@ The undiscovered-program floor note (`!! LOWER BOUND — N repo tsconfig(s) NOT 
 ## Done (stateless consolidation)
 The `find_usages` + `importers_of` LOWER-BOUND notes are consolidated onto ONE shared formatter `src/ops/lower-bound-note.ts` (`lowerBoundNote`), built on the `common/truncate` `nameWithMore` primitive (t-188210). Prose tightened (the redundant middle sentence dropped); the machine-readable verdict fields (`complete:false` + `undiscoveredPrograms`) are unchanged, so a count-only consumer is unaffected. The remaining "name K then +N more" copies (definitionFloor, undiscoveredHint, unused-exports, list-inactive-hint, subtree fragment) route through `nameWithMore`.
 
-## (a) session-collapse — REJECTED (do not build)
-Collapsing the note to a one-line tag after its first appearance per session needs cross-call session state, and would make a warm daemon's 2nd call differ from a cold-booted daemon's 1st call on the same repo state — a violation of the cold==warm honesty invariant (§16 invariant 3, CI-gated). Documented in `lower-bound-note.ts` so the next reader does not retry it. A BATCH-scoped collapse WOULD be cold==warm-safe (a batch is one atomic read); parked in t-389688 as an option, not built.
+## (a) session-collapse — in the MCP facade, not in the op
+The op's `Result` carries the whole note on every call, so cold == warm (§16 inv. 3) holds. The explanation after the `!!` facts is a lesson per noun variant (`LOWER_BOUND_LESSONS`); the MCP facade folds its repeats within one client session to `short [id]` (§12 session prose folding, t-720126). `status {concept:"<id>"}` expands it.
 
 ## (b) surface a COUNT — SPLIT to t-389688
 Actually searching the named programs to resolve the caveat to a complete count is a behavioral change (auto-load siblings, overlaps the `programs:` lever). Out of the render/truncation-foundation scope → t-389688.

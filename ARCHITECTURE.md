@@ -36,7 +36,7 @@ agent abandons the tool and falls back to its proven stack forever. So:
   in N s — fall back"), never spins. No unbounded loop, no per-call work that scales with repo
   size. Every op carries a cooperative wall-clock `Deadline` (`OpContext.deadline`) enforced two
   ways — a `HostCancellationToken` the LS polls inside `findReferences`/navto, and loop-boundary
-  checks in multi-call ops (`impact`, `find_unused_exports`) — degrading to `timeout` /
+  checks in multi-call ops (`impact`, `find_unused_exports`, `affected`) — degrading to `timeout` /
   `partial` instead of spinning (§19). The latency budget above assumes _termination_ — see §19 for
   what is and isn't cancellable.
 
@@ -183,6 +183,11 @@ This is the section that the rest of the design serves.
    fingerprint — in a git repo HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set;
    on a root git cannot list, a `path:size:mtime` rollup of the bounded §19 walk with the same
    racy-window content hash — invalidated against current disk on every read either way. The
+   reverse-import index behind `importersOf` (`plugins/ts/import-index.ts`) is a third, keyed on the
+   `ts.Program` object AND `projectVersion()`: a new Program is a new entry, and the version catches a
+   reindexed resolution input that leaves the Program in place (an edited `package.json`). A change no
+   reindex reports — an install under gitignored `node_modules` — leaves it as stale as the warm LS
+   (t-710809). The
    _semantic_ reuse is the mutation write gate's (§7), in two layers with two authorities. Per-file
    diagnostics come from a TS diagnostics builder chained per program over the LS's Programs
    (`plugins/ts/program-gate-builder.ts`, the `tsc --incremental` model): TS itself decides what to
@@ -707,6 +712,33 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   stays the edit target** (the loose-root-monorepo wrong-primary-for-mutation cousin is a
   `task-manager` backlog residual). A loaded config is subtracted from the undiscovered set (no
   over-demotion). (Precise per-export discovery is the remaining `task-manager` backlog residual.)
+  **Workspace links on an uninstalled tree** ([`program/workspace-links.ts`](src/plugins/ts/program/workspace-links.ts),
+  t-403708). A snapshot or fresh clone has no `node_modules`, so `@scope/pkg` resolves to nothing, a
+  consumer program never contains the member's files, and the reference fan-out above drops every
+  cross-package site in silence. So every program's LS host presents the `node_modules/<member>` link
+  the package manager WOULD make, and TS stays the only resolver (§4): it reads the member's
+  `package.json` `exports`/`types`/`main` through the link exactly as over a real symlink, and
+  `realpath` maps the link to the member's real dir so its source loads once and unifies with the
+  member's own program. The policy is the package manager's, narrowed to the certain cases: a member the
+  consumer's own `package.json` declares (pnpm: a `workspace:` spec; npm/yarn `workspaces`: `*` or the
+  member's exact version), never a path or an ancestor `node_modules/<name>` that exists on disk, no
+  name two members share, no hoisting of undeclared imports, nothing under `preserveSymlinks`. The
+  same view backs the out-of-program resolves (`resolveSpecifier` / `resolveModuleArg`, the import
+  index, the move-capture hosts, `extends` in a program's own tsconfig), so a read, a mutation and
+  its gate agree; the syntactic coverage / config-membership parses still read raw `ts.sys` (an
+  `extends` through a link that sets `include` is not seen there). A manifest edit re-walks the
+  repo, rebuilds the map, re-parses each program's tsconfig and re-resolves it on its next build
+  (`hasInvalidatedResolutions`, per LS host). Two honesty channels: once any of the host's programs
+  has looked through an emulated link (a lookup, not only a successful resolve; reset on a map
+  rebuild), every LS-backed answer carries the envelope claim
+  `unsafe=resolution-matches-the-trees-own-tsc` (§3.6 — the project's tsc on THIS tree does not
+  resolve those imports; host-scoped, so it over-claims rather than misses), and what still resolves nowhere
+  (an undeclared dependency, a non-`workspace:` range, an entry into an unbuilt `dist`) is a
+  separate `find_usages` / `member_usages` floor, `unresolvedWorkspaceImports` + a `!!` LOWER-BOUND
+  note naming the specifiers ([`unresolved-workspace-imports.ts`](src/plugins/ts/unresolved-workspace-imports.ts);
+  each site resolved in its own resolution mode, memoized on link generation ⊕ `projectVersion` ⊕ the
+  program set)
+  — a sibling of `undiscoveredPrograms`, never folded into it (the other floor consumers: t-715754).
   **The type-anchored SCANS fan too, per-program-typed** (`construction_sites` /
   `discrimination_sites`, [`plugins/ts/program/scan-fanout.ts`](src/plugins/ts/program/scan-fanout.ts)).
   Both answer a blast-radius question by walking files and running one expensive checker call per
@@ -770,7 +802,19 @@ unconfirmed=0`; the §3.4 undiscovered-program floor still applies. The affirmat
   tsconfig's _own_ compilerOptions (a divergent `lib`/`strict`) is refused, not only a dangling
   import; each program is overlaid with only the files it owns (baseline/overlay stay symmetric), and
   a SIBLING program whose LS throws degrades to a note (the PRIMARY's throw is never swallowed — it
-  fails honestly). (Inside a `transaction` the
+  fails honestly). A move DEST also goes to every program holding its SOURCE, since such a program
+  reaches the dest through the rewritten import. A file a program holds only through an import is
+  overlaid as content, never as a root: a root stops being external, so a workspace package's file
+  would trip `rootDir` (TS6059) in the overlay pass alone. An **extends-only base config** is gated
+  ADVISORY: sampled like any program, but what it alone reports is listed in a note with its place
+  and does not refuse — whether the project runs such a config is not provable from the repo. It is a
+  non-primary config with no `files`/`include` in its `extends`
+  chain, that another loaded config extends, not named `tsconfig.json`, not a `references` target,
+  and not named by a script of a `package.json` from its dir up to the workspace root (re-read on a
+  reindex naming one of those manifests, the rest of the shape on the config re-parse). Its default `**/*` glob owns every file, while the repo is
+  typechecked through its extenders (t-401540); its options never decide an import rewrite either. The import rewrite keeps a package
+  specifier TS resolved through `node_modules` (a pnpm workspace package) as written when only the
+  importer moved and every program owning the new path resolves it to the same file. (Inside a `transaction` the
   write-site fan-out is gated off — a step's `PlanningOverlay` lives on the primary, so a sibling
   would read stale disk; the fanned gate still refuses a resulting dangle — backlog.) (The full
   monorepo project-reference _redirect_ graph stays roadmap; this is the
@@ -1572,13 +1616,21 @@ fingerprint (a delete racing the read) is inconclusive and never evicts.
   catalogue — every op's arg schema + per-op notes + columns + example (capped at the MCP seam,
   §12, so nothing is silently lost); **`op:"<name>"`** renders one op's full detail on demand
   (cheaper than re-emitting the whole catalogue to re-read one op). **`brief: true`** is a
-  back-compat alias of the terse default. It also carries the **self-staleness** line
+  back-compat alias of the terse default. Within one MCP session a repeat terse `status` states the
+  catalogue as a diff against what that session was already shown (`same as shown earlier` / `+`/`-`
+  lines) and names the concepts by id instead of re-printing them (`format/render/render-status-recall.ts`);
+  `full`/`op` always list in full. **`concept:"<id>"`** prints one folded explanation (§12) in full,
+  whatever the session has seen. The header names the serving process's **build id** (§13). It also
+  carries the **self-staleness** line
   (§3.6 applied to the tool itself): when the daemon's own `src/**` changed since spawn it
   is serving pre-edit behavior, so `status` and the per-op/`batch` responses prepend — on
   EVERY stale response, not just the first — the one-line banner
   ([`format/render/render-status.ts`](src/format/render/render-status.ts) `sourceStaleBanner`, its
   ONE home, shared so the two surfaces cannot drift; a multi-edit session must be warned on every
-  answer it acts on). It is a PREFIX so the render cap (which trims the tail) can never lose it and
+  answer it acts on). It is an alarm, not an explanation: session folding (§12) never drops it — after
+  its first full showing in a session the op/batch prefix is its short form
+  (`!! PRE-EDIT codemaster: ANALYSIS older than its src/ (your data is fresh) [pre-edit]`), and
+  `status {concept:"pre-edit"}` prints the full one. It is a PREFIX so the render cap (which trims the tail) can never lose it and
   it never lands inside a batch's per-section JSON; suppressed in `format:'json'` (a prefix would
   corrupt the single bare-JSON payload — json consumers read the structured `sourceStale` from
   `status`) and silent where the source can't be located (global/`npx` — §19).
@@ -1689,6 +1741,30 @@ one-line legend + sectioned summary). Rules:
   envelope. This is the backstop that makes the ceiling a guarantee for EVERY op regardless of its
   own capping; the size test matrix (`test/e2e/mcp-response-size.test.ts`) asserts it per-op ×
   per-mode.
+- **Session prose folding (the MCP facade only).** Repeated static explanation is a **lesson**
+  (`common/lesson`: `{id, full, short, scope}`); a producer interpolates `full` verbatim next to its
+  facts, so the `Result` — and with it `format:'json'`, sql tables, the CLI and every cold/warm
+  comparison — is byte-identical whether or not anything folds. The registry is one list
+  (`ops/lesson-catalogue.ts` + the facade's own, `mcp/lessons.ts`). `serveMcp {session:true}` (set by
+  `bin.ts`; off by default) remembers per client connection which lessons it delivered
+  (`mcp/session-memory.ts`) and renders every later occurrence — in a later answer or later in the
+  same answer (batch sections, multi-target rows) — as `short [id]`: still a claim, never a bare
+  pointer, and `status {concept:"<id>"}` expands it. Folding walks a COPY of the `Result` in render
+  order and rewrites only strings under the explanation keys (`note(s)`, `surface`, `scope`, `hint`,
+  `reason`, `notAVerdict`, the failure message, the truncation hint) — a type, a prop value, a span,
+  an sql cell or a trace hop's note (it quotes walked source) stays verbatim even when it spells a
+  lesson; disclosures fold as rendered lines so their per-claim grouping holds. When a cap cut the
+  one full copy a response kept, the response is rendered again from the same op results keeping a
+  LATER occurrence in full (or, with none left, leaving that lesson unfolded) — bounded, and never a
+  textual patch of rendered output, which could touch data. A lesson counts as delivered only when
+  the transport has actually sent the answer that carries its full text (`mcp/delivery.ts`): a
+  cancelled call or a failed send counts nothing, so the reader never holds folds of text it never
+  received. A
+  `scope:'root'` lesson (a fact about one repo's surface) folds per root, keyed on the raw
+  request/tool root or cwd: a key mismatch can only show it again, never hide it. Facts (`!!`
+  markers, counts, config names, targets) are never part of a lesson. The guard is behavioural:
+  `test/e2e/session-fold-detector.test.ts` derives static text from two targets' answers in fresh
+  sessions and fails if a second answer in one session repeats any of it.
 - `verbosity = terse | normal | full` lets the agent dial token cost; column
   projection is done with `sql` (SELECT over the op table), not a `fields` flag.
 - `format=json` for machine composition (agent feeding one call into another).
@@ -1858,6 +1934,22 @@ exactly the dump the relay exists for. The cap is PER-LINE with an explicit mark
 budget would mute the relay before the fatal it is for); the stream is NEVER paused (a full pipe
 would block the child — §1 ranks a hang worst); the sink is released on the STREAM's end, not the
 child's `exit`, since a dying child's last bytes are still in the pipe when `exit` fires.
+
+**Build id.** The package version (`package.json`, read by `support/build-id/package-version.ts` — the
+one source; plugins report it too) keys the daemon socket and pidfile, so it never carries a commit:
+a per-commit key would spawn a daemon per commit. The **build id** is separate — `<version>
+@<sha9>[+dirty]`, or `<version> @unknown` when codemaster's own checkout cannot be read
+(`support/build-id/build-id.ts`): git is asked about the package root and its answer is used only when
+the toplevel IS that root, since an install under another project's `node_modules` would otherwise
+report that project's HEAD. Each process computes its own at start — the daemon or in-process server,
+and every engine child (its id stamps `feedback`'s `cm=`) — because code loaded earlier than an edit
+is not the code on disk. The daemon sends it as an optional `build` field on every reply envelope;
+the bridge relays it (`OrchestratorApi.buildId()`), and a daemon that omits it reads as
+`<version> @unknown (daemon predates build ids)` — never the bridge's own build. It shows in the
+`status` header, once per MCP session as a first-line stamp on a text answer (again when it changes),
+in `codemaster daemon status`, and in the MCP `serverInfo.version` (the bridge spends ≤300 ms on one
+`daemon-info` round-trip over its already-open connection before `initialize`; a host proxy may cache
+`initialize`, so that value can lag a restart).
 
 See [`src/core/debug.ts`](src/core/debug.ts).
 
@@ -2073,7 +2165,9 @@ misses). The harness rests on invariants that do:
 3. **Per-plugin `cold == warm`** — for any state reached by a sequence of edits, an op
    asked against the warm daemon's plugin returns the same result as the same op asked
    against a cold-booted daemon's same plugin. This invariant guards per-plugin
-   incremental-update drift (each plugin maintains its own state independently).
+   incremental-update drift (each plugin maintains its own state independently). It is a claim
+   about the op's `Result`; the MCP facade's per-session prose folding (§12) renders that same
+   `Result` and is outside it.
 4. **Edit safety** — dry-run leaves `git status` clean; `diff(dry-run) == diff(apply)`;
    post-apply the edit introduces **no new** `tsc` errors vs the pre-edit baseline (a repo's
    pre-existing errors are reported as a `preExisting` count, never gated on — so an edit applies
@@ -2283,7 +2377,8 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
     empty result dressed as `partial` reads as "0 usages", a §3.4 lie).
   - **Loop-boundary polling** — a multi-call op checks `deadline.expired()` between iterations
     (`impact`'s BFS before each `find_usages`; `find_unused_exports`' candidate loop before each
-    reference search) and returns `partial(accumulated, {tool:'timeout'})` — here the accumulated
+    reference search; `affected`'s importer BFS before each node AND between changed files inside
+    its one-expansion seed fan-out) and returns `partial(accumulated, {tool:'timeout'})` — here the accumulated
     dependents / examined exports ARE real data, so a partial is honest (distinct from `impact`'s
     node/depth DESIGN caps, which stay `ok` + a `!!` note).
 

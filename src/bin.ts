@@ -45,6 +45,8 @@ import {
   type CliOutcome,
 } from './cli/compose.ts';
 import { parseOpCommand } from './cli/op-command.ts';
+import { packageVersion } from './support/build-id/package-version.ts';
+import { computeBuildId } from './support/build-id/build-id.ts';
 
 /** Per-request reply deadline for the bridge (§1 never-hang), ALSO the process-mode child's
  *  request/kill deadline (one constant → the two-tier scheme). Set STRICTLY above the in-op graceful
@@ -55,12 +57,19 @@ import { parseOpCommand } from './cli/op-command.ts';
  *  bounded so nothing waits unboundedly. */
 const BRIDGE_REPLY_DEADLINE_MS = 150_000;
 
-const VERSION = '0.1.0';
+/** Budget for the bridge's pre-`initialize` build probe — short, since the client is waiting. */
+const BUILD_PROBE_MS = 300;
+
+/** The package version keys the daemon socket and pidfile; the per-commit build id never does. */
+const VERSION = packageVersion();
 
 /** `long-lived` (mcp / daemon serve) watches the tree; a `one-shot` CLI process answers one request
  *  and exits, so a watcher buys it nothing (§3.5 keeps the answer fresh) while chokidar's initial
  *  walk and its `close()` on dispose cost seconds on a large repo. */
-function buildOrchestrator(lifetime: 'long-lived' | 'one-shot'): Orchestrator {
+function buildOrchestrator(
+  lifetime: 'long-lived' | 'one-shot',
+  build: string = computeBuildId(),
+): Orchestrator {
   const debug = createDebugSystem(systemClock, process.env['CODEMASTER_DEBUG'] ?? '');
   if (process.env['CODEMASTER_DEBUG'] !== undefined) debug.addSink(createStderrSink());
   // The child bin for `process`-mode isolation (§2) — this same entry, re-invoked as
@@ -72,11 +81,11 @@ function buildOrchestrator(lifetime: 'long-lived' | 'one-shot'): Orchestrator {
     debug,
     watcher: lifetime === 'long-lived' ? createChokidarWatcher(systemClock) : nullWatcher,
     version: VERSION,
+    build,
     pluginsFor: builtinPlugins,
     opsFor: () => builtinOps(),
     spawnProcessHost: makeProcessHostFactory({
       binPath,
-      version: VERSION,
       requestDeadlineMs: BRIDGE_REPLY_DEADLINE_MS,
       sockDir: process.env['CODEMASTER_SOCK_DIR'],
       // §13: trace the child's resolved heap ceiling like its sibling isolation decision, so which
@@ -197,7 +206,9 @@ async function main(): Promise<number> {
         const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp';
         await serveEngineChild({
           root: engineRoot,
-          version: process.env['CODEMASTER_ENGINE_VERSION'] ?? VERSION,
+          // Its own build id, read at its own start: the parent's may predate an edit made between
+          // the parent's start and this fork.
+          version: computeBuildId(),
           stateDir: process.env['CODEMASTER_ENGINE_STATE_DIR'] ?? path.join(home, '.codemaster'),
           pluginsFor: builtinPlugins,
           opsFor: () => builtinOps(),
@@ -235,7 +246,9 @@ async function main(): Promise<number> {
         // watchdog (worker thread) + orphan poll self-reap. Best-effort — a failed install is a
         // no-op, never a broken serve path.
         installWatchdog({ clock: systemClock, orphanAware: true, log: watchdogLog });
-        await serveMcp(buildOrchestrator('long-lived'), VERSION, {
+        const build = computeBuildId();
+        await serveMcp(buildOrchestrator('long-lived', build), build, {
+          session: true,
           // No daemon in this topology — the self-staleness banner must not offer `codemaster
           // daemon restart` here, which would be a no-op on THIS process (§3.6).
           serving: 'in-process',
@@ -262,7 +275,9 @@ async function main(): Promise<number> {
         // (Stage-1 behavior). Worst case is "no amortization", never a hang or a hard failure (D1).
         // Serving is genuinely daemon-LESS here, so the banner's remedy follows the topology, not
         // the invocation the user typed.
-        await serveMcp(buildOrchestrator('long-lived'), VERSION, {
+        const build = computeBuildId();
+        await serveMcp(buildOrchestrator('long-lived', build), build, {
+          session: true,
           serving: 'in-process',
           idle: { clock: systemClock, idleMs },
           usage,
@@ -276,7 +291,15 @@ async function main(): Promise<number> {
         version: VERSION,
         lastSuspension: readLastSuspension,
       });
-      await serveMcp(remote, VERSION, { serving: 'daemon', usage });
+      // serverInfo.version names the daemon's build when it answers within a short budget (the
+      // connection is already open — nothing is spawned for it); otherwise `@unknown`, and the build
+      // arrives with the first answer. A host proxy may cache `initialize`, so it can lag a restart.
+      const daemonBuild = await remote.probeBuild(BUILD_PROBE_MS);
+      await serveMcp(remote, daemonBuild ?? `${VERSION} @unknown`, {
+        serving: 'daemon',
+        usage,
+        session: true,
+      });
       return -1; // stays alive serving stdio until the client closes stdin
     }
     case 'status': {

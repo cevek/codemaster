@@ -6,6 +6,7 @@
 
 import * as path from 'node:path';
 import type { PluginRegistry, FreshnessFingerprint } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { RepoRelPath } from '../../core/brands.ts';
 import type { HandleRebind } from '../../core/ids.ts';
 import { createTsProjectHost, type TsProjectHost } from './ls-host.ts';
@@ -41,6 +42,7 @@ import { failFromThrown } from '../../common/result/construct.ts';
 import { scanCssModuleUsages } from './css-modules.ts';
 import { scanClassNameLiterals } from './class-name-literals.ts';
 import { findImporters } from './importers.ts';
+import { createImportIndexCache } from './import-index.ts';
 import { nodeModuleImports } from './phantom-imports.ts';
 import { findUnusedExports } from './unused-exports.ts';
 import { computeRename } from './refactor/rename/rename-sites.ts';
@@ -56,7 +58,14 @@ import {
   type ResolvedTarget,
   type TsTargetInput,
 } from './resolve-target.ts';
-import { discloseMergeDoubt, discloseResolutionDoubt, doubtOf } from './disclose-resolution.ts';
+import {
+  discloseMergeDoubt,
+  discloseResolutionDoubt,
+  doubtOf,
+  emulatedLinksDisclosure,
+} from './disclose-resolution.ts';
+import { discloseAtEnd } from '../../support/disclosure/ledger.ts';
+import type { Disclosure } from '../../core/result.ts';
 import { detectCodemodCaptures } from './refactor/capture/codemod.ts';
 import { createScanMemos, createPlanningHelpers, resolvedScan } from './plugin-helpers.ts';
 import type { RefactorPlan } from './refactor/plan.ts';
@@ -65,6 +74,7 @@ import type { TsPluginApi } from './api.ts';
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
+export { unresolvedWorkspaceNote } from './unresolved-workspace-imports.ts';
 export type { GateClaims } from './gate-membership.ts';
 export type {
   RefactorPlan,
@@ -99,7 +109,18 @@ export { isBareNameTarget } from './disclose-resolution.ts';
 // `syntactic-surface.ts` scans, so it belongs beside that function — but the ops that state it to the
 // agent must reach it the same way they reach everything else here (§5-L3), not by importing a plugin
 // internal.
-export { SURFACE_SCOPE_CLAUSE, SYNTACTIC_SCOPE, surfaceModeNote } from './syntactic-scope.ts';
+export {
+  SURFACE_SCOPE_CLAUSE,
+  SYNTACTIC_LESSONS,
+  SYNTACTIC_SCOPE,
+  surfaceModeNote,
+} from './syntactic-scope.ts';
+// The plugin's repeated explanations (§12 session folding), for the lesson registry in ops/.
+export { DISCLOSURE_LESSONS } from './disclose-resolution.ts';
+export { UNUSED_DEMOTE } from './unused-exports-classify.ts';
+export { CONSTRUCTION_NOTES } from './construction-confidence.ts';
+export { SYNTACTIC_DECL_LESSONS } from './syntactic-decl-lessons.ts';
+export { RESOLUTION_LESSONS } from './resolution-lessons.ts';
 export type { SurfaceProvenance } from './syntactic-cache.ts';
 
 export type { ResolvedTarget, TsTargetInput };
@@ -135,8 +156,13 @@ export function createTsPlugin(
       host = createTsProjectHost(root, tsconfigOverride);
       pendingBeforeWarm = [];
     }
+    // Every LS-backed answer rides the programs' resolution, so any op that warms states it — read
+    // after the op ran, when its own resolutions have gone through (or not) the emulated links.
+    discloseAtEnd(emulatedLinksClaim);
     return host;
   };
+  const emulatedLinksClaim = (): Disclosure | undefined =>
+    host !== undefined ? emulatedLinksDisclosure(host.workspaceLinks().used()) : undefined;
 
   // Symbol-addressed reads funnel through one resolver (SymbolId / file:line:col / name +
   // §6 rebind) — the logic lives in resolve-target.ts; here it just binds the warm host.
@@ -187,11 +213,12 @@ export function createTsPlugin(
   // The syntactic (host-independent) search's parsed-surface memo. Held here (like the scan memos)
   // so it is per-instance and cleared on dispose; the engine stays host-independent (t-515730).
   const syntacticCache = createSyntacticCache();
+  const importIndexes = createImportIndexCache();
   const { runWithOverlay, planUnderOverlay } = createPlanningHelpers(warm, root);
 
   return {
     id: 'ts',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: [],
     // Bundled TS for now (project-own TS resolution is roadmap §19); stated via status.
     tsVersion: `bundled-ts`,
@@ -208,6 +235,7 @@ export function createTsPlugin(
       memos.callArgShapes.clear();
       memos.functionDeclarations.clear();
       clearSyntacticCache(syntacticCache);
+      importIndexes.clear();
       return Promise.resolve();
     },
     freshness(): FreshnessFingerprint {
@@ -427,7 +455,7 @@ export function createTsPlugin(
     callArgShapes: (spec) => memos.callArgShapes.call(spec),
     functionDeclarations: () => memos.functionDeclarations.call(),
 
-    importersOf: (module) => findImporters(warm(), module),
+    importersOf: (module) => findImporters(warm(), module, importIndexes),
 
     nodeModuleImports: () => nodeModuleImports(warm()),
 

@@ -34,6 +34,7 @@ if (socket === undefined) {
 
 const orchestrator = {
   sourceStale: () => false,
+  buildId: () => undefined,
   daemonInfo: () => ({}) as never,
   dispose: async () => undefined,
   status: async () => ({}) as never,

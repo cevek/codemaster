@@ -33,6 +33,8 @@ export function createReverseResolver(
   options: ts.CompilerOptions,
   currentDirectory: string,
   postHost: ts.ModuleResolutionHost,
+  /** The pre-move disk view — the host's link-aware one, so pre and post agree off the overlay. */
+  preHost: ts.ModuleResolutionHost,
 ): ReverseResolver {
   const getCanonical = (f: string): string =>
     ts.sys.useCaseSensitiveFileNames ? f : f.toLowerCase();
@@ -57,6 +59,6 @@ export function createReverseResolver(
   };
   return {
     resolvePost: (spec, fromAbs) => run(spec, fromAbs, postHost, mrcPost, postMemo),
-    resolvePre: (spec, fromAbs) => run(spec, fromAbs, ts.sys, mrcPre, preMemo),
+    resolvePre: (spec, fromAbs) => run(spec, fromAbs, preHost, mrcPre, preMemo),
   };
 }

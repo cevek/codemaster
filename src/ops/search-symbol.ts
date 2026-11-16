@@ -16,6 +16,7 @@ import { fileModuleHint } from './search-file-hint.ts';
 import { opRefusal } from './guard/refusal.ts';
 import type { ToolFailure } from '../core/result.ts';
 import type { Cell, OpContext, TableSpec } from './registry.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
 
 /** Project SymbolView matches into rows (§3). LS workspace-symbol hits are structural —
  *  `confidence` is always `certain`. */
@@ -119,14 +120,23 @@ function sizeGuardRefusal(
  *  match the LS provider. The SCOPE half is shared (`syntactic-scope.ts`) — it describes the surface,
  *  which every syntactic path shares; only what is specific to THIS path (navto's dedup, our ranking)
  *  is spelled here. Leads the result (verdict-first, §12). */
-const SYNTACTIC_NOTE = `syntactic scan (NOT the LS navto provider): ${SYNTACTIC_SCOPE} Extra import/re-export sites appear too (real declarations ranked first), so it is not byte-identical to the LS — the default (navto) search is the exact one.`;
+export const SYNTACTIC_SEARCH_LESSON = defineLesson({
+  id: 'syntactic-search',
+  full: ' Extra import/re-export sites appear too (real declarations ranked first), so it is not byte-identical to the LS — the default (navto) search is the exact one.',
+  short: ' Not byte-identical to the LS (navto) search.',
+});
+const SYNTACTIC_NOTE = `syntactic scan (NOT the LS navto provider): ${SYNTACTIC_SCOPE}${SYNTACTIC_SEARCH_LESSON.full}`;
 
 /** `exportedOnly` on the syntactic path is a SYNTACTIC approximation (no checker): it drops import
  *  re-mentions and keeps export-specifiers + real declarations, but cannot tell a non-exported local
  *  `const` from an exported one — so it OVER-includes (superset-safe), never misses an export.
  *  Disclosed so an agent never reads it as the LS's precise export set (t-926410). */
-const EXPORTED_ONLY_CAVEAT =
-  ' exportedOnly is best-effort here (syntactic, no checker): it keeps all real declarations, so a non-exported local may appear — never a missed export.';
+export const SYNTACTIC_EXPORTED_ONLY_LESSON = defineLesson({
+  id: 'syntactic-exported-only',
+  full: ' exportedOnly is best-effort here (syntactic, no checker): it keeps all real declarations, so a non-exported local may appear — never a missed export.',
+  short: ' exportedOnly is a superset here (a local may appear, no export missed).',
+});
+const EXPORTED_ONLY_CAVEAT = SYNTACTIC_EXPORTED_ONLY_LESSON.full;
 
 /** Project the syntactic SearchView into the op result — same table/tag shape as the navto path,
  *  but always carrying the provenance note (guardrail 4) and honest truncation (§3.4). */

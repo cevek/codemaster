@@ -14,6 +14,13 @@
 
 import type { PluginRegistry } from '../core/plugin.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
+
+export const NESTED_PLUGIN_LESSON = defineLesson({
+  id: 'nested-plugin',
+  full: " — a framework plugin (autodetected off each package's OWN package.json) may own it only inside a nested package:",
+  short: ' — it may be active only in a nested package:',
+});
 import type { TsPluginApi } from '../plugins/ts/plugin.ts';
 
 const MAX_NAMED = 3;
@@ -49,5 +56,5 @@ export function inactiveRegistryDisclosure(
     dirs.length === 1
       ? `root:<${dirs[0]}>`
       : `root: at one of: ${dirs.slice(0, MAX_NAMED).join(', ')}`;
-  return `!! no plugin owning registry '${registry}' is active at this root — a framework plugin (autodetected off each package's OWN package.json) may own it only inside a nested package: ${dirs.length} nested package(s) (${nameWithMore(dirs, MAX_NAMED)}). Re-run with ${remedy} to activate that package's plugins. This is NOT proof the repo has no '${registry}'.`;
+  return `!! no plugin owning registry '${registry}' is active at this root${NESTED_PLUGIN_LESSON.full} ${dirs.length} nested package(s) (${nameWithMore(dirs, MAX_NAMED)}). Re-run with ${remedy} to activate that package's plugins. This is NOT proof the repo has no '${registry}'.`;
 }

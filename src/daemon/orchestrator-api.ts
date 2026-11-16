@@ -30,6 +30,10 @@ export interface OrchestratorApi {
   /** Whether codemaster's own source moved since spawn (§3.6) — drives the reconnect banner.
    *  Synchronous: the remote impl returns the value cached from the last reply envelope. */
   sourceStale(): boolean;
+  /** The build id of the process that runs the ops (`<version> @<sha9>[+dirty]` / `@unknown`).
+   *  `undefined` while not yet known — the remote impl learns it from the daemon's replies, and a
+   *  daemon that predates build ids answers `<?> @unknown`, never the bridge's own build. */
+  buildId(): string | undefined;
   /** Release this orchestrator's hold. In-process: dispose engines. Remote: close the socket
    *  connection only — the shared daemon keeps running for other bridges. */
   dispose(): Promise<void>;

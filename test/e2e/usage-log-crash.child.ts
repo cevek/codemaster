@@ -25,6 +25,7 @@ const op = defineOp({
 
 const orchestrator = {
   sourceStale: () => false,
+  buildId: () => undefined,
   dispose: async () => undefined,
   status: async () => ({}) as never,
   request: async (_cwd: string, _root: string | undefined, reqs: readonly { name: string }[]) => {

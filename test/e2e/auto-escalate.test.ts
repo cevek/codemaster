@@ -168,7 +168,6 @@ test('oversized repo, no isolation configured: the orchestrator really forks a c
             binPath: BIN,
             root: r,
             stateDir: sd,
-            version: 'test',
             maxOldSpaceMB: 2048,
             sockDir: undefined,
           });

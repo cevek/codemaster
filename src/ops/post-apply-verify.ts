@@ -12,6 +12,7 @@
 // on disk leave the gate-verified write in place and say so: reverting a verified edit over an
 // unfinished check is the inverse lie (§3.6), and reverting over a foreign write destroys it.
 
+import { defineLesson } from '../common/lesson/lesson.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import type { Result } from '../core/result.ts';
 import type { JsonValue } from '../core/json.ts';
@@ -188,5 +189,9 @@ export function incompleteFields(verdict: PostApplyVerdict): Record<string, Json
   return { postApply: { complete: false, reason: verdict.reason } };
 }
 
-export const INCOMPLETE_NOTE =
-  'the edit is written; it was typechecked over the overlay before the write, but the post-write recheck did not complete (see postApply.reason)';
+export const POST_APPLY_INCOMPLETE_LESSON = defineLesson({
+  id: 'post-apply-incomplete',
+  full: 'the edit is written; it was typechecked over the overlay before the write, but the post-write recheck did not complete (see postApply.reason)',
+  short: 'written; post-write recheck incomplete (see postApply.reason)',
+});
+export const INCOMPLETE_NOTE = POST_APPLY_INCOMPLETE_LESSON.full;

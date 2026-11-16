@@ -19,16 +19,13 @@
 import type { JsonValue } from '../core/json.ts';
 import type { WideningScanCoverage } from '../plugins/ts/plugin.ts';
 import { nameWithMore } from '../common/truncate/name-with-more.ts';
-import { lowerBoundNote } from './lower-bound-note.ts';
+import { FLOOR_NOUNS, lowerBoundNote } from './lower-bound-note.ts';
+import { defineLesson, type Lesson } from '../common/lesson/lesson.ts';
 
 const MAX_NAMED = 3;
 
 /** What a `trace_type_widening` floor is a floor OF, in the op's own nouns. */
-const SUBJECT = {
-  subject: 'flow-sinks',
-  noun: 'flow-sink',
-  negation: "that the value's precision is preserved everywhere",
-} as const;
+const SUBJECT = FLOOR_NOUNS.widening;
 
 /** Only `complete` licenses reading `0 hops` as a claim about the VALUE ("it never flows onward").
  *
@@ -110,14 +107,10 @@ export function wideningFloorNotes(
   if (undiscovered.length > 0) notes.push(lowerBoundNote(undiscovered, SUBJECT));
   for (const note of skippedNotes(coverage)) notes.push(note);
   if (coverage.fallbackExcluded === true) {
-    notes.push(
-      `!! LOWER BOUND — a whole-repo no-config fallback program containing this value was NOT consulted (a real tsconfig took over as its type authority): under DEFAULT compilerOptions (no \`paths\`/\`baseUrl\`) its verdicts are not the ones the project itself yields. References living ONLY in files no tsconfig covers were therefore not analysed. Add a tsconfig covering those files for a complete trace.`,
-    );
+    notes.push(`!! LOWER BOUND — ${WIDENING_LESSONS.fallbackExcluded.full}`);
   }
   if (coverage.fallbackOnly === true) {
-    notes.push(
-      `!! the repo has no tsconfig covering this value, so the trace ran on the whole-repo no-config fallback program under DEFAULT compilerOptions — alias imports do not resolve there and whole-repo type augmentations leak in, so each widening verdict is weaker than it looks. Add a tsconfig for a sound answer.`,
-    );
+    notes.push(`!! ${WIDENING_LESSONS.fallbackOnly.full}`);
   }
   return notes;
 }
@@ -150,11 +143,41 @@ function skippedNotes(coverage: WideningScanCoverage): string[] {
 
 /** Exhaustive over `SkippedWideningProgram['reason']` — cause AND remedy in one clause each, so a
  *  new reason cannot fall through to a plausible-but-wrong sentence (it renders its raw tag). */
+const NO_VALUE_LESSON = defineLesson({
+  id: 'widening-skip-no-value',
+  full: `the position resolves to no value under that program's OWN compilerOptions, so it has no source type there to judge sinks against — neither a spent budget nor a missing config; re-run with that package as \`root\` to trace the value under those options`,
+  short: 'no value at that position under that program’s own options (re-run with it as root)',
+});
+const UNAVAILABLE_LESSON = defineLesson({
+  id: 'widening-skip-program-unavailable',
+  full: `the TS Language Service could not produce a Program (or this file) for them — an internal-tool failure, not a scope decision`,
+  short: 'the LS produced no Program for them (internal failure)',
+});
+
+// `deadline` is not a lesson: scan-coverage's `skip-deadline` contains these exact words.
 const SKIP_CAUSE: Record<string, string> = {
-  'no-value-here': `the position resolves to no value under that program's OWN compilerOptions, so it has no source type there to judge sinks against — neither a spent budget nor a missing config; re-run with that package as \`root\` to trace the value under those options`,
+  'no-value-here': NO_VALUE_LESSON.full,
   deadline: `the wall-clock budget was already spent when the fan reached them, so their checkers were never warmed`,
-  'program-unavailable': `the TS Language Service could not produce a Program (or this file) for them — an internal-tool failure, not a scope decision`,
+  'program-unavailable': UNAVAILABLE_LESSON.full,
 };
+
+export const WIDENING_SKIP_LESSONS: readonly Lesson[] = [NO_VALUE_LESSON, UNAVAILABLE_LESSON];
+
+export const WIDENING_LESSONS = {
+  fallbackExcluded: defineLesson({
+    id: 'widening-fallback-excluded',
+    full: 'a whole-repo no-config fallback program containing this value was NOT consulted (a real tsconfig took over as its type authority): under DEFAULT compilerOptions (no `paths`/`baseUrl`) its verdicts are not the ones the project itself yields. References living ONLY in files no tsconfig covers were therefore not analysed. Add a tsconfig covering those files for a complete trace.',
+    short:
+      'the no-config fallback program was NOT consulted: refs only in files no tsconfig covers are missing',
+  }),
+  fallbackOnly: defineLesson({
+    id: 'widening-fallback-only',
+    full: 'the repo has no tsconfig covering this value, so the trace ran on the whole-repo no-config fallback program under DEFAULT compilerOptions — alias imports do not resolve there and whole-repo type augmentations leak in, so each widening verdict is weaker than it looks. Add a tsconfig for a sound answer.',
+    short:
+      'no tsconfig covers this value: the trace ran on the default-options fallback program, weaker than it looks',
+    scope: 'root',
+  }),
+} as const;
 
 /** The emptiness line for a 0-hop trace. A complete fan over a value that simply never flows onward
  *  HAS established that — printing a floor there would dress a complete answer as partial, the same

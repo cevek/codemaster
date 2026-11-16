@@ -10,6 +10,7 @@ import type ts from 'typescript';
 import type { RepoRelPath } from '../../src/core/brands.ts';
 import type { OverlayEntry } from '../../src/plugins/ts/vfs/overlay.ts';
 import type { SingleProgram } from '../../src/plugins/ts/program/single.ts';
+import { NO_CONFIG_SHAPE } from '../../src/plugins/ts/program/config-shape.ts';
 import { gateAcross, type GateHostCtx, type GateScope } from '../../src/plugins/ts/program-gate.ts';
 import { createGateCache } from '../../src/plugins/ts/program-gate-cache.ts';
 
@@ -56,7 +57,9 @@ function stub(label: string, disk: Record<string, string>, opts: { throws?: bool
     label,
     configPath: undefined,
     containsFile: () => true,
+    isTracked: () => true,
     mayContain: () => false,
+    configShape: () => NO_CONFIG_SHAPE,
     diskVersion: () => diskVersion,
     overlayActive: () => outerOverlay.on || overlay !== undefined,
     setOverlay: (entries: readonly OverlayEntry[], removed: readonly RepoRelPath[] = []) => {
@@ -132,6 +135,12 @@ test('every component of the gate-result key forces a recompute when it changes'
     ['content', () => ({ files: edit('ERR:other') })],
     ['removed', () => ({ scope: { ...SCOPE, removed: [rel('b.ts')] } })],
     ['check', () => ({ scope: { ...SCOPE, check: [rel('a.ts')] } })],
+    [
+      'moves',
+      () => ({
+        scope: { ...SCOPE, moves: [{ from: rel('x.ts'), to: rel('a.ts'), kind: 'file' }] },
+      }),
+    ],
     ['diskVersion', (p) => (p.bumpDisk(), {})],
     ['program identity', (_p, other) => ({ ctx: ctxOf(undefined, other) })],
   ];

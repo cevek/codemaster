@@ -18,6 +18,11 @@ import { fnv1a64Hex } from '../../common/hash/fnv.ts';
 import type { OverlayEntry } from './vfs/overlay.ts';
 import { createSingleProgram, type SingleProgram } from './program/single.ts';
 import { createFileVersions } from './program/file-versions.ts';
+import {
+  changesWorkspaceLinks,
+  createWorkspaceLinks,
+  type WorkspaceLinks,
+} from './program/workspace-links.ts';
 import type { TsProgram } from './program/queryable-program.ts';
 import { createIgnoredSet, type IgnoredComputer } from './program/ignored-set.ts';
 import {
@@ -162,6 +167,8 @@ export interface TsProjectHost extends GateHost {
    *  `root:<dir>`. Computed on demand (bounded: a per-tsconfig `package.json` probe over the cached
    *  list, only when the rare inactive-registry hint fires — never a repo-scale per-query walk, §19). */
   nestedPackageLabels(): readonly string[];
+  /** The emulated workspace links every program resolves through (t-403708). */
+  workspaceLinks(): WorkspaceLinks;
   dispose(): void;
 }
 
@@ -189,22 +196,26 @@ export function createTsProjectHost(
   // instead of spinning. Engine in ./cancellation (keeps ts's OperationCanceledException there).
   const cancellation = createCancellation();
   const cancel = cancellation.cancel;
-  /** Every program of this host shares the registry, junk set, versions and cancellation. */
+  // ONE repo walk (`walkRepoFiles`, all source files) per host lifetime, the §19-bounded part shared
+  // by FOUR consumers: the tsconfig scan (`repoTsconfigsFrom` filters it → the undiscovered base +
+  // source-2 workspace-member discovery), member coverage + stray injection (`computeCoverage`), and
+  // the workspace-link map. So there is a single repo walk per host, never one per consumer —
+  // invalidated with the tsconfig memos on a structural tsconfig/workspace-manifest change, and on
+  // any `package.json` change (the reindex block below). Declared before the primary: its tsconfig
+  // parse can already read the link map (an `extends` through `node_modules`).
+  let repoFiles: string[] | undefined;
+  const repoFilesList = (): string[] => (repoFiles ??= walkRepoFiles(root));
+  // Emulated workspace links (t-403708) over that walk.
+  const links = createWorkspaceLinks(root, () => repoFilesList());
+  /** Every program of this host shares the registry, junk set, versions, cancellation and links. */
   const programFor = (config: string | undefined, label: string, strays: readonly string[] = []) =>
-    createSingleProgram(root, config, label, registry, ignored, versions, strays, cancel);
+    createSingleProgram(root, config, label, registry, ignored, versions, strays, cancel, links);
 
   const primary = programFor(configPath, primaryLabel(root, configPath));
 
   // Sibling discovery runs ONCE and is cached (config paths + labels) — never per query (§19
   // hang). Building the sibling LS objects (parse tsconfig + glob files) is the heavier, separate
   // lazy step deferred to the first cross-program read.
-  // ONE repo walk (`walkRepoFiles`, all source files) per host lifetime, the §19-bounded part shared
-  // by THREE consumers: the tsconfig scan (`repoTsconfigsFrom` filters it → the undiscovered base +
-  // source-2 workspace-member discovery) AND member coverage + stray injection (`computeCoverage`). So
-  // there is a single repo walk per host, never one per consumer — invalidated with the tsconfig
-  // memos on a structural tsconfig/workspace-manifest change (the reindex block below).
-  let repoFiles: string[] | undefined;
-  const repoFilesList = (): string[] => (repoFiles ??= walkRepoFiles(root));
   let repoTsconfigs: string[] | undefined;
   const repoTsconfigsList = (): string[] =>
     (repoTsconfigs ??= repoTsconfigsFrom(repoFilesList(), root));
@@ -432,6 +443,15 @@ export function createTsProjectHost(
           return built.every((program) => !program.isTracked(abs)); // untracked → a genuine ADD
         });
       };
+      // A manifest edit re-derives the link map, and every program re-resolves on its next build
+      // (`hasInvalidatedResolutions`, single.ts).
+      // The walk is dropped too: an ADDED/removed `package.json` changes the member set the map is
+      // built from, and only a re-walk sees it. Its other consumers' memos are left as they are
+      // (they re-read the walk only when their own invalidation fires).
+      if (changed.some(changesWorkspaceLinks)) {
+        repoFiles = undefined;
+        links.refresh();
+      }
       if (changed.some(isStructuralConfigChange) || addsMemberStray()) {
         repoFiles = undefined;
         repoTsconfigs = undefined;
@@ -521,6 +541,7 @@ export function createTsProjectHost(
     programLabels: () => [primary.label, ...discover().map((c) => c.label)],
     undiscoveredProgramLabels: () => undiscoveredLabels(),
     nestedPackageLabels: () => packageConfigLabels(root, repoTsconfigsList(), configPath),
+    workspaceLinks: () => links,
     dispose() {
       for (const program of builtSoFar()) program.dispose();
       for (const program of fileDriven.values()) program.dispose();

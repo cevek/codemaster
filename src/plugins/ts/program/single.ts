@@ -21,8 +21,16 @@ import { toPosix } from '../../../support/fs/canonicalize.ts';
 import { isJunkRelPath } from '../../../support/fs/ignored-paths.ts';
 import { Overlay, type OverlayEntry } from '../vfs/overlay.ts';
 import { buildMembership } from './membership.ts';
+import {
+  NO_CONFIG_SHAPE,
+  namedByScript,
+  parseConfigFile,
+  scriptManifests,
+  type ConfigShape,
+} from './config-shape.ts';
 import { isTsconfigBasename } from './discover.ts';
 import type { FileVersions } from './file-versions.ts';
+import { realpathOf, type WorkspaceLinks } from './workspace-links.ts';
 
 /** One queryable TS program (an LS over a single tsconfig) plus the bookkeeping the host needs
  *  to keep it fresh. Public methods only; the LS host internals stay private. */
@@ -47,6 +55,8 @@ export interface SingleProgram {
    *  question for a not-yet-created move/extract DEST, so the program that owns the dest joins the
    *  cross-program write gate and typechecks the moved file under ITS compilerOptions (membership.ts). */
   mayContain(absPosix: string): boolean;
+  /** Its config's `extends` chain and whether its file set is TS's default glob (config-shape.ts). */
+  configShape(): ConfigShape;
   /** Apply a changed set; returns `true` when the change was structural for THIS program (a
    *  tracked file added/removed → the file list was re-globbed). */
   reindex(changed: readonly RepoRelPath[]): boolean;
@@ -101,6 +111,9 @@ export function createSingleProgram(
    *  false` otherwise), so a single big find_usages degrades to an honest timeout instead of
    *  spinning. Default `() => false` — an unbounded program never cancels. */
   cancel: () => boolean = () => false,
+  /** The host's emulated workspace links (t-403708), or none. Skipped under `preserveSymlinks`: TS
+   *  would keep the synthetic path and load the member's files a second time under it. */
+  links?: WorkspaceLinks,
 ): SingleProgram {
   let files = new Set<string>(); // abs posix
   let version = 1;
@@ -109,9 +122,10 @@ export function createSingleProgram(
 
   const configDir = configPath !== undefined ? path.dirname(configPath) : root;
   let parsed: ts.ParsedCommandLine;
+  let shape: ConfigShape;
   let membership: (absPosix: string) => boolean;
   const loadFileList = (): void => {
-    parsed = parseConfig(root, configPath); // (re-)glob: picks up added/removed files
+    ({ parsed, shape } = parseConfig(root, configPath, links)); // (re-)glob: picks up added/removed files
     membership = buildMembership(parsed, configDir, root); // glob predicate, rebuilt on re-glob
     const ignoredJunk = ignored(); // host-memoized: one git call per structural reindex (§19)
     const rootPrefix = `${toPosix(root)}/`;
@@ -145,58 +159,84 @@ export function createSingleProgram(
   };
   loadFileList();
 
-  const makeServicesHost = (tsm: typeof ts): ts.LanguageServiceHost => ({
-    getScriptFileNames: () =>
-      [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
-    getScriptVersion: (fileName) => {
-      const posix = toPosix(fileName);
-      const over = overlay.get(posix);
-      if (over !== undefined) return `o${over.version}`;
-      return String(versions.of(posix));
-    },
-    getScriptSnapshot: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      if (over !== undefined) return tsm.ScriptSnapshot.fromString(over.content);
-      try {
-        return tsm.ScriptSnapshot.fromString(readFileSync(fileName, 'utf8'));
-      } catch {
-        return undefined;
-      }
-    },
-    getCurrentDirectory: () => root,
-    // Deadline-driven cancellation (§1): TS polls this throughout findReferences/navto and throws
-    // OperationCanceledException when the shared predicate says the budget is spent.
-    getCancellationToken: () => ({ isCancellationRequested: () => cancel() }),
-    getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path
-    getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
-    fileExists: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return false;
-      return overlay.has(posix) || tsm.sys.fileExists(fileName);
-    },
-    readFile: (fileName, encoding) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      return over !== undefined ? over.content : tsm.sys.readFile(fileName, encoding);
-    },
-    readDirectory: tsm.sys.readDirectory,
-    directoryExists: (dir) => overlay.hasDirectory(toPosix(dir)) || tsm.sys.directoryExists(dir),
-    getDirectories: tsm.sys.getDirectories,
-    getProjectVersion: () => String(version),
-    // Canonicalize symlinks exactly like `tsc`/`createProgram` (`realpath: sys.realpath`); a
-    // LanguageServiceHost that omits it loads a pnpm package under two paths and its types stop
-    // unifying (ls-host-symlink.test.ts). A synthetic overlay/removed path realpaths to itself.
-    realpath: (fileName) => {
-      try {
-        return tsm.sys.realpath ? tsm.sys.realpath(fileName) : fileName;
-      } catch {
-        return fileName;
-      }
-    },
-  });
+  // A link-map change (t-403708) re-parses the tsconfig (an `extends` may have resolved through a
+  // link) once, shared by both LS hosts below; each host then re-resolves on its own next sync.
+  let parsedGen = links?.generation() ?? 0;
+  const syncLinks = (): number => {
+    const gen = links?.generation() ?? 0;
+    if (gen !== parsedGen) {
+      parsedGen = gen;
+      loadFileList();
+    }
+    return gen;
+  };
+  const emulate = (): boolean => links !== undefined && parsed.options.preserveSymlinks !== true;
+  const through = (fileName: string): string =>
+    (emulate() ? links?.translate(toPosix(fileName)) : undefined) ?? fileName;
+
+  const makeServicesHost = (tsm: typeof ts): ReresolvingHost => {
+    let resolvedGen = parsedGen;
+    let reresolve = false;
+    return {
+      getScriptFileNames: () =>
+        [...new Set([...files.keys(), ...overlay.rootKeys()])].filter((f) => !overlay.isRemoved(f)),
+      getScriptVersion: (fileName) => {
+        const posix = toPosix(fileName);
+        const over = overlay.get(posix);
+        if (over !== undefined) return `o${over.version}`;
+        return String(versions.of(posix));
+      },
+      getScriptSnapshot: (fileName) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return undefined;
+        const over = overlay.get(posix);
+        if (over !== undefined) return tsm.ScriptSnapshot.fromString(over.content);
+        try {
+          return tsm.ScriptSnapshot.fromString(readFileSync(through(fileName), 'utf8'));
+        } catch {
+          return undefined;
+        }
+      },
+      getCurrentDirectory: () => root,
+      // Deadline-driven cancellation (§1): TS polls this throughout findReferences/navto and throws
+      // OperationCanceledException when the shared predicate says the budget is spent.
+      getCancellationToken: () => ({ isCancellationRequested: () => cancel() }),
+      getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path
+      getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
+      fileExists: (fileName) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return false;
+        return overlay.has(posix) || tsm.sys.fileExists(through(fileName));
+      },
+      readFile: (fileName, encoding) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return undefined;
+        const over = overlay.get(posix);
+        return over !== undefined ? over.content : tsm.sys.readFile(through(fileName), encoding);
+      },
+      readDirectory: tsm.sys.readDirectory,
+      directoryExists: (dir) =>
+        overlay.hasDirectory(toPosix(dir)) ||
+        tsm.sys.directoryExists(through(dir)) ||
+        (emulate() && links?.isSyntheticDir(toPosix(dir)) === true),
+      getDirectories: (dir) => tsm.sys.getDirectories(through(dir)),
+      // A link-map change (t-403708) re-resolves every file: TS otherwise reuses the resolutions of
+      // unchanged importers across rebuilds. `getProjectVersion` opens each LS sync, so the flag spans
+      // exactly the one rebuild after the change (the re-parse bumped `version`, forcing it).
+      getProjectVersion: () => {
+        const gen = syncLinks();
+        reresolve = gen !== resolvedGen;
+        resolvedGen = gen;
+        return String(version);
+      },
+      hasInvalidatedResolutions: () => reresolve,
+      // Canonicalize symlinks exactly like `tsc`/`createProgram` (`realpath: sys.realpath`); a
+      // LanguageServiceHost that omits it loads a pnpm package under two paths and its types stop
+      // unifying (ls-host-symlink.test.ts). A synthetic overlay/removed path realpaths to itself; an
+      // emulated workspace link realpaths to its member, as the real symlink would.
+      realpath: (fileName) => realpathOf(through(fileName)),
+    };
+  };
 
   const service = ts.createLanguageService(makeServicesHost(ts), registry);
 
@@ -222,8 +262,10 @@ export function createSingleProgram(
     isTracked: (absPosix) => files.has(absPosix),
     containsFile: (absPosix) => service.getProgram()?.getSourceFile(absPosix) !== undefined,
     mayContain: (absPosix) => membership(absPosix),
+    configShape: () => shape,
     reindex(changed) {
       let structural = false;
+      let scriptsChanged = false;
       for (const rel of changed) {
         const abs = toPosix(path.join(root, rel));
         if (files.has(abs)) continue; // its version was advanced by the host (`versions`)
@@ -244,10 +286,16 @@ export function createSingleProgram(
         // `.gitignore` in the changed set as structural (else the un-ignored files stay dropped until
         // an unrelated source add/remove — a silent completeness gap, §3.4).
         else if (abs.slice(abs.lastIndexOf('/') + 1) === '.gitignore') structural = true;
+        // The `package.json` files from the config's dir up to the root decide `runByScript`; no
+        // re-glob needed for them.
+        else if (configPath !== undefined && scriptManifests(configPath, root).includes(abs))
+          scriptsChanged = true;
       }
       version++;
       diskVersion++;
       if (structural) loadFileList();
+      else if (scriptsChanged && configPath !== undefined)
+        shape = { ...shape, runByScript: namedByScript(configPath, root) };
       return structural;
     },
     version: () => version,
@@ -256,7 +304,7 @@ export function createSingleProgram(
     rescueService,
     setOverlay(entries, removed = []) {
       overlay.set(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        entries.map((e) => ({ ...e, abs: toPosix(e.abs) })),
         removed.map((r) => toPosix(path.join(root, r))),
       );
       version++;
@@ -268,7 +316,7 @@ export function createSingleProgram(
     withMergedOverlay(entries, removed, fn) {
       const snap = overlay.snapshot();
       overlay.merge(
-        entries.map((e) => ({ abs: toPosix(e.abs), content: e.content })),
+        entries.map((e) => ({ ...e, abs: toPosix(e.abs) })),
         removed.map((r) => toPosix(path.join(root, r))),
       );
       version++;
@@ -304,24 +352,49 @@ function loadRescueTs(): typeof ts | undefined {
   }
 }
 
-function parseConfig(root: string, configPath: string | undefined): ts.ParsedCommandLine {
+/** `hasInvalidatedResolutions` is read by the LS (`synchronizeHostData`) but `@internal` on
+ *  `LanguageServiceHost`; ls-host-workspace-links.test pins that a manifest change re-resolves. */
+type ReresolvingHost = ts.LanguageServiceHost & {
+  hasInvalidatedResolutions(path: string): boolean;
+};
+
+function parseConfig(
+  root: string,
+  configPath: string | undefined,
+  links: WorkspaceLinks | undefined,
+): { parsed: ts.ParsedCommandLine; shape: ConfigShape } {
   if (configPath === undefined) {
-    return {
+    const parsed: ts.ParsedCommandLine = {
       options: { allowJs: true, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
       fileNames: ts.sys
         .readDirectory(root, ['.ts', '.tsx', '.js', '.jsx'], ['node_modules', 'dist', 'build'], [])
         .map(toPosix),
       errors: [],
     };
+    return { parsed, shape: NO_CONFIG_SHAPE };
   }
-  const text = ts.readConfigFile(configPath, ts.sys.readFile);
-  return ts.parseJsonConfigFileContent(
-    text.config ?? {},
-    ts.sys,
-    path.dirname(configPath),
-    undefined,
-    configPath,
-  );
+  // An `extends: '@scope/config/base.json'` resolves through `node_modules` like an import does.
+  const host: ts.ParseConfigHost =
+    links === undefined
+      ? ts.sys
+      : {
+          useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+          readDirectory: (dir, extensions, excludes, includes, depth) =>
+            ts.sys.readDirectory(
+              links.translate(toPosix(dir)) ?? dir,
+              extensions,
+              excludes,
+              includes,
+              depth,
+            ),
+          fileExists: (f) => links.resolutionHost({}).fileExists(f),
+          readFile: (f) => links.resolutionHost({}).readFile(f),
+          directoryExists: (d) => links.resolutionHost({}).directoryExists?.(d) ?? false,
+          // The extended config's path canonicalizes to the member's real dir, as `ts.sys` does
+          // over a real link — its `include` globs then land on the member's real files.
+          realpath: (f) => realpathOf(links.translate(toPosix(f)) ?? f),
+        };
+  return parseConfigFile(configPath, root, host);
 }
 
 function isTsLike(p: string): boolean {

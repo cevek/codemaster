@@ -30,6 +30,25 @@ export function readWorkspaceExclusions(root: string): string[] {
   return negative;
 }
 
+/** The repo's workspace manifest, as far as package LINKING is concerned: the positive member globs
+ *  and which manager declared them. pnpm (`pnpm-workspace.yaml`) links a member into a consumer only
+ *  for a `workspace:` dependency spec (its `link-workspace-packages` default), npm/yarn `workspaces`
+ *  link any declared dependency naming a member. `undefined` when no manifest declares members. */
+export interface WorkspaceManifest {
+  readonly members: readonly string[];
+  readonly negative: readonly string[];
+  readonly pnpm: boolean;
+}
+
+export function readWorkspaceManifest(root: string): WorkspaceManifest | undefined {
+  const pnpm = pnpmPackages(root);
+  const raw = pnpm.length > 0 ? pnpm : packageJsonWorkspaces(root);
+  const members = raw.filter((e) => !e.startsWith('!')).map(normalizeGlob);
+  if (members.length === 0) return undefined;
+  const negative = raw.filter((e) => e.startsWith('!')).map((e) => normalizeGlob(e.slice(1)));
+  return { members: members.filter((g) => g.length > 0), negative, pnpm: pnpm.length > 0 };
+}
+
 /** Strip a leading `./` and any trailing slash so a member-DIR glob compares cleanly against a
  *  repo-relative dirname — picomatch treats a leading `./` or a trailing slash as distinct. */
 function normalizeGlob(glob: string): string {

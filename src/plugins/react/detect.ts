@@ -10,14 +10,19 @@
 // the components registry carries `COMPONENTS_NOTE` so the agent sees the boundary.
 
 import type { ListEntry } from '../../core/list.ts';
+import { defineLesson } from '../../common/lesson/lesson.ts';
 import type { Provenance } from '../../core/span.ts';
 import type { FunctionDecl } from '../ts/function-declarations.ts';
 import { isComponentName, isHookName } from './conventions.ts';
 
 const REACT_PROV: Provenance = { kind: 'heuristic', by: 'react' };
 
-export const COMPONENTS_NOTE =
-  'components detected by SYNTACTIC JSX-return; a PascalCase function returning JSX only indirectly (via a variable or call) is NOT flagged (honest under-report, never guessed). A `call-wrapped` form (forwardRef/memo) is `dynamic`.';
+export const COMPONENTS_LESSON = defineLesson({
+  id: 'react-components',
+  full: 'components detected by SYNTACTIC JSX-return; a PascalCase function returning JSX only indirectly (via a variable or call) is NOT flagged (honest under-report, never guessed). A `call-wrapped` form (forwardRef/memo) is `dynamic`.',
+  short: 'components detected by syntactic JSX-return (an indirect one is not flagged)',
+});
+export const COMPONENTS_NOTE = COMPONENTS_LESSON.full;
 
 /** A component: a PascalCase name whose declaration syntactically returns JSX. Confidence is
  *  the scan's `returnsJsxConfidence` (direct = certain; ternary/mixed = partial; wrapped = dynamic). */

@@ -6,6 +6,18 @@ import type { OpResult } from '../ops/contracts.ts';
 import { renderResult, renderResultJson } from '../format/render/render-result.ts';
 import { MCP_RESPONSE_MAX_BYTES, cappedJsonEnvelope } from '../common/truncate/cap-response.ts';
 import { dispatchErrorLine } from './render-dispatch-error.ts';
+import { defineLesson } from '../common/lesson/lesson.ts';
+import { identityFold, type ProseFold } from '../format/render/fold-prose.ts';
+
+export const AGGREGATE_CAP_REMEDY = defineLesson({
+  id: 'aggregate-capped',
+  full: '-byte aggregate bound. Re-run them individually or narrow each. Sections shown are complete.',
+  short: '-byte aggregate bound, shown sections complete',
+});
+
+/** Per-section fold by section index (a batch section may target its own root). */
+export type SectionFold = (index: number) => ProseFold;
+const noSectionFold: SectionFold = () => identityFold;
 
 /** Byte budget for a multi-section aggregate (batch / sql return:'all'). Below
  *  `MCP_RESPONSE_MAX_BYTES` with headroom for the section framing + JSON-escaping inflation, so the
@@ -23,8 +35,9 @@ function sectionBody(
   r: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
+  fold: ProseFold,
 ): string {
-  const body = renderOne(r, format, verbosity);
+  const body = renderOne(r, format, verbosity, fold);
   if (format === 'json' && Buffer.byteLength(body, 'utf8') > AGGREGATE_BYTE_BUDGET) {
     return cappedJsonEnvelope(Buffer.byteLength(body, 'utf8'), AGGREGATE_BYTE_BUDGET);
   }
@@ -40,7 +53,7 @@ function sectionBody(
  *  value. Both front doors render through here, and a one-shot CLI has no harness ceiling — naming
  *  one there would justify a real cut with a constraint that does not exist on that transport
  *  (§3.6). The remedy is what the agent needs either way, and it is unchanged. */
-function joinSectionsCapped(sections: readonly string[]): string {
+function joinSectionsCapped(sections: readonly string[], fold: ProseFold): string {
   const kept: string[] = [];
   let bytes = 0;
   for (let i = 0; i < sections.length; i++) {
@@ -48,7 +61,9 @@ function joinSectionsCapped(sections: readonly string[]): string {
     const add = (kept.length > 0 ? 2 : 0) + Buffer.byteLength(s, 'utf8');
     if (kept.length > 0 && bytes + add > AGGREGATE_BYTE_BUDGET) {
       kept.push(
-        `!! OUTPUT CAPPED — ${sections.length - i} more section(s) omitted: the joined response passed codemaster's ${AGGREGATE_BYTE_BUDGET}-byte aggregate bound. Re-run them individually or narrow each. Sections shown are complete.`,
+        fold(
+          `!! OUTPUT CAPPED — ${sections.length - i} more section(s) omitted: the joined response passed codemaster's ${AGGREGATE_BYTE_BUDGET}${AGGREGATE_CAP_REMEDY.full}`,
+        ),
       );
       break;
     }
@@ -70,10 +85,11 @@ export function renderOne(
   result: OpResult,
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
+  fold: ProseFold = identityFold,
 ): string {
   if ('error' in result) return dispatchErrorLine(result.error, format);
   if (format === 'json') return renderResultJson(result.result);
-  return renderResult(result.result, verbosity ?? 'terse');
+  return renderResult(result.result, verbosity ?? 'terse', fold);
 }
 
 /** Render one-or-more op results (the op-sql sugar yields 1 with return:'sql', or N+1
@@ -82,12 +98,14 @@ export function renderResults(
   results: readonly OpResult[],
   format: 'text' | 'json' | undefined,
   verbosity: 'terse' | 'normal' | 'full' | undefined,
+  fold: ProseFold = identityFold,
 ): string {
   if (results.length === 1 && results[0] !== undefined) {
-    return renderOne(results[0], format, verbosity);
+    return renderOne(results[0], format, verbosity, fold);
   }
   return joinSectionsCapped(
-    results.map((r, i) => `[${i}] ${r.name}\n${sectionBody(r, format, verbosity)}`),
+    results.map((r, i) => `[${i}] ${r.name}\n${sectionBody(r, format, verbosity, fold)}`),
+    fold,
   );
 }
 
@@ -98,13 +116,15 @@ export function renderBatch(
   results: readonly OpResult[],
   requests: readonly ReqFlags[],
   batch: BatchFlags,
+  foldFor: SectionFold = noSectionFold,
 ): string {
   return joinSectionsCapped(
     results.map((r, i) => {
       const isSqlResult = batch.sqlPresent && r.name === 'sql';
       const format = isSqlResult ? batch.format : requests[i]?.format;
       const verbosity = isSqlResult ? batch.verbosity : requests[i]?.verbosity;
-      return `[${i}] ${r.name}\n${sectionBody(r, format, verbosity)}`;
+      return `[${i}] ${r.name}\n${sectionBody(r, format, verbosity, foldFor(i))}`;
     }),
+    foldFor(0),
   );
 }

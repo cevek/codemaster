@@ -11,7 +11,8 @@
 import * as path from 'node:path';
 import type { RepoRelPath } from '../../core/brands.ts';
 import { toPosix } from '../../support/fs/canonicalize.ts';
-import { affected, claimedBy, type GateHostCtx, type GateScope } from './program-gate.ts';
+import type { GateHostCtx, GateScope } from './program-gate.ts';
+import { affected, claimedBy } from './program-ownership.ts';
 import { isTsconfigBasename } from './program/discover.ts';
 
 /** Which gate programs (by label) the overlay put each written source path into, plus the written
@@ -58,7 +59,9 @@ export function overlayClaims(
     const abs = ctx.absOf(rel);
     byPath.set(
       rel,
-      new Set(programs.filter((p) => claimedBy(ctx, p, programs, abs)).map((p) => p.label)),
+      new Set(
+        programs.filter((p) => claimedBy(ctx, p, programs, abs, scope.moves)).map((p) => p.label),
+      ),
     );
   }
   const structural = [...written, ...(scope.removed ?? [])].filter(restructures);

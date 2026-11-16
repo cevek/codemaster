@@ -21,7 +21,6 @@ export interface ProcessHostFactoryOpts {
   /** This same bin, re-invoked as `daemon serve-engine` (its `import.meta.url` base is
    *  codemaster's own source, so the child resolves the SAME bundled TS — §19). */
   binPath: string;
-  version: string;
   /** Per-request deadline — aligned with the bridge's (same order — a legitimately slow cold
    *  warm+heavy op must not be false-killed). */
   requestDeadlineMs: number;
@@ -67,7 +66,6 @@ export function makeProcessHostFactory(
           binPath: opts.binPath,
           root,
           stateDir,
-          version: opts.version,
           maxOldSpaceMB: ceiling.maxOldSpaceMB,
           sockDir: opts.sockDir,
         }),

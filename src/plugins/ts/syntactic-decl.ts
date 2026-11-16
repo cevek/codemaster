@@ -54,6 +54,7 @@ import {
   type RivalCause,
 } from './syntactic-decl-index.ts';
 import { missingFileReason } from './syntactic-decl-miss.ts';
+import { SYNTACTIC_DECL_LESSONS } from './syntactic-decl-lessons.ts';
 
 export type SyntacticDeclHit = {
   view: SymbolView;
@@ -320,12 +321,11 @@ function rebound(
 
 // ── miss messages (each names what this path cannot do, and where the answer is) ───────────────
 
-const MERGE_CAVEAT =
-  'this path cannot tell separate symbols from ONE symbol declared in several places (a namespace / declare-global merge, a function-scoped var; that needs the checker)';
+const MERGE_CAVEAT = SYNTACTIC_DECL_LESSONS.mergeCaveat.full;
 
 /** The remedy, stated once wherever a pick-list is the answer. Shared so a COMPOSED message cannot carry
  *  it twice, or carry a caller's own paraphrase of it beside it. */
-const PICK_ONE = 'pick the one you mean: pass one of these SymbolIds, or name+file / file:line:col';
+const PICK_ONE = SYNTACTIC_DECL_LESSONS.pickOne.full;
 
 /** WHAT was observed, and the caveat that observation licenses.
  *
@@ -404,12 +404,12 @@ function handleRivals(
 }
 
 function handleNotOnSurface(name: string, id: string): string {
-  return `'${name}' (handle ${id}) is not in the scanned source surface under the workspace root — this is NOT proof it is gone (an outside-root tsconfig include is not scanned here); drop syntactic:true to resolve it through the checker`;
+  return `'${name}' (handle ${id}) is not in the scanned source surface under the workspace root${SYNTACTIC_DECL_LESSONS.handleOffSurface.full}`;
 }
 
 function noDeclarationAt(file: string, line: number, col: number | undefined): string {
   const at = col === undefined ? `${file}:${line}` : `${file}:${line}:${col}`;
-  return `no declaration is anchored at ${at} — the syntactic path prints the declaration AT an address and cannot follow a reference to its definition (that needs the checker). Pass the declaration's own position, or drop syntactic:true.`;
+  return `no declaration is anchored at ${at}${SYNTACTIC_DECL_LESSONS.noDeclarationAt.full}`;
 }
 
 /** Several declarations anchored on one line — mirroring the checker path's `resolveByLine`, the list is
@@ -436,9 +436,9 @@ function noSuchNameInFile(name: string, file: string): string {
   // it statically. A string-literal or `[Symbol.x]` name IS readable and does anchor — naming those as
   // blind spots steered an agent off a call that works, the same wrong-cause defect as a guessed file
   // reason (§3.6). What genuinely has no key is a name only computable at runtime.
-  return `no declaration named '${name}' is anchored in ${file} by the syntactic scan — check the name/file (a member is indexed under its KEY, so \`[Symbol.iterator]\` is reachable as 'iterator' and \`'a-b'\` as 'a-b'), or pass file:line:col. NOTE: this is NOT proof of absence — a declaration whose name is computed at runtime (\`[key]\`, \`[\${expr}]\`) is indexed under no name at all, so no name can reach it; address it by position.`;
+  return `no declaration named '${name}' is anchored in ${file}${SYNTACTIC_DECL_LESSONS.noNameInFile.full}`;
 }
 
 function noSuchNameOnSurface(name: string): string {
-  return `no declaration named '${name}' in the scanned source surface under the workspace root. An outside-root tsconfig include/reference is not scanned here — drop syntactic:true for those.`;
+  return `no declaration named '${name}'${SYNTACTIC_DECL_LESSONS.noNameOnSurface.full}`;
 }

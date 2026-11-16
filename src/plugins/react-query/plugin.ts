@@ -10,6 +10,7 @@
 // `requires: ['react-query']` (the i18n/schema precedent).
 
 import type { FreshnessFingerprint, Plugin, PluginRegistry } from '../../core/plugin.ts';
+import { packageVersion } from '../../support/build-id/package-version.ts';
 import type { CallMatchSpec, TsPluginApi } from '../ts/plugin.ts';
 import type { ListView } from '../../core/list.ts';
 import { buildRegistries, type RqState } from './registries.ts';
@@ -62,7 +63,7 @@ export function createReactQueryPlugin(): ReactQueryPluginApi {
 
   return {
     id: 'react-query',
-    version: '0.1.0',
+    version: packageVersion(),
     deps: ['ts'],
     init(deps) {
       registry = deps;

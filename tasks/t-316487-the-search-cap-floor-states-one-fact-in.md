@@ -69,3 +69,6 @@ one prose channel, machine-readable fields alongside it.
 
 Reported from two directions: the search-cap half from a dogfood read of a `find_usages` answer, the
 undiscovered-program half measured while fixing t-034392 (whose second paragraph this task owns).
+
+## Partially addressed by t-720126
+The floor explanations fold per session (lower-bound-*, candidates-cut, unindexed-absence); the duplication of ONE floor across several prose channels in one answer (facts repeated) is not addressed and stays open.

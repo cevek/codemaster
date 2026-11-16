@@ -5,7 +5,9 @@
 
 import type { JsonValue } from '../../core/json.ts';
 import type { OpExample } from '../../core/op-example.ts';
-import { CONCEPTS_LINES } from './concepts.ts';
+import { CONCEPT_LESSONS } from './concepts.ts';
+import { defineLesson, type Lesson } from '../../common/lesson/lesson.ts';
+import { renderCatalogue, renderConcepts, type StatusRecall } from './render-status-recall.ts';
 
 /** How THIS process serves codemaster — the one fact that decides which remedy is real, and the
  *  only discrimination the self-staleness banner makes. Known exactly and locally by whoever wires
@@ -51,15 +53,34 @@ export function sourceStaleBanner(serving: ServingMode): string {
   // not touch THIS server — not that no daemon exists: `--in-process` bypasses the socket, it does
   // not imply the machine has no singleton, and a reader who ran the verb "because it is inert"
   // would evict some other agent's warm LS.
-  const remedy =
-    serving === 'daemon'
-      ? '. `codemaster daemon restart`+reconnect fixes it; hits every connection.'
-      : ". `daemon restart` won't touch this server — only its own restart will.";
-  return (
-    '!! PRE-EDIT codemaster (src/ moved since start): your data is re-read fresh, the ANALYSIS is old. ' +
-    "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s" +
-    remedy
-  );
+  return preEditLesson(serving).full;
+}
+
+const PRE_EDIT_HEAD =
+  '!! PRE-EDIT codemaster (src/ moved since start): your data is re-read fresh, the ANALYSIS is old. ' +
+  "Editing it? `node src/bin.ts op <name> '<json>'` — one-shot, current src, ~2s";
+
+/** After its first full showing in an MCP session the banner stays on every stale response in this
+ *  short form: it is an alarm, so only the explanation folds, never the warning itself. */
+const PRE_EDIT_SHORT = '!! PRE-EDIT codemaster: ANALYSIS older than its src/ (your data is fresh)';
+
+const PRE_EDIT: Readonly<Record<ServingMode, Lesson>> = {
+  daemon: defineLesson({
+    id: 'pre-edit',
+    full: `${PRE_EDIT_HEAD}. \`codemaster daemon restart\`+reconnect fixes it; hits every connection.`,
+    short: PRE_EDIT_SHORT,
+  }),
+  'in-process': defineLesson({
+    id: 'pre-edit-local',
+    full: `${PRE_EDIT_HEAD}. \`daemon restart\` won't touch this server — only its own restart will.`,
+    short: PRE_EDIT_SHORT,
+  }),
+};
+
+export const PRE_EDIT_LESSONS: readonly Lesson[] = [PRE_EDIT.daemon, PRE_EDIT['in-process']];
+
+export function preEditLesson(serving: ServingMode): Lesson {
+  return PRE_EDIT[serving];
 }
 
 export interface PluginStatusView {
@@ -104,6 +125,9 @@ export interface WorkspaceStatusView {
 
 export interface StatusView {
   daemonVersion: string;
+  /** The serving process's build id (`<version> @<sha9>[+dirty]` | `<version> @unknown`), absent
+   *  when the daemon that answered predates build ids. */
+  build?: string;
   pid: number;
   isolation: 'in-process' | 'process';
   engines: number;
@@ -142,20 +166,23 @@ export interface RenderStatusOptions {
   full?: boolean | undefined;
   /** Render only this op's full detail. Takes precedence over `full`/`brief`. */
   op?: string | undefined;
+  /** What this MCP session already saw: the terse render then states the catalogue as a diff and
+   *  names the concepts by id. Absent (CLI, `full`, `op`) → everything in full. */
+  recall?: StatusRecall | undefined;
 }
 
 export function renderStatus(view: StatusView, options: RenderStatusOptions): string {
   const header = renderHeader(view, options.serving);
   if (options.op !== undefined) return [...header, ...renderSingleOp(view, options.op)].join('\n');
   if (options.full === true) return renderFull(view, header).join('\n');
-  return renderTerse(view, header).join('\n');
+  return renderTerse(view, header, options.recall).join('\n');
 }
 
 /** The daemon line (+ self-staleness banner + warm roots) — shared verbatim by every render
  *  mode so the brief/op surfaces never drift from full in the header. */
 function renderHeader(view: StatusView, serving: ServingMode): string[] {
   const lines: string[] = [
-    `codemaster v${view.daemonVersion} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
+    `codemaster v${view.build ?? `${view.daemonVersion} @unknown`} pid=${view.pid} isolation=${view.isolation} engines=${view.engines}`,
   ];
   // §3.6 applied to the tool itself: if our own source moved since spawn, say so loudly and
   // first — the agent is otherwise reading answers from a server running pre-edit behavior.
@@ -192,10 +219,7 @@ function renderFull(view: StatusView, header: string[]): string[] {
     lines.push(...renderOps(ws.ops));
     // The shared mechanics — status IS the documentation, so the concepts that belong to
     // no single op are rendered here, once (spec-status-as-the-doc §2).
-    if (ws.ops.length > 0) {
-      lines.push('concepts:');
-      for (const concept of CONCEPTS_LINES) lines.push(`  ${concept}`);
-    }
+    if (ws.ops.length > 0) lines.push(...renderConcepts(CONCEPT_LESSONS, undefined));
   }
   if (view.debugTopics.length > 0) lines.push(`debug topics: ${view.debugTopics.join(',')}`);
   // No GUIDANCE tail: the steer ships once per session in the MCP `initialize` response
@@ -210,7 +234,11 @@ function renderFull(view: StatusView, header: string[]): string[] {
  *  ops exist and how to read the honesty markers; `status {op:"<name>"}` (or `full:true`) fetches
  *  per-op detail. The `concepts` block stays — it is load-bearing for interpreting truncation /
  *  confidence / FAIL markers, and is small. */
-function renderTerse(view: StatusView, header: string[]): string[] {
+function renderTerse(
+  view: StatusView,
+  header: string[],
+  recall: StatusRecall | undefined,
+): string[] {
   const lines = [...header, ...renderWorkspaceLines(view)];
   const ws = view.workspace;
   if (ws !== undefined) {
@@ -218,14 +246,8 @@ function renderTerse(view: StatusView, header: string[]): string[] {
     if (ws.ops.length === 0) {
       lines.push('ops: none (no plugins active; op catalogue grows with each plugin)');
     } else {
-      lines.push(
-        `ops (${ws.ops.length}) — names+summaries; \`status {op:"<name>"}\` for one op's full schema, \`status {full:true}\` for all:`,
-      );
-      for (const op of ws.ops) {
-        lines.push(`  ${op.name}${op.mutating ? ' [mutating]' : ''} — ${op.summary}`);
-      }
-      lines.push('concepts:');
-      for (const concept of CONCEPTS_LINES) lines.push(`  ${concept}`);
+      lines.push(...renderCatalogue(ws, recall));
+      lines.push(...renderConcepts(CONCEPT_LESSONS, recall));
     }
   }
   return lines;

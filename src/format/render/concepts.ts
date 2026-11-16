@@ -10,6 +10,8 @@
 // scss-only repo would show an op it lacks. Accepted: the worked example earns its keep,
 // and `test/unit/concepts-example.test.ts` keeps the named op/column honest.
 
+import { defineLesson, type Lesson } from '../../common/lesson/lesson.ts';
+
 /** Fully-formatted concept lines, appended under a `concepts:` header by render-status. */
 export const CONCEPTS_LINES: readonly string[] = [
   'targets: symbol-addressed ops take {symbolId:"ts:…"} (a SymbolId from a prior answer) · {name} (a bare name — must be unambiguous; a VISIBLE ambiguity returns the candidate list, while one hidden behind a cut candidate page resolves to one of them and says so on the envelope — see disclosure) · {file,line,col} (1-based). symbolId is ONLY a SymbolId, never a bare name (that is name). A SymbolId chains across calls; if its file moved the answer states handle: rebound (proof+confidence) or gone — never a silent retarget.',
@@ -20,10 +22,39 @@ export const CONCEPTS_LINES: readonly string[] = [
   '  e.g. batch {requests:[{as:"fam",name:"find_usages",args:{name:"defineOp",role:"call",filter:{pathInclude:["src/ops/**"]}}},{as:"f",name:"find_usages",args:{name:"semanticFanoutRefusal",role:"call"}}], sql:"SELECT fam.file FROM fam WHERE fam.file NOT IN (SELECT file FROM f)"}',
   'confidence: certain (type-proven) · partial (incomplete) · dynamic (computed dispatch) · unresolved — a partial/dynamic claim is honest uncertainty, not a fact.',
   'truncation: "… N more (shown X/Y; hint)" and "!! OUTPUT CAPPED" — never assume completeness past a marker. FAIL tool=… means codemaster could not, and you should fall back to your own tools.',
-  'disclosure: "!! CANNOT CLAIM unsafe=… target=…" — a claim the answer does NOT support, established when the TARGET was RESOLVED (not where the answer was assembled), so EVERY op answering about that target carries the same line; two ops can never disagree about one target. unsafe=target-is-the-only-symbol-of-this-name: the name→declaration page hit the LS cap inside the exact-name matches, so a distinct same-named declaration may sit behind the cut — the answer is about ONE of the ones we saw, and every count / emptiness / completeness in it is a FLOOR (an op\'s own `complete:true` means only its own walk, and is NOT a rebuttal). Remedy: re-address exactly — name+file or file:line:col ranks nothing. To map the twins first, symbols_overview {query:"<name>", duplicatesOnly:true, all:true} (a syntactic under-root sweep; collisions = a real declaration in ≥2 FILES, so same-file twins do not show). A mutating op does not disclose but REFUSES: a write may not ride an ambiguity gate that did not run.',
+  'disclosure: "!! CANNOT CLAIM unsafe=… target=…" — a claim the answer does NOT support, established when the TARGET was RESOLVED (not where the answer was assembled), so EVERY op answering about that target carries the same line; two ops can never disagree about one target. unsafe=target-is-the-only-symbol-of-this-name: the name→declaration page hit the LS cap inside the exact-name matches, so a distinct same-named declaration may sit behind the cut — the answer is about ONE of the ones we saw, and every count / emptiness / completeness in it is a FLOOR (an op\'s own `complete:true` means only its own walk, and is NOT a rebuttal). Remedy: re-address exactly — name+file or file:line:col ranks nothing. To map the twins first, symbols_overview {query:"<name>", duplicatesOnly:true, all:true} (a syntactic under-root sweep; collisions = a real declaration in ≥2 FILES, so same-file twins do not show). A mutating op does not disclose but REFUSES: a write may not ride an ambiguity gate that did not run. unsafe=resolution-matches-the-trees-own-tsc: imports of the repo\'s own workspace packages resolved through EMULATED node_modules links (no install on this tree; the link a declared `workspace:` dependency makes) — facts across them hold for an installed tree, while tsc run on THIS tree reports those imports unresolved.',
   'freshness: "reindexed N at entry" = your just-made edits were picked up · "PENDING N" = index behind, re-run · none / "current @commit" = fresh. bad args end with "— valid: {…}", a call you can copy.',
   "mutating-gate: every mutating op is dry-run by default (writes nothing — returns the unified diff, touched files & the post-edit typecheck). apply:true is refused only if the edit INTRODUCES new typecheck errors (vs a pre-edit baseline — a repo's pre-existing errors ride along as a preExisting count, never blocking) and rolls back byte-exact if the post-apply typecheck shows newly-introduced errors; a post-apply check that cannot finish never rolls back — it is disclosed as postApply.complete=false — and a working tree that changed while the op ran refuses the write. Edit sites are rewritten across ALL loaded programs (a `test/**` ref under a sibling tsconfig too) and the gate runs on every affected program — including the one whose glob owns a move/extract DEST, so a block erroneous under a disjoint dest tsconfig (divergent `lib`/`strict`) is refused, not silently applied.",
   "cross-program-read: reference / importer / usage sites are FOUND & COUNTED across ALL the repo's loaded TS programs — a hit in a `test/**` file under a sibling tsconfig (tsconfig.test.json), a build script, or Vite's app/node split is included, not just main-program ones (deduped where programs overlap).",
   'cross-program-limits (mutating ops): (a) the capture-safety check (the type-compatible silent re-bind) runs on the PRIMARY program ONLY — the gate still catches a resulting dangle/type error, just not a type-COMPATIBLE re-bind a sibling would see. (b) inside a `transaction` the write-site fan-out is OFF: a step rewrites primary-program sites only, though the cumulative gate still fans across every program and refuses a cross-program dangle.',
   'cross-repo: `root` is a TOP-LEVEL field on any op-tool call (beside the op args, NOT inside `args`) — `<op> {…args, root}` — or on a batch request `{name,args,root}`; resolution request root > tool root > cwd. One batch can mix repos and a mixed-root `sql` join runs across them. SymbolIds do not cross roots (re-search in the new root). The status header lists the warm roots.',
 ];
+
+/** What a repeat `status` says in place of each concept (its id expands it: `status {concept}`). */
+const CONCEPT_SHORT: Readonly<Record<string, string>> = {
+  targets: 'targets: {symbolId} | {name} | {file,line,col}',
+  dials: 'dials: verbosity · format:"json" · sql projection · summaryOnly',
+  sql: 'sql: one read-only SELECT over aliased op tables',
+  'absence-audit': 'absence-audit: family NOT IN callers anti-join',
+  confidence: 'confidence: certain · partial · dynamic · unresolved',
+  truncation: 'truncation: never assume completeness past a marker',
+  disclosure: 'disclosure: !! CANNOT CLAIM — counts are FLOORS, re-address exactly',
+  freshness: 'freshness: reindexed / PENDING / current',
+  'mutating-gate': 'mutating-gate: dry-run default, apply refused on new type errors',
+  'cross-program-read': 'cross-program-read: refs counted across all loaded programs',
+  'cross-program-limits':
+    'cross-program-limits: capture check primary-only; transaction fan-out off',
+  'cross-repo': 'cross-repo: top-level root on any call',
+};
+
+/** The concepts as lessons: one per `<id>:` line, its `e.g.` lines folded in with the indent
+ *  `status` renders them at, so `full` is the exact text a status response carries. */
+export const CONCEPT_LESSONS: readonly Lesson[] = CONCEPTS_LINES.reduce<string[]>((acc, line) => {
+  const last = acc.length - 1;
+  if (line.startsWith('  ') && last >= 0) acc[last] = `${acc[last] ?? ''}\n  ${line}`;
+  else acc.push(line);
+  return acc;
+}, []).map((full) => {
+  const id = /^[a-z-]+/.exec(full)?.[0] ?? full;
+  return defineLesson({ id, full, short: CONCEPT_SHORT[id] ?? id });
+});
