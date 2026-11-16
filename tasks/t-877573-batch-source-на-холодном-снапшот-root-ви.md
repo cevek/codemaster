@@ -15,6 +15,7 @@ area: platform
 audience: external
 evidence: reported
 author: mb-ce356acc
+assignee: mi-a8edb1f7
 created: '2026-11-16T09:41:53.744Z'
 ---
 ## Симптом

@@ -17,6 +17,7 @@ relates:
 audience: external
 evidence: reported
 author: mb-ce356acc
+assignee: mi-a99ab12d
 created: '2026-11-16T09:41:51.921Z'
 ---
 ## Симптом
