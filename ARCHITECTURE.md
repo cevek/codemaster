@@ -36,7 +36,7 @@ agent abandons the tool and falls back to its proven stack forever. So:
   in N s — fall back"), never spins. No unbounded loop, no per-call work that scales with repo
   size. Every op carries a cooperative wall-clock `Deadline` (`OpContext.deadline`) enforced two
   ways — a `HostCancellationToken` the LS polls inside `findReferences`/navto, and loop-boundary
-  checks in multi-call ops (`impact`, `find_unused_exports`) — degrading to `timeout` /
+  checks in multi-call ops (`impact`, `find_unused_exports`, `affected`) — degrading to `timeout` /
   `partial` instead of spinning (§19). The latency budget above assumes _termination_ — see §19 for
   what is and isn't cancellable.
 
@@ -183,6 +183,11 @@ This is the section that the rest of the design serves.
    fingerprint — in a git repo HEAD ⊕ porcelain ⊕ a content hash of the bounded dirty+untracked set;
    on a root git cannot list, a `path:size:mtime` rollup of the bounded §19 walk with the same
    racy-window content hash — invalidated against current disk on every read either way. The
+   reverse-import index behind `importersOf` (`plugins/ts/import-index.ts`) is a third, keyed on the
+   `ts.Program` object AND `projectVersion()`: a new Program is a new entry, and the version catches a
+   reindexed resolution input that leaves the Program in place (an edited `package.json`). A change no
+   reindex reports — an install under gitignored `node_modules` — leaves it as stale as the warm LS
+   (t-710809). The
    _semantic_ reuse is the mutation write gate's (§7), in two layers with two authorities. Per-file
    diagnostics come from a TS diagnostics builder chained per program over the LS's Programs
    (`plugins/ts/program-gate-builder.ts`, the `tsc --incremental` model): TS itself decides what to
@@ -2331,7 +2336,8 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
     empty result dressed as `partial` reads as "0 usages", a §3.4 lie).
   - **Loop-boundary polling** — a multi-call op checks `deadline.expired()` between iterations
     (`impact`'s BFS before each `find_usages`; `find_unused_exports`' candidate loop before each
-    reference search) and returns `partial(accumulated, {tool:'timeout'})` — here the accumulated
+    reference search; `affected`'s importer BFS before each node AND between changed files inside
+    its one-expansion seed fan-out) and returns `partial(accumulated, {tool:'timeout'})` — here the accumulated
     dependents / examined exports ARE real data, so a partial is honest (distinct from `impact`'s
     node/depth DESIGN caps, which stay `ok` + a `!!` note).
 

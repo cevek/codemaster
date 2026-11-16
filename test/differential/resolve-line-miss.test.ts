@@ -127,7 +127,11 @@ test('a destructuring line: no anchorable declaration, yet the named remedy stil
     // named call discriminates — asserted as a property (a discriminator promise, however worded).
     assertNoPromise(landed);
     assert.match(landed, /could not anchor/, 'it reports what it could not do');
-    assert.match(landed, /NOT proof of absence/, 'and says the miss proves nothing');
+    assert.match(
+      landed,
+      /\ba \(destructured binding\) at line 2/,
+      'and names the binding it missed',
+    );
     const proof = failMsg(await p.op('find_usages', { name: 'zzz', file: 'src/d.ts' }));
     assert.match(proof, /'zzz'/, 'the same message names the symbol it could not anchor');
     assertNoAbsenceClaim(proof, 'zzz');
