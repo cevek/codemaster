@@ -8,7 +8,7 @@ import type { TsTargetInput } from '../plugins/ts/plugin.ts';
 import type { GroupRow, UsageView, UsagesView } from '../plugins/ts/query-types.ts';
 import { searchCapFloor } from './no-symbol-hint.ts';
 import { lowerBoundNote } from './lower-bound-note.ts';
-import { unresolvedWorkspaceNote } from '../plugins/ts/unresolved-workspace-imports.ts';
+import { unresolvedWorkspaceNote } from '../plugins/ts/plugin.ts';
 import { classifyTargetString } from './intake/smart-string.ts';
 
 /** Classify a `symbols[]` element into the canonical target it denotes — a `ts:` SymbolId, a

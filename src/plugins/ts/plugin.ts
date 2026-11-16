@@ -73,6 +73,7 @@ import type { TsPluginApi } from './api.ts';
 // Re-export the shapes ops consume so they go through the plugin's public surface rather
 // than reaching into internal query/refactor modules (§5-L3).
 export type { TsDiagnostic } from './diagnostics.ts';
+export { unresolvedWorkspaceNote } from './unresolved-workspace-imports.ts';
 export type { GateClaims } from './gate-membership.ts';
 export type {
   RefactorPlan,

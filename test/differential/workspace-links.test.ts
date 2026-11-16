@@ -3,95 +3,22 @@
 // the cross-program reference fan-out drops it silently. The LS host emulates the link a package
 // manager would make for a DECLARED dependency; what stays unresolved is floored by name.
 //
-// Oracle: the same fixture with REAL directory symlinks where pnpm would put them (the layout
-// `ls-host-symlink.test.ts` pins the LS against) — the emulated answer must equal it, and the real
+// Oracle: the same fixture with REAL directory symlinks where pnpm would put them
+// (`helpers/workspace-links-fixture`; the layout `ls-host-symlink.test.ts` pins the LS against) — the emulated answer must equal it, and the real
 // layout must carry no emulation disclosure.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, symlinkSync } from 'node:fs';
-import * as path from 'node:path';
-import { project, type TestProject } from '../helpers/project.ts';
-import type { OpResult } from '../../src/ops/contracts.ts';
-import type { JsonValue } from '../../src/core/json.ts';
-
-const C = '"strict":true,"module":"esnext","moduleResolution":"bundler","skipLibCheck":true';
-
-interface Shape {
-  /** `app`'s dependency spec on `@w/core` (absent = undeclared). */
-  appSpec?: string;
-  /** Use npm `workspaces` instead of `pnpm-workspace.yaml`. */
-  npm?: boolean;
-  preserveSymlinks?: boolean;
-  /** Add the package whose entry points at an unbuilt `dist`. */
-  withDist?: boolean;
-}
-
-function files(shape: Shape): Record<string, string> {
-  const appDeps: Record<string, string> = {};
-  if (shape.appSpec !== undefined) appDeps['@w/core'] = shape.appSpec;
-  if (shape.withDist === true) appDeps['@w/built'] = 'workspace:*';
-  const out: Record<string, string> = {
-    '.gitignore': 'node_modules\n',
-    'package.json': JSON.stringify({
-      name: 'root',
-      private: true,
-      ...(shape.npm === true ? { workspaces: ['packages/*'] } : {}),
-    }),
-    // The primary owns core's source, so a rename of `greet` is a primary-target mutation.
-    'tsconfig.json': `{"compilerOptions":{${C}},"include":["packages/core/src"]}`,
-    'packages/core/package.json': JSON.stringify({
-      name: '@w/core',
-      version: '1.0.0',
-      exports: { '.': './src/index.ts' },
-    }),
-    'packages/core/tsconfig.json': `{"compilerOptions":{${C}},"include":["src"]}`,
-    'packages/core/src/index.ts': "export { greet } from './greet';\n",
-    'packages/core/src/greet.ts': 'export function greet(n: string): string {\n  return n;\n}\n',
-    'packages/app/package.json': JSON.stringify({ name: '@w/app', dependencies: appDeps }),
-    'packages/app/tsconfig.json': `{"compilerOptions":{${C}${shape.preserveSymlinks === true ? ',"preserveSymlinks":true' : ''}},"include":["src"]}`,
-    'packages/app/src/main.ts':
-      "import { greet } from '@w/core';\nexport const hello = greet('x');\n" +
-      (shape.withDist === true
-        ? "import { shout } from '@w/built';\nexport const s = shout;\n"
-        : ''),
-  };
-  if (shape.npm !== true) out['pnpm-workspace.yaml'] = "packages:\n  - 'packages/*'\n";
-  if (shape.withDist === true) {
-    out['packages/built/package.json'] = JSON.stringify({
-      name: '@w/built',
-      types: './dist/index.d.ts',
-    });
-    out['packages/built/tsconfig.json'] = `{"compilerOptions":{${C}},"include":["src"]}`;
-    out['packages/built/src/index.ts'] = 'export const shout = 1;\n';
-  }
-  return out;
-}
-
-/** Real pnpm-style links for app's declared deps — the independent oracle layout. */
-function linkReal(p: TestProject, names: readonly string[]): void {
-  for (const name of names) {
-    const link = path.join(p.root, 'packages/app/node_modules', name);
-    mkdirSync(path.dirname(link), { recursive: true });
-    symlinkSync(path.join(p.root, 'packages', name.split('/')[1] ?? name), link, 'dir');
-  }
-}
-
-function okResult(r: OpResult): { data: Record<string, JsonValue>; unsafe: string[] } {
-  assert.ok('result' in r && r.result.ok, `expected ok, got ${JSON.stringify(r)}`);
-  return {
-    data: r.result.data as Record<string, JsonValue>,
-    unsafe: (r.result.disclosures ?? []).map((d) => d.unsafe),
-  };
-}
-
-const usageFiles = (data: Record<string, JsonValue>): string[] =>
-  ((data.usages ?? []) as { span: { file: string; line: number } }[])
-    .map((u) => `${u.span.file}:${u.span.line}`)
-    .sort();
-
-const GREET = { name: 'greet', file: 'packages/core/src/greet.ts', collapseImports: false };
-const EMULATED = 'resolution-matches-the-trees-own-tsc';
+import { project } from '../helpers/project.ts';
+import {
+  C,
+  EMULATED,
+  GREET,
+  files,
+  linkReal,
+  okResult,
+  usageFiles,
+} from '../helpers/workspace-links-fixture.ts';
 
 test('a declared workspace:* dependency resolves through an emulated link — same usages as a real install', async () => {
   const emu = await project(files({ appSpec: 'workspace:*', withDist: true }));
@@ -137,6 +64,7 @@ for (const [label, shape] of [
   ['a pnpm non-workspace: range', { appSpec: '^1.0.0' }],
   ['an npm range the member version does not equal', { appSpec: '^1.0.0', npm: true }],
   ['a preserveSymlinks program', { appSpec: 'workspace:*', preserveSymlinks: true }],
+  ['a workspace: alias naming another member', { appSpec: 'workspace:@w/app@*' }],
 ] as const) {
   test(`${label} is not linked: the usage is floored by specifier, not silently missing`, async () => {
     const p = await project(files(shape));
@@ -211,103 +139,92 @@ test('warm: declaring the dependency later re-resolves the unchanged importer (c
   }
 });
 
-/** Write path: an emulated tree must plan exactly the edits a real install plans — the specifier
- *  stays `@w/core`, no edit lands on a synthetic `node_modules` path, and a dry-run writes nothing. */
-async function planOn(
-  real: boolean,
-  shape: Record<string, string>,
-  op: string,
-  args: Record<string, JsonValue>,
-): Promise<{ data: Record<string, JsonValue>; unsafe: string[] }> {
-  const p = await project(shape);
+test('a primary tsconfig extending a workspace config package builds (link map ready at parse time)', async () => {
+  const base = files({ appSpec: 'workspace:*' });
+  const p = await project({
+    ...base,
+    'package.json': JSON.stringify({
+      name: 'root',
+      private: true,
+      devDependencies: { '@w/config': 'workspace:*' },
+    }),
+    'packages/config/package.json': JSON.stringify({ name: '@w/config' }),
+    'packages/config/base.json': `{"compilerOptions":{${C}}}`,
+    'tsconfig.json': '{"extends":"@w/config/base.json","include":["packages/core/src"]}',
+  });
   try {
-    if (real) linkReal(p, ['@w/core']);
-    const before = p.git('status', '--porcelain');
-    const r = okResult(await p.op(op, args));
-    assert.equal(p.git('status', '--porcelain'), before, 'a dry-run writes nothing');
-    return r;
+    const { data } = okResult(await p.op('find_usages', GREET));
+    assert.ok(usageFiles(data).includes('packages/app/src/main.ts:2'), JSON.stringify(data));
   } finally {
     await p.dispose();
   }
-}
-
-test('rename_symbol across the emulated link rewrites the consumer exactly as on a real install', async () => {
-  const shape = {
-    ...files({ appSpec: 'workspace:*' }),
-    'packages/core/src/index.ts': 'export function greet(n: string): string {\n  return n;\n}\n',
-  };
-  const args = { name: 'greet', file: 'packages/core/src/index.ts', newName: 'hail' };
-  const emu = await planOn(false, shape, 'rename_symbol', args);
-  const real = await planOn(true, shape, 'rename_symbol', args);
-  assert.deepEqual(emu.data.touched, real.data.touched);
-  assert.equal(emu.data.diff, real.data.diff);
-  assert.ok(
-    (emu.data.touched as string[]).includes('packages/app/src/main.ts'),
-    JSON.stringify(emu.data),
-  );
-  assert.match(String(emu.data.diff), /import \{ hail \} from '@w\/core'/);
-  assert.doesNotMatch(String(emu.data.diff), /node_modules/);
-  assert.ok(emu.unsafe.includes(EMULATED));
 });
 
-test('move_file inside a workspace package keeps `@w/core` specifiers — same plan as a real install', async () => {
+test('warm: a member package.json added later joins the link map', async () => {
   const shape = files({ appSpec: 'workspace:*' });
-  const args = { from: 'packages/core/src/greet.ts', to: 'packages/core/src/lib/greet.ts' };
-  const emu = await planOn(false, shape, 'move_file', args);
-  const real = await planOn(true, shape, 'move_file', args);
-  assert.deepEqual(emu.data.touched, real.data.touched);
-  assert.equal(emu.data.diff, real.data.diff);
-  // The gate's verdict is the install's too (its own false dangle on this shape is t-037355).
-  assert.deepEqual(emu.data.typecheck, real.data.typecheck);
-  const touched = emu.data.touched as string[];
-  assert.ok(!touched.includes('packages/app/src/main.ts'), 'the consumer import is not rewritten');
-  assert.ok(
-    touched.every((f) => !f.includes('node_modules')),
-    JSON.stringify(touched),
-  );
-});
-
-test('importers_of a workspace package specifier answers as on a real install', async () => {
-  const emu = await project(files({ appSpec: 'workspace:*' }));
-  const real = await project(files({ appSpec: 'workspace:*' }));
+  delete shape['packages/core/package.json'];
+  const p = await project(shape);
   try {
-    linkReal(real, ['@w/core']);
-    const e = okResult(await emu.op('importers_of', { module: '@w/core' }));
-    const r = okResult(await real.op('importers_of', { module: '@w/core' }));
-    assert.deepEqual(e.data, r.data);
+    const before = okResult(await p.op('find_usages', GREET));
+    assert.ok(!usageFiles(before.data).includes('packages/app/src/main.ts:2'));
+    p.write(
+      'packages/core/package.json',
+      JSON.stringify({ name: '@w/core', version: '1.0.0', exports: { '.': './src/index.ts' } }),
+    );
+    p.commit('add core manifest');
+    const after = okResult(await p.op('find_usages', GREET));
     assert.ok(
-      JSON.stringify(e.data).includes('packages/app/src/main.ts:1'),
-      JSON.stringify(e.data),
+      usageFiles(after.data).includes('packages/app/src/main.ts:2'),
+      JSON.stringify(after.data),
     );
   } finally {
-    await emu.dispose();
-    await real.dispose();
+    await p.dispose();
   }
 });
 
-test('the reverse-import index (importers_of by file, affected) sees the consumer through the link', async () => {
-  const shape = {
-    ...files({ appSpec: 'workspace:*' }),
-    'packages/app/src/main.test.ts': "import { hello } from './main';\nexport const t = hello;\n",
-  };
-  const emu = await project(shape);
-  const real = await project(shape);
+test('floor: two workspace imports on one line are two sites — a resolved one never hides the other', async () => {
+  const p = await project({
+    ...files({ appSpec: 'workspace:*', withDist: true }),
+    'packages/app/src/main.ts':
+      "import { greet } from '@w/core'; import { shout } from '@w/built';\nexport const hello = greet('x') + String(shout);\n",
+  });
   try {
-    linkReal(real, ['@w/core']);
-    for (const [op, args] of [
-      ['importers_of', { module: 'packages/core/src/index.ts' }],
-      ['affected', { files: ['packages/core/src/greet.ts'] }],
-    ] as const) {
-      const e = okResult(await emu.op(op, args));
-      const r = okResult(await real.op(op, args));
-      assert.deepEqual(e.data, r.data, op);
-      const text = JSON.stringify(e.data);
-      const want =
-        op === 'affected' ? 'packages/app/src/main.test.ts' : 'packages/app/src/main.ts:1';
-      assert.ok(text.includes(want), `${op}: ${text}`);
-    }
+    const { data } = okResult(await p.op('find_usages', GREET));
+    const lost = data.unresolvedWorkspaceImports as { package: string; sites: number }[];
+    assert.deepEqual(
+      lost.map((l) => [l.package, l.sites]),
+      [['@w/built', 1]],
+    );
   } finally {
-    await emu.dispose();
-    await real.dispose();
+    await p.dispose();
+  }
+});
+
+test('floor: a site is resolved in its own mode — an ESM import of an `import`-only missing entry is floored', async () => {
+  const NODENEXT =
+    '"strict":true,"module":"nodenext","moduleResolution":"nodenext","skipLibCheck":true';
+  const p = await project({
+    ...files({ appSpec: 'workspace:*' }),
+    'packages/core/package.json': JSON.stringify({
+      name: '@w/core',
+      exports: { '.': { import: './dist/missing.js', require: './src/index.ts' } },
+    }),
+    'packages/app/package.json': JSON.stringify({
+      name: '@w/app',
+      type: 'module',
+      dependencies: { '@w/core': 'workspace:*' },
+    }),
+    'packages/app/tsconfig.json': `{"compilerOptions":{${NODENEXT}},"include":["src"]}`,
+  });
+  try {
+    const { data } = okResult(await p.op('find_usages', GREET));
+    assert.ok(!usageFiles(data).includes('packages/app/src/main.ts:2'), JSON.stringify(data));
+    const lost = (data.unresolvedWorkspaceImports ?? []) as { package: string }[];
+    assert.deepEqual(
+      lost.map((l) => l.package),
+      ['@w/core'],
+    );
+  } finally {
+    await p.dispose();
   }
 });

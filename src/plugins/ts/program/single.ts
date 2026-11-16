@@ -149,74 +149,84 @@ export function createSingleProgram(
   };
   loadFileList();
 
-  let resolvedGen = links?.generation() ?? 0;
-  let reresolve = false;
+  // A link-map change (t-403708) re-parses the tsconfig (an `extends` may have resolved through a
+  // link) once, shared by both LS hosts below; each host then re-resolves on its own next sync.
+  let parsedGen = links?.generation() ?? 0;
+  const syncLinks = (): number => {
+    const gen = links?.generation() ?? 0;
+    if (gen !== parsedGen) {
+      parsedGen = gen;
+      loadFileList();
+    }
+    return gen;
+  };
   const emulate = (): boolean => links !== undefined && parsed.options.preserveSymlinks !== true;
   const through = (fileName: string): string =>
     (emulate() ? links?.translate(toPosix(fileName)) : undefined) ?? fileName;
 
-  const makeServicesHost = (tsm: typeof ts): ReresolvingHost => ({
-    getScriptFileNames: () =>
-      [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
-    getScriptVersion: (fileName) => {
-      const posix = toPosix(fileName);
-      const over = overlay.get(posix);
-      if (over !== undefined) return `o${over.version}`;
-      return String(versions.of(posix));
-    },
-    getScriptSnapshot: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      if (over !== undefined) return tsm.ScriptSnapshot.fromString(over.content);
-      try {
-        return tsm.ScriptSnapshot.fromString(readFileSync(through(fileName), 'utf8'));
-      } catch {
-        return undefined;
-      }
-    },
-    getCurrentDirectory: () => root,
-    // Deadline-driven cancellation (§1): TS polls this throughout findReferences/navto and throws
-    // OperationCanceledException when the shared predicate says the budget is spent.
-    getCancellationToken: () => ({ isCancellationRequested: () => cancel() }),
-    getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path
-    getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
-    fileExists: (fileName) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return false;
-      return overlay.has(posix) || tsm.sys.fileExists(through(fileName));
-    },
-    readFile: (fileName, encoding) => {
-      const posix = toPosix(fileName);
-      if (overlay.isRemoved(posix)) return undefined;
-      const over = overlay.get(posix);
-      return over !== undefined ? over.content : tsm.sys.readFile(through(fileName), encoding);
-    },
-    readDirectory: tsm.sys.readDirectory,
-    directoryExists: (dir) =>
-      overlay.hasDirectory(toPosix(dir)) ||
-      tsm.sys.directoryExists(through(dir)) ||
-      (emulate() && links?.isSyntheticDir(toPosix(dir)) === true),
-    getDirectories: (dir) => tsm.sys.getDirectories(through(dir)),
-    // A link-map change (t-403708) re-resolves every file: TS otherwise reuses the resolutions of
-    // unchanged importers across rebuilds. `getProjectVersion` opens each LS sync, so the flag spans
-    // exactly the one rebuild after the change.
-    getProjectVersion: () => {
-      const gen = links?.generation() ?? 0;
-      reresolve = gen !== resolvedGen;
-      if (reresolve) {
+  const makeServicesHost = (tsm: typeof ts): ReresolvingHost => {
+    let resolvedGen = parsedGen;
+    let reresolve = false;
+    return {
+      getScriptFileNames: () =>
+        [...new Set([...files.keys(), ...overlay.keys()])].filter((f) => !overlay.isRemoved(f)),
+      getScriptVersion: (fileName) => {
+        const posix = toPosix(fileName);
+        const over = overlay.get(posix);
+        if (over !== undefined) return `o${over.version}`;
+        return String(versions.of(posix));
+      },
+      getScriptSnapshot: (fileName) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return undefined;
+        const over = overlay.get(posix);
+        if (over !== undefined) return tsm.ScriptSnapshot.fromString(over.content);
+        try {
+          return tsm.ScriptSnapshot.fromString(readFileSync(through(fileName), 'utf8'));
+        } catch {
+          return undefined;
+        }
+      },
+      getCurrentDirectory: () => root,
+      // Deadline-driven cancellation (§1): TS polls this throughout findReferences/navto and throws
+      // OperationCanceledException when the shared predicate says the budget is spent.
+      getCancellationToken: () => ({ isCancellationRequested: () => cancel() }),
+      getCompilationSettings: () => parsed.options, // cached — never re-parse on the hot path
+      getDefaultLibFileName: (options) => tsm.getDefaultLibFilePath(options),
+      fileExists: (fileName) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return false;
+        return overlay.has(posix) || tsm.sys.fileExists(through(fileName));
+      },
+      readFile: (fileName, encoding) => {
+        const posix = toPosix(fileName);
+        if (overlay.isRemoved(posix)) return undefined;
+        const over = overlay.get(posix);
+        return over !== undefined ? over.content : tsm.sys.readFile(through(fileName), encoding);
+      },
+      readDirectory: tsm.sys.readDirectory,
+      directoryExists: (dir) =>
+        overlay.hasDirectory(toPosix(dir)) ||
+        tsm.sys.directoryExists(through(dir)) ||
+        (emulate() && links?.isSyntheticDir(toPosix(dir)) === true),
+      getDirectories: (dir) => tsm.sys.getDirectories(through(dir)),
+      // A link-map change (t-403708) re-resolves every file: TS otherwise reuses the resolutions of
+      // unchanged importers across rebuilds. `getProjectVersion` opens each LS sync, so the flag spans
+      // exactly the one rebuild after the change (the re-parse bumped `version`, forcing it).
+      getProjectVersion: () => {
+        const gen = syncLinks();
+        reresolve = gen !== resolvedGen;
         resolvedGen = gen;
-        version++;
-      }
-      return String(version);
-    },
-    hasInvalidatedResolutions: () => reresolve,
-    // Canonicalize symlinks exactly like `tsc`/`createProgram` (`realpath: sys.realpath`); a
-    // LanguageServiceHost that omits it loads a pnpm package under two paths and its types stop
-    // unifying (ls-host-symlink.test.ts). A synthetic overlay/removed path realpaths to itself; an
-    // emulated workspace link realpaths to its member, as the real symlink would.
-    realpath: (fileName) => realpathOf(through(fileName)),
-  });
+        return String(version);
+      },
+      hasInvalidatedResolutions: () => reresolve,
+      // Canonicalize symlinks exactly like `tsc`/`createProgram` (`realpath: sys.realpath`); a
+      // LanguageServiceHost that omits it loads a pnpm package under two paths and its types stop
+      // unifying (ls-host-symlink.test.ts). A synthetic overlay/removed path realpaths to itself; an
+      // emulated workspace link realpaths to its member, as the real symlink would.
+      realpath: (fileName) => realpathOf(through(fileName)),
+    };
+  };
 
   const service = ts.createLanguageService(makeServicesHost(ts), registry);
 

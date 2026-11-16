@@ -181,7 +181,9 @@ interface Member {
  *  under npm/yarn-classic `workspaces` a `*` or the member's exact version does too. Any other range
  *  may be served from the registry instead, so it stays unresolved (and floored). */
 function linksLocally(spec: string, member: Member, pnpm: boolean): boolean {
-  if (spec.startsWith('workspace:')) return true;
+  // Only a bare range after the protocol: `workspace:foo@*` aliases ANOTHER member and
+  // `workspace:../x` is a path — neither names the package the dependency key does.
+  if (spec.startsWith('workspace:')) return /^(\*|\^|~|[\^~<>=]*\d[\w.+-]*)$/.test(spec.slice(10));
   if (pnpm) return false;
   return spec === '*' || (member.version !== undefined && spec === member.version);
 }

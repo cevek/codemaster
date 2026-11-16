@@ -11,9 +11,8 @@
 
 import { nameWithMore } from '../../common/truncate/name-with-more.ts';
 import type { TsProjectHost } from './ls-host.ts';
-import { moduleSpecifierOf } from './importers.ts';
+import ts from 'typescript';
 import { packageNameOf } from './phantom-imports.ts';
-import { resolveSpecifier } from './resolve-module.ts';
 
 export type UnresolvedWorkspacePackage = {
   /** The workspace package the specifiers name (`@scope/pkg`). */
@@ -44,35 +43,58 @@ export function unresolvedWorkspaceImports(
   const memo = memos.get(host);
   if (memo?.key === key) return memo.value;
 
-  const unresolved = new Map<string, { pkg: string; spec: string }>(); // `file:line` → what it names
+  // Keyed by the specifier's own `file:offset` (two imports on one line are two sites); `at` is only
+  // how a site is shown.
+  const unresolved = new Map<string, { pkg: string; spec: string; at: string }>();
   const resolved = new Set<string>(); // a site some program resolves is not lost
   for (const p of programs) {
     const program = p.getProgram();
     if (program === undefined) continue;
     const options = program.getCompilerOptions();
-    const cache = new Map<string, string | undefined>();
     const sys = host.workspaceLinks().resolutionHost(options);
+    const resolvedBy = new Map<string, boolean>(); // per-program: `dir|spec|mode` → resolves
     for (const sourceFile of program.getSourceFiles()) {
       if (sourceFile.fileName.includes('/node_modules/')) continue;
+      const rel = host.relOf(sourceFile.fileName);
       for (const stmt of sourceFile.statements) {
-        const spec = moduleSpecifierOf(stmt);
-        if (spec === undefined || spec.startsWith('.') || spec.startsWith('/')) continue;
+        const literal = specifierLiteral(stmt);
+        if (literal === undefined) continue;
+        const spec = literal.text;
+        if (spec.startsWith('.') || spec.startsWith('/')) continue;
         const pkg = packageNameOf(spec);
         if (!members.has(pkg)) continue;
-        const line = sourceFile.getLineAndCharacterOfPosition(stmt.getStart(sourceFile)).line + 1;
-        const at = `${host.relOf(sourceFile.fileName)}:${line}`;
-        if (resolveSpecifier(spec, sourceFile.fileName, options, cache, sys) !== undefined) {
-          resolved.add(at);
+        const site = `${rel}:${literal.getStart(sourceFile)}`;
+        // The site's own resolution mode: under NodeNext an ESM import reads the `import` export
+        // condition, a CJS one `require` — resolving without it can find a file the program did not.
+        const mode = ts.getModeForUsageLocation(sourceFile, literal, options);
+        const memoKey = `${sourceFile.fileName.slice(0, sourceFile.fileName.lastIndexOf('/'))}|${spec}|${String(mode)}`;
+        let hit = resolvedBy.get(memoKey);
+        if (hit === undefined) {
+          hit =
+            ts.resolveModuleName(
+              spec,
+              sourceFile.fileName,
+              options,
+              sys,
+              undefined,
+              undefined,
+              mode,
+            ).resolvedModule !== undefined;
+          resolvedBy.set(memoKey, hit);
+        }
+        if (hit) {
+          resolved.add(site);
         } else {
-          unresolved.set(at, { pkg, spec });
+          const line = sourceFile.getLineAndCharacterOfPosition(literal.getStart(sourceFile)).line;
+          unresolved.set(site, { pkg, spec, at: `${rel}:${line + 1}` });
         }
       }
     }
   }
 
   const byPackage = new Map<string, { sites: string[]; specifiers: Set<string> }>();
-  for (const [at, { pkg, spec }] of unresolved) {
-    if (resolved.has(at)) continue;
+  for (const [site, { pkg, spec, at }] of unresolved) {
+    if (resolved.has(site)) continue;
     const entry = byPackage.get(pkg) ?? { sites: [], specifiers: new Set<string>() };
     entry.sites.push(at);
     entry.specifiers.add(spec);
@@ -88,6 +110,13 @@ export function unresolvedWorkspaceImports(
     .sort((a, b) => b.sites - a.sites || compareText(a.package, b.package));
   memos.set(host, { key, value });
   return value;
+}
+
+/** The module-specifier literal of a static import/export, if it has one. */
+function specifierLiteral(stmt: ts.Statement): ts.StringLiteral | undefined {
+  const spec =
+    ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt) ? stmt.moduleSpecifier : undefined;
+  return spec !== undefined && ts.isStringLiteral(spec) ? spec : undefined;
 }
 
 const NAMED = 3;
