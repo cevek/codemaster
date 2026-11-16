@@ -76,3 +76,6 @@ Inbox: «find_usages omits known re-exported workspace consumers» (2026-11-16T0
   - `preserveSymlinks:true` → эмуляции нет, поле есть.
 - Живой прогон: снапшот claude-ui (эмуляция) против `cui-linked` (настоящие ссылки) — выходы `find_usages systemText` и `member_usages RoleInfo.family` должны совпасть; time/RSS до и после — в файл, по одному прогону.
 - Ревью кода: bug-reviewer (≤2 круга) + architecture-reviewer (1 круг).
+
+
+Менеджер OK по 0d1d746: полная половина + write path включён + floor как запасной путь. Условия DONE: (1) claude-ui без node_modules → find_usages systemText = 6; entry → src находит, entry → несобранный dist → floor со спецификатором; (2) Disclosure через ledger (§3.6) на каждом ответе, чей резолв прошёл через эмулированную ссылку (find_usages, impact, impact_type_error, гейт мутации); (3) тест write path: move_file/rename внутри пакета, потребляемого через `@scope/pkg` — спецификаторы остаются `@scope/pkg/…`, правки не касаются эмулированного пути; (4) architecture-reviewer 1 круг.
