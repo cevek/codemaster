@@ -108,3 +108,15 @@ t-877573 (batch/source на снапшоте) локально не воспро
 Потребители того же шва (`resolveSpecifier`/`samePath` на вызов):
 - `phantom-imports`, `call-identity-scan` (под мемо `literalCalls`), `importers-subtree`, `unused-exports-classify`, `refactor/imports/*`;
 - все — один проход на вызов операции, не в цикле. Не затронуты, в доклад.
+
+
+## Поправка к плану (после OK)
+Резолв в индексе — `program.getResolvedModule(sf, spec, ts.getModeForUsageLocation(sf, specNode, options))`, то есть то, что TS уже разрешил в этой Program через её хост. Голый `ts.sys.resolveModuleName` не используется: обёртка хоста (workspace-эмуляция t-403708) видна по построению, importers_of/affected согласованы с find_usages.
+
+Песочница (`/tmp/nhd2/scripts/cmp-resolve.ts`): все импорты всех программ вне node_modules, старый `resolveSpecifier` против program-resolved, равенство через `samePath`.
+- claude-ui с node_modules: 22 024 импорта, расхождений 0, полный проход 260 мс против 22 мс.
+- claude-ui без node_modules: 12 530 импортов, расхождений 0.
+
+Индекс по идентичности Program остаётся: без него каждый вызов всё равно платит по `realpath` на импорт (86 с из 233 в профиле). Резолв ЦЕЛИ (`resolveModuleArg`, один на вызов) не меняется.
+Развилка «resolvedModules программы» из плана выбрана вместо «тот же ts.sys-резолв».
+t-877573 остаётся открытым (in-progress), без репро не закрывается.
