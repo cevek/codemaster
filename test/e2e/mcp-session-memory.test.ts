@@ -212,6 +212,32 @@ test('a cancelled call never counts as delivered', async () => {
   assert.ok((await call(client, 'find_usages', { name: 'b' })).includes(ALL_PROGRAM_LESSON.full));
 });
 
+test('with no re-render budget left, the answer renders unfolded — never a fold without its text', async () => {
+  const big = Array.from({ length: 3000 }, (_, i) => `src/file-${i}.ts:1:1`);
+  const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+  const orch = stub({
+    data: (args) => (args['name'] === 'big' ? { items: big, note: NOTE } : { note: NOTE }),
+  });
+  await serveMcp(orch, 'test', {
+    serving: 'daemon',
+    transport: serverT,
+    session: true,
+    maxFoldRerenders: 0,
+  });
+  const client = new Client({ name: 'test-client', version: '0' });
+  await client.connect(clientT);
+  const text = await call(client, 'batch', {
+    requests: [
+      { name: 'find_usages', args: { name: 'big' } },
+      { name: 'find_usages', args: { name: 'small' } },
+      { name: 'find_usages', args: { name: 'small2' } },
+    ],
+  });
+  assert.match(text, /!! OUTPUT CAPPED/, 'the first section reaches the cap');
+  assert.ok(!text.includes(`[${ALL_PROGRAM_LESSON.id}]`), 'no fold reached the reader');
+  assert.equal(text.split(ALL_PROGRAM_LESSON.full).length - 1, 2, 'both later copies in full');
+});
+
 test('a root-scoped explanation folds per root', async () => {
   const note = `!! SURFACE = FILESYSTEM WALK, not the git listing${SURFACE_WALK_LESSON.full}`;
   const client = await connect(stub({ data: () => ({ surface: note }) }));

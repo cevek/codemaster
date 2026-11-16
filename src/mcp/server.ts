@@ -34,7 +34,6 @@ import {
   TOOL_DESCRIPTORS,
   batchToolDescriptor,
   batchToolSchema,
-  exampleCallFor,
   statusToolSchema,
 } from './schema.ts';
 import { buildOpToolDescriptors, buildPerOpRequest, opToolExample } from './op-tools.ts';
@@ -109,6 +108,8 @@ export interface ServeMcpOptions {
    *  repeats (§12), stamp the build once, and state a repeat `status` as a diff (§11). Off by
    *  default: tests and library callers get byte-stable responses; `bin.ts` turns it on. */
   session?: boolean;
+  /** Test seam: re-renders before a response gives up folding (default `MAX_FOLD_RERENDERS`). */
+  maxFoldRerenders?: number;
 }
 
 export async function serveMcp(
@@ -378,7 +379,12 @@ export async function serveMcp(
           // ceiling — a backstop over the per-op §12 caps so no op/status/batch/sql can blow the
           // limit. At the single chokepoint BEFORE the telemetry write (the log records exactly what
           // the agent got); no-op under the cap (byte-identical, so goldens are untouched).
-          const result = cappedWithRefolds(handled, scope, (r) => capResponse(r, handled.bareJson));
+          const result = cappedWithRefolds(
+            handled,
+            scope,
+            (r) => capResponse(r, handled.bareJson),
+            options.maxFoldRerenders,
+          );
           return {
             ok: handled.ok,
             ops: handled.ops,
@@ -431,12 +437,4 @@ export function staleBanner(sourceStale: boolean, serving: ServingMode): string 
   return sourceStale ? `${sourceStaleBanner(serving)}\n` : '';
 }
 
-/** A validation rejection that also teaches the fix: the zod message plus a minimal
- *  valid arguments object for the tool (§1.2, §7 "agents author blind; pointed errors").
- *  The example alone is enough to author the corrected call. Exported so the
- *  example-carrying contract is unit-tested. */
-export function badArgs(tool: 'status' | 'batch', message: string): CallToolResult {
-  const example = exampleCallFor(tool);
-  const valid = example === undefined ? '' : ` — valid: ${JSON.stringify(example)}`;
-  return errorText(`bad args: ${message}${valid}`);
-}
+export { badArgs } from './handled-call.ts';

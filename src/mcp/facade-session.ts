@@ -57,6 +57,7 @@ export function createFacadeSession(): FacadeSession {
         foldFor: (root): ProseFold => folder.foldFor(root),
         startAttempt: () => folder.startAttempt(),
         retryFor: (text) => folder.retryFor(text),
+        unfoldAll: () => folder.unfoldAll(),
         commit(finalText) {
           folder.commit(finalText);
           if (stamp !== undefined && stamp !== '' && finalText.includes(`codemaster v${stamp}\n`)) {

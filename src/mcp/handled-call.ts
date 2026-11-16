@@ -2,6 +2,7 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { OpResult } from '../ops/contracts.ts';
+import { exampleCallFor } from './schema.ts';
 
 /** `bareJson` tells the seam cap that the text payload is a single parseable JSON object (a
  *  `format:'json'` per-op response) — so an over-cap payload is REPLACED with a valid capped
@@ -47,20 +48,25 @@ export function rendered(
   return { ...classify(render(), results, ops, bareJson), rerender: render };
 }
 
-const MAX_FOLD_RERENDERS = 8;
+export const MAX_FOLD_RERENDERS = 8;
 
 /** Cap the response; when a cap cut the one full copy a session fold relied on, render again
- *  keeping a later copy. Bounded — every retry moves a kept index forward or unfolds a lesson. */
+ *  keeping a later copy. Past `maxRerenders` the response renders with no fold at all, so a fold
+ *  never reaches the reader without its full text. */
 export function cappedWithRefolds(
   handled: HandledCall,
-  folds: { retryFor(text: string): boolean; startAttempt(): void },
+  folds: { retryFor(text: string): boolean; startAttempt(): void; unfoldAll(): void },
   cap: (r: CallToolResult) => CallToolResult,
+  maxRerenders: number = MAX_FOLD_RERENDERS,
 ): CallToolResult {
   let result = cap(handled.result);
-  for (let i = 0; i < MAX_FOLD_RERENDERS && handled.rerender !== undefined; i++) {
-    if (!folds.retryFor(responseText(result))) break;
+  const rerender = handled.rerender;
+  if (rerender === undefined) return result;
+  for (let i = 0; folds.retryFor(responseText(result)); i++) {
+    if (i >= maxRerenders) folds.unfoldAll();
     folds.startAttempt();
-    result = cap(handled.rerender());
+    result = cap(rerender());
+    if (i >= maxRerenders) break;
   }
   return result;
 }
@@ -69,6 +75,15 @@ export function cappedWithRefolds(
 export function responseText(result: CallToolResult): string {
   const first = result.content[0];
   return first !== undefined && first.type === 'text' ? first.text : '';
+}
+
+/** A validation rejection that also teaches the fix: the zod message plus a minimal
+ *  valid arguments object for the tool (§1.2, §7 "agents author blind; pointed errors").
+ *  The example alone is enough to author the corrected call. */
+export function badArgs(tool: 'status' | 'batch', message: string): CallToolResult {
+  const example = exampleCallFor(tool);
+  const valid = example === undefined ? '' : ` — valid: ${JSON.stringify(example)}`;
+  return errorText(`bad args: ${message}${valid}`);
 }
 
 export function text(body: string): CallToolResult {

@@ -15,6 +15,8 @@ export interface ResponseFolder {
   /** After a render: did a cap cut a full copy this attempt kept? Then the next attempt keeps a
    *  LATER occurrence instead (or, with none left, leaves that lesson unfolded) — re-render. */
   retryFor(renderedText: string): boolean;
+  /** Give up folding for this response: every occurrence renders in full. */
+  unfoldAll(): void;
   /** Record what the sent response text delivered. */
   commit(sentText: string): void;
 }
@@ -30,6 +32,7 @@ export const noFolding: ResponseFolder = {
   foldFor: () => identityFold,
   startAttempt: () => undefined,
   retryFor: () => false,
+  unfoldAll: () => undefined,
   commit: () => undefined,
 };
 
@@ -50,6 +53,7 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
       // Across attempts: the first occurrence index a key may keep, and keys left unfolded.
       const minIndex = new Map<string, number>();
       const unfolded = new Set<string>();
+      let foldNothing = false;
       // Per attempt: occurrences seen per key, and the kept occurrence per key (by lesson).
       let seen = new Map<string, number>();
       let kept = new Map<Lesson, Map<string, number>>();
@@ -57,7 +61,7 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
       const decide = (lesson: Lesson, key: string): boolean => {
         const index = seen.get(key) ?? 0;
         seen.set(key, index + 1);
-        if (unfolded.has(key)) return true;
+        if (foldNothing || unfolded.has(key)) return true;
         if (shown.has(key)) return false;
         const keys = kept.get(lesson) ?? new Map<string, number>();
         if (keys.has(key) || index < (minIndex.get(key) ?? 0)) return false;
@@ -86,6 +90,9 @@ export function createSessionMemory(lessons: readonly Lesson[]): SessionMemory {
 
       return {
         foldFor: (root) => (s) => fold(s, root),
+        unfoldAll() {
+          foldNothing = true;
+        },
         startAttempt() {
           seen = new Map();
           kept = new Map();
