@@ -65,6 +65,10 @@ for (const [label, shape] of [
   ['an npm range the member version does not equal', { appSpec: '^1.0.0', npm: true }],
   ['a preserveSymlinks program', { appSpec: 'workspace:*', preserveSymlinks: true }],
   ['a workspace: alias naming another member', { appSpec: 'workspace:@w/app@*' }],
+  [
+    'a workspace: range the member version does not trivially satisfy',
+    { appSpec: 'workspace:^2.0.0' },
+  ],
 ] as const) {
   test(`${label} is not linked: the usage is floored by specifier, not silently missing`, async () => {
     const p = await project(files(shape));

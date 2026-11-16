@@ -7,7 +7,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../helpers/project.ts';
-import { EMULATED, files, linkReal, okResult, planOn } from '../helpers/workspace-links-fixture.ts';
+import {
+  C,
+  EMULATED,
+  GREET,
+  files,
+  linkReal,
+  okResult,
+  planOn,
+  usageFiles,
+} from '../helpers/workspace-links-fixture.ts';
 
 test('rename_symbol across the emulated link rewrites the consumer exactly as on a real install', async () => {
   const shape = {
@@ -84,6 +93,94 @@ test('the reverse-import index (importers_of by file, affected) sees the consume
         op === 'affected' ? 'packages/app/src/main.test.ts' : 'packages/app/src/main.ts:1';
       assert.ok(text.includes(want), `${op}: ${text}`);
     }
+  } finally {
+    await emu.dispose();
+    await real.dispose();
+  }
+});
+
+test("conflicting specs across dependency fields do not link (the manager's precedence is not guessed)", async () => {
+  const p = await project({
+    ...files({ npm: true }),
+    'packages/app/package.json': JSON.stringify({
+      name: '@w/app',
+      dependencies: { '@w/core': '2.0.0' },
+      peerDependencies: { '@w/core': '*' },
+    }),
+  });
+  try {
+    const { data } = okResult(await p.op('find_usages', GREET));
+    assert.ok(!usageFiles(data).includes('packages/app/src/main.ts:2'), JSON.stringify(data));
+    assert.deepEqual(
+      (data.unresolvedWorkspaceImports as { package: string }[]).map((l) => l.package),
+      ['@w/core'],
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('pnpm: the root package is a workspace member a child can depend on', async () => {
+  const base = files({ appSpec: 'workspace:*' });
+  const p = await project({
+    ...base,
+    'package.json': JSON.stringify({ name: '@w/root', exports: { '.': './rootlib.ts' } }),
+    'rootlib.ts': 'export const rootThing = 1;\n',
+    'tsconfig.json': `{"compilerOptions":{${C}},"include":["packages/core/src","rootlib.ts"]}`,
+    'packages/app/package.json': JSON.stringify({
+      name: '@w/app',
+      dependencies: { '@w/core': 'workspace:*', '@w/root': 'workspace:*' },
+    }),
+    'packages/app/src/main.ts':
+      "import { greet } from '@w/core';\nimport { rootThing } from '@w/root';\nexport const hello = greet('x') + String(rootThing);\n",
+  });
+  try {
+    const { data } = okResult(
+      await p.op('find_usages', { name: 'rootThing', file: 'rootlib.ts', collapseImports: false }),
+    );
+    assert.ok(usageFiles(data).includes('packages/app/src/main.ts:3'), JSON.stringify(data));
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('floor: a static `import x = require(...)` of an unlinked workspace package is a floored site', async () => {
+  const p = await project({
+    ...files({}),
+    'packages/app/src/main.ts': "import core = require('@w/core');\nexport const hello = core;\n",
+  });
+  try {
+    const { data } = okResult(await p.op('find_usages', GREET));
+    const lost = data.unresolvedWorkspaceImports as { package: string; examples: string[] }[];
+    assert.deepEqual(
+      lost.map((l) => [l.package, l.examples]),
+      [['@w/core', ['packages/app/src/main.ts:1']]],
+    );
+  } finally {
+    await p.dispose();
+  }
+});
+
+test('a tsconfig extending a config package through a link globs the same files as a real install', async () => {
+  const shape = {
+    ...files({ appSpec: 'workspace:*' }),
+    'packages/app/package.json': JSON.stringify({
+      name: '@w/app',
+      dependencies: { '@w/core': 'workspace:*' },
+      devDependencies: { '@w/config': 'workspace:*' },
+    }),
+    'packages/config/package.json': JSON.stringify({ name: '@w/config' }),
+    'packages/config/app.json': `{"compilerOptions":{${C}},"include":["../app/src"]}`,
+    'packages/app/tsconfig.json': '{"extends":"@w/config/app.json"}',
+  };
+  const emu = await project(shape);
+  const real = await project(shape);
+  try {
+    linkReal(real, ['@w/core', '@w/config']);
+    const e = okResult(await emu.op('find_usages', GREET));
+    const r = okResult(await real.op('find_usages', GREET));
+    assert.ok(usageFiles(r.data).includes('packages/app/src/main.ts:2'), JSON.stringify(r.data));
+    assert.deepEqual(usageFiles(e.data), usageFiles(r.data));
   } finally {
     await emu.dispose();
     await real.dispose();

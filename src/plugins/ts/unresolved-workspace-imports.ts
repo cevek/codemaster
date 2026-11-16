@@ -114,6 +114,12 @@ export function unresolvedWorkspaceImports(
 
 /** The module-specifier literal of a static import/export, if it has one. */
 function specifierLiteral(stmt: ts.Statement): ts.StringLiteral | undefined {
+  if (ts.isImportEqualsDeclaration(stmt)) {
+    const ref = stmt.moduleReference;
+    return ts.isExternalModuleReference(ref) && ts.isStringLiteral(ref.expression)
+      ? ref.expression
+      : undefined;
+  }
   const spec =
     ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt) ? stmt.moduleSpecifier : undefined;
   return spec !== undefined && ts.isStringLiteral(spec) ? spec : undefined;

@@ -135,7 +135,8 @@ function packageNameAt(p: string, from: number): string | undefined {
 interface PackageJson {
   name: string | undefined;
   version: string | undefined;
-  deps: Map<string, string>;
+  /** Every spec the manifest gives a dependency name, across the dependency fields. */
+  deps: Map<string, string[]>;
 }
 
 function readPackageJson(file: string): PackageJson | undefined {
@@ -147,12 +148,12 @@ function readPackageJson(file: string): PackageJson | undefined {
   }
   if (typeof parsed !== 'object' || parsed === null) return undefined;
   const record = parsed as Record<string, unknown>;
-  const deps = new Map<string, string>();
+  const deps = new Map<string, string[]>();
   for (const field of DEP_FIELDS) {
     const block = record[field];
     if (typeof block !== 'object' || block === null) continue;
     for (const [name, spec] of Object.entries(block)) {
-      if (typeof spec === 'string') deps.set(name, spec);
+      if (typeof spec === 'string') deps.set(name, [...(deps.get(name) ?? []), spec]);
     }
   }
   return {
@@ -177,15 +178,19 @@ interface Member {
 }
 
 /** Would the manager link THIS member for THIS spec? Only where the answer is certain without a
- *  semver solver: the `workspace:` protocol (pnpm, yarn berry, bun) always links the local package;
- *  under npm/yarn-classic `workspaces` a `*` or the member's exact version does too. Any other range
- *  may be served from the registry instead, so it stays unresolved (and floored). */
+ *  semver solver: `workspace:` with `*`/`^`/`~` or a range the member's own version trivially
+ *  satisfies (`<v>`, `^<v>`, `~<v>`) — any other range may fail the install; under npm/yarn-classic
+ *  `workspaces` a `*` or the member's exact version. A `workspace:foo@*` alias names ANOTHER member
+ *  and `workspace:../x` is a path, so neither links. What is not certain stays unresolved (floored). */
 function linksLocally(spec: string, member: Member, pnpm: boolean): boolean {
-  // Only a bare range after the protocol: `workspace:foo@*` aliases ANOTHER member and
-  // `workspace:../x` is a path — neither names the package the dependency key does.
-  if (spec.startsWith('workspace:')) return /^(\*|\^|~|[\^~<>=]*\d[\w.+-]*)$/.test(spec.slice(10));
+  const own = member.version;
+  if (spec.startsWith('workspace:')) {
+    const range = spec.slice('workspace:'.length);
+    if (range === '*' || range === '^' || range === '~') return true;
+    return own !== undefined && (range === own || range === `^${own}` || range === `~${own}`);
+  }
   if (pnpm) return false;
-  return spec === '*' || (member.version !== undefined && spec === member.version);
+  return spec === '*' || (own !== undefined && spec === own);
 }
 
 /** A real `node_modules/<name>` at the consumer or any ancestor up to the root: an install is
@@ -228,13 +233,24 @@ function buildLinks(rootPosix: string, repoFiles: readonly string[]): LinkTable 
     );
   }
   const rootPkg = readPackageJson(`${rootPosix}/package.json`);
-  if (rootPkg !== undefined) manifests.set('.', rootPkg);
+  if (rootPkg !== undefined) {
+    manifests.set('.', rootPkg);
+    // pnpm counts the root as a workspace package (npm/yarn `workspaces` do not).
+    if (manifest.pnpm && rootPkg.name !== undefined) {
+      byName.set(
+        rootPkg.name,
+        byName.has(rootPkg.name) ? null : { abs: rootPosix, version: rootPkg.version },
+      );
+    }
+  }
   for (const [dir, pkg] of manifests) {
     const consumerAbs = dir === '.' ? rootPosix : `${rootPosix}/${dir}`;
-    for (const [name, spec] of pkg.deps) {
+    for (const [name, specs] of pkg.deps) {
       const member = byName.get(name);
       if (member === undefined || member === null || member.abs === consumerAbs) continue;
-      if (!linksLocally(spec, member, manifest.pnpm)) continue;
+      // Every field naming it must link locally: which field the manager honours on a conflict is
+      // its own precedence, not ours to guess.
+      if (!specs.every((spec) => linksLocally(spec, member, manifest.pnpm))) continue;
       if (installedAbove(rootPosix, consumerAbs, name)) continue;
       out.set(`${consumerAbs}/node_modules/${name}`, member.abs);
       dirs.add(`${consumerAbs}/node_modules`);

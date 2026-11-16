@@ -361,9 +361,20 @@ function parseConfig(
       ? ts.sys
       : {
           useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
-          readDirectory: ts.sys.readDirectory,
+          readDirectory: (dir, extensions, excludes, includes, depth) =>
+            ts.sys.readDirectory(
+              links.translate(toPosix(dir)) ?? dir,
+              extensions,
+              excludes,
+              includes,
+              depth,
+            ),
           fileExists: (f) => links.resolutionHost({}).fileExists(f),
           readFile: (f) => links.resolutionHost({}).readFile(f),
+          directoryExists: (d) => links.resolutionHost({}).directoryExists?.(d) ?? false,
+          // The extended config's path canonicalizes to the member's real dir, as `ts.sys` does
+          // over a real link — its `include` globs then land on the member's real files.
+          realpath: (f) => realpathOf(links.translate(toPosix(f)) ?? f),
         };
   return ts.parseJsonConfigFileContent(
     text.config ?? {},
