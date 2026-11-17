@@ -28,7 +28,7 @@ import { systemClock } from '../common/async/clock.ts';
 import { messageOfThrown } from '../common/result/construct.ts';
 import { createDebugSystem } from '../support/debug/system.ts';
 import { createStderrSink } from '../support/debug/stderr-sink.ts';
-import { createChokidarWatcher } from '../support/watch/chokidar.ts';
+import { createPlatformWatcher } from '../support/watch/platform.ts';
 import { installWatchdog } from '../support/watchdog/install.ts';
 import { installFatalHandlers } from '../support/watchdog/fatal-handlers.ts';
 import { loadConfig } from '../support/config-load/load.ts';
@@ -96,7 +96,7 @@ export async function serveEngineChild(deps: EngineChildDeps): Promise<void> {
     ops: deps.opsFor(config),
     clock: systemClock,
     debug,
-    watcher: createChokidarWatcher(systemClock),
+    watcher: createPlatformWatcher(systemClock),
   });
   if (!created.ok) {
     send({ kind: 'fatal', message: created.message });

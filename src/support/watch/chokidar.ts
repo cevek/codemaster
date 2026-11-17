@@ -6,7 +6,8 @@
 import { watch as chokidarWatch } from 'chokidar';
 import type { Clock } from '../../common/async/clock.ts';
 import { debounce } from '../../common/async/debounce.ts';
-import { DEFAULT_IGNORED_DIRS, DEFAULT_IGNORED_FILES } from '../fs/ignored-paths.ts';
+import * as path from 'node:path';
+import { isIgnoredWatchPath } from './ignored-event.ts';
 import type { Watcher, WatcherHandle } from './seam.ts';
 
 const WATCH_DEBOUNCE_MS = 120;
@@ -23,17 +24,14 @@ export function createChokidarWatcher(clock: Clock): Watcher {
       });
 
       const ignored = (
-        path: string,
+        p: string,
         stats?: { isFile(): boolean; isDirectory(): boolean },
       ): boolean => {
         // Sockets / FIFOs / devices are unwatchable (e.g. another daemon's
         // `.codegraph/daemon.sock`) — watching one throws and would needlessly
         // degrade the whole watcher.
         if (stats !== undefined && !stats.isFile() && !stats.isDirectory()) return true;
-        const segments = path.split(/[\\/]/);
-        return (
-          segments.some((s) => DEFAULT_IGNORED_DIRS.has(s)) || DEFAULT_IGNORED_FILES.test(path)
-        );
+        return isIgnoredWatchPath(path.relative(root, p));
       };
 
       const watcher = chokidarWatch(root, {

@@ -15,19 +15,26 @@ export type GitRunner = (cwd: string, args: readonly string[]) => Promise<Result
 
 export function runGit(cwd: string, args: readonly string[]): Promise<Result<string>> {
   return new Promise((resolve) => {
-    execFile(
-      'git',
-      args,
-      { cwd, maxBuffer: MAX_BUFFER_BYTES, encoding: 'utf8' },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          const detail = stderr.trim().length > 0 ? stderr.trim() : error.message;
-          resolve(fail({ tool: 'git', message: `git ${args.join(' ')}: ${detail}` }));
-          return;
-        }
-        resolve(ok(stdout));
-      },
-    );
+    try {
+      execFile(
+        'git',
+        args,
+        { cwd, maxBuffer: MAX_BUFFER_BYTES, encoding: 'utf8' },
+        (error, stdout, stderr) => {
+          if (error !== null) {
+            const detail = stderr.trim().length > 0 ? stderr.trim() : error.message;
+            resolve(fail({ tool: 'git', message: `git ${args.join(' ')}: ${detail}` }));
+            return;
+          }
+          resolve(ok(stdout));
+        },
+      );
+    } catch (thrown) {
+      // spawn THROWS for errnos outside Node's async set — `EBADF` once the process holds
+      // ~10240 descriptors on macOS (t-142288) — instead of calling back.
+      const detail = thrown instanceof Error ? thrown.message : String(thrown);
+      resolve(fail({ tool: 'git', message: `git ${args.join(' ')}: ${detail}` }));
+    }
   });
 }
 

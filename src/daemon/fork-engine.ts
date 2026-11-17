@@ -41,6 +41,8 @@ export interface ForkEngineOpts {
 
 export function forkEngineChild(opts: ForkEngineOpts): EngineChildHandle {
   const execArgv = [...process.execArgv, `--max-old-space-size=${opts.maxOldSpaceMB}`];
+  // A synchronous `fork` throw (EBADF and other errnos outside Node's async set) escapes as a
+  // rejection of createProcessHost, not as `onExit(null,'ERROR')` — t-074490.
   const child = fork(opts.binPath, ['daemon', 'serve-engine'], {
     execArgv,
     // stdout is discarded (the child speaks ONLY over IPC, never stdout — §13); stderr is PIPED
