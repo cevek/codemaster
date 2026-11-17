@@ -36,14 +36,14 @@
     "backlog:lint": "node scripts/backlog-lint.mjs",
     "fix-and-check": "eslint src test --fix && knip --fix-type exports --fix-type types && prettier --write . && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && knip",
     "check": "eslint src test && npm run format:check && npm run typecheck && knip",
-    "test": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/**/*.test.ts\"",
-    "test:light": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/unit/**/*.test.ts\" \"test/golden/**/*.test.ts\"",
-    "test:heavy": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/e2e/**/*.test.ts\" \"test/differential/**/*.test.ts\"",
-    "test:unit": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/unit/**/*.test.ts\"",
-    "test:e2e": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/e2e/**/*.test.ts\"",
-    "test:differential": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/differential/**/*.test.ts\"",
-    "test:golden": "node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/golden/**/*.test.ts\"",
-    "test:timing": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \"test/**/*.test.ts\""
+    "test": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/**/*.test.ts\"",
+    "test:light": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/unit/**/*.test.ts\" \"test/golden/**/*.test.ts\"",
+    "test:heavy": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/e2e/**/*.test.ts\" \"test/differential/**/*.test.ts\"",
+    "test:unit": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/unit/**/*.test.ts\"",
+    "test:e2e": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/e2e/**/*.test.ts\"",
+    "test:differential": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/differential/**/*.test.ts\"",
+    "test:golden": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test ${TEST_CONCURRENCY:+--test-concurrency=$TEST_CONCURRENCY} \"test/golden/**/*.test.ts\"",
+    "test:timing": "NODE_COMPILE_CACHE=${NODE_COMPILE_CACHE:-$PWD/node_modules/.cache/node-compile-cache} node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \"test/**/*.test.ts\""
   },
   "keywords": [
     "codebase",
