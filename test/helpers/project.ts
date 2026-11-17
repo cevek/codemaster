@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { Clock } from '../../src/common/async/clock.ts';
 import { createDebugSystem } from '../../src/support/debug/system.ts';
-import { nullWatcher } from '../../src/support/watch/seam.ts';
+import { nullWatcher, type Watcher } from '../../src/support/watch/seam.ts';
 import { Orchestrator } from '../../src/daemon/orchestrator.ts';
 import type { OrchestratorApi } from '../../src/daemon/orchestrator-api.ts';
 import { createTsPlugin } from '../../src/plugins/ts/plugin.ts';
@@ -68,6 +68,8 @@ export interface ProjectOptions {
   /** Force the freshness-path git runner to fail (§3.6 resilience injection via seam,
    *  never by breaking the host). `args[0]` selects which git subcommand faults. */
   gitRunner?: GitRunner;
+  /** Replace the silenced watcher (e.g. one that degrades at start). */
+  watcher?: Watcher;
   /** Break one `ts` plugin method so it throws — proves the op-level wrap turns an LS
    *  fault into an honest `ToolFailure` (not an `op_threw` crash), daemon staying live. */
   faultTsMethod?: 'findUsages' | 'expandType';
@@ -178,7 +180,7 @@ export async function project(
   const orchestrator = new Orchestrator({
     clock,
     debug,
-    watcher: nullWatcher, // silenced on purpose: the read-time backstop must carry it
+    watcher: options?.watcher ?? nullWatcher, // silenced by default: the read-time backstop must carry it
     version: 'test',
     stateDir: options?.stateDir ?? path.join(root, '.codemaster-state'),
     ...(options?.sqlBounds !== undefined ? { sqlBounds: options.sqlBounds } : {}),

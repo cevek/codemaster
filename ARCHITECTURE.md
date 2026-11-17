@@ -1285,7 +1285,8 @@ Two **distinct** edit families — conflating them is a code-rewriting lie:
   fingerprints the locale-JSON file set). The op-entry guard composes the relevant
   plugins' fingerprints; on drift, the **plugins themselves** drive their reindex —
   there is no central reindex coordinator.
-- **Watcher** (chokidar behind an injectable seam, debounced, optimization) → reports
+- **Watcher** (behind an injectable seam, debounced, optimization; one recursive native `fs.watch`
+  per root on macOS/Windows, chokidar on Linux — §19) → reports
   changed paths to subscribed plugins → each plugin patches its own internal state. The
   watcher keeps the read path usually-fresh so the on-read check is normally a no-op;
   when it misses events (large change, `git checkout`, watcher OS errors), the on-read
@@ -1972,7 +1973,8 @@ See [`src/core/debug.ts`](src/core/debug.ts).
 - **`better-sqlite3`** — the ephemeral in-memory SQL evaluator behind `batch + sql`
   (§11). Loaded **lazily** on the first sql-carrying call (cold start never pays for the
   native module) and hidden behind the `support/sql/` seam so a DuckDB impl can drop in.
-- **`chokidar`** — debounced file watching (behind an injectable seam for tests).
+- **`chokidar`** — debounced file watching on Linux (behind an injectable seam for tests); macOS
+  and Windows use Node's native recursive `fs.watch` (§19).
 - **`@modelcontextprotocol/sdk`** — the MCP facade.
 - **`zod`** — runtime validation at the boundaries where serialized/external data enters:
   config load, MCP tool args (per-op + status + batch), IPC messages. Internal typed data is
@@ -2045,7 +2047,7 @@ codemaster/
       disclosure/            # request-scoped disclosure ledger: disclose() at the producer, runWithDisclosures() at the dispatcher (§3.4/§3.6)
       debug/                 # DebugSystem impl: ALS req#N, rotating per-repo log, stderr
       config-load/           # find + transpile + sandbox-eval codemaster.config.*; zod
-      watch/                 # watcher seam (tests inject a fake) + chokidar adapter
+      watch/                 # watcher seam (tests inject a fake) + native-recursive / chokidar adapters, platform choice
       sql/                   # SqlRunner seam + lazy better-sqlite3 impl (read-only sandbox)
       text-search/           # TextScanner seam + pure-JS scanner (find_usages text:true)
       usage-log/             # jsonl usage telemetry: success.jsonl / fail.jsonl + inflight/ crash breadcrumbs (§13)
@@ -2194,9 +2196,12 @@ misses). The harness rests on invariants that do:
 
 **Determinism (an architecture requirement).** Scenario tests must not `sleep`. The
 daemon takes injectable seams: a `clock` (no `Date.now`), a `watcher` interface (tests
-call `fileChanged(path)` / `flushWatcher()` directly instead of awaiting real chokidar
-events), and a `forceEvict` hook for the LS LRU. Real chokidar gets one separate smoke
-test.
+call `fileChanged(path)` / `flushWatcher()` directly instead of awaiting real watcher
+events), and a `forceEvict` hook for the LS LRU. The native-recursive adapter is unit-tested through
+its injected `watch` function. Two real-fs smokes: the platform watcher on macOS
+(`test/e2e/watcher-fd-budget.test.ts`: a 2000-file tree, a live event, bounded descriptor growth)
+and chokidar on every OS (`test/e2e/chokidar-watcher-root-relative.test.ts`: a root under a
+`build/` ancestor reports source, not `node_modules`).
 
 **Tooling:** `node:test` + `node:assert`, no heavy framework — matching the project's
 lean-deps stance. **Pyramid:** unit (inline-VFS) · differential (oracle-backed, the
@@ -2316,6 +2321,14 @@ backstop — the exact surfaces these live on. (Surfaced by a runtime-soundness 
   `fs.watch` on Linux → `ENOSPC` past `fs.inotify.max_user_watches` on large trees. Catch the
   watcher `error`, fall back to read-time-only freshness (still correct, §3.5), surface it in
   `status`, cap with polling on huge trees.
+- **A watcher's descriptor cost must not scale with the tree.** On macOS a process holding ~10240
+  open descriptors (`OPEN_MAX`) can no longer spawn anything: `child_process.spawn` throws `EBADF`
+  synchronously, whatever `ulimit -n` says — and git runs on every op's freshness check. chokidar
+  4 holds one descriptor per watched FILE there, so a long-lived server with a few warm repos
+  crosses it. macOS and Windows therefore use ONE native recursive `fs.watch` per root (FSEvents /
+  ReadDirectoryChangesW, a constant handful of descriptors); Linux keeps chokidar, whose inotify
+  watches are not descriptors and which skips ignored dirs, where Node's recursive watch walks
+  `node_modules`. Events are filtered on the root-relative path (`support/watch/ignored-event.ts`).
 - **SCSS analysis is syntactic** (`postcss-scss` — a CST, not a resolved module graph or
   computed values): cross-`@use`/`@forward` orphan checks are `partial`; computed-property
   work needs real `sass`/dart-sass. (§5-L2, wishlist)

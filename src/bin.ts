@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { systemClock } from './common/async/clock.ts';
 import { createDebugSystem } from './support/debug/system.ts';
 import { createStderrSink } from './support/debug/stderr-sink.ts';
-import { createChokidarWatcher } from './support/watch/chokidar.ts';
+import { createPlatformWatcher } from './support/watch/platform.ts';
 import { nullWatcher } from './support/watch/seam.ts';
 import { Orchestrator, DEFAULT_IDLE_EVICTION_MIN } from './daemon/orchestrator.ts';
 import { loadConfig } from './support/config-load/load.ts';
@@ -79,7 +79,7 @@ function buildOrchestrator(
   return new Orchestrator({
     clock: systemClock,
     debug,
-    watcher: lifetime === 'long-lived' ? createChokidarWatcher(systemClock) : nullWatcher,
+    watcher: lifetime === 'long-lived' ? createPlatformWatcher(systemClock) : nullWatcher,
     version: VERSION,
     build,
     pluginsFor: builtinPlugins,

@@ -22,6 +22,8 @@ export function spawnDaemon(binPath: string, sockDir: string | undefined): void 
   // binds → connectOrSpawn's bounded poll-connect exhausts → it returns undefined → the bridge
   // falls back to in-process serving. The crash must become that honest fallback, never take the
   // front door down (§1 never-crash).
+  // A spawn that THROWS synchronously (EBADF and other errnos outside Node's async set) escapes
+  // this handler — t-074490.
   child.on('error', () => undefined);
   child.unref();
 }
