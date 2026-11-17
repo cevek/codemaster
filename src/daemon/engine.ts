@@ -122,7 +122,10 @@ class Engine implements WorkspaceEngine {
         watcherTrace('degraded', () => ({ reason }));
       },
     });
-    this.watcherState = this.watcherHandle === undefined ? 'off' : 'active';
+    // A watcher may degrade synchronously inside watch(); that state stands.
+    if (typeof this.watcherState !== 'object') {
+      this.watcherState = this.watcherHandle === undefined ? 'off' : 'active';
+    }
   }
 
   request(reqs: readonly OpRequest[], batch?: BatchOptions): Promise<readonly OpResult[]> {
