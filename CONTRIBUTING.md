@@ -68,6 +68,10 @@ before committing.
   Several worktrees share one machine, and two concurrent full suites thrash every core
   superlinearly instead of taking twice as long. The lock (K=1, `~/.codemaster-orch/verify.lock`)
   also sets `TEST_CONCURRENCY` to cores − 4; targeted `node --test` runs stay unlocked.
+- The `test*` scripts set `NODE_COMPILE_CACHE` (default `node_modules/.cache/node-compile-cache`):
+  every test file is its own process, and on Node ≥ 24 the cache also keeps the type-stripped
+  `src/*.ts`, not just V8 code for `typescript.js` — about −20% CPU on `test:unit`. Entries are
+  validated by source hash, so a persistent per-checkout directory stays correct and does not grow.
 - Golden snapshots are regenerated with `UPDATE_GOLDEN=1`, never merged by hand.
 
 ## Prime directive — never lie
