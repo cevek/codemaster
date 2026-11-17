@@ -2198,8 +2198,10 @@ misses). The harness rests on invariants that do:
 daemon takes injectable seams: a `clock` (no `Date.now`), a `watcher` interface (tests
 call `fileChanged(path)` / `flushWatcher()` directly instead of awaiting real watcher
 events), and a `forceEvict` hook for the LS LRU. The native-recursive adapter is unit-tested through
-its injected `watch` function; the real platform watcher gets one real-fs smoke on macOS
-(`test/e2e/watcher-fd-budget.test.ts`: a 2000-file tree, a live event, bounded descriptor growth).
+its injected `watch` function. Two real-fs smokes: the platform watcher on macOS
+(`test/e2e/watcher-fd-budget.test.ts`: a 2000-file tree, a live event, bounded descriptor growth)
+and chokidar on every OS (`test/e2e/chokidar-watcher-root-relative.test.ts`: a root under a
+`build/` ancestor reports source, not `node_modules`).
 
 **Tooling:** `node:test` + `node:assert`, no heavy framework — matching the project's
 lean-deps stance. **Pyramid:** unit (inline-VFS) · differential (oracle-backed, the

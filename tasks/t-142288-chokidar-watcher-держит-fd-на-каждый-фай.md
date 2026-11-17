@@ -1,7 +1,7 @@
 ---
 id: t-142288
 title: chokidar-watcher держит fd на каждый файл, включая gitignored — после ~10k fd любой spawn падает с EBADF и MCP-сервер мёртв
-status: in-progress
+status: done
 priority: high
 tags:
   - daemon
