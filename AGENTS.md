@@ -40,8 +40,9 @@ Stack: Node ≥ 22, ESM, strict TS over the raw compiler API (no ts-morph), `nod
 ## Gate
 
 `npm run fix-and-check` green before "done". It strips mechanical dead code itself (unused imports via
-eslint, truly-dead exports via knip) — never delete that by hand. Running the full suite →
-`node scripts/with-test-lock.mjs -- npm test`, never bare (CONTRIBUTING "The gate").
+eslint, truly-dead exports via knip) — never delete that by hand. The full suite is plain `npm test`:
+its scripts already queue each test file for a machine-wide CPU slot, so never wrap a run in a lock
+of your own; a heavy file by path → `npx cpu-slots-node --test <file>` (CONTRIBUTING "The gate").
 
 ## Dogfooding — codemaster runs on this repo
 

@@ -1,6 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["test/**/*.test.ts"],
+  // Child scripts a test spawns by path (never imported). knip's node plugin, which reads `node --test`
+  // in package.json scripts and takes every file under test/ as an entry, does not recognise
+  // `cpu-slots-node --test`, so they are listed here.
+  "entry": ["test/**/*.test.ts", "test/e2e/*.child.ts", "test/e2e/watchdog-harness.ts"],
   "project": ["src/**/*.ts", "test/**/*.ts"],
   // Committed repo-fixtures are standalone trees consumed only by the test harness at
   // runtime (read into a VFS), not imported by project code — exclude from unused analysis.

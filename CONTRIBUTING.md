@@ -64,10 +64,18 @@ before committing.
   cheap inner loop.
 - **Full**: `npm test`. `test:heavy` (e2e + differential: real spawns, cold-Program oracles) is ~90%
   of its time; `npm run test:timing` writes a profile to `test-timing.html`.
-- **A full run goes through the machine-wide lock:** `node scripts/with-test-lock.mjs -- npm test`.
-  Several worktrees share one machine, and two concurrent full suites thrash every core
-  superlinearly instead of taking twice as long. The lock (K=1, `~/.codemaster-orch/verify.lock`)
-  also sets `TEST_CONCURRENCY` to cores − 4; targeted `node --test` runs stay unlocked.
+- **Machine-wide CPU slots, not a lock.** Several checkouts share one machine; concurrent heavy runs
+  oversubscribe the CPU and tests fail on timeouts that say nothing about the diff. The `test*`
+  scripts run `cpu-slots-node --test` ([`cpu-slots`](https://www.npmjs.com/package/cpu-slots)): each
+  test file waits for a slot (pool = the machine's logical CPUs) BEFORE its clock starts, holds it
+  while it runs, and its children pass through on `CPU_SLOTS_HELD`. So run `npm test` as is — no
+  wrapper that queues whole runs. A targeted heavy file (e2e, differential) on a loaded host:
+  `npx cpu-slots-node --test <file>`. Pool knobs: `CPU_SLOTS` (size, `0` = off), `CPU_SLOTS_POOL`.
+- **Linux only:** on macOS the slots are a no-op and nothing throttles concurrent runs machine-wide;
+  `TEST_CONCURRENCY=<n>` (read by every `test*` script) narrows one run by hand.
+- **No `--test-timeout` on the command line:** on Node 22 a file's `--test-timeout` starts before its
+  process does and counts the wait for a slot. A test that needs a ceiling sets it per test
+  (`test(name, { timeout }, fn)`).
 - The `test*` scripts set `NODE_COMPILE_CACHE` (default `node_modules/.cache/node-compile-cache`):
   every test file is its own process, and on Node ≥ 24 the cache also keeps the type-stripped
   `src/*.ts`, not just V8 code for `typescript.js` — about −20% CPU on `test:unit`. Entries are

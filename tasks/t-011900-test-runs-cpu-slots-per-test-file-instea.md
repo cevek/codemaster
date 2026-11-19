@@ -52,3 +52,14 @@ K=1 сериализует целые прогоны, хвост держит м
 настоящей поверхности (npm script → node --test → preload → abstract socket).
 
 Ревью: bug-reviewer (1 круг), project-docs-reviewer (AGENTS.md тронут, 1 круг).
+
+
+## Разбор
+- knip: его node-плагин распознаёт `node --test` в скриптах `package.json` и берёт ВСЁ под `test/`
+  как entry; `cpu-slots-node --test` он не знает → три файла, которые тесты запускают по пути
+  (`test/e2e/*.child.ts`, `test/e2e/watchdog-harness.ts`), стали «Unused files». Лечение — явные
+  entry в `knip.jsonc`. Побочный риск (helper'ы под `test/` перестали быть entry → knip
+  `--fix-type exports` мог бы снять их «мёртвые» экспорты) не сработал: `fix-and-check` ничего не тронул.
+- `npm i -D` npm 11.6.2 (homebrew) вырезает из lockfile `@emnapi/core|runtime` (опц. зависимости
+  wasm32-биндингов oxc) — шум, в коммит не взят; запись `cpu-slots` добавлена в lockfile руками.
+- t-350294 (done) упоминает test-lock — исторический текст, не трогал.
