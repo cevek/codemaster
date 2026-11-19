@@ -34,14 +34,16 @@ Stack: Node ≥ 22, ESM, strict TS over the raw compiler API (no ts-morph), `nod
 - Writing or moving a test → `test/README.md` and ARCHITECTURE §16.
 - Editing a doc → `ARCHITECTURE.md` is the source of truth; cross-reference it by `§`, never copy it.
 - Filing, triaging or closing a task → CONTRIBUTING "Backlog discipline" in full.
+- Running tests, whole suite or one file → CONTRIBUTING "The gate".
 - Choosing what to work on next → `npm run queue`, not the `ready_tasks` order (it sorts by
   `priority`, which here only breaks ties — CONTRIBUTING "What to work on next").
 
 ## Gate
 
 `npm run fix-and-check` green before "done". It strips mechanical dead code itself (unused imports via
-eslint, truly-dead exports via knip) — never delete that by hand. Running the full suite →
-`node scripts/with-test-lock.mjs -- npm test`, never bare (CONTRIBUTING "The gate").
+eslint, truly-dead exports via knip) — never delete that by hand. The full suite is plain `npm test`:
+on Linux its scripts queue each test file for a machine-wide CPU slot, so never wrap a run in a lock
+of your own, and never pass `--test-timeout` (on Node 22 it counts the wait for a slot).
 
 ## Dogfooding — codemaster runs on this repo
 

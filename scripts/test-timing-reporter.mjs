@@ -2,7 +2,7 @@
 // so you can see what eats the wall-clock of a full `npm test` run and target the slow ones.
 //
 // Usage (paired with `spec` so you still see the normal pass/fail output):
-//   node --test \
+//   npx cpu-slots-node --test \
 //     --test-reporter=spec --test-reporter-destination=stdout \
 //     --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \
 //     "test/**/*.test.ts"
@@ -95,7 +95,7 @@ function renderHtml(files, cases, totalMs) {
   td:nth-child(3){font-family:ui-monospace,monospace;font-size:12px}
 </style>
 <h1>Test timing</h1>
-<div class="sum">Σ file wall-time <b>${(totalMs / 1000).toFixed(1)}s</b> · ${files.length} files (node:test runs files concurrently, so real wall-clock &lt; Σ). Target the top files.</div>
+<div class="sum">Σ file wall-time <b>${(totalMs / 1000).toFixed(1)}s</b> · ${files.length} files (sum of top-level test durations: excludes process start-up and the wait for a CPU slot; files run concurrently). Target the top files.</div>
 <h2>Slowest files</h2>
 <table>${fileRows}</table>
 <h2>Slowest test cases (top ${cases.length})</h2>
