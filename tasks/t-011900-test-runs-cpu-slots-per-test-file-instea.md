@@ -1,7 +1,7 @@
 ---
 id: t-011900
 title: 'Test runs: cpu-slots per test file instead of the whole-run lock'
-status: in-progress
+status: done
 priority: high
 assigned_to_session: s-363919
 type: infra
@@ -72,7 +72,8 @@ K=1 сериализует целые прогоны, хвост держит м
 - `npm ci` с ручным lockfile: 0 (mini, npm 11.19.1); `npm ci --dry-run` на npm 10.9.9/11.6.2 — ок (bug-reviewer).
 - Проба слотов (CPU_SLOTS=1, свой пул, внешний держатель `cpu-slots-run -- sleep`, проба-файл `000-slot-probe.test.ts` в каждой папке): все 8 скриптов — процесс файла поднят, импортов за 4 с удержания 0, после освобождения файл импортирован и `ss -xlp` показывает слот за его pid. Негатив-контроль: голый `node --test` при занятом слоте импортирует через 80 ms. `test:golden` при CPU_SLOTS=1 доходит до конца, exit 0.
 - `process-isolation.test.ts` при CPU_SLOTS=1 (fork с preload и CPU_SLOTS_HELD): 4/4, 5.4 s — вложенные процессы своего слота не ждут.
-- Полный сьют, 1653 теста: база 92fd920 одиночно — 1 fail; вершина 75d0d03 одиночно — 1 fail (тот же); 2× база параллельно — по 1 fail; 2× вершина параллельно (75d0d03, e9b6723) — 1/3 и 1/2 fail.
-  Общий красный — `auto-escalate.test.ts:116` (`estimate-failed`): копия из `git archive` без `.git`, оценка размера идёт через git — окружение.
+- Полный сьют, 1653 теста: база 92fd920 одиночно — 1 fail; вершина 75d0d03 одиночно — 1 fail (тот же); 2× база параллельно — по 1 fail; 2× вершина параллельно: пара 75d0d03 — 3 и 1 fail, пара e9b6723 — 1 и 2 fail.
+  Node 22.23.5 / npm 10.9.9 (= CI), свежий `npm ci`, e9b6723 одиночно — 1 fail (тот же); проба `test:unit`, `test:e2e` + негатив-контроль — OK.
+  Общий красный — `auto-escalate.test.ts:116` (`estimate-failed`): копия из `git archive` без `.git`, оценка размера идёт через git — окружение (в git-чекауте на маке файл 6/6 зелёный).
   Сверх него на вершине под двумя параллельными прогонами: `usage-log-inflight` ×2 (флейк t-676217, туда дописан замер) и `daemon-cli-smoke` ×1 (t-316440).
 - macOS: не прогонялся полностью — слоты no-op, поведение = старое без блокировки.
