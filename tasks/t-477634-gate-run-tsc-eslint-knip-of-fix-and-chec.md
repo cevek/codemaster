@@ -4,6 +4,9 @@ title: 'Gate: run tsc/eslint/knip of fix-and-check/check inside cpu-slots-run'
 status: backlog
 priority: low
 created_by_session: s-363919
+type: infra
+complexity: S
+evidence: reported
 author: mb-c5e4101d
 created: '2026-11-19T08:00:49.164Z'
 ---

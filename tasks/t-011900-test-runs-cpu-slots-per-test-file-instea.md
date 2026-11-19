@@ -4,6 +4,9 @@ title: 'Test runs: cpu-slots per test file instead of the whole-run lock'
 status: in-progress
 priority: high
 assigned_to_session: s-363919
+type: infra
+complexity: S
+evidence: measured
 author: mb-c5e4101d
 created: '2026-11-19T07:59:54.011Z'
 ---

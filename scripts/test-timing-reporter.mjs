@@ -2,7 +2,7 @@
 // so you can see what eats the wall-clock of a full `npm test` run and target the slow ones.
 //
 // Usage (paired with `spec` so you still see the normal pass/fail output):
-//   node --test \
+//   npx cpu-slots-node --test \
 //     --test-reporter=spec --test-reporter-destination=stdout \
 //     --test-reporter=./scripts/test-timing-reporter.mjs --test-reporter-destination=/dev/null \
 //     "test/**/*.test.ts"

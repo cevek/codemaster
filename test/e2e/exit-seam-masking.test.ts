@@ -70,11 +70,23 @@ test('intentionally RED subtest — masked iff shutdown reaches process.exit', a
 });
 `;
 
+// Only files whose writer is gone: a concurrent run of this file from the same checkout writes its
+// own child here, and deleting it between its two spawns would hand that run a vacuous "exit ≠ 0".
 function sweepStaleChildren(): void {
   for (const name of readdirSync(here)) {
-    if (name.startsWith(CHILD_PREFIX) && name.endsWith(CHILD_SUFFIX)) {
-      rmSync(join(here, name), { force: true });
-    }
+    if (!name.startsWith(CHILD_PREFIX) || !name.endsWith(CHILD_SUFFIX)) continue;
+    const pid = Number(name.slice(CHILD_PREFIX.length, -CHILD_SUFFIX.length));
+    if (Number.isInteger(pid) && pid > 0 && isAlive(pid)) continue;
+    rmSync(join(here, name), { force: true });
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 

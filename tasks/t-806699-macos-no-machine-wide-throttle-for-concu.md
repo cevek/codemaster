@@ -4,6 +4,9 @@ title: 'macOS: no machine-wide throttle for concurrent test runs (cpu-slots is L
 status: backlog
 priority: low
 created_by_session: s-363919
+type: infra
+complexity: M
+evidence: reported
 author: mb-c5e4101d
 created: '2026-11-19T08:00:48.654Z'
 ---

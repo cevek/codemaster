@@ -72,7 +72,7 @@ before committing.
   wrapper that queues whole runs. A targeted heavy file (e2e, differential) on a loaded host:
   `npx cpu-slots-node --test <file>`. Pool knobs: `CPU_SLOTS` (size, `0` = off), `CPU_SLOTS_POOL`.
 - **Linux only:** on macOS the slots are a no-op and nothing throttles concurrent runs machine-wide;
-  `TEST_CONCURRENCY=<n>` (read by every `test*` script) narrows one run by hand.
+  `TEST_CONCURRENCY=<n>` (read by every `test*` script but `test:timing`) narrows one run by hand.
 - **No `--test-timeout` on the command line:** on Node 22 a file's `--test-timeout` starts before its
   process does and counts the wait for a slot. A test that needs a ceiling sets it per test
   (`test(name, { timeout }, fn)`).
