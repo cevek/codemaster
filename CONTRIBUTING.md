@@ -59,18 +59,18 @@ honest-skipping — locally a missing `rg` still skips that cross-check (see §1
 **Local gates.** No git hook runs anything: CI is the only automatic gate, so run `fix-and-check`
 before committing.
 
-- **Narrow** (every change): `npm run fix-and-check` + the affected tests by path,
-  `node --test <file>` (a file, not a directory). `npm run test:light` (unit + golden, ~12 s) is the
-  cheap inner loop.
+- **Narrow** (every change): `npm run fix-and-check` + the affected tests by path (a file, not a
+  directory): `node --test <file>` for unit/golden, `npx cpu-slots-node --test <file>` for a heavy
+  e2e/differential file on a shared host. `npm run test:light` (unit + golden, ~12 s) is the cheap
+  inner loop.
 - **Full**: `npm test`. `test:heavy` (e2e + differential: real spawns, cold-Program oracles) is ~90%
   of its time; `npm run test:timing` writes a profile to `test-timing.html`.
 - **Machine-wide CPU slots, not a lock.** Several checkouts share one machine; concurrent heavy runs
   oversubscribe the CPU and tests fail on timeouts that say nothing about the diff. The `test*`
   scripts run `cpu-slots-node --test` ([`cpu-slots`](https://www.npmjs.com/package/cpu-slots)): each
   test file waits for a slot (pool = the machine's logical CPUs) BEFORE its clock starts, holds it
-  while it runs, and its children pass through on `CPU_SLOTS_HELD`. So run `npm test` as is — no
-  wrapper that queues whole runs. A targeted heavy file (e2e, differential) on a loaded host:
-  `npx cpu-slots-node --test <file>`. Pool knobs: `CPU_SLOTS` (size, `0` = off), `CPU_SLOTS_POOL`.
+  while it runs; the processes it spawns share that slot. No wrapper that queues whole runs.
+  `CPU_SLOTS=0` turns the slots off.
 - **Linux only:** on macOS the slots are a no-op and nothing throttles concurrent runs machine-wide;
   `TEST_CONCURRENCY=<n>` (read by every `test*` script but `test:timing`) narrows one run by hand.
 - **No `--test-timeout` on the command line:** on Node 22 a file's `--test-timeout` starts before its
